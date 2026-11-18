@@ -467,10 +467,19 @@ func (h *handler) updateTab(c echo.Context, x extra, job *comp.JobStatusView) (t
 		v.Latest, v.Newer, v.Checked = h.orch.LastUpgradeCheck(ctx)
 	}
 	v.Version, v.Job = h.orch.Version(), job
-	v.CheckedText = h.orch.UpgradeCheckedText(ctx)
 	var err error
 	if v.Settings, err = h.settings(c, "update", nil); err != nil {
 		return nil, err
+	}
+	for i := range v.Settings.Rows {
+		if sub := v.Settings.Rows[i].Sub; sub != nil {
+			if v.CheckErr != "" {
+				sub.Text = "Last check failed."
+			}
+			if v.Upgrading || h.orch.UpgradeUnderway(ctx) {
+				sub.Action = ""
+			}
+		}
 	}
 	v.Upgrading = v.Upgrading || h.orch.UpgradeUnderway(ctx)
 	waits, err := h.orch.UpgradeWaits(ctx)
@@ -495,8 +504,8 @@ func (h *handler) updateTab(c echo.Context, x extra, job *comp.JobStatusView) (t
 	}
 	if v.Newer && !v.Upgrading {
 		v.Run = comp.ConfirmView{
-			Button:  "Upgrade to " + v.Latest,
-			Title:   "Upgrade stackr to " + v.Latest,
+			Button:  "Update to " + v.Latest,
+			Title:   "Update stackr to " + v.Latest,
 			Warning: "The panel archives its database, then restarts on the new image. Running tiles keep running.",
 			Action:  ui.Base + "/update/run?tag=" + url.QueryEscape(v.Latest),
 			Target:  ui.Target,
@@ -696,6 +705,12 @@ func (h *handler) settings(c echo.Context, form string, refused error) (comp.Set
 		if s.Key == "update_check" {
 			for _, o := range service.UpdateCheckChoices() {
 				r.Options = append(r.Options, comp.Option{Value: o, Label: o})
+			}
+		}
+		if s.Key == "update_check" {
+			r.Sub = &comp.RowSub{Text: h.orch.UpgradeCheckedText(c.Request().Context()), Label: "Check now", Action: ui.Base + "/update/check", Target: ui.Target}
+			if s.Effective == "off" && r.Sub.Text == "Never checked" {
+				r.Sub.Text = "Never checked by itself."
 			}
 		}
 		if vs, ok := posted[s.Key]; ok && !s.Secret && !s.ReadOnly {

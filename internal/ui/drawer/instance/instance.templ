@@ -818,9 +818,6 @@ templ Backups(v View, p PITRView, vols []volume.BackupsView) {
 			<p class="text-rw-muted text-sm">This instance has no volume yet. The first deploy makes one.</p>
 		}
 		for _, b := range vols {
-			if len(vols) > 1 {
-				<h3 class="section-title">{ b.Name }</h3>
-			}
 			@volume.Backups(b)
 		}
 	</div>

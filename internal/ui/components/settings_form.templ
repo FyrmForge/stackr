@@ -7,6 +7,7 @@ import "strings"
 // every level; the service answers what applies and who decided it.
 type SettingsFormView struct {
 	ID       string // form id, unique on the page
+	Target   string // where a save answers (outerHTML); "" = the form itself
 	Action   string
 	Scope    string // the rung being edited, for the legend
 	Rows     []SettingRowView
@@ -43,6 +44,21 @@ type SettingRowView struct {
 	NoInherit bool
 	// Options: a string knob with a fixed set of values, shown as a select.
 	Options []Option
+	// Sub is a line under the value in read mode, with an optional link
+	// that posts into Target ("Checked 4 min ago. Check now").
+	Sub *RowSub
+	// Fact: a value shown in the same grid, with no pencil and no field.
+	Fact bool
+}
+
+// RowSub is a row's note and its link; Action "" = no link.
+type RowSub struct{ Text, Label, Action, Target string }
+
+func (v SettingsFormView) target() string {
+	if v.Target != "" {
+		return v.Target
+	}
+	return "#" + v.ID
 }
 
 // knobSection is the v0 section each catalogue key sits in; the label is
@@ -213,15 +229,15 @@ templ ConfigRepoFields(v ConfigRepoView) {
 }
 
 templ SettingsForm(v SettingsFormView) {
-	<form id={ v.ID } if !v.ReadOnly { hx-post={ v.Action } } hx-target={ "#" + v.ID } hx-swap="outerHTML" class="group space-y-4">
-		if v.ReadOnly {
+	<form id={ v.ID } if !v.ReadOnly { hx-post={ v.Action } } hx-target={ v.target() } hx-swap="outerHTML" class="group space-y-4">
+		if v.ReadOnly && v.Why != "" {
 			<p class="banner">{ v.Why }</p>
 		}
 		<settings-read class="block">
 		<fieldset disabled?={ v.ReadOnly }>
 			<legend class="sr-only">{ v.Scope } settings</legend>
 			if v.Flat {
-				<div class="space-y-4">
+				<div class="divide-y divide-rw-border [&>*]:py-2">
 					for _, r := range v.shown() {
 						@settingRow(v.ID, r, !v.ReadOnly)
 					}
@@ -264,7 +280,9 @@ templ SettingsForm(v SettingsFormView) {
 }
 
 templ settingRow(form string, r SettingRowView, read bool) {
-	if r.ReadOnly {
+	if r.Fact {
+		@factOnly(r)
+	} else if r.ReadOnly {
 		@readOnlyRow(r)
 	} else if read {
 		@factRow(form, r)
@@ -287,6 +305,7 @@ templ factRow(form string, r SettingRowView) {
 				</span>
 				<span data-val class="min-w-0 text-rw-text [overflow-wrap:anywhere]">
 					@factValue(r)
+					@rowSub(r)
 				</span>
 				<span class="flex items-center justify-end">
 					<span data-undo hidden><button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + knobLabel(r) }>@settingUndoIcon()</button></span>
@@ -298,6 +317,29 @@ templ factRow(form string, r SettingRowView) {
 			@editBody(form, r)
 			<button type="button" data-cancel class="btn btn-ghost btn-sm mt-1">Cancel</button>
 		</div>
+	</div>
+}
+
+// rowSub is a row's note under its value, with its link.
+templ rowSub(r SettingRowView) {
+	if r.Sub != nil {
+		<p class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-rw-faint">
+			<span>{ r.Sub.Text }</span>
+			if r.Sub.Action != "" {
+				<button type="button" class="link" hx-post={ r.Sub.Action } hx-target={ r.Sub.Target } hx-swap="outerHTML">{ r.Sub.Label }</button>
+			}
+		</p>
+	}
+}
+
+// factOnly is a fact the form never edits: the factRow grid without a pencil.
+templ factOnly(r SettingRowView) {
+	<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 py-1 text-sm sm:grid-cols-[14rem_minmax(0,1fr)_auto]">
+		<span class="col-span-2 settings-label sm:col-span-1">{ knobLabel(r) }</span>
+		<span class="min-w-0 text-rw-text [overflow-wrap:anywhere]">
+			@factValue(r)
+			@rowSub(r)
+		</span>
 	</div>
 }
 

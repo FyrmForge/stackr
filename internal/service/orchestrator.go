@@ -259,7 +259,7 @@ type Orchestrator struct {
 	recGen     int
 	// recoverSeen are the nonces of recent recovery calls (RecoverNode).
 	recoverSeen recoverNonces
-	// restartPending are the tiles a restart-later param save reaches (paramview.go).
+	// restartPending are the tiles a redeploy-later param save reaches (paramview.go).
 	restartPending sync.Map
 	db             *sqlx.DB
 	store          *store.Store
@@ -711,6 +711,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{
+			Deployed:    func(id string) { orch.restartPending.Delete(id) },
 			Preflight:   orch.preflight,
 			Remote:      func(ctx context.Context, e store.Environment) bool { return orch.envRemote(ctx, e.ID) },
 			LinkHost:    orch.linkHost,

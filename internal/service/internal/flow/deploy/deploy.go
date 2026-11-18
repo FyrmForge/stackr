@@ -48,6 +48,9 @@ import (
 
 // Flow holds the leaves it sequences; it has no Docker handle of its own.
 type Flow struct {
+	// Deployed is told when a deploy of a tile (any job's) has recreated it
+	// successfully. nil means nobody listens.
+	Deployed func(tileID string)
 	// SystemReady waits until the boot copy of the system images (the pause
 	// image) is over. nil means no wait.
 	SystemReady func(ctx context.Context)
@@ -177,6 +180,9 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 		}
 	}
 	digest, err := f.Run(ctx, t, ref, log, swap)
+	if err == nil && f.Deployed != nil {
+		f.Deployed(tileID)
+	}
 	if err != nil || pinned || !tile.Pulls(t) {
 		return err
 	}

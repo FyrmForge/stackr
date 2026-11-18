@@ -37,7 +37,7 @@ templ Card(v CardView) {
 					<span class={ "absolute -top-2.5 right-3 z-10 rounded-md border bg-rw-surface px-1.5 py-0.5 text-[10px]", class }>{ text }</span>
 				}
 				if v.RestartPending && v.Sync == "" {
-					<span class="absolute -top-2.5 right-3 z-10 rounded-md border border-rw-warn/40 bg-rw-surface px-1.5 py-0.5 text-[10px] text-rw-warn">Restart pending</span>
+					<span class="absolute -top-2.5 right-3 z-10 rounded-md border border-rw-warn/40 bg-rw-surface px-1.5 py-0.5 text-[10px] text-rw-warn">Redeploy pending</span>
 				}
 				@Footer(v.ID, v.Footer)
 			</div>

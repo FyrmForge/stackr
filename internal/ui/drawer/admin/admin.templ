@@ -50,8 +50,6 @@ type UpdateView struct {
 	Run      c.ConfirmView // Action "" = may not run
 	Job      *c.JobStatusView
 	Workers  *WorkersView // nil = no workers to roll out to
-	// CheckedText is "Checked 5 min ago" or "Never checked"; "" = not shown.
-	CheckedText string
 	// Settings is the update_check form; ID "" = not shown.
 	Settings c.SettingsFormView
 	// Steps are the running upgrade's steps in order, each State done, run

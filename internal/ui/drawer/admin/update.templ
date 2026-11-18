@@ -74,21 +74,21 @@ templ Update(v UpdateView) {
 						if len(v.Steps) > 0 {
 							@spinner()
 							if stepsDone(v.Steps) {
-								<span class="text-rw-text">Upgraded. Finishing the swap.</span>
+								<span class="text-rw-text">Updated. Finishing the swap.</span>
 							} else {
-								<span class="text-rw-text">Upgrading to { v.Target }</span>
+								<span class="text-rw-text">Updating to { v.Target }</span>
 							}
 						} else if v.Upgrading {
 							@spinner()
 							if v.Waits != "" {
-								<span class="text-rw-text">Upgrade queued</span>
+								<span class="text-rw-text">Update queued</span>
 							} else {
-								<span class="text-rw-text">Upgrading</span>
+								<span class="text-rw-text">Updating</span>
 							}
 						} else if v.CheckErr != "" {
 							<span class="text-rw-danger" role="status">Could not check for an update: { v.CheckErr }</span>
 						} else if v.Checked && v.Latest == "" {
-							<span class="text-rw-muted">A dev build cannot upgrade itself.</span>
+							<span class="text-rw-muted">A dev build cannot update itself.</span>
 						} else if v.LastErr != "" {
 							<svg class="h-3.5 w-3.5 text-rw-danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m9 9 6 6M15 9l-6 6"></path></svg>
 							<span class="text-rw-danger" role="status">{ v.LastErr }</span>
@@ -125,7 +125,7 @@ templ Update(v UpdateView) {
 				</div>
 			</div>
 			if len(v.Steps) > 0 {
-				<ul class="mt-5 space-y-2.5 border-t border-rw-border pt-4" aria-label="Upgrade steps">
+				<ul class="mt-5 space-y-2.5 border-t border-rw-border pt-4" aria-label="Update steps">
 					for _, s := range v.Steps {
 						@stepRow(s)
 					}
@@ -157,24 +157,14 @@ templ Update(v UpdateView) {
 					@c.JobStatus(*v.Job)
 				</div>
 			}
-			if v.Settings.ID != "" || v.CheckedText != "" {
+			if v.Settings.ID != "" {
 				<div class="mt-5 border-t border-rw-border pt-3">
-					if v.Settings.ID != "" {
-						@c.SettingsForm(v.Settings)
-					}
-					if v.CheckedText != "" && !(v.Checked && v.Latest == "" && v.CheckErr == "") {
-						<p class="mt-2 flex flex-wrap items-center gap-x-2 text-xs text-rw-faint">
-							<span>{ v.CheckedText }</span>
-							if !v.Upgrading && (v.Checked || v.CheckErr != "") {
-								<button type="button" class="link" hx-post={ Base + "/update/check" } hx-target={ target() } hx-swap="outerHTML">Check now</button>
-							}
-						</p>
-					}
+					@c.SettingsForm(v.Settings)
 				</div>
 			}
 		}
 		if v.Workers != nil {
-			@c.Section("Worker nodes", "instance", "Each worker upgrades one at a time and rolls back if it fails.") {
+			@c.Section("Worker nodes", "instance", "Each worker updates one at a time and rolls back if it fails.") {
 				if v.Workers.Stopped != "" {
 					<p class="mb-3 text-sm text-rw-danger" role="status">{ v.Workers.Stopped }</p>
 				}

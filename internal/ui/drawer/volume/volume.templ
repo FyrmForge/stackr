@@ -4,6 +4,7 @@
 package volume
 
 import (
+	"cmp"
 	"context"
 	"io"
 	"slices"
@@ -249,111 +250,182 @@ func methodLabel(m string) string {
 	return m
 }
 
-// Backups is v0's backup panel: a panel per schedule, Back up now, the
-// history. Schedules are added and deleted here; Edit gates the buttons.
+// Backups is the volume's one panel: a flat group per schedule (Runs, Keep,
+// While it runs; a pencil edits a row in place, Apply saves), then Add a
+// schedule and Back up now, then the history. Edit gates every button.
 templ Backups(b BackupsView) {
 	<div class="space-y-4">
-		for _, s := range b.Schedules {
-			<div class="panel p-5 space-y-2">
-				<div class="flex items-center gap-2">
-					<span class="text-sm font-medium text-rw-text">{ methodLabel(s.Method) }</span>
-					<span class="text-xs text-rw-faint">{ s.Dest }</span>
+		<section class="panel p-4 sm:p-6 overflow-hidden">
+			<h2 class="text-base font-semibold text-rw-text tracking-tight">{ b.Name }</h2>
+			if len(b.Schedules) == 0 {
+				<p class="mt-1 text-sm text-rw-muted">No backups are scheduled.</p>
+			}
+			for _, s := range b.Schedules {
+				<div class="mt-4">
+					<div class="mb-1 flex flex-wrap items-baseline gap-x-2">
+						<h3 class="text-sm font-medium text-rw-text">{ methodLabel(s.Method) }</h3>
+						<span class="text-xs text-rw-faint">to { s.Dest }</span>
+						if b.Edit {
+							<span class="ml-auto">
+								@c.Confirm(c.ConfirmView{
+									Button:  "Remove",
+									Title:   "Remove this schedule?",
+									Warning: "Backups stop on it.",
+									Kept:    []string{"archives already in the destination"},
+									Action:  b.Base + "/schedules/" + s.ID + "/delete",
+									Target:  "#" + Root,
+									Quiet:   true,
+								})
+							</span>
+						}
+					</div>
+					@c.SettingsForm(scheduleRows(b, s))
 				</div>
-				<p class="text-xs text-rw-muted">
-					<span class="font-mono text-rw-text">{ s.Cron }</span> { s.TZ } ·
-					if s.Keep == "" {
-						keeps the recovery window
-					} else {
-						keeps the newest { s.Keep }
-					}
-				</p>
-				if b.Edit {
-					@c.Confirm(c.ConfirmView{
-						Button:  "Delete",
-						Title:   "Delete this schedule?",
-						Warning: "Backups stop on it.",
-						Kept:    []string{"archives already in the destination"},
-						Action:  b.Base + "/schedules/" + s.ID + "/delete",
-						Target:  "#" + Root,
-						Quiet:   true,
-					})
-				}
-			</div>
-		}
-		if b.Edit {
-			@scheduleForm(b)
-		}
-		if b.Edit {
-		<form hx-post={ b.Base + "/backup" } hx-target={ "#" + Root } hx-swap="outerHTML" class="panel p-5 space-y-4">
-			<h4 class="text-sm font-medium text-rw-text">Back up now</h4>
-			<div class="grid gap-4 sm:grid-cols-2">
-				<label class="block">
-					<span class="block text-xs text-rw-faint mb-1">What to back up</span>
-					<select name="method" class="input">
-						for _, m := range b.Methods {
-							<option value={ m }>{ methodLabel(m) }</option>
-						}
-					</select>
-				</label>
-				<label class="block">
-					<span class="block text-xs text-rw-faint mb-1">Destination</span>
-					<select name="dest" class="input">
-						for _, d := range b.Dests {
-							<option value={ d.Value }>{ d.Label }</option>
-						}
-					</select>
-				</label>
-				<label class="block">
-					<span class="block text-xs text-rw-faint mb-1">While it runs</span>
-					<select name="mode" class="input" aria-describedby="backup-mode-help">
-						<option value="pause">Pause tiles</option>
-						<option value="stop">Stop tiles</option>
-						<option value="live">Leave running</option>
-					</select>
-				</label>
-			</div>
-			<p id="backup-mode-help" class="text-xs text-rw-faint" data-hint>Pausing or stopping holds the tiles on this volume until the copy is done.</p>
-			<button type="submit" class="btn btn-primary btn-sm">Back up now</button>
-		</form>
-		}
+			}
+			if b.Edit {
+				@addControls(b)
+			}
+		</section>
 		@History(b)
 	</div>
 }
 
-// scheduleForm adds a schedule: the CLI's fields.
+// scheduleRows is one schedule as facts. Runs is shown only (a changed time
+// is a new schedule); Keep and While it runs have their pencils.
+func scheduleRows(b BackupsView, s Schedule) c.SettingsFormView {
+	v := c.SettingsFormView{
+		ID: "sched-" + s.ID, Action: b.Base + "/schedules/" + s.ID, Target: "#" + Root,
+		Scope: methodLabel(s.Method), Flat: true,
+	}
+	v.Rows = append(v.Rows, c.SettingRowView{Key: "runs", Label: "Runs", Value: Runs(s.Cron), Fact: true,
+		Sub: &c.RowSub{Text: s.TZ + ", " + s.Cron}})
+	if s.Keep == "" {
+		v.Rows = append(v.Rows, c.SettingRowView{Key: "keep", Label: "Keep", Value: "the recovery window", Fact: true})
+	} else {
+		v.Rows = append(v.Rows, c.SettingRowView{Key: "keep", Label: "Keep", Type: "int", Value: s.Keep, NoInherit: true, Desc: "Archives kept. 0 keeps all."})
+	}
+	v.Rows = append(v.Rows, c.SettingRowView{Key: "mode", Label: "While it runs", Type: "string", Value: cmp.Or(s.Mode, "pause"), NoInherit: true,
+		Options: []c.Option{{Value: "pause", Label: "Pause tiles"}, {Value: "stop", Label: "Stop tiles"}, {Value: "live", Label: "Leave running"}}})
+	if !b.Edit { // read only: facts, no pencils, nothing to post to
+		v.ReadOnly = true
+		for i := range v.Rows {
+			v.Rows[i].Fact = true
+		}
+	}
+	return v
+}
+
+// addControls: the two buttons open their form below by a checkbox each, so
+// no script is needed and a swap closes both.
+templ addControls(b BackupsView) {
+	<input type="checkbox" id="add-sched" class="peer/add sr-only" aria-label="Add a schedule"/>
+	<input type="checkbox" id="back-now" class="peer/now sr-only" aria-label="Back up now"/>
+	<div class="mt-2 flex flex-wrap items-center gap-2 border-t border-rw-border pt-3">
+		<label for="add-sched" class={ "btn btn-sm cursor-pointer", templ.KV("btn-primary", len(b.Schedules) == 0) }>Add a schedule</label>
+		<label for="back-now" class="btn btn-sm cursor-pointer">Back up now</label>
+	</div>
+	@scheduleForm(b)
+	@backupNow(b)
+}
+
+// scheduleForm adds a schedule. Nothing is prefilled; an empty field takes
+// the default its hint names.
 templ scheduleForm(b BackupsView) {
-	<form hx-post={ b.Base + "/schedules" } hx-target={ "#" + Root } hx-swap="outerHTML" class="panel p-5 space-y-4">
-		<h4 class="text-sm font-medium text-rw-text">Schedule backups</h4>
-		<div class="grid gap-4 sm:grid-cols-2">
-			@c.Field(c.FieldView{Name: "schedule", Label: "Schedule", Help: "Five-field cron."})
-			@c.Field(c.FieldView{Name: "tz", Label: "Time zone", Value: "UTC"})
-			<label class="block">
-				<span class="block text-xs text-rw-faint mb-1">What to back up</span>
-				<select name="method" class="input">
-					for _, m := range b.Methods {
-						<option value={ m }>{ methodLabel(m) }</option>
-					}
-				</select>
-			</label>
-			<label class="block">
-				<span class="block text-xs text-rw-faint mb-1">Destination</span>
-				<select name="dest" class="input">
-					for _, d := range b.Dests {
+	<form hx-post={ b.Base + "/schedules" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2 hidden gap-4 border-t border-rw-border pt-4 sm:grid-cols-2 peer-checked/add:grid">
+		<div>
+			<label class="label" for="sched-method">What to back up</label>
+			<select id="sched-method" name="method" class="input">
+				<option value="">Choose</option>
+				for _, m := range b.Methods {
+					<option value={ m }>{ methodLabel(m) }</option>
+				}
+			</select>
+		</div>
+		<div>
+			<label class="label" for="sched-dest">Store on</label>
+			<select id="sched-dest" name="dest" class="input">
+				<option value="">Choose</option>
+				for _, d := range b.Dests {
+					if d.Value != "" {
 						<option value={ d.Value }>{ d.Label }</option>
 					}
-				</select>
-			</label>
-			@c.Field(c.FieldView{Name: "keep", Label: "Keep", Type: "number", Value: "7", Help: "Archives kept. 0 keeps all."})
-			<label class="block">
-				<span class="block text-xs text-rw-faint mb-1">While it runs</span>
-				<select name="mode" class="input">
-					<option value="pause">Pause tiles</option>
-					<option value="stop">Stop tiles</option>
-					<option value="live">Leave running</option>
-				</select>
-			</label>
+				}
+			</select>
+			<span class="settings-help">Empty uses local disk.</span>
 		</div>
-		<button type="submit" class="btn btn-primary btn-sm">Add schedule</button>
+		<div>
+			<label class="label" for="sched-repeat">Repeat</label>
+			<select id="sched-repeat" name="repeat" class="input" required>
+				<option value="">Choose</option>
+				<option value="day">Every day</option>
+				<option value="week">Every week</option>
+				<option value="hour">Every hour</option>
+			</select>
+		</div>
+		<div>
+			<label class="label" for="sched-at">At</label>
+			<input id="sched-at" name="at" type="time" class="input"/>
+			<span class="settings-help">Empty uses 03:00.</span>
+		</div>
+		<div>
+			<label class="label" for="sched-tz">Time zone</label>
+			<input id="sched-tz" name="tz" class="input" placeholder="UTC" autocomplete="off"/>
+			<span class="settings-help">Empty uses UTC.</span>
+		</div>
+		<div>
+			<label class="label" for="sched-keep">Keep</label>
+			<input id="sched-keep" name="keep" type="number" min="0" class="input" placeholder="7"/>
+			<span class="settings-help">Archives kept. 0 keeps all.</span>
+		</div>
+		<div>
+			<label class="label" for="sched-mode">While it runs</label>
+			<select id="sched-mode" name="mode" class="input">
+				<option value="">Choose</option>
+				<option value="pause">Pause tiles</option>
+				<option value="stop">Stop tiles</option>
+				<option value="live">Leave running</option>
+			</select>
+			<span class="settings-help">Empty pauses tiles.</span>
+		</div>
+		<div class="flex items-center gap-2 sm:col-span-2">
+			<button type="submit" class="btn btn-primary btn-sm">Add schedule</button>
+			<label for="add-sched" class="btn btn-sm cursor-pointer">Cancel</label>
+		</div>
+	</form>
+}
+
+// backupNow is the one-off backup, behind its button.
+templ backupNow(b BackupsView) {
+	<form hx-post={ b.Base + "/backup" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2 hidden gap-4 border-t border-rw-border pt-4 sm:grid-cols-2 peer-checked/now:grid">
+		<div>
+			<label class="label" for="now-method">What to back up</label>
+			<select id="now-method" name="method" class="input">
+				for _, m := range b.Methods {
+					<option value={ m }>{ methodLabel(m) }</option>
+				}
+			</select>
+		</div>
+		<div>
+			<label class="label" for="now-dest">Store on</label>
+			<select id="now-dest" name="dest" class="input">
+				for _, d := range b.Dests {
+					<option value={ d.Value }>{ d.Label }</option>
+				}
+			</select>
+		</div>
+		<div>
+			<label class="label" for="now-mode">While it runs</label>
+			<select id="now-mode" name="mode" class="input" aria-describedby="backup-mode-help">
+				<option value="pause">Pause tiles</option>
+				<option value="stop">Stop tiles</option>
+				<option value="live">Leave running</option>
+			</select>
+			<span id="backup-mode-help" class="settings-help" data-hint>Pausing or stopping holds the tiles on this volume until the copy is done.</span>
+		</div>
+		<div class="flex items-center gap-2 sm:col-span-2">
+			<button type="submit" class="btn btn-primary btn-sm">Back up now</button>
+			<label for="back-now" class="btn btn-sm cursor-pointer">Cancel</label>
+		</div>
 	</form>
 }
 

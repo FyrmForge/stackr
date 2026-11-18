@@ -371,7 +371,7 @@ func pendingVerb(p Pending) string {
 	if p.Starts {
 		return "start"
 	}
-	return "restart"
+	return "redeploy"
 }
 
 func pendingLater(p Pending) string {
@@ -416,42 +416,52 @@ templ addForm(g Grid, group string) {
 				+ Add variable
 			}
 		</summary>
-		<form class="rounded bg-rw-inset px-3 py-2.5 mt-2 space-y-2" hx-post={ g.Action } hx-target="#vars-editor" hx-swap="outerHTML">
+		<form class="mt-2 grid gap-4 border-t border-rw-border pt-4 sm:grid-cols-2" hx-post={ g.Action } hx-target="#vars-editor" hx-swap="outerHTML">
 			<input type="hidden" name="add_form" value={ group }/>
 			<input type="checkbox" id={ "add-secret-" + group } name="add_kind" value="secret" class="peer sr-only" aria-label="Secret" checked?={ typed(r, "add_kind") == "secret" }/>
-			<div class="flex flex-wrap items-center gap-2">
-				if group == "" {
-					<input class="input font-mono !w-32" name="add_group" placeholder="group" aria-label="Group" value={ typed(r, "add_group") } { c.Invalid(errID(group, "add_group"), fieldErr(r, "add_group"))... }/>
-				} else {
-					<input type="hidden" name="add_group" value={ group }/>
-				}
-				<input class="input font-mono flex-1 min-w-32" name="add_name" placeholder="name" aria-label="Name" value={ typed(r, "add_name") } { c.Invalid(errID(group, "add_name"), fieldErr(r, "add_name"))... }/>
-				<label for={ "add-secret-" + group } class="btn btn-ghost btn-sm cursor-pointer">Secret?</label>
-			</div>
-			@c.FieldError(errID(group, "add_group"), fieldErr(r, "add_group"))
-			@c.FieldError(errID(group, "add_name"), fieldErr(r, "add_name"))
-			if r != nil && len(r.More) == 0 {
-				<p class="field-error" role="alert">{ r.Msg }</p>
+			if group == "" {
+				<div>
+					<label class="label">Group</label>
+					<input class="input font-mono ff" name="add_group" placeholder="app" autocomplete="off" value={ typed(r, "add_group") } { c.Invalid(errID(group, "add_group"), fieldErr(r, "add_group"))... }/>
+					@c.FieldError(errID(group, "add_group"), fieldErr(r, "add_group"))
+				</div>
+			} else {
+				<input type="hidden" name="add_group" value={ group }/>
 			}
-			<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 peer-checked:hidden">
-				for _, col := range g.Cols {
-					<label class="text-xs text-rw-faint">
-						{ col.Label }
-						<input class="input font-mono mt-0.5" name={ "add_value." + col.Token } value={ typed(r, "add_value."+col.Token) } autocomplete="off" placeholder="unset" { c.Invalid(errID(group, "add_value"), fieldErr(r, "add_value"))... }/>
-					</label>
-				}
+			<div>
+				<label class="label">Name</label>
+				<input class="input font-mono ff" name="add_name" placeholder="DB_HOST" autocomplete="off" data-1p-ignore data-lpignore="true" value={ typed(r, "add_name") } { c.Invalid(errID(group, "add_name"), fieldErr(r, "add_name"))... }/>
+				<span class="settings-help">Letters, digits and underscore.</span>
+				@c.FieldError(errID(group, "add_name"), fieldErr(r, "add_name"))
 			</div>
-			<div class="hidden grid-cols-2 sm:grid-cols-4 gap-2 peer-checked:grid">
-				<p class="col-span-full text-xs text-rw-faint">Secret values are never shown again.</p>
-				for _, col := range g.Cols {
-					<label class="text-xs text-rw-faint">
-						{ col.Label }
-						<input class="input font-mono mt-0.5" type="password" name={ "add_secret." + col.Token } autocomplete="new-password" placeholder="unset" { c.Invalid(errID(group, "add_value"), fieldErr(r, "add_value"))... }/>
-					</label>
-				}
-			</div>
+			for _, col := range g.Cols {
+				<div class="peer-checked:hidden">
+					<label class="label">{ valueLabel(g, col.Label) }</label>
+					<input class="input font-mono" name={ "add_value." + col.Token } value={ typed(r, "add_value."+col.Token) } autocomplete="off" placeholder="unset" { c.Invalid(errID(group, "add_value"), fieldErr(r, "add_value"))... }/>
+					<span class="settings-help">Leave empty to set it later.</span>
+				</div>
+				<div class="hidden peer-checked:block">
+					<label class="label">{ valueLabel(g, col.Label) }</label>
+					<input class="input font-mono" type="password" name={ "add_secret." + col.Token } autocomplete="new-password" placeholder="unset" { c.Invalid(errID(group, "add_value"), fieldErr(r, "add_value"))... }/>
+					<span class="settings-help">Leave empty to set it later.</span>
+				</div>
+			}
 			@c.FieldError(errID(group, "add_value"), fieldErr(r, "add_value"))
-			<button type="submit" class="btn btn-primary btn-sm">Save</button>
+			<label for={ "add-secret-" + group } class="sm:col-span-2 flex cursor-pointer flex-wrap items-center gap-3 peer-checked:[&_.trk]:bg-rw-accent peer-checked:[&_.knob]:translate-x-4 peer-checked:[&_.off]:hidden peer-checked:[&_.on]:inline peer-focus-visible:[&_.trk]:ring-2">
+				<span class="trk relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-rw-border transition-colors" aria-hidden="true">
+					<span class="knob inline-block h-4 w-4 translate-x-0.5 rounded-full bg-rw-text transition-transform"></span>
+				</span>
+				<span class="text-sm text-rw-text">Secret</span>
+				<span class="off text-xs text-rw-faint">Off. Shown in the grid.</span>
+				<span class="on hidden text-xs text-rw-faint">On. Hidden in the grid.</span>
+			</label>
+			if r != nil && len(r.More) == 0 {
+				<p class="field-error sm:col-span-2" role="alert">{ r.Msg }</p>
+			}
+			<div class="sm:col-span-2 flex items-center gap-2">
+				<button type="submit" class="btn btn-primary btn-sm">Add variable</button>
+				<button type="button" class="btn btn-sm" hx-get={ g.plainURL() } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
+			</div>
 		</form>
 	</details>
 	if g.Added != nil && *g.Added == group && g.Note != "" {
@@ -459,6 +469,15 @@ templ addForm(g Grid, group string) {
 			@c.Note(g.Note)
 		</div>
 	}
+}
+
+// valueLabel is "Value in prod" for a one-column grid (an env), the column's
+// own label otherwise.
+func valueLabel(g Grid, col string) string {
+	if len(g.Cols) == 1 {
+		return "Value in " + col
+	}
+	return col
 }
 
 // errID is an add form's field error id: one per group's form, so two

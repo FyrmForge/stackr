@@ -68,7 +68,7 @@ func TestPendingFooter(t *testing.T) {
 		}
 	}
 	g.Pending.Tiles, g.Pending.Impact = 0, nil
-	if got := page(t, g); !strings.Contains(got, ">Apply<") || strings.Contains(got, "later") {
+	if got := page(t, g); !strings.Contains(got, ">Apply<") || strings.Contains(got, `value="later"`) {
 		t.Errorf("a change nobody reads has more than Apply:\n%s", got)
 	}
 }

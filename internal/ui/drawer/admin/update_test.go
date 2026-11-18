@@ -44,17 +44,18 @@ func TestWorkerChipCopy(t *testing.T) {
 // the current choice picked.
 func TestUpdateCheckedAndSetting(t *testing.T) {
 	v := UpdateView{
-		Version: "1.0", Checked: true, Latest: "v1.0", CheckedText: "Checked 5 min ago",
+		Version: "1.0", Checked: true, Latest: "v1.0",
 		Settings: c.SettingsFormView{
 			ID: "admin-update", Action: "/-/admin/settings/update", Flat: true, Keys: []string{"update_check"},
 			Rows: []c.SettingRowView{{
 				Key: "update_check", Label: "Check for stackr updates", Type: "string", Value: "daily", NoInherit: true,
+				Sub: &c.RowSub{Text: "Checked 5 min ago", Label: "Check now", Action: "/-/admin/update/check", Target: "#x"},
 				Options: []c.Option{{Value: "off", Label: "off"}, {Value: "6h", Label: "6h"}, {Value: "daily", Label: "daily"}},
 			}},
 		},
 	}
 	out := renderUpdate(t, v)
-	for _, want := range []string{"Checked 5 min ago", `name="update_check"`, `<option value="daily" selected>`, `hx-post="/-/admin/settings/update"`} {
+	for _, want := range []string{"Checked 5 min ago", "Check now", `name="update_check"`, `<option value="daily" selected>`, `hx-post="/-/admin/settings/update"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in\n%s", want, out)
 		}
@@ -62,8 +63,8 @@ func TestUpdateCheckedAndSetting(t *testing.T) {
 	if strings.Contains(out, `<option value="off" selected>`) {
 		t.Errorf("off is picked too\n%s", out)
 	}
-	out = renderUpdate(t, UpdateView{Version: "1.0", CheckedText: "Never checked"})
-	if !strings.Contains(out, "Never checked") || strings.Contains(out, "<select") {
-		t.Errorf("never checked tab wrong\n%s", out)
+	out = renderUpdate(t, UpdateView{Version: "1.0"})
+	if strings.Contains(out, "<select") {
+		t.Errorf("no settings form, no select\n%s", out)
 	}
 }

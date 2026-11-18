@@ -104,6 +104,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(e+"/volumes/:volume", h.Volume, a.Require("org.read"))
 	g.POST(e+"/volumes/:volume/backup", h.BackupNow, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/schedules", h.AddSchedule, a.Require("backup.write"))
+	g.POST(e+"/volumes/:volume/schedules/:schedule", h.SaveSchedule, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/schedules/:schedule/delete", h.DeleteSchedule, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/restore", h.Restore, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/delete", h.DeleteVolume, a.Require("tile.write"))
@@ -1460,15 +1461,22 @@ func (h *handler) Restore(c echo.Context) error {
 	return h.volume(c, "backups", "restore queued", err)
 }
 
-// AddSchedule takes the CLI's fields: schedule, tz, method, dest, keep, mode.
+// AddSchedule takes the add form: method, dest, repeat, at, tz, keep, mode. An
+// empty field takes its default (local disk, 03:00, UTC, keep 7, pause).
 func (h *handler) AddSchedule(c echo.Context) error {
-	keep, err := strconv.Atoi(strings.TrimSpace(c.FormValue("keep")))
-	if err != nil && c.FormValue("keep") != "" {
-		return h.volume(c, "backups", "", errs.Invalidf("keep", "keep is a number"))
+	cron, err := volume.CronOf(c.FormValue("repeat"), c.FormValue("at"))
+	if err != nil {
+		return h.volume(c, "backups", "", errs.Invalidf("repeat", "%s", err))
+	}
+	keep := 7
+	if k := strings.TrimSpace(c.FormValue("keep")); k != "" {
+		if keep, err = strconv.Atoi(k); err != nil {
+			return h.volume(c, "backups", "", errs.Invalidf("keep", "keep is a number"))
+		}
 	}
 	s := service.ScheduleSpec{
 		Method:   c.FormValue("method"),
-		Cron:     c.FormValue("schedule"),
+		Cron:     cron,
 		Timezone: c.FormValue("tz"),
 		Keep:     keep,
 		Mode:     c.FormValue("mode"),
@@ -1478,6 +1486,31 @@ func (h *handler) AddSchedule(c echo.Context) error {
 	}
 	_, err = h.orch.AddBackupSchedule(c.Request().Context(), c.Param("volume"), s)
 	return h.volume(c, "backups", "schedule added", err)
+}
+
+// SaveSchedule is a schedule's Apply: its keep and mode, the rest as it was.
+func (h *handler) SaveSchedule(c echo.Context) error {
+	ctx := c.Request().Context()
+	ss, err := h.orch.BackupSchedules(ctx, c.Param("volume"))
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	i := slices.IndexFunc(ss, func(s service.BackupSchedule) bool { return s.ID == c.Param("schedule") })
+	if i < 0 {
+		return echo.NewHTTPError(http.StatusNotFound, "no such schedule")
+	}
+	b := ss[i]
+	spec := service.ScheduleSpec{Method: b.Method, DestID: b.DestID, Cron: b.Cron, Timezone: b.Timezone, Keep: b.Keep, Mode: b.Mode}
+	if v := strings.TrimSpace(c.FormValue("keep")); v != "" && b.Method != "base" {
+		if spec.Keep, err = strconv.Atoi(v); err != nil {
+			return h.volume(c, "backups", "", errs.Invalidf("keep", "keep is a number"))
+		}
+	}
+	if v := c.FormValue("mode"); v != "" {
+		spec.Mode = v
+	}
+	_, err = h.orch.UpdateBackupSchedule(ctx, b.ID, spec)
+	return h.volume(c, "backups", "schedule saved", err)
 }
 
 // DeleteSchedule only deletes a schedule of this volume.

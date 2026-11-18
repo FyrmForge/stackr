@@ -213,7 +213,7 @@ func (h *handler) SetVars(c echo.Context) error {
 		names, err := h.orch.SetParamsLater(ctx, col.ps, render.ParamEntries(form))
 		note := "Saved."
 		if len(names) > 0 {
-			note += " " + strings.Join(names, ", ") + " restart later."
+			note += " " + strings.Join(names, ", ") + " redeploy later."
 		}
 		return h.varsAfter(c, s, note, err)
 	}

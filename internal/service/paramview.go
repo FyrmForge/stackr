@@ -115,8 +115,8 @@ func (o *Orchestrator) UnsetParams(ctx context.Context, s ParamScope) (map[strin
 }
 
 // SetParamsLater is SetParams that leaves the readers running: it names the
-// tiles the change reaches and marks them restart pending (RestartPending)
-// until their next deploy, restart or start. Parked deploys that the value
+// tiles the change reaches and marks them redeploy pending (RestartPending)
+// until a deploy that recreates them has succeeded (a plain restart does not apply a value). Parked deploys that the value
 // would resume are cancelled, so a tile that waits stays stopped.
 // ponytail: the mark lives in memory and is lost when the panel restarts; a
 // column on tiles when that hurts.
@@ -181,16 +181,9 @@ func (o *Orchestrator) waitingJobs(ctx context.Context, s ParamScope, es []Param
 	return ids, nil
 }
 
-// RestartPending: a saved change reaches the tile and no deploy, restart or
-// start has run since.
+// RestartPending: a saved change reaches the tile and no deploy that
+// recreates it has succeeded since.
 func (o *Orchestrator) RestartPending(tileID string) bool {
 	_, ok := o.restartPending.Load(tileID)
 	return ok
-}
-
-// clearRestartPending is the next run of the tile: its change is in.
-func (o *Orchestrator) clearRestartPending(kind string, p any) {
-	if t, ok := p.(tileJob); ok && (kind == string(kindDeploy) || kind == string(kindRestart) || kind == string(kindStart)) {
-		o.restartPending.Delete(t.TileID)
-	}
 }

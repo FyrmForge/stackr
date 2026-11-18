@@ -102,7 +102,7 @@ func TestUnsetParams(t *testing.T) {
 	}
 }
 
-// Restart later saves without redeploying, marks the running readers, and the
+// Redeploy later saves without redeploying, marks the running readers, and the
 // mark clears when the tile is deployed.
 func TestSetParamsLater(t *testing.T) {
 	t.Parallel()
@@ -127,9 +127,12 @@ func TestSetParamsLater(t *testing.T) {
 			}
 		}
 	}
-	_, err = w.orch.Deploy(ctx, tl.ID)
+	dj, err := w.orch.Deploy(ctx, tl.ID)
 	must(t, err)
-	if w.orch.RestartPending(tl.ID) {
-		t.Error("the mark stayed after a deploy")
+	// the mark follows the deploy's outcome, not its enqueue
+	if dj = w.wait(t, dj.ID); dj.State == job.Done && w.orch.RestartPending(tl.ID) {
+		t.Error("the mark stayed after a deploy that succeeded")
+	} else if dj.State != job.Done && !w.orch.RestartPending(tl.ID) {
+		t.Errorf("the mark cleared though the deploy ended %s", dj.State)
 	}
 }

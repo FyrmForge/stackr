@@ -20,7 +20,7 @@ type PendingView struct {
 }
 
 // PendingApply is the Apply button's words: plain when the change touches no
-// running tile, else naming how many it restarts or starts.
+// running tile, else naming how many it redeploys or starts.
 func PendingApply(verb string, tiles int) string {
 	if tiles == 0 {
 		return "Apply"

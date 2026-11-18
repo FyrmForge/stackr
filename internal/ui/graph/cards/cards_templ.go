@@ -225,7 +225,7 @@ func Card(v CardView) templ.Component {
 				}
 			}
 			if v.RestartPending && v.Sync == "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<span class=\"absolute -top-2.5 right-3 z-10 rounded-md border border-rw-warn/40 bg-rw-surface px-1.5 py-0.5 text-[10px] text-rw-warn\">Restart pending</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<span class=\"absolute -top-2.5 right-3 z-10 rounded-md border border-rw-warn/40 bg-rw-surface px-1.5 py-0.5 text-[10px] text-rw-warn\">Redeploy pending</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

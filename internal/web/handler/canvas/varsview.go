@@ -153,7 +153,7 @@ func (h *handler) pendingOf(ctx context.Context, cl col, e service.ParamEntry) (
 		return nil, err
 	}
 	if len(tiles) > 0 {
-		p.Tiles, p.Impact = len(tiles), []string{"Restarts " + strings.Join(tiles, ", ") + "."}
+		p.Tiles, p.Impact = len(tiles), []string{"Redeploys " + strings.Join(tiles, ", ") + "."}
 	}
 	return p, nil
 }

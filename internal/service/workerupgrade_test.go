@@ -241,7 +241,7 @@ func TestRolloutStopsWhenTheVersionNeverShows(t *testing.T) {
 	if got := r.state(t, "w2"); got.State != stateWaiting {
 		t.Fatalf("w2 = %+v, want waiting", got)
 	}
-	if want := "w1 failed to upgrade, rolled back"; r.setting(keyRolloutStopped) != want {
+	if want := "w1 failed to update, rolled back"; r.setting(keyRolloutStopped) != want {
 		t.Fatalf("stopped = %q, want %q", r.setting(keyRolloutStopped), want)
 	}
 	f := r.fakes["w1"]
@@ -279,7 +279,7 @@ func TestUpdateWorkers(t *testing.T) {
 	n := newTwoNodes(t)
 	n.orch.cfg.Version = "v9.9.9"
 	ctx := context.Background()
-	must(t, n.orch.store.Settings.Set(ctx, keyRolloutStopped, "w1 failed to upgrade, rolled back"))
+	must(t, n.orch.store.Settings.Set(ctx, keyRolloutStopped, "w1 failed to update, rolled back"))
 	j, err := n.orch.UpdateWorkers(ctx, adminP())
 	must(t, err)
 	if j.Kind != string(kindWorkerRollout) {
@@ -358,7 +358,7 @@ func TestRolloutAfterBoot(t *testing.T) {
 		{"target without the v", "9.9.9", "", true},
 		{"another target", "v9.8.0", "", false},
 		{"no target", "", "", false},
-		{"stopped", "v9.9.9", "w1 failed to upgrade, rolled back", false},
+		{"stopped", "v9.9.9", "w1 failed to update, rolled back", false},
 	} {
 		n := newTwoNodes(t)
 		n.orch.cfg.Version = "v9.9.9"
@@ -452,7 +452,7 @@ func TestWorkerRolloutView(t *testing.T) {
 	ctx := context.Background()
 	o := r.n.orch
 	must(t, o.store.Settings.Set(ctx, keyRolloutTarget, "v9.9.9"))
-	must(t, o.store.Settings.Set(ctx, keyRolloutStopped, "w1 failed to upgrade, rolled back"))
+	must(t, o.store.Settings.Set(ctx, keyRolloutStopped, "w1 failed to update, rolled back"))
 	o.setUpgrade(ctx, "w1", nodeUpgrade{Version: "v9.9.9", State: stateFailed, Error: "x", At: time.Now()})
 
 	v, err := o.WorkerRollout(ctx)
@@ -508,7 +508,7 @@ func TestWorkerRolloutRunning(t *testing.T) {
 	r := newRolloutRig(t)
 	ctx := context.Background()
 	o := r.n.orch
-	must(t, o.store.Settings.Set(ctx, keyRolloutStopped, "w1 failed to upgrade, rolled back"))
+	must(t, o.store.Settings.Set(ctx, keyRolloutStopped, "w1 failed to update, rolled back"))
 	o.setUpgrade(ctx, "w1", nodeUpgrade{Version: "v9.9.9", State: stateWaiting, At: time.Now()})
 	if v, _ := o.WorkerRollout(ctx); v.Running {
 		t.Fatalf("stopped rollout reads running: %+v", v)
@@ -709,7 +709,7 @@ func TestJobsWaitsAndLine(t *testing.T) {
 	if j := got[after]; j.Waits != "Waits for the panel upgrade" || j.Line != "" {
 		t.Errorf("after: line %q waits %q", j.Line, j.Waits)
 	}
-	if w, err := n.orch.UpgradeWaits(ctx); err != nil || w != "Upgrade waits for 1 running job" {
+	if w, err := n.orch.UpgradeWaits(ctx); err != nil || w != "Update waits for 1 running job" {
 		t.Errorf("UpgradeWaits = %q, %v", w, err)
 	}
 	if j, err := n.orch.GetJob(ctx, after); err != nil || j.Waits == "" {

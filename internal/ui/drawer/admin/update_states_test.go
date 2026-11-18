@@ -13,7 +13,7 @@ var testSteps = []UpdateStep{
 // reconnecting line the panel restart needs.
 func TestUpdateRunningShowsSteps(t *testing.T) {
 	out := renderUpdate(t, UpdateView{Version: "v0.8.22", Checked: true, Latest: "v0.8.23", Upgrading: true, Live: "/-/admin/update", Target: "v0.8.23", Steps: testSteps, Elapsed: "0:21"})
-	for _, want := range []string{"Upgrading to v0.8.23", "Elapsed 0:21", "Pulling v0.8.23", "Backing up the panel", "Checking it is healthy", "data-reconnecting", "every 3s"} {
+	for _, want := range []string{"Updating to v0.8.23", "Elapsed 0:21", "Pulling v0.8.23", "Backing up the panel", "Checking it is healthy", "data-reconnecting", "every 3s"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in\n%s", want, out)
 		}
@@ -30,15 +30,15 @@ func TestUpdateRunningShowsSteps(t *testing.T) {
 func TestUpdateAllStepsDone(t *testing.T) {
 	done := []UpdateStep{{"Pulling v1", "done"}, {"Backing up the panel", "done"}, {"Restarting on v1", "done"}, {"Checking it is healthy", "done"}}
 	out := renderUpdate(t, UpdateView{Version: "v1", Checked: true, Latest: "v1", Upgrading: true, Steps: done})
-	if !strings.Contains(out, "Upgraded. Finishing the swap.") || strings.Contains(out, "Upgrading to") {
+	if !strings.Contains(out, "Updated. Finishing the swap.") || strings.Contains(out, "Updating to") {
 		t.Errorf("done state wrong\n%s", out)
 	}
 }
 
 // A queued upgrade says why it waits.
 func TestUpdateQueued(t *testing.T) {
-	out := renderUpdate(t, UpdateView{Version: "v1", Checked: true, Latest: "v2", Newer: true, Upgrading: true, Waits: "Upgrade waits for 2 running jobs"})
-	if !strings.Contains(out, "Upgrade queued") || !strings.Contains(out, "Upgrade waits for 2 running jobs") {
+	out := renderUpdate(t, UpdateView{Version: "v1", Checked: true, Latest: "v2", Newer: true, Upgrading: true, Waits: "Update waits for 2 running jobs"})
+	if !strings.Contains(out, "Update queued") || !strings.Contains(out, "Update waits for 2 running jobs") {
 		t.Errorf("queued state wrong\n%s", out)
 	}
 }
@@ -51,9 +51,9 @@ func TestUpdateFailedKeepsReasonAndLog(t *testing.T) {
 		LastErr: "Rolled back: the new panel did not pass its trial.",
 		Failed:  &UpdateFailure{Reason: "the container exited during the health check", ExitCode: 3, Log: "panic: no such column <x>"},
 	}
-	v.Run.Action, v.Run.Button, v.Run.Title = "/-/admin/update/run?tag=v0.8.23", "Upgrade to v0.8.23", "Upgrade stackr to v0.8.23"
+	v.Run.Action, v.Run.Button, v.Run.Title = "/-/admin/update/run?tag=v0.8.23", "Update to v0.8.23", "Update stackr to v0.8.23"
 	out := renderUpdate(t, v)
-	for _, want := range []string{"Rolled back", "Exit code 3.", "the container exited during the health check", "<details", "panic: no such column &lt;x&gt;", "Upgrade to v0.8.23", "v0.8.23 is still available."} {
+	for _, want := range []string{"Rolled back", "Exit code 3.", "the container exited during the health check", "<details", "panic: no such column &lt;x&gt;", "Update to v0.8.23", "v0.8.23 is still available."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in\n%s", want, out)
 		}
@@ -74,7 +74,7 @@ func TestUpdateIdleStates(t *testing.T) {
 		{"available", UpdateView{Version: "v1", Checked: true, Latest: "v2", Newer: true}, "is available"},
 		{"never", UpdateView{Version: "v1"}, "Not checked yet."},
 		{"check failed", UpdateView{Version: "v1", CheckErr: "github.com did not answer."}, "Could not check for an update: github.com did not answer."},
-		{"dev", UpdateView{Version: "dev", Checked: true}, "A dev build cannot upgrade itself."},
+		{"dev", UpdateView{Version: "dev", Checked: true}, "A dev build cannot update itself."},
 	} {
 		if out := renderUpdate(t, tc.v); !strings.Contains(out, tc.want) {
 			t.Errorf("%s: no %q in\n%s", tc.name, tc.want, out)
