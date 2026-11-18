@@ -213,33 +213,44 @@ templ ConfigRepoFields(v ConfigRepoView) {
 }
 
 templ SettingsForm(v SettingsFormView) {
-	<form id={ v.ID } if !v.ReadOnly { hx-post={ v.Action } } hx-target={ "#" + v.ID } hx-swap="outerHTML" class="space-y-4">
+	<form id={ v.ID } if !v.ReadOnly { hx-post={ v.Action } } hx-target={ "#" + v.ID } hx-swap="outerHTML" class="group space-y-4">
 		if v.ReadOnly {
 			<p class="banner">{ v.Why }</p>
 		}
+		<settings-read class="block">
 		<fieldset disabled?={ v.ReadOnly }>
 			<legend class="sr-only">{ v.Scope } settings</legend>
 			if v.Flat {
 				<div class="space-y-4">
 					for _, r := range v.shown() {
-						@settingRow(v.ID, r)
+						@settingRow(v.ID, r, !v.ReadOnly)
 					}
 				</div>
 			} else {
 				for _, rows := range sectioned(v.shown()) {
 					@PanelSection(v.ID+"-"+strings.ReplaceAll(strings.ToLower(sectionOf(rows)), " ", "-"), sectionOf(rows), "") {
 						for _, r := range rows {
-							@settingRow(v.ID, r)
+							@settingRow(v.ID, r, !v.ReadOnly)
 						}
 					}
 				}
 			}
-			if !v.ReadOnly {
-				<div class="flex items-center gap-3 pt-6">
-					<button type="submit" class="btn btn-primary btn-sm">Save</button>
-				</div>
-			}
 		</fieldset>
+		if !v.ReadOnly {
+			// the edits held in the rows, listed; <settings-read> shows it while any is held or open
+			<div data-pending hidden class="mt-4 rounded-lg bg-rw-inset px-4 py-3">
+				<p data-count class="text-xs font-medium text-rw-muted"></p>
+				<ul data-list class="mt-1.5 space-y-1"></ul>
+				<div class="mt-3 flex flex-wrap items-center gap-2 group-[.htmx-request]:hidden">
+					<button type="submit" class="btn btn-primary btn-sm">Apply</button>
+					<button type="button" class="btn btn-ghost btn-sm" data-cancel-all>Cancel</button>
+				</div>
+				<div class="mt-3 hidden items-center gap-2 group-[.htmx-request]:flex">
+					<span class="btn btn-primary btn-sm opacity-60 cursor-not-allowed" aria-disabled="true"><span class="spin" style="margin-top:0;margin-right:.4rem;border-color:currentColor;border-top-color:transparent"></span>Applying</span>
+				</div>
+			</div>
+		}
+		</settings-read>
 		// the answer by the Save that posted it, inside the form it swaps
 		if v.Error != "" {
 			@actedNote(FormError(v.Error))
@@ -252,12 +263,85 @@ templ SettingsForm(v SettingsFormView) {
 	</form>
 }
 
-templ settingRow(form string, r SettingRowView) {
+templ settingRow(form string, r SettingRowView, read bool) {
 	if r.ReadOnly {
 		@readOnlyRow(r)
+	} else if read {
+		@factRow(form, r)
 	} else {
 		@editRow(form, r)
 	}
+}
+
+// factRow is a knob as a fact: its value and a pencil. The control itself
+// sits behind the pencil (<settings-read>), open at once when a search hit it
+// or its save was refused.
+templ factRow(form string, r SettingRowView) {
+	{{ open := r.Found || r.Error != "" }}
+	<div data-row data-label={ knobLabel(r) } data-field data-find-key={ r.Key } data-changed?={ r.Changed } if r.Found { class="is-found" }>
+		<div data-read hidden?={ open }>
+			<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 py-1 text-sm sm:grid-cols-[14rem_minmax(0,1fr)_auto]">
+				<span class="col-span-2 settings-label sm:col-span-1">
+					{ knobLabel(r) }
+					@FieldMarks(r.Changed, r.From)
+				</span>
+				<span data-val class="min-w-0 text-rw-text [overflow-wrap:anywhere]">
+					@factValue(r)
+				</span>
+				<span class="flex items-center justify-end">
+					<span data-undo hidden><button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + knobLabel(r) }>@settingUndoIcon()</button></span>
+					<button type="button" data-edit class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Edit" aria-label={ "Edit " + knobLabel(r) }>@settingPenIcon()</button>
+				</span>
+			</div>
+		</div>
+		<div data-editor hidden?={ !open }>
+			@editBody(form, r)
+			<button type="button" data-cancel class="btn btn-ghost btn-sm mt-1">Cancel</button>
+		</div>
+	</div>
+}
+
+// factValue is what applies, in words: the value set here, else what is
+// inherited, tagged default while only the built-in default is above.
+templ factValue(r SettingRowView) {
+	if r.Secret {
+		if r.Effective == "set" {
+			<span>Set</span>
+		} else {
+			<span class="text-rw-faint">Not set</span>
+		}
+	} else if r.Value != "" {
+		<span>{ factWords(r, r.Value) }</span>
+	} else if r.Effective == "" {
+		<span class="text-rw-faint">Not set</span>
+	} else {
+		<span class="text-rw-faint">{ factWords(r, r.Effective) }</span>
+		if r.DecidedBy == "" || r.DecidedBy == "default" {
+			<span class="ml-1">@Chip("default", "")</span>
+		}
+	}
+}
+
+// factWords is a value as the row's control would say it: a bool as on or
+// off, an option by its label.
+func factWords(r SettingRowView, v string) string {
+	for _, o := range r.Options {
+		if o.Value == v {
+			return o.Label
+		}
+	}
+	if r.Type == "bool" {
+		return onOff(v)
+	}
+	return v
+}
+
+templ settingPenIcon() {
+	<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+}
+
+templ settingUndoIcon() {
+	<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"></path><path d="M3 13a9 9 0 1 0 3-7"></path></svg>
 }
 
 // readOnlyRow is a knob the installer set: its value as text, no input, so
@@ -281,6 +365,11 @@ templ readOnlyRow(r SettingRowView) {
 
 templ editRow(form string, r SettingRowView) {
 	<div data-field data-find-key={ r.Key } data-changed?={ r.Changed } if r.Found { class="is-found" }>
+		@editBody(form, r)
+	</div>
+}
+
+templ editBody(form string, r SettingRowView) {
 		<label for={ form + "-" + r.Key } class="settings-label">
 			{ knobLabel(r) }
 			@FieldMarks(r.Changed, r.From)
@@ -314,7 +403,6 @@ templ editRow(form string, r SettingRowView) {
 			<span class="settings-help">{ sentence(r.Desc) }</span>
 		}
 		@FieldError(r.Key, KeptErr(ctx, r.Key, r.Error))
-	</div>
 }
 
 // inheritHint is an empty field's placeholder: nothing on a flat knob, the

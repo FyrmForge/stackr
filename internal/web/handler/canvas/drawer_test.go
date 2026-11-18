@@ -223,14 +223,14 @@ func TestEnvResourcesChanged(t *testing.T) {
 	}
 	// the saved form's answer keeps its marks: set here, and from where
 	rec := s.Do(t, "POST", "/acme/shop/dev/-/drawer/settings", url.Values{"cpu_limit": {"2"}})
-	if b := rec.Body.String(); !strings.Contains(b, `<div data-field data-find-key="cpu_limit" data-changed><label for="env-cascade-cpu_limit"`) ||
+	if b := rec.Body.String(); !strings.Contains(b, `data-find-key="cpu_limit" data-changed><div data-read>`) ||
 		!strings.Contains(b, "from stack") {
 		t.Errorf("the saved Resources form lost its marks:\n%s", b)
 	}
 	body := get(t, s, "/acme/shop/dev/-/drawer?tab=settings")
 	for _, w := range []string{
 		`data-acc="resources" data-changed>`,
-		`<div data-field data-find-key="cpu_limit" data-changed><label for="env-cascade-cpu_limit"`,
+		`data-find-key="cpu_limit" data-changed><div data-read>`,
 		"2 cores · 512 MB (from stack) · no password</span>",
 	} {
 		if !strings.Contains(body, w) {

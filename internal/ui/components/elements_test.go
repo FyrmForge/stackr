@@ -22,6 +22,7 @@ var elements = map[string]int{
 	"metric-chart":    275, // its own 24-hour time format (local-time.ts cannot be imported) and round value axes
 	"password-toggle": 150,
 	"settings-find":   170, // opens nested details on a hit, redraws row heads after an in-row save
+	"settings-read":   170, // read mode: rows are facts behind a pencil, edits held until Apply
 	"side-drawer":     150,
 	"tab-strip":       150,
 	"term-pane":       150,

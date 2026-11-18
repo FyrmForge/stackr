@@ -554,7 +554,7 @@ func TestAdminSettingsEveryRefusalAndNoteBySave(t *testing.T) {
 	}
 	rec = s.As(t, root, "POST", "/-/admin/settings/jobs", url.Values{"workers": {"3"}})
 	body = rec.Body.String()
-	save, note := strings.Index(body, ">Save</button>"), strings.Index(body, "data-acted")
+	save, note := strings.Index(body, ">Apply</button>"), strings.Index(body, "data-acted")
 	if rec.Code != http.StatusOK || save < 0 || note < save || !strings.Contains(body[note:], "Saved.") {
 		t.Errorf("saved = %d, note at %d, Save at %d\n%s", rec.Code, note, save, body)
 	}
