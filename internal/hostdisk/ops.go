@@ -2,6 +2,8 @@ package hostdisk
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,15 +60,18 @@ func devOf(fi fs.FileInfo) string {
 	return fmt.Sprintf("%d:%d", (d>>8)&0xfff|(d>>32)&^0xfff, d&0xff|(d>>12)&^0xff)
 }
 
-// DevString is the device of p as "major:minor". Tests use it to write a
-// mount table that matches a real directory.
-func DevString(p string) (string, error) {
+// statDev is the device of p as "major:minor".
+func statDev(p string) (string, error) {
 	fi, err := os.Stat(p)
 	if err != nil {
 		return "", err
 	}
 	return devOf(fi), nil
 }
+
+// DevString is the device of p as "major:minor". Tests use it to write a
+// mount table that matches a real directory.
+func DevString(p string) (string, error) { return statDev(p) }
 
 // realDir requires name under root to be a real directory: not a symlink,
 // not a file.
@@ -85,12 +90,13 @@ func realDir(root *os.Root, name, missing string) *Error {
 // disk goes through root, so a symlink or an unmount after the open can never
 // reach the root filesystem.
 type target struct {
-	root   *os.Root
-	mount  Mount
-	mounts []Mount // the whole table
-	dev    string  // device of the opened root
-	path   string  // canonical, as the host sees it
-	disk   string  // the path as the caller gave it
+	root      *os.Root
+	mount     Mount
+	mounts    []Mount // the whole table
+	dev       string  // device of the opened root
+	path      string  // canonical, as the host sees it
+	disk      string  // the path as the caller gave it
+	mountinfo string  // the table path, read again before a drop
 }
 
 func (t *target) close() { _ = t.root.Close() }
@@ -98,45 +104,59 @@ func (t *target) close() { _ = t.root.Close() }
 // open resolves path, requires a mount point that is not the root
 // filesystem, and opens it. missing is the code for "not a mount point":
 // probe reports not_mount_point, every later op disk_missing.
-func (e Env) open(path, missing string) (*target, *Error) {
+func (e Env) open(p, missing string) (*target, *Error) {
 	table, err := os.ReadFile(e.mountinfo())
 	if err != nil {
 		return nil, &Error{CodeIO, "read the mount table: " + err.Error()}
 	}
 	ms := ParseMounts(table)
-	canon, err := resolveUnder(e.Root, path)
+	canon, err := resolveUnder(e.Root, p)
 	if err != nil {
-		herr := &Error{missing, err.Error()} // not absolute, too many links
+		herr := &Error{missing, err.Error()} // not absolute
 		var pe *fs.PathError
 		if errors.As(err, &pe) {
 			herr = ioOr(err, missing)
 		}
-		herr.Message = path + ": " + herr.Message
+		herr.Message = p + ": " + herr.Message
 		return nil, herr
 	}
 	m, ok := lastCovering(ms, canon)
 	if !ok || m.Point != canon {
-		return nil, &Error{missing, path + " is not a mount point"}
+		return nil, &Error{missing, p + " is not a mount point"}
 	}
 	if rm, ok := lastCovering(ms, "/"); ok && rm.Dev == m.Dev {
-		return nil, &Error{CodeRootFS, path + " is on the root filesystem"}
+		return nil, &Error{CodeRootFS, p + " is on the root filesystem"}
 	}
 	root, err := os.OpenRoot(joinRoot(e.Root, canon))
 	if err != nil {
 		return nil, ioOr(err, missing)
 	}
-	// an unmount between the table read and the open leaves the directory
-	// of the parent filesystem here: the opened root must be the mounted device
+	// an unmount between the table read and the open leaves the directory of
+	// the parent filesystem here. The mountinfo device is not comparable with
+	// st_dev (btrfs subvolumes differ), so compare stat with stat.
 	fi, err := root.Stat(".")
 	if err != nil {
 		_ = root.Close()
 		return nil, ioOr(err, missing)
 	}
-	if devOf(fi) != m.Dev {
-		_ = root.Close()
-		return nil, &Error{missing, path + " is no longer the mounted filesystem"}
+	dev := devOf(fi)
+	if !e.TempMounts {
+		for _, c := range []struct{ dir, code, msg string }{
+			{path.Dir(canon), missing, " is no longer a mounted filesystem"},
+			{"/", CodeRootFS, " is on the root filesystem"},
+		} {
+			d, err := statDev(joinRoot(e.Root, c.dir))
+			if err != nil {
+				_ = root.Close()
+				return nil, ioOr(err, missing)
+			}
+			if d == dev {
+				_ = root.Close()
+				return nil, &Error{c.code, p + c.msg}
+			}
+		}
 	}
-	return &target{root: root, mount: m, mounts: ms, dev: m.Dev, path: canon, disk: path}, nil
+	return &target{root: root, mount: m, mounts: ms, dev: dev, path: canon, disk: p, mountinfo: e.mountinfo()}, nil
 }
 
 func joinRoot(root, p string) string {
@@ -185,14 +205,22 @@ func ReadStamp(ctx context.Context, e Env, path string) (Stamp, error) {
 	return s, err
 }
 
-// emptyDir: no entries, lost+found aside (Proxmox formats ext4).
-func emptyDir(fsys fs.FS, dir string) (bool, error) {
+// leftoverTmp: a stamp temp that is not ours to judge. It is never deleted
+// and never ignored: the person removes it.
+const leftoverTmp = "A leftover .stackr-disk temp file is here. Remove it, then retry."
+
+// emptyDir: no entries, lost+found aside (Proxmox formats ext4). A leftover
+// stamp temp refuses.
+func emptyDir(fsys fs.FS, dir string) (bool, *Error) {
 	ents, err := fs.ReadDir(fsys, dir)
 	if err != nil {
-		return false, err
+		return false, &Error{CodeIO, err.Error()}
 	}
 	for _, d := range ents {
-		if d.Name() != "lost+found" && d.Name() != stampTmp {
+		if strings.HasPrefix(d.Name(), stampTmp) {
+			return false, &Error{CodeNotEmpty, leftoverTmp}
+		}
+		if d.Name() != "lost+found" {
 			return false, nil
 		}
 	}
@@ -222,9 +250,12 @@ func probe(e Env, r Request) Result {
 	if err != nil {
 		return Result{Error: stampErr(err, CodeNotEmpty)}
 	}
-	empty, err := emptyDir(t.root.FS(), ".")
-	if err != nil {
-		return fail(CodeIO, err.Error())
+	empty := false
+	if !found {
+		var herr *Error
+		if empty, herr = emptyDir(t.root.FS(), "."); herr != nil {
+			return Result{Error: herr}
+		}
 	}
 	if !found && !empty {
 		return fail(CodeNotEmpty, r.Mount+" is not empty and has no stamp")
@@ -251,16 +282,31 @@ func add(e Env, r Request) Result {
 	switch {
 	case err != nil:
 		return Result{Error: stampErr(err, CodeNotEmpty)}
+	case found && s.ID != r.DiskID && s.Owner == r.Owner && s.Install == r.Install && t.onlyEmptyFolder(s.ID):
+		// a deleted or replaced adding row left its id behind: take the disk over
+		old := s.ID
+		s = Stamp{ID: r.DiskID, Install: r.Install, Kind: "path", Owner: r.Owner, Created: time.Now().UTC()}
+		if err := writeStamp(t.root, s, true); err != nil {
+			return fail(CodeIO, "write the stamp: "+err.Error())
+		}
+		if err := t.root.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fail(CodeIO, err.Error())
+		}
 	case found && (s.ID != r.DiskID || s.Owner != r.Owner):
 		return fail(CodeForeignStamp, "the disk carries another stamp")
 	case !found:
-		if empty, err := emptyDir(t.root.FS(), "."); err != nil {
-			return fail(CodeIO, err.Error())
+		if empty, herr := emptyDir(t.root.FS(), "."); herr != nil {
+			return Result{Error: herr}
 		} else if !empty {
 			return fail(CodeNotEmpty, r.Mount+" is not empty and has no stamp")
 		}
 		s = Stamp{ID: r.DiskID, Install: r.Install, Kind: "path", Owner: r.Owner, Created: time.Now().UTC()}
-		if err := writeStamp(t.root, s); err != nil {
+		if err := writeStamp(t.root, s, false); errors.Is(err, fs.ErrExist) {
+			// a concurrent add stamped first: it wins, unless it is another id
+			if s2, ok, rerr := readStamp(t.root); rerr != nil || !ok || s2.ID != r.DiskID || s2.Owner != r.Owner {
+				return fail(CodeForeignStamp, "the disk carries another stamp")
+			}
+		} else if err != nil {
 			return fail(CodeIO, "write the stamp: "+err.Error())
 		}
 	}
@@ -284,12 +330,36 @@ func (t *target) canonical() *Error {
 	return nil
 }
 
-// writeStamp writes a temp file, syncs it and renames it into place, so a
-// crash never leaves an empty stamp.
-func writeStamp(root *os.Root, s Stamp) error {
+// onlyEmptyFolder: the disk holds nothing but the stamp, lost+found and an
+// empty folder called id.
+func (t *target) onlyEmptyFolder(id string) bool {
+	if badName(id) != nil {
+		return false
+	}
+	ents, err := fs.ReadDir(t.root.FS(), ".")
+	if err != nil {
+		return false
+	}
+	for _, d := range ents {
+		if d.Name() != stampFile && d.Name() != "lost+found" && d.Name() != id {
+			return false
+		}
+	}
+	sub, err := fs.ReadDir(t.root.FS(), id)
+	fi, lerr := t.root.Lstat(id)
+	return err == nil && len(sub) == 0 && lerr == nil && fi.IsDir()
+}
+
+// writeStamp writes a uniquely named temp file (exclusive), syncs it and puts
+// it in place, then syncs the directory, so a crash never leaves an empty
+// stamp. replace=false links it, so a concurrent add that got there first
+// is never clobbered (fs.ErrExist). Only our own temp is ever removed.
+func writeStamp(root *os.Root, s Stamp, replace bool) error {
 	b, _ := json.Marshal(s)
-	_ = root.Remove(stampTmp) // a leftover of a crash
-	f, err := root.OpenFile(stampTmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	var rnd [8]byte
+	_, _ = rand.Read(rnd[:])
+	tmp := stampTmp + "-" + hex.EncodeToString(rnd[:])
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
@@ -301,10 +371,36 @@ func writeStamp(root *os.Root, s Stamp) error {
 		err = cerr
 	}
 	if err == nil {
-		err = root.Rename(stampTmp, stampFile)
+		err = putStamp(root, tmp, replace)
 	}
+	_ = root.Remove(tmp)
+	if err == nil {
+		err = syncDir(root)
+	}
+	return err
+}
+
+func putStamp(root *os.Root, tmp string, replace bool) error {
+	if replace {
+		return root.Rename(tmp, stampFile)
+	}
+	err := root.Link(tmp, stampFile)
+	if err == nil || errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	// ponytail: a filesystem without hard links (FAT) falls back to rename,
+	// which can clobber a concurrent add; the node lock serialises adds anyway
+	return root.Rename(tmp, stampFile)
+}
+
+func syncDir(root *os.Root) error {
+	d, err := root.Open(".")
 	if err != nil {
-		_ = root.Remove(stampTmp)
+		return err
+	}
+	err = d.Sync()
+	if cerr := d.Close(); err == nil {
+		err = cerr
 	}
 	return err
 }
@@ -395,7 +491,11 @@ func usage(ctx context.Context, e Env, r Request) Result {
 	out := map[string]Use{}
 	for _, n := range slices.Compact(slices.Sorted(slices.Values(r.Names))) {
 		dir := r.DiskID + "/" + n
-		if fi, err := fs.Stat(fsys, dir); err != nil || !fi.IsDir() {
+		fi, err := fs.Stat(fsys, dir)
+		if err != nil && !notThere(err) {
+			return fail(CodeIO, err.Error())
+		}
+		if err != nil || !fi.IsDir() {
 			out[n] = Use{Missing: true, Empty: true}
 			continue
 		}
@@ -435,40 +535,62 @@ func drop(e Env, r Request) Result {
 }
 
 // dropOne removes dir and never crosses a filesystem boundary: it refuses
-// when a mount point is dir or below it, or when anything under dir is on
-// another device. Nothing is deleted in that case.
+// when a mount point is dir or below it (the table is read again here), or
+// when anything under dir is on another device, or when anything cannot be
+// examined. Only a missing entry is skipped. A refusal in the pre-walk
+// deletes nothing; the delete walk checks each entry again before removing it.
 func (t *target) dropOne(dir string) *Error {
+	table, err := os.ReadFile(t.mountinfo)
+	if err != nil {
+		return &Error{CodeIO, "read the mount table: " + err.Error()}
+	}
 	full := path.Join(t.path, dir)
-	for _, m := range t.mounts {
+	for _, m := range ParseMounts(table) {
 		if m.Point == full || strings.HasPrefix(m.Point, full+"/") {
 			return &Error{CodeIO, "another filesystem is mounted inside " + full}
 		}
 	}
-	if fi, err := t.root.Lstat(dir); err != nil || !fi.IsDir() {
-		// gone, a file or a symlink: nothing to walk, RemoveAll takes the entry itself
-		return t.removeAll(dir)
+	err = t.walk(dir, false)
+	if err == nil {
+		err = t.walk(dir, true)
 	}
-	err := fs.WalkDir(t.root.FS(), dir, func(p string, d fs.DirEntry, err error) error {
+	if err != nil {
+		return &Error{CodeIO, err.Error()}
+	}
+	return nil
+}
+
+// walk visits dir and everything under it through the root handle. remove
+// deletes each entry after its device is checked, children first.
+func (t *target) walk(p string, remove bool) error {
+	fi, err := t.root.Lstat(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if devOf(fi) != t.dev {
+		return fmt.Errorf("%s is on another filesystem", p)
+	}
+	if fi.IsDir() {
+		ents, err := fs.ReadDir(t.root.FS(), p)
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		if fi, err := d.Info(); err == nil && devOf(fi) != t.dev {
-			return fmt.Errorf("%s is on another filesystem", p)
+		for _, d := range ents {
+			if err := t.walk(p+"/"+d.Name(), remove); err != nil {
+				return err
+			}
 		}
-		return nil
-	})
-	if err != nil {
-		return &Error{CodeIO, err.Error()}
 	}
-	return t.removeAll(dir)
-}
-
-func (t *target) removeAll(dir string) *Error {
-	if err := t.root.RemoveAll(dir); err != nil {
-		return &Error{CodeIO, err.Error()}
+	if remove {
+		if err := t.root.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
 }

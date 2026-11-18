@@ -41,7 +41,7 @@ func newRig(t *testing.T) *rig {
 	if err := os.Mkdir(r.dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r.env = hostdisk.Env{Root: root, Mountinfo: filepath.Join(t.TempDir(), "mountinfo")}
+	r.env = hostdisk.Env{Root: root, Mountinfo: filepath.Join(t.TempDir(), "mountinfo"), TempMounts: true}
 	r.table(rootLine + diskLine)
 	r.l = disk.New(r.st.NodeDisks, r.st.DiskFolders, r)
 	return r

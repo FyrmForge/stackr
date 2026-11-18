@@ -22,6 +22,9 @@ import (
 type Env struct {
 	Root      string // "/host" in the helper, "/" in process, a temp dir in tests
 	Mountinfo string // default Root+"/proc/1/mountinfo"
+	// TempMounts is for tests: a folder in a temp dir stands in for a mount
+	// and shares its parent's device, so the same-device refusal is skipped.
+	TempMounts bool
 }
 
 func (e Env) mountinfo() string {

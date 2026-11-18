@@ -318,7 +318,7 @@ func TestFailoverSwapKeepsFolderTracking(t *testing.T) {
 // made there (not on Docker's disk) and removed, folder and row, at the end.
 func TestPGUpgradeScratchOnDiskAndRemoved(t *testing.T) {
 	ctx := context.Background()
-	env := hostdisk.Env{Root: t.TempDir(), Mountinfo: filepath.Join(t.TempDir(), "mountinfo")}
+	env := hostdisk.Env{Root: t.TempDir(), Mountinfo: filepath.Join(t.TempDir(), "mountinfo"), TempMounts: true}
 	must(t, os.MkdirAll(filepath.Join(env.Root, "disk"), 0o755))
 	dev, err := hostdisk.DevString(filepath.Join(env.Root, "disk"))
 	must(t, err)

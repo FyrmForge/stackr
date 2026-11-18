@@ -2,6 +2,7 @@ package hostdisk
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,7 +28,7 @@ func newRig(t *testing.T, extra string) *rig {
 	if err := os.Mkdir(disk, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r := &rig{t: t, env: Env{Root: root, Mountinfo: filepath.Join(t.TempDir(), "mountinfo")}, disk: disk}
+	r := &rig{t: t, env: Env{Root: root, Mountinfo: filepath.Join(t.TempDir(), "mountinfo"), TempMounts: true}, disk: disk}
 	r.table(rootLine + extra)
 	return r
 }
@@ -159,6 +160,7 @@ func TestAddWritesStampOnceAndCreatesTheDiskIDFolder(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("stamp rewritten")
 	}
+	r.write("d1/data", "x") // an id folder with data is never taken over
 	wantCode(t, r.run("add", func(q *Request) { q.DiskID = "d2" }), CodeForeignStamp)
 	wantCode(t, r.run("add", func(q *Request) { q.Owner = "n2" }), CodeForeignStamp)
 }
@@ -383,14 +385,31 @@ func TestUnsupportedKindAndOp(t *testing.T) {
 	wantCode(t, r.run("grow", nil), CodeUnsupported)
 }
 
-// H1: the opened root must be the device the table named.
-func TestUnmountRaceRefusedWhenTheOpenedRootIsAnotherDevice(t *testing.T) {
+// H1, R1: an unmounted folder shares its parent's device and is refused. The
+// table's device is not compared with st_dev (btrfs subvolumes differ).
+func TestUnmountRaceRefusedWhenTheOpenedRootSharesItsParentDevice(t *testing.T) {
 	r := added(t)
-	r.table(rootLine + "36 25 8:99 / /disk rw - ext4 /dev/sdb rw\n") // the table names a device the directory is not on
+	r.env.TempMounts = false // a temp folder is on its parent's device, like an unmounted mount point
 	for _, op := range []string{"verify", "folder", "usage", "drop", "add"} {
 		wantCode(t, r.run(op, func(q *Request) { q.Names = []string{"v"} }), CodeDiskMissing)
 	}
 	wantCode(t, r.run("probe", nil), CodeNotMountPoint)
+}
+
+func TestBtrfsSubvolumeWhoseStatDeviceDiffersFromMountinfoIsAccepted(t *testing.T) {
+	r := newRig(t, "36 25 8:99 / /disk rw - btrfs /dev/sdb rw\n") // 8:99 is not the folder's st_dev
+	wantCode(t, r.run("add", nil), "")
+	for _, op := range []string{"probe", "verify", "folder", "usage", "drop"} {
+		wantCode(t, r.run(op, func(q *Request) { q.Names = []string{"v"} }), "")
+	}
+	tg, herr := r.env.open("/disk", CodeDiskMissing)
+	if herr != nil {
+		t.Fatal(herr)
+	}
+	defer tg.close()
+	if real, _ := DevString(r.disk); tg.dev != real {
+		t.Fatalf("target dev %s, the folder is on %s", tg.dev, real)
+	}
 }
 
 // H2: an existing entry that is a file or a symlink is not a folder.
@@ -477,15 +496,65 @@ func TestBrokenStampIsNamedNotForeign(t *testing.T) {
 	wantCode(t, r.run("add", nil), CodeNotEmpty)
 }
 
-func TestStampIsWrittenByRenameAndALeftoverTempDoesNotBlock(t *testing.T) {
-	r := newRig(t, diskLine)
-	r.write(".stackr-disk.tmp", "") // a crash between create and rename
-	wantCode(t, r.run("add", nil), "")
-	if r.exists(".stackr-disk.tmp") {
-		t.Fatal("temp stamp left behind")
+// R2: a leftover temp is never deleted or ignored, the add refuses.
+func TestALeftoverStampTempRefusesAndIsKept(t *testing.T) {
+	for _, name := range []string{".stackr-disk.tmp", ".stackr-disk.tmp-abc"} {
+		r := newRig(t, diskLine)
+		r.write(name, "not ours")
+		for _, op := range []string{"probe", "add"} {
+			res := r.run(op, nil)
+			if res.Error == nil || res.Error.Code != CodeNotEmpty || !strings.Contains(res.Error.Message, "leftover") {
+				t.Fatalf("%s %s: %+v", name, op, res.Error)
+			}
+		}
+		if b, _ := os.ReadFile(filepath.Join(r.disk, name)); string(b) != "not ours" {
+			t.Fatalf("%s was touched", name)
+		}
+		if r.exists(stampFile) {
+			t.Fatal("stamped past a leftover")
+		}
+	}
+}
+
+func TestAddLeavesNoTempAndWriteStampNeverClobbers(t *testing.T) {
+	r := added(t)
+	ents, _ := os.ReadDir(r.disk)
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), stampTmp) {
+			t.Fatalf("temp left behind: %s", e.Name())
+		}
+	}
+	root, err := os.OpenRoot(r.disk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := writeStamp(root, Stamp{ID: "other", Owner: "n9"}, false); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("second stamp write: %v", err)
 	}
 	if s, err := ReadStamp(context.Background(), r.env, "/disk"); err != nil || s.ID != "d1" {
+		t.Fatalf("stamp clobbered: %+v %v", s, err)
+	}
+	if ents, _ := os.ReadDir(r.disk); len(ents) != 2 { // stamp and d1
+		t.Fatalf("temp left after a refused write: %v", ents)
+	}
+}
+
+// R10: a stranded empty id folder with our own stamp is taken over.
+func TestAddTakesOverADiskHoldingOnlyAnEmptyOldIDFolder(t *testing.T) {
+	r := added(t)
+	wantCode(t, r.run("add", func(q *Request) { q.DiskID = "d2" }), "")
+	if s, err := ReadStamp(context.Background(), r.env, "/disk"); err != nil || s.ID != "d2" {
 		t.Fatalf("%+v %v", s, err)
+	}
+	if r.exists("d1") || !r.exists("d2") {
+		t.Fatal("old folder not replaced")
+	}
+	wantCode(t, r.run("add", func(q *Request) { q.DiskID = "d3"; q.Install = "other" }), CodeForeignStamp)
+	r.write("d2/data", "x")
+	wantCode(t, r.run("add", func(q *Request) { q.DiskID = "d4" }), CodeForeignStamp)
+	if !r.exists("d2/data") {
+		t.Fatal("data lost")
 	}
 }
 
@@ -508,5 +577,85 @@ func TestIsNetwork(t *testing.T) {
 		if IsNetwork(fs) != want {
 			t.Errorf("%s: want %v", fs, want)
 		}
+	}
+}
+
+// R3: the table is read again before a drop, and a device change or an
+// unreadable entry refuses with nothing deleted.
+func TestDropReReadsTheMountTableBeforeDeleting(t *testing.T) { // DL
+	r := added(t)
+	r.mkdir("d1/vol/sub")
+	r.write("d1/vol/sub/data", "keep")
+	tg, herr := r.env.open("/disk", CodeDiskMissing)
+	if herr != nil {
+		t.Fatal(herr)
+	}
+	defer tg.close()
+	r.table(rootLine + diskLine + "37 36 8:33 / /disk/d1/vol/sub rw - ext4 /dev/sdc rw\n") // mounted after the open
+	if herr := tg.dropOne("d1/vol"); herr == nil {
+		t.Fatal("dropped across a new mount")
+	}
+	if !r.exists("d1/vol/sub/data") {
+		t.Fatal("deleted")
+	}
+}
+
+func TestDropRefusesAnEntryOnAnotherDeviceAndDeletesNothing(t *testing.T) { // DL
+	r := added(t)
+	r.mkdir("d1/vol")
+	r.write("d1/vol/a", "x")
+	tg, herr := r.env.open("/disk", CodeDiskMissing)
+	if herr != nil {
+		t.Fatal(herr)
+	}
+	defer tg.close()
+	tg.dev = "9:9"
+	if herr := tg.dropOne("d1/vol"); herr == nil {
+		t.Fatal("dropped a folder on another device")
+	}
+	if !r.exists("d1/vol/a") {
+		t.Fatal("deleted")
+	}
+}
+
+func TestDropRefusesWhenAnEntryCannotBeExamined(t *testing.T) { // DL
+	if os.Getuid() == 0 {
+		t.Skip("root reads everything")
+	}
+	r := added(t)
+	r.mkdir("d1/vol/locked")
+	r.write("d1/vol/a", "x")
+	locked := filepath.Join(r.disk, "d1/vol/locked")
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(locked, 0o755) }()
+	wantCode(t, r.run("drop", func(q *Request) { q.Names = []string{"vol"} }), CodeIO)
+	if !r.exists("d1/vol/a") {
+		t.Fatal("deleted past an unreadable entry")
+	}
+}
+
+// R4: only ENOENT and ENOTDIR say disk_missing.
+func TestASymlinkLoopIsIONotDiskMissing(t *testing.T) {
+	r := newRig(t, diskLine)
+	for _, n := range [][2]string{{"la", "lb"}, {"lb", "la"}} {
+		if err := os.Symlink(n[1], filepath.Join(r.env.Root, n[0])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, op := range []string{"probe", "add", "verify"} {
+		wantCode(t, r.run(op, func(q *Request) { q.Mount = "/la" }), CodeIO)
+	}
+}
+
+// R5: a stat error that is not "not there" is an error, not an empty folder.
+func TestUsageStatErrorIsIONotMissing(t *testing.T) {
+	r := added(t)
+	long := strings.Repeat("a", 300)
+	wantCode(t, r.run("usage", func(q *Request) { q.Names = []string{long} }), CodeIO)
+	res := r.run("usage", func(q *Request) { q.Names = []string{"nope"} })
+	if wantCode(t, res, ""); !res.Usage["nope"].Missing {
+		t.Fatal("a missing folder is Missing")
 	}
 }

@@ -3,10 +3,12 @@ package hostdisk
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Mount is one line of a mountinfo table.
@@ -114,7 +116,7 @@ func resolveUnder(root, p string) (string, error) {
 			continue
 		}
 		if links++; links > 40 {
-			return "", errors.New("too many symlinks")
+			return "", &fs.PathError{Op: "resolve", Path: p, Err: syscall.ELOOP}
 		}
 		dst, err := os.Readlink(full)
 		if err != nil {

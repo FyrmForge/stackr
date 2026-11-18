@@ -71,7 +71,7 @@ type diskTest struct {
 func newDiskTest(t *testing.T, opts ...Option) *diskTest {
 	t.Helper()
 	d := &diskTest{
-		env: hostdisk.Env{Root: t.TempDir(), Mountinfo: filepath.Join(t.TempDir(), "mountinfo")},
+		env: hostdisk.Env{Root: t.TempDir(), Mountinfo: filepath.Join(t.TempDir(), "mountinfo"), TempMounts: true},
 		put: &putMesh{},
 	}
 	d.table(t)

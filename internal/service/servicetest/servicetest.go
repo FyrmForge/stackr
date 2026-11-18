@@ -125,7 +125,7 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 	rig := newDiskRig(t)
 	orch, err := service.New(cfg, append([]service.Option{
 		service.WithDocker(fake),
-		service.WithDiskHost(service.InProcessDisk(hostdisk.Env{Root: rig.Root, Mountinfo: rig.Mountinfo})),
+		service.WithDiskHost(service.InProcessDisk(hostdisk.Env{Root: rig.Root, Mountinfo: rig.Mountinfo, TempMounts: true})),
 		service.WithDNS(dns.open),
 		// no mesh, no probe and no real lookup: a test's panel name is nobody's
 		service.WithPanelSeams(nil, nil, func(context.Context, string) ([]string, error) { return nil, errors.New("no network in tests") }),
