@@ -550,7 +550,7 @@ func TestForgetRestoreStepCanQueueDeploysUnderForgettingOnTheDockerDisk(t *testi
 	must(t, w.wFake.StopRemove(ctx, w.cid))
 	must(t, w.wFake.RemoveVolume(ctx, w.v.Name))
 	// without it the volume is "not ready": nothing is restored
-	w.orch.restoreThenDeploy(ctx, w.edge.ID, []store.Tile{w.tl})
+	_, _, _ = w.orch.restoreThenDeploy(ctx, w.edge.ID, []store.Tile{w.tl})
 	if len(w.jobsOf(t, string(kindRestore))) != 0 {
 		t.Error("a restore was queued without the operation context")
 	}

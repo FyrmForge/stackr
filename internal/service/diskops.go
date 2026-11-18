@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -14,9 +13,6 @@ import (
 // disk leave their disk row in adopting or forgetting, which every caller
 // reads as "not ready". Only the job that owns the operation sees through it:
 // adopting answers as the node's ready disk, forgetting as no disk at all.
-
-// notBuilt is what a verb of a later work package answers until it is built.
-func notBuilt() error { return errs.Refusedf("Not available yet.") }
 
 // opMode is the operation ctx runs on d: disk.StateAdopting,
 // disk.StateForgetting, or "" when there is none for this disk and state.

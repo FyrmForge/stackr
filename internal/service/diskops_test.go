@@ -131,7 +131,8 @@ func TestOpContextIsNotCarriedIntoAQueuedJob(t *testing.T) {
 		return nil
 	}
 	op := disk.WithOp(context.Background(), "d1", disk.StateAdopting)
-	if inner(op, nil); seen != disk.StateAdopting {
+	_ = inner(op, nil)
+	if seen != disk.StateAdopting {
 		t.Fatalf("the check itself is blind: %q", seen)
 	}
 	if err := ownedJob(inner)(op, nil); err != nil || seen != "" {
