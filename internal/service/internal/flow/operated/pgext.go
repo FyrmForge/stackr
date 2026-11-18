@@ -20,15 +20,20 @@ import (
 // startup modules an instance loads, and the reconcile that makes a database
 // hold what its slice lists.
 
-// extName is the one pattern for an extension name and a startup module name.
+// extName is the one pattern for a startup module name and a recipe's names.
 var extName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+// sqlExtName is an extension name: extName plus the hyphen (uuid-ossp). It
+// reaches SQL only inside quote's double quotes, where a hyphen needs no
+// escape; a quote, a space or a semicolon never matches.
+var sqlExtName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
 
 // CheckExtNames refuses a name that is not an extension name, before anything
 // is stored (message 9). Names reach SQL only through quote, which escapes
 // nothing, so only names this accepts may go in.
 func CheckExtNames(names []string) error {
 	for _, n := range names {
-		if !extName.MatchString(n) {
+		if !sqlExtName.MatchString(n) {
 			return errs.Invalidf("extensions", "%q is not an extension name", n)
 		}
 	}
@@ -171,7 +176,7 @@ func pgReconcileAs(ctx context.Context, i Instance, x Tools, db string, want []s
 	}
 	var create []string
 	for _, n := range want {
-		if !extName.MatchString(n) {
+		if !sqlExtName.MatchString(n) {
 			return errs.Invalidf("extensions", "%q is not an extension name", n)
 		}
 		r, ok := rows[n]

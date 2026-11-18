@@ -17,12 +17,15 @@ func TestCheckExtNames(t *testing.T) {
 	if err := CheckExtNames(nil); err != nil {
 		t.Fatalf("nil: %v", err)
 	}
-	for _, n := range []string{"vector", "vchord", "earth_distance", "a", "postgis_tiger_geocoder", "x9_"} {
+	for _, n := range []string{"vector", "vchord", "earth_distance", "a", "postgis_tiger_geocoder", "x9_", "uuid-ossp"} {
 		if err := CheckExtNames([]string{n}); err != nil {
 			t.Errorf("%q refused: %v", n, err)
 		}
 	}
 	for _, n := range hostileNames {
+		if n == "vec-tor" {
+			continue // a hyphen is fine in an extension name (uuid-ossp), never in a startup module
+		}
 		if err := CheckExtNames([]string{"vector", n}); err == nil {
 			t.Errorf("%q accepted", n)
 		}
