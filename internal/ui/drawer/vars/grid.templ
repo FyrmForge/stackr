@@ -87,7 +87,7 @@ type Cell struct {
 }
 
 templ grid(v View) {
-	<div data-wide class="space-y-4">
+	<div id={ GridID } data-wide class="space-y-4">
 		if v.Grid.ReadOnly {
 			<p class="banner">{ v.Grid.Why }</p>
 		}

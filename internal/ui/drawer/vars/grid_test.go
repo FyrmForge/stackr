@@ -80,3 +80,23 @@ func TestEditorSkipsHistory(t *testing.T) {
 		t.Errorf("editor root lacks hx-history=false:\n%s", got)
 	}
 }
+
+// The live refresh swaps the grid only: the save note and the form error sit
+// outside it, so a poll cannot wipe them, and #vars-editor stays put for a
+// click's swap.
+func TestPollSwapsGridOnly(t *testing.T) {
+	var b strings.Builder
+	if err := Editor(View{Grid: envGrid(), Note: "Saved.", Error: "Nope."}).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	got := b.String()
+	for _, w := range []string{`hx-select="#vars-grid"`, `hx-target="#vars-grid"`} {
+		if !strings.Contains(got, w) {
+			t.Errorf("poll lacks %s", w)
+		}
+	}
+	g := strings.Index(got, `id="vars-grid"`)
+	if g < 0 || strings.Index(got, "Saved.") > g || strings.Index(got, "Nope.") > g {
+		t.Errorf("note or error is inside the polled grid:\n%s", got)
+	}
+}
