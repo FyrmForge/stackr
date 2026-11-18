@@ -108,7 +108,7 @@ func TestAddDiskDialogChoiceAndPicker(t *testing.T) {
 	if i < 0 || !strings.Contains(out[max(0, i-200):i+40], " disabled ") {
 		t.Errorf("a blocked disk can be picked\n%s", out)
 	}
-	if !strings.Contains(out, `id="disk-continue"`) || !strings.Contains(out[strings.Index(out, `id="disk-continue"`):], " disabled>") {
+	if _, after, ok := strings.Cut(out, `id="disk-continue"`); !ok || !strings.Contains(after, " disabled>") {
 		t.Error("Continue is enabled with no pick")
 	}
 	if strings.Contains(out, `id="disk-path"`) {

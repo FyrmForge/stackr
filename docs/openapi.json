@@ -1811,6 +1811,9 @@
           "label": {
             "type": "string"
           },
+          "maj_min": {
+            "type": "string"
+          },
           "model": {
             "type": "string"
           },

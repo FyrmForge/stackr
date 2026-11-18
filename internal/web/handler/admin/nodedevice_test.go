@@ -107,7 +107,7 @@ func TestWholeDiskChoiceListsOnTheDiskChoiceOnly(t *testing.T) {
 	if !slices.Equal(h.ops(), []string{"list"}) {
 		t.Fatalf("the choice ran %v, want one list", h.ops())
 	}
-	if strings.Index(body, "Samsung") > strings.Index(body, "ata-Sys_0") && strings.Index(body, "ata-Sys_0") >= 0 {
+	if sys := strings.Index(body, "ata-Sys_0"); sys >= 0 && strings.Index(body, "Samsung") > sys {
 		t.Error("a blocked disk is listed before a usable one")
 	}
 	s.As(t, root, "POST", base+"choose", url.Values{"how": {"disk"}, "device": {devJSON(t, devEmpty)}})
