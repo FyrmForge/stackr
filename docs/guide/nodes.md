@@ -96,9 +96,10 @@ stackr formats an empty block device xfs and mounts it. Everything on the device
 ```bash
 stkr node disk devices vps-fsn1
 stkr node disk add vps-fsn1 --device sdb --confirm sdb
+stkr node disk add vps-fsn1 --device ata-WDC_WD20EZ_WD-1234 --format-anyway --confirm sdb
 ```
 
-A device that holds a filesystem, a partition table or an earlier stackr disk shows what is on it and is not offered. If it is the one you mean, and you have checked that nothing on it is needed, the button reads Format anyway (`--format-anyway`). It still asks for the name. To keep the data on it, adopt the disk instead (see [Adopt a disk](#adopt-a-disk)).
+A device that holds a filesystem, a partition table or an earlier stackr disk shows what is on it and is not offered. If it is the one you mean, and you have checked that nothing on it is needed, the button reads Format anyway (`--format-anyway`). It still asks for the name; on the command line, with the kernel name (`sdb`), it asks for the disk's serial or by-id name instead, so name it by id and confirm with the kernel name, as below. To keep the data on it, adopt the disk instead (see [Adopt a disk](#adopt-a-disk)).
 
 Some devices are never offered, with no way around it: a mounted device, one with partitions, the system or Docker disk, and a member of LVM, RAID, LUKS or ZFS, in use as swap or held by another device. Fix that on the box first.
 

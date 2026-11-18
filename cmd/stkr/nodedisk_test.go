@@ -160,7 +160,7 @@ func TestVolumeMoveToDisk(t *testing.T) {
 
 const devs = `{"devices":[` +
 	`{"path":"/dev/sdb","id":"ata-X_1","bytes":536870912000,"blocked":"","signature":""},` +
-	`{"path":"/dev/sdc","id":"ata-X_2","bytes":2147483648000,"signature":"filesystem","fs_type":"ext4"},` +
+	`{"path":"/dev/sdc","id":"ata-X_2","model":"WDC","serial":"WD-77","bytes":2147483648000,"signature":"filesystem","fs_type":"ext4"},` +
 	`{"path":"/dev/sda","id":"ata-X_0","bytes":85899345920,"blocked":"system"}]}`
 
 func TestNodeDiskDevicesAndAddDevice(t *testing.T) {
@@ -203,9 +203,32 @@ func TestNodeDiskDevicesAndAddDevice(t *testing.T) {
 			t.Fatalf("a refused disk was sent: %v", writes(r))
 		}
 	}
+	// Format anyway on a bare kernel name: the name is not a confirmation (the
+	// list and the format would compare the disk with itself), the serial or the
+	// by-id name is; the disk's identity is printed before it is asked
 	r = fake(t, map[string]string{"/devices": devs, "/add-device": `{"id":"j1","kind":"disk-add-device","state":"queued"}`})
-	if code, _, errw := cli(t, "node", "disk", "add", "n1", "--device", "sdc", "--confirm", "sdc", "--format-anyway", "--no-wait"); code != 0 || !strings.Contains(writes(r)[1], `"force":true`) {
-		t.Errorf("format anyway = %d %q, wrote %v", code, errw, writes(r))
+	if code, _, errw := cli(t, "node", "disk", "add", "n1", "--device", "sdc", "--confirm", "sdc", "--format-anyway", "--no-wait"); code != 1 || !strings.Contains(errw, "WD-77") || !strings.Contains(errw, "ata-X_2") {
+		t.Errorf("format anyway with the kernel name = %d %q", code, errw)
+	}
+	for _, q := range writes(r) {
+		if strings.Contains(q, "add-device") {
+			t.Fatalf("formatted on the kernel name: %v", writes(r))
+		}
+	}
+	for _, typed := range []string{"WD-77", "ata-X_2"} {
+		r = fake(t, map[string]string{"/devices": devs, "/add-device": `{"id":"j1","kind":"disk-add-device","state":"queued"}`})
+		code, out, errw := cli(t, "node", "disk", "add", "n1", "--device", "sdc", "--confirm", typed, "--format-anyway", "--no-wait")
+		if w := writes(r); code != 0 || len(w) != 2 || !strings.Contains(w[1], `"force":true`) || !strings.Contains(w[1], `"confirm":"sdc"`) {
+			t.Errorf("format anyway typing %q = %d %q, wrote %v", typed, code, errw, w)
+		}
+		if !strings.Contains(out+errw, "model WDC, serial WD-77, id ata-X_2") {
+			t.Errorf("the disk was not described: %q", errw)
+		}
+	}
+	// named by its by-id name, the kernel name is a fine confirmation
+	r = fake(t, map[string]string{"/devices": devs, "/add-device": `{"id":"j1","kind":"disk-add-device","state":"queued"}`})
+	if code, _, errw := cli(t, "node", "disk", "add", "n1", "--device", "ata-X_2", "--confirm", "sdc", "--format-anyway", "--no-wait"); code != 0 || !strings.Contains(writes(r)[1], `"force":true`) {
+		t.Errorf("format anyway by id = %d %q, wrote %v", code, errw, writes(r))
 	}
 }
 
