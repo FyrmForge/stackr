@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 )
@@ -203,5 +204,38 @@ func TestParkedRecheckStillWaits(t *testing.T) {
 				t.Errorf("deploy = %s, want cancelled before the value was written", j.State)
 			}
 		})
+	}
+}
+
+// Redeploy pending stays while a deploy fails and clears when one succeeds:
+// the fake's container exits during the health check until it is told to run.
+func TestRedeployPendingClearsOnSuccess(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	s := ParamScope{Kind: "env", ID: w.env}
+	_, err := w.orch.SetParams(ctx, s, []ParamEntry{{Collection: "c", Name: "mode", Kind: "param", Value: "a"}})
+	must(t, err)
+	w.fake.RunID = "c1"
+	w.fake.Details = map[string]docker.Detail{"c1": {Running: false}}
+	tl := w.tile(t, "web", true)
+	_, err = w.st.DB().ExecContext(ctx, `UPDATE tiles SET env_json = ? WHERE id = ?`, `{"V":"${{ params.c.mode }}"}`, tl.ID)
+	must(t, err)
+	if _, _, err = w.orch.SetParamsLater(ctx, s, []ParamEntry{{Collection: "c", Name: "mode", Kind: "param", Value: "b"}}); err != nil {
+		t.Fatal(err)
+	}
+	dj, err := w.orch.Deploy(ctx, tl.ID)
+	must(t, err)
+	if dj = w.wait(t, dj.ID); dj.State != job.Failed || !w.orch.RestartPending(tl.ID) {
+		t.Fatalf("failing deploy = %s, pending = %v; want failed and still pending", dj.State, w.orch.RestartPending(tl.ID))
+	}
+	w.fake.Details = map[string]docker.Detail{"c1": {Running: true, Health: "healthy", Networks: map[string]string{"n": "10.0.0.5"}}}
+	dj, err = w.orch.Deploy(ctx, tl.ID)
+	must(t, err)
+	if dj = w.wait(t, dj.ID); dj.State != job.Done {
+		t.Fatalf("deploy = %s %q, want done", dj.State, dj.Error)
+	}
+	if w.orch.RestartPending(tl.ID) {
+		t.Error("the mark stayed after a deploy that succeeded")
 	}
 }
