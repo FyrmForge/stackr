@@ -668,6 +668,13 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 			return err
 		}
 	}
+	// A PR env builds its head; a row an older plan moved off it is set back.
+	if exists && e.Type == environment.Ephemeral &&
+		(e.FromKind != environment.FromBranch || e.FromBranch != p.Head || !e.Auto) {
+		if _, err := o.envs.SetFrom(ctx, e, environment.FromBranch, p.Head, true); err != nil {
+			return err
+		}
+	}
 	// The build runs on the controller; the promotes it queues run on each env's node.
 	if ctx, err = o.withController(ctx); err != nil {
 		return err

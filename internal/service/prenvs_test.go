@@ -74,6 +74,31 @@ func TestPREnvsOptIn(t *testing.T) {
 	pr("opened")
 	eventually(t, "pr-7 made", has)
 
+	// A row an older plan moved off its head heals on the next event.
+	es, err := env.Orch.Envs(ctx, st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range es {
+		if e.Name == "pr-7" {
+			row, err := env.Store.Environments.Get(ctx, e.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			row.FromBranch, row.Auto = "main", false
+			if err := env.Store.Environments.Update(ctx, row); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	pr("synchronize")
+	eventually(t, "pr-7 head restored", func() bool {
+		es, _ := env.Orch.Envs(ctx, st.ID)
+		return slices.ContainsFunc(es, func(e service.Environment) bool {
+			return e.Name == "pr-7" && e.FromBranch == "feat" && e.Auto
+		})
+	})
+
 	file("")
 	pr("closed")
 	eventually(t, "pr-7 removed", func() bool { return !has() })

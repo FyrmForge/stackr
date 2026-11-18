@@ -365,7 +365,8 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 		})
 		ed.Color = re.Color
 	}
-	if re.FromKind != "" && (re.FromKind != e.FromKind || re.FromBranch != e.FromBranch || re.Auto != e.Auto) {
+	// A PR env's from is its head, set by the pr job; the base's file entry is not its own.
+	if e.Type != environment.Ephemeral && re.FromKind != "" && (re.FromKind != e.FromKind || re.FromBranch != e.FromBranch || re.Auto != e.Auto) {
 		p.add(Change{
 			Kind:  "env",
 			Field: "from",

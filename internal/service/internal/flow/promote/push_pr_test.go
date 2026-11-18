@@ -2,6 +2,7 @@ package promote
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -97,5 +98,21 @@ func TestPREventNeverBuildsStaticEnvNamedLikePR(t *testing.T) {
 	must(t, err)
 	if r.ID != "" {
 		t.Fatalf("release %q, log %q", r.ID, log.String())
+	}
+}
+
+// A PR env of a base that declares its own branch keeps its head: the file's
+// from: belongs to the base, never to the pr-<n> env that maps to it.
+func TestPlanPREnvKeepsHeadWhenBaseDeclaresBranch(t *testing.T) {
+	w := setup(t)
+	e := prEnv(t, w)
+	w.files["c1"] = shopFile // dev builds from head: main
+	r := w.release(t, "c1")
+	p, err := w.f.Plan(ctx, e.ID, r.ID, io.Discard)
+	must(t, err)
+	for _, c := range p.Changes {
+		if c.Kind == "env" && c.Field == "from" {
+			t.Fatalf("PR env from planned: %+v", c)
+		}
 	}
 }
