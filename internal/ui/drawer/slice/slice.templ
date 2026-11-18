@@ -181,9 +181,9 @@ templ LiveExtensions(v View) {
 		} else if len(v.Ext.Items) == 0 {
 			<p class="text-sm text-rw-muted">None yet.</p>
 		} else {
-			<ul class="space-y-1.5">
+			<ul class="divide-y divide-rw-border">
 				for _, e := range v.Ext.Items {
-					<li class="panel px-4 py-2.5 flex flex-wrap items-center gap-3 text-sm">
+					<li class="py-2.5 flex flex-wrap items-center gap-3 text-sm">
 						<span class="flex-1 min-w-0 font-mono text-rw-text">{ e.Name }</span>
 						<span class="text-xs text-rw-muted">{ extState(e) }</span>
 						if e.AddedWith != "" {
@@ -390,9 +390,9 @@ templ consumersRow(v View) {
 	} else {
 		<p class="text-xs text-rw-faint" data-hint>Each consumer keeps its own access until you change it here.</p>
 	}
-	<ul class="space-y-1.5">
+	<ul class="divide-y divide-rw-border">
 		for _, cs := range v.Consumers {
-			<li class="panel px-4 py-2.5 flex flex-wrap items-center gap-3 text-sm" data-field>
+			<li class="py-2.5 flex flex-wrap items-center gap-3 text-sm" data-field>
 				<span class="flex-1 min-w-0">
 					<label for={ "access-" + cs.Slug } class="settings-label">{ cmp.Or(cs.Name, cs.Slug) }</label>
 				</span>

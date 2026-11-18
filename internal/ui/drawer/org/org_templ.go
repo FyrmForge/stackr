@@ -1091,12 +1091,12 @@ func Members(v MembersView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<ul class=\"space-y-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<ul class=\"divide-y divide-rw-border\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, m := range v.Members {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "<li class=\"panel px-3 py-2.5 flex flex-wrap items-center gap-2\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "<li class=\"py-2.5 flex flex-wrap items-center gap-2\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1269,7 +1269,7 @@ func Members(v MembersView) templ.Component {
 				}
 			}
 			for _, i := range v.Invites {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "<li class=\"panel px-3 py-2.5 flex flex-wrap items-center gap-2\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "<li class=\"py-2.5 flex flex-wrap items-center gap-2\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1550,7 +1550,7 @@ func Keys(v KeysView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if v.Minted != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, " <div class=\"panel p-4 mt-4 space-y-2\" role=\"status\" hx-history=\"false\"><p class=\"text-sm text-rw-text\">Copy this key now. It is not shown again.</p><div class=\"flex items-center gap-2\"><code class=\"min-w-0 flex-1 break-all font-mono text-xs text-rw-text\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, " <div class=\"rounded bg-rw-inset p-4 mt-4 space-y-2\" role=\"status\" hx-history=\"false\"><p class=\"text-sm text-rw-text\">Copy this key now. It is not shown again.</p><div class=\"flex items-center gap-2\"><code class=\"min-w-0 flex-1 break-all font-mono text-xs text-rw-text\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1605,12 +1605,12 @@ func Keys(v KeysView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "<ul class=\"space-y-2\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "<ul class=\"divide-y divide-rw-border\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				for _, k := range v.Keys {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 118, "<li class=\"panel px-4 py-3 flex items-center justify-between gap-3\"><span class=\"min-w-0\"><span class=\"text-sm text-rw-text\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 118, "<li class=\"py-3 flex items-center justify-between gap-3\"><span class=\"min-w-0\"><span class=\"text-sm text-rw-text\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1739,12 +1739,12 @@ func Domains(v DomainsView) templ.Component {
 			}
 			ctx = templ.InitializeContext(ctx)
 			if len(v.Rows) > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 129, "<ul class=\"space-y-2 mb-5\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 129, "<ul class=\"divide-y divide-rw-border mb-5\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				for _, r := range v.Rows {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 130, "<li class=\"panel px-3 py-2.5 flex flex-wrap items-center gap-2\"><span class=\"font-mono text-sm text-rw-text\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 130, "<li class=\"py-2.5 flex flex-wrap items-center gap-2\"><span class=\"font-mono text-sm text-rw-text\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

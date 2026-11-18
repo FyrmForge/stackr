@@ -420,9 +420,9 @@ templ exits(v View) {
 			</p>
 		}
 		if len(v.Rungs) > 0 {
-			<ol class={ "space-y-2", templ.KV("opacity-70", v.Inherited) }>
+			<ol class={ "divide-y divide-rw-border", templ.KV("opacity-70", v.Inherited) }>
 				for i, r := range v.Rungs {
-					<li class="panel px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
+					<li class="py-3 flex flex-wrap items-center gap-3 text-sm">
 						<span class="w-5 text-rw-faint">{ strconv.Itoa(i+1) }</span>
 						<span class="flex-1 min-w-0 truncate text-rw-text">{ r.Name }</span>
 						if r.State != "" {

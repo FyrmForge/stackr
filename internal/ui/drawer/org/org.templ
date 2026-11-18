@@ -366,9 +366,9 @@ templ Members(v MembersView) {
 			}
 		}
 		@c.Section("People", "organization", "Viewers see everything. Members deploy and edit stacks. Owners also manage people and settings.") {
-			<ul class="space-y-2">
+			<ul class="divide-y divide-rw-border">
 				for _, m := range v.Members {
-					<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+					<li class="py-2.5 flex flex-wrap items-center gap-2">
 						@avatar(nameOr(m.Name, m.Email))
 						<span class="min-w-[12rem] flex-1">
 							<span class="block text-sm text-rw-text">{ nameOr(m.Name, m.Email) }</span>
@@ -398,7 +398,7 @@ templ Members(v MembersView) {
 					</li>
 				}
 				for _, i := range v.Invites {
-					<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+					<li class="py-2.5 flex flex-wrap items-center gap-2">
 						@avatar(i.Email)
 						<span class="min-w-[12rem] flex-1">
 							<span class="block text-sm text-rw-text">{ i.Email }</span>
@@ -470,7 +470,7 @@ templ Keys(v KeysView) {
 			</form>
 			if v.Minted != "" {
 				// a one-time token: keep it out of htmx's history cache
-				<div class="panel p-4 mt-4 space-y-2" role="status" hx-history="false">
+				<div class="rounded bg-rw-inset p-4 mt-4 space-y-2" role="status" hx-history="false">
 					<p class="text-sm text-rw-text">Copy this key now. It is not shown again.</p>
 					<div class="flex items-center gap-2">
 						<code class="min-w-0 flex-1 break-all font-mono text-xs text-rw-text">{ v.Minted }</code>
@@ -483,9 +483,9 @@ templ Keys(v KeysView) {
 			if len(v.Keys) == 0 {
 				<p class="text-sm text-rw-muted">No API keys yet.</p>
 			} else {
-				<ul class="space-y-2">
+				<ul class="divide-y divide-rw-border">
 					for _, k := range v.Keys {
-						<li class="panel px-4 py-3 flex items-center justify-between gap-3">
+						<li class="py-3 flex items-center justify-between gap-3">
 							<span class="min-w-0">
 								<span class="text-sm text-rw-text">{ k.Name }</span>
 								<span class="text-rw-faint text-xs">@c.When(k.Created)</span>
@@ -513,9 +513,9 @@ templ Domains(v DomainsView) {
 	<div id="tab-domains">
 		@c.Section("Organization domains", "organization", "Every stack in this organization can generate per-environment hostnames under one of these, like app.stack."+v.Example+". Hosts are unique across the whole server.") {
 			if len(v.Rows) > 0 {
-				<ul class="space-y-2 mb-5">
+				<ul class="divide-y divide-rw-border mb-5">
 					for _, r := range v.Rows {
-						<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+						<li class="py-2.5 flex flex-wrap items-center gap-2">
 							<span class="font-mono text-sm text-rw-text">{ r.Host }</span>
 							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ levelWord(r.Level) }</span>
 							if r.IncludeEnv {

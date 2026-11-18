@@ -1458,7 +1458,7 @@ func exits(v View) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var53 = []any{"space-y-2", templ.KV("opacity-70", v.Inherited)}
+					var templ_7745c5c3_Var53 = []any{"divide-y divide-rw-border", templ.KV("opacity-70", v.Inherited)}
 					templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_ElementWriter, templ_7745c5c3_Var53...)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
@@ -1491,7 +1491,7 @@ func exits(v View) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				for i, r := range v.Rungs {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "<li class=\"panel px-4 py-3 flex flex-wrap items-center gap-3 text-sm\"><span class=\"w-5 text-rw-faint\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "<li class=\"py-3 flex flex-wrap items-center gap-3 text-sm\"><span class=\"w-5 text-rw-faint\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

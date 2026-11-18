@@ -1240,9 +1240,9 @@ templ allowRow(v View, s SettingsView) {
 		if len(s.Allow) == 0 {
 			<p class="text-sm text-rw-muted">No pattern yet: only slice tiles in this environment.</p>
 		} else {
-			<ul class="space-y-1.5">
+			<ul class="divide-y divide-rw-border">
 				for i, p := range s.Allow {
-					<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm" data-field data-changed>
+					<li class="py-2.5 flex items-center gap-3 text-sm" data-field data-changed>
 						<span class="flex-1 font-mono text-rw-text break-all">{ p }</span>
 						if s.CanAllow {
 							<form>
@@ -1282,9 +1282,9 @@ templ pairsRow(v View, s SettingsView) {
 		if len(s.Pairs) == 0 {
 			<p class="text-sm text-rw-muted">No pair yet: a slice lands in the env it names.</p>
 		} else {
-			<ul class="space-y-1.5">
+			<ul class="divide-y divide-rw-border">
 				for i, p := range s.Pairs {
-					<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm font-mono" data-field data-changed>
+					<li class="py-2.5 flex items-center gap-3 text-sm font-mono" data-field data-changed>
 						<span class="text-rw-text">{ p.From }</span>
 						<span class="text-rw-faint">→</span>
 						<span class="flex-1 text-rw-text">{ p.To }</span>
