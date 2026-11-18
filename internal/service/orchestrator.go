@@ -354,6 +354,7 @@ type Orchestrator struct {
 	behindSince    sync.Map      // standby member id -> when its probes stopped streaming
 	probeRuns      sync.Map      // standby member id -> consecutive streaming (+) or not (-) probes
 	repoLocks      sync.Map      // clone dir, "settings", "dns row <id>" (rowLock) -> *sync.Mutex; never freed
+	sharesWanted   atomic.Bool   // reconcileShares ran before the job runner existed (boot only)
 	alertMem       *alertState   // the alert tick's memory (alerts.go)
 	platforms      platformCache // each node's CPU type (imports.go)
 	cli            cliCodes
@@ -589,6 +590,15 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.recordPanelVersion(ctx); err != nil {
 		slog.Warn("panel version: not recorded", "err", err)
 	}
+	// Not a build(): the constructor list a test checks is the leaves. It has
+	// to exist before the first worker probe, which reads and watches the
+	// disks, and before the volume leaf takes it.
+	orch.dh = newDiskHost(orch)
+	var dhost disk.Host = orch.dh
+	if o.diskHost != nil {
+		dhost = o.diskHost
+	}
+	orch.diskLeaf = disk.New(st.NodeDisks, st.DiskFolders, dhost)
 	orch.startMesh(ctl.ID)
 	if err := orch.refreshNodeClients(ctx); err != nil {
 		slog.Warn("nodes: worker clients not all built", "err", err)
@@ -615,14 +625,6 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
 	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d).WithSubnets(nodes).WithFilter(orch.filterBuildNode) })
 	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
-	// Not a build(): the constructor list a test checks is the leaves, and
-	// this one only has to exist before the volume leaf takes it.
-	orch.dh = newDiskHost(orch)
-	var dhost disk.Host = orch.dh
-	if o.diskHost != nil {
-		dhost = o.diskHost
-	}
-	orch.diskLeaf = disk.New(st.NodeDisks, st.DiskFolders, dhost)
 	orch.volumes = build("leaf/volume", func() *volume.Leaf {
 		v := volume.New(st.Volumes, d).WithShares(st.Shares).WithNode(orch.scopeNode).WithDisk(diskAdapter{orch})
 		v.Created = orch.volumeCreated
@@ -972,6 +974,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)
+	}
+	if orch.sharesWanted.Load() { // a worker came back during the first node probe
+		orch.reconcileShares(ctx)
 	}
 	if err := orch.resumeMoves(ctx); err != nil {
 		slog.Warn("moves: resume failed", "err", err)

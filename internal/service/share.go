@@ -115,6 +115,10 @@ func (o *Orchestrator) shareTx(ctx context.Context, orgID, slug string, fn func(
 
 // reconcileShares queues the share volume reconcile across the nodes.
 func (o *Orchestrator) reconcileShares(ctx context.Context) {
+	if o.jobs == nil {
+		o.sharesWanted.Store(true) // the first node probe, inside New: New queues it once the runner exists
+		return
+	}
 	if _, err := o.enqueue(ctx, kindShareReconcile, nil, "share-reconcile"); err != nil {
 		slog.Warn("shares: reconcile not queued", "err", err)
 	}

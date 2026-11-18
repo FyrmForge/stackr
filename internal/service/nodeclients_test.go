@@ -172,6 +172,26 @@ func TestBootMakesTheCAOnce(t *testing.T) {
 	}
 }
 
+// A panel that boots with an online worker probes it inside New, and that
+// probe reads the disk leaf: New must not panic.
+func TestBootWithAnOnlineWorker(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{node.StatusOnline, node.StatusOffline} { // already up, and coming back
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			o := newClusterPanel(t)
+			workerNodeWith(t, o, "w1", status, worker.Config{})
+			dir := o.cfg.DataDir
+			must(t, o.Close())
+			o2, err := New(Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack", Version: "v2"},
+				WithDocker(dockerfake.New()), WithVIP(vipStub{}),
+				WithProxy(func(context.Context, json.RawMessage) error { return nil }))
+			must(t, err)
+			t.Cleanup(func() { _ = o2.Close() })
+		})
+	}
+}
+
 // A worker node row gets a router entry that reaches the worker over mTLS; a
 // deploy to an env pinned to that node goes through it, not to the
 // controller's daemon.
