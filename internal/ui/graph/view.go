@@ -74,6 +74,7 @@ type Node struct {
 	ID, Kind, Name, Detail string
 	Slug                   string // the drill-down path segment; a connector's id
 	Status                 string // one word, "" = nothing to show
+	Fail                   string // the error under a failed status, "" = none
 	X, Y, W, H             int    // the card's own box; sub-tiles hang below it
 	// Members makes the card a container (the Cluster map's network box):
 	// the canvas keeps it wrapped around these cards, Pad (top right bottom
@@ -143,7 +144,7 @@ func (n Node) Foot() templ.Component {
 	if n.Footer != nil {
 		return n.Footer
 	}
-	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status})
+	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status, Fail: n.Fail})
 }
 
 // Toggle is the page URL with one show param flipped.

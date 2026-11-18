@@ -871,6 +871,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			ExtUpdates:     orch.pgExtUpdateCount,
 			RestartPending: orch.RestartPending,
 			Phase:          orch.jobPhase,
+			PushFail: func(ctx context.Context, stackID string) (string, bool) {
+				f, ok := orch.PushFailure(ctx, stackID)
+				return f.Error, ok
+			},
 		}
 	})
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {

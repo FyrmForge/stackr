@@ -447,6 +447,18 @@ func (e *Env) QueuedJob(t *testing.T, orgID, tileID string) string {
 	return id
 }
 
+// PushJob records a push job of the stack in state at at (errMsg is its
+// error), the way a push webhook leaves one, and returns its id.
+func (e *Env) PushJob(t *testing.T, stackID, state, errMsg string, at time.Time) string {
+	t.Helper()
+	id := uuid.NewString()
+	must(t, e.Store.Jobs.Create(context.Background(), store.Job{
+		ID: id, Kind: "push", State: state, Error: errMsg, LockSet: store.StringList{"push:" + stackID},
+		Payload: "{}", CreatedAt: at, FinishedAt: &at,
+	}))
+	return id
+}
+
 // JobWith records a job of kind in state holding payload (JSON) that nothing
 // picks up, and returns its id.
 func (e *Env) JobWith(t *testing.T, kind, state, payload string) string {

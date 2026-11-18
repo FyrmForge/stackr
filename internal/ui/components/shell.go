@@ -28,6 +28,9 @@ type Shell struct {
 	NodeDown string
 	// BannersURL is where the header banners refetch themselves ("" = static).
 	BannersURL string
+	// PushFailed is the env page's line after its stack's last push failed;
+	// nil = none.
+	PushFailed *PushFailView
 	// Upgrading is the panel upgrade banner: jobs queue until it is done.
 	Upgrading bool
 	// MoveIngress is the banner's link when it is the env's ingress that is

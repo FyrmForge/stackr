@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
 // CardView is one card on the env canvas. ID is its node id: the tile id
@@ -189,6 +191,8 @@ func word(status, waiting string) (tone, text string) {
 		return "danger", "Crashed"
 	case "failed":
 		return "danger", "Deploy failed"
+	case "pushfailed":
+		return "danger", "Push failed"
 	case "unhealthy":
 		return "warn", "Unhealthy"
 	case "degraded":
@@ -276,14 +280,7 @@ const failMax = 48
 // FailLine is the end of a failed deploy's error for a card's line, and the
 // whole of its last line for the title; "" when nothing failed.
 func FailLine(err string) (short, full string) {
-	full = strings.TrimSpace(err)
-	if i := strings.LastIndex(full, "\n"); i >= 0 {
-		full = strings.TrimSpace(full[i+1:])
-	}
-	if r := []rune(full); len(r) > failMax {
-		return "..." + string(r[len(r)-failMax:]), full
-	}
-	return full, full
+	return c.ErrTail(err, failMax)
 }
 
 func toneDot(t string) string {

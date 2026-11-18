@@ -109,3 +109,25 @@ func TestStackReleasesPromote(t *testing.T) {
 		t.Errorf("a viewer sees Promote or Roll back:\n%s", body)
 	}
 }
+
+// A failed push of the stack shows over the env page and its Releases tab,
+// and on the stack's card, until a later push does not fail.
+func TestFailedPushShows(t *testing.T) {
+	s := webtest.New(t)
+	at := time.Now()
+	id := s.PushJob(t, s.Tile.Stack, "failed", "build x: buildx build: exit status 1", at)
+	for _, path := range []string{"/acme/shop/dev", "/acme/shop/dev/-/drawer?tab=releases"} {
+		body := get(t, s, path)
+		if !strings.Contains(body, "The last push failed: build x: buildx build: exit status 1.") ||
+			!strings.Contains(body, `href="/acme/shop/dev/-/jobs/`+id+`"`) {
+			t.Errorf("%s lacks the failed push:\n%s", path, body)
+		}
+	}
+	if body := get(t, s, "/acme"); !strings.Contains(body, ">Push failed<") || !strings.Contains(body, "exit status 1</p>") {
+		t.Errorf("stack card:\n%s", body)
+	}
+	s.PushJob(t, s.Tile.Stack, "done", "", at.Add(time.Minute))
+	if body := get(t, s, "/acme/shop/dev/-/drawer?tab=releases"); strings.Contains(body, "The last push failed") {
+		t.Errorf("a later push left the failure:\n%s", body)
+	}
+}

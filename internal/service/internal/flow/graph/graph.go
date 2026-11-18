@@ -64,6 +64,8 @@ type Flow struct {
 	// Phase is the step a live job of a tile is at ("Queued (2 of 5)",
 	// "Pulling image"); "" = no word beyond the job's own. nil = none asked.
 	Phase func(ctx context.Context, j store.Job) string
+	// PushFail is the error of a stack's last push when it failed; nil = none asked.
+	PushFail func(ctx context.Context, stackID string) (string, bool)
 }
 
 // Node kinds besides the tile kinds (service, image, operated, cron,
@@ -348,6 +350,11 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 		if in.Status {
 			if n.Status, err = f.worstOf(ctx, "", ts); err != nil {
 				return err
+			}
+			if f.PushFail != nil {
+				if msg, ok := f.PushFail(ctx, st.ID); ok {
+					n.Status, n.Fail = "pushfailed", msg
+				}
 			}
 		}
 		if n.Domains, err = f.hosts(ctx, ts); err != nil {

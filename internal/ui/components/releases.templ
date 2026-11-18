@@ -16,6 +16,8 @@ type ReleasesView struct {
 	Job    *JobStatusView
 	Ask    *ConfirmView // the promote question, open on arrival
 	Live   string       // the tab's own GET, polled while no question is open; "" = static
+	// PushFail is the line over the list after a failed push; nil = none.
+	PushFail *PushFailView
 }
 
 // EnvRun is one env and the release it runs ("" = nothing deployed).
@@ -55,6 +57,11 @@ templ Releases(v ReleasesView) {
 	<div id="tab-releases">
 		if v.Live != "" && v.Ask == nil && (v.Job == nil || !v.Job.Live) {
 			@LiveTab(v.Live, "tab-releases")
+		}
+		if v.PushFail != nil {
+			<div class="mb-4">
+				@PushFailed(*v.PushFail)
+			</div>
 		}
 		@JobSlot(v.Job, "promote,deploy")
 		if v.Ask != nil {

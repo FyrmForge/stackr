@@ -52,6 +52,7 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 			Slug:   n.Slug,
 			Detail: n.Detail,
 			Status: n.Status,
+			Fail:   n.Fail,
 			X:      n.X,
 			Y:      n.Y,
 			W:      n.W,
@@ -135,6 +136,7 @@ func exposed(n service.GraphNode, level string) cards.FooterView {
 	f := cards.FooterView{
 		Kind:   n.Kind,
 		Status: n.Status,
+		Fail:   n.Fail,
 		Nav:    true,
 	}
 	if level == service.CanvasOrg {

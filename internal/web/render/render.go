@@ -118,6 +118,9 @@ func Shell(c echo.Context, title string) components.Shell {
 	}
 	sc := middleware.ScopeOf(c)
 	if sc.Env != nil {
+		if pf, ok := c.Get(pushFailKey).(func() *components.PushFailView); ok {
+			s.PushFailed = pf()
+		}
 		if down, ok := c.Get(nodeDownKey).(func(envID string) string); ok {
 			if s.NodeDown = down(sc.Env.ID); s.NodeDown != "" {
 				if p := middleware.Principal(c); p != nil && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
@@ -193,6 +196,22 @@ const nodeDownKey = "env_node_down"
 const ingressDownKey = "env_ingress_down"
 const diskDownKey = "env_disk_down"
 const upgradingKey = "panel_upgrading"
+const pushFailKey = "stack_push_failed"
+
+// PushFailure is the line for the env's stack when its last push failed,
+// nil when it did not (or the scope has no env).
+func PushFailure(c echo.Context, orch *service.Orchestrator) *components.PushFailView {
+	s := middleware.ScopeOf(c)
+	if s.Env == nil || s.Stack == nil || s.Org == nil {
+		return nil
+	}
+	f, ok := orch.PushFailure(c.Request().Context(), s.Stack.ID)
+	if !ok {
+		return nil
+	}
+	v := components.NewPushFail(f.Error, EnvURL(c)+"/-/jobs/"+f.JobID)
+	return &v
+}
 
 // NodeDown lets the shell show the offline banner on env and tile pages. It
 // leaves a lazy func, which Shell calls only when the URL has an env; the
@@ -239,6 +258,7 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 				}
 				return "The ingress serving " + hosts + " is offline."
 			})
+			c.Set(pushFailKey, func() *components.PushFailView { return PushFailure(c, orch) })
 			return next(c)
 		}
 	}
