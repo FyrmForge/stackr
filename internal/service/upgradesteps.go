@@ -104,7 +104,7 @@ func (o *Orchestrator) LastUpgradeFailure(ctx context.Context) (UpgradeFailure, 
 // keepUpgradeFailure stores what the helper left for the trial of tag, so the
 // log outlives the container it came from.
 func (o *Orchestrator) keepUpgradeFailure(ctx context.Context, tag string) {
-	pf, ok := panel.TakeFailure(o.cfg.DBPath)
+	pf, ok := panel.ReadFailure(o.cfg.DBPath, tag)
 	if !ok {
 		return
 	}
@@ -114,5 +114,7 @@ func (o *Orchestrator) keepUpgradeFailure(ctx context.Context, tag string) {
 	}
 	if err != nil {
 		slog.Warn("upgrade: failure not kept", "err", err)
+		return // the file stays for the next boot's retry
 	}
+	panel.RemoveFailure(o.cfg.DBPath)
 }

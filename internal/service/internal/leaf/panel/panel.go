@@ -227,6 +227,12 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		spec.Labels = map[string]string{}
 	}
 	spec.Labels[LabelRole] = "panel"
+	// A failure file of an earlier upgrade is not this trial's.
+	if db := dbPath(spec); db != "" {
+		if err := os.Remove(FailureFile(db)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("upgrade: old failure file not removed", "err", err)
+		}
+	}
 	// A rerun (the helper died and Docker started it again) finds the new
 	// panel of the first try, named spec.Name. It is not an old panel: it
 	// goes, and the database copy of the first try goes back, so the swap
@@ -299,7 +305,7 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 	}
 	if err != nil {
 		if db != "" {
-			l.recordFailure(ctx, id, db, err) // before the container, and its log, go
+			l.recordFailure(ctx, id, db, spec.Image[strings.LastIndex(spec.Image, ":")+1:], err) // before the container, and its log, go
 		}
 		_ = l.docker.StopRemove(ctx, id)
 		if db != "" {
@@ -371,6 +377,7 @@ func failed(err error, suf string) bool {
 // it back at boot (TakeFailure). Only the exit code and the log tail are
 // kept, never the container's env.
 type Failure struct {
+	Tag      string `json:"tag"` // the image tag that was on trial
 	Reason   string `json:"reason"`
 	ExitCode int    `json:"exit_code"`
 	Log      string `json:"log"`
@@ -383,24 +390,33 @@ const failureTail = 100
 // (the one dir both containers see).
 func FailureFile(db string) string { return db + ".upgrade-failed.json" }
 
-func (l *Leaf) recordFailure(ctx context.Context, id, db string, cause error) {
-	f := Failure{Reason: cause.Error()}
+func (l *Leaf) recordFailure(ctx context.Context, id, db, tag string, cause error) {
+	f := Failure{Tag: tag, Reason: cause.Error()}
 	if d, err := l.docker.Inspect(ctx, id); err == nil && !d.Running {
 		f.ExitCode = d.ExitCode
 	}
 	f.Log, _ = l.docker.Logs(ctx, id, failureTail)
 	if b, err := json.Marshal(f); err == nil {
-		_ = os.WriteFile(FailureFile(db), b, 0o600)
+		if err := os.WriteFile(FailureFile(db), b, 0o600); err != nil {
+			slog.Warn("upgrade: failure file not written", "err", err)
+		}
 	}
 }
 
-// TakeFailure reads and removes the helper's Failure; false = none was left.
-func TakeFailure(db string) (Failure, bool) {
+// ReadFailure is the helper's Failure for the trial of tag; false = none was
+// left, or it is another trial's. It stays on disk until RemoveFailure.
+func ReadFailure(db, tag string) (Failure, bool) {
 	var f Failure
 	b, err := os.ReadFile(FailureFile(db))
-	if err != nil || json.Unmarshal(b, &f) != nil {
-		return f, false
+	if err != nil || json.Unmarshal(b, &f) != nil || f.Tag != tag {
+		return Failure{}, false
 	}
-	_ = os.Remove(FailureFile(db))
 	return f, true
+}
+
+// RemoveFailure deletes the helper's Failure file.
+func RemoveFailure(db string) {
+	if err := os.Remove(FailureFile(db)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Warn("upgrade: failure file not removed", "err", err)
+	}
 }

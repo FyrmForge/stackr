@@ -19,7 +19,7 @@ func TestUndoKeepsTheNewPanelsLog(t *testing.T) {
 	r := newRollbackRig(t, 1)
 	ctx := context.Background()
 	db := r.n.orch.cfg.DBPath
-	b, _ := json.Marshal(panel.Failure{Reason: "the container exited during the health check", ExitCode: 3, Log: "panic: no such column"})
+	b, _ := json.Marshal(panel.Failure{Tag: "0.9.1", Reason: "the container exited during the health check", ExitCode: 3, Log: "panic: no such column"})
 	must(t, os.WriteFile(panel.FailureFile(db), b, 0o600))
 	t.Cleanup(func() { _ = os.Remove(panel.FailureFile(db)) })
 
@@ -31,6 +31,23 @@ func TestUndoKeepsTheNewPanelsLog(t *testing.T) {
 	}
 	if _, err := os.Stat(panel.FailureFile(db)); err == nil {
 		t.Error("the helper's file is left behind")
+	}
+}
+
+// A failure file left by another trial (another target tag) is not kept
+// as this one's reason.
+func TestUndoIgnoresAnotherTrialsFile(t *testing.T) {
+	r := newRollbackRig(t, 1)
+	ctx := context.Background()
+	db := r.n.orch.cfg.DBPath
+	b, _ := json.Marshal(panel.Failure{Tag: "0.8.0", Reason: "old", Log: "old log"})
+	must(t, os.WriteFile(panel.FailureFile(db), b, 0o600))
+	t.Cleanup(func() { _ = os.Remove(panel.FailureFile(db)) })
+
+	r.n.orch.undoFailedUpgrade(ctx)
+
+	if f, ok := r.n.orch.LastUpgradeFailure(ctx); ok {
+		t.Fatalf("kept another trial's failure: %+v", f)
 	}
 }
 
