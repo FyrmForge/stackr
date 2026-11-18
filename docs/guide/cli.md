@@ -1427,7 +1427,7 @@ stkr node disk add <node> [<path>] [flags]
 ```
 
 ```
-      --confirm string   the word that confirms (the disk's name, like sdb (with --format-anyway on a bare name: its serial or by-id name); --yes does not answer it); without it the verb asks
+      --confirm string   the word that confirms (the disk's name, like sdb (with --format-anyway: its serial or by-id name; on a bare name the kernel name is not enough); --yes does not answer it); without it the verb asks
       --device devices   a whole disk to format xfs: its name (sdb), path or id from devices. Everything on it is erased
       --format-anyway    erase a disk that already holds a filesystem, a partition table or an earlier stackr disk
       --no-wait          print the job and return; it runs server-side
@@ -1438,7 +1438,7 @@ Example:
 ```
   stkr node disk add vps-fsn1 /mnt/data
   stkr node disk add vps-fsn1 --device sdb --confirm sdb
-  stkr node disk add vps-fsn1 --device ata-WDC_WD20EZ_WD-1234 --format-anyway --confirm sdb
+  stkr node disk add vps-fsn1 --device ata-WDC_WD20EZ_WD-1234 --format-anyway --confirm ata-WDC_WD20EZ_WD-1234
 ```
 
 #### `stkr node disk adopt`

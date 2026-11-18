@@ -174,8 +174,8 @@ func (a *app) diskAdd() *cobra.Command {
 		}))
 	c.Flags().StringVar(&device, "device", "", "a whole disk to format xfs: its name (sdb), path or id from `devices`. Everything on it is erased")
 	c.Flags().BoolVar(&anyway, "format-anyway", false, "erase a disk that already holds a filesystem, a partition table or an earlier stackr disk")
-	confirmFlag(c, &confirm, "the disk's name, like sdb (with --format-anyway on a bare name: its serial or by-id name); --yes does not answer it")
-	c.Example = "  stkr node disk add vps-fsn1 /mnt/data\n  stkr node disk add vps-fsn1 --device sdb --confirm sdb\n  stkr node disk add vps-fsn1 --device ata-WDC_WD20EZ_WD-1234 --format-anyway --confirm sdb"
+	confirmFlag(c, &confirm, "the disk's name, like sdb (with --format-anyway: its serial or by-id name; on a bare name the kernel name is not enough); --yes does not answer it")
+	c.Example = "  stkr node disk add vps-fsn1 /mnt/data\n  stkr node disk add vps-fsn1 --device sdb --confirm sdb\n  stkr node disk add vps-fsn1 --device ata-WDC_WD20EZ_WD-1234 --format-anyway --confirm ata-WDC_WD20EZ_WD-1234"
 	return c
 }
 
@@ -211,17 +211,22 @@ func (a *app) addDevice(c *cobra.Command, node, device, confirm string, anyway b
 		}
 		a.say("%s holds data (%s). Formatting erases all of it.", name, sig)
 	}
-	// Format anyway on a bare kernel name lists and formats in one go, so the
-	// name alone proves nothing: the serial or the by-id name has to be typed.
+	// Format anyway lists and formats in one go, so the kernel name alone proves
+	// nothing on a bare name: the serial or the by-id name has to be typed. Named
+	// by its by-id path the name is fine too.
+	bare := device == name || device == cell(pick["path"])
 	want, ok := name, []string(nil)
-	if anyway && (device == name || device == cell(pick["path"])) {
+	if anyway {
 		for _, w := range []string{cell(pick["serial"]), cell(pick["id"]), path.Base(cell(pick["id"]))} {
 			if w != "(none)" && w != cell(pick["path"]) && w != name {
 				ok = append(ok, w)
 			}
 		}
-		if len(ok) == 0 {
-			ok = []string{name} // nothing stable to type: the disk has no serial and no by-id link
+		if len(ok) == 0 && bare {
+			return fmt.Errorf("%s has no serial or stable id. Format it from the panel, or pass --device with its by-id path", name)
+		}
+		if !bare {
+			ok = append(ok, name)
 		}
 		want = ok[0]
 	}
@@ -230,9 +235,6 @@ func (a *app) addDevice(c *cobra.Command, node, device, confirm string, anyway b
 		return err
 	}
 	if ok != nil && !slices.Contains(ok, word) {
-		if ok[0] == name {
-			return fmt.Errorf("type %s to confirm", name)
-		}
 		return fmt.Errorf("--format-anyway on %q needs the disk's serial or id as the confirmation (%s), not its name", device, strings.Join(ok, " or "))
 	}
 	if anyway {
