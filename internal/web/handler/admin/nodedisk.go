@@ -37,12 +37,12 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 	}
 	dk := ui.NodeDisk{
 		Has: p.Has, State: p.State, Path: p.Path, Network: p.Network, Stale: p.Stale, Count: len(p.Volumes),
-		Dialog: ui.DiskDialog{Probe: base + "/disk/probe", State: base + "/disk/state", Add: base + "/disk/add"},
+		Dialog: ui.DiskDialog{Probe: base + "/disk/probe", State: base + "/disk/state", Add: base + "/disk/add", Choose: base + "/disk/choose", Pick: base + "/disk/pick", Plan: base + "/disk/format/plan", Node: d.Name},
 	}
 	online := d.Status == "online"
 	if !p.Has {
 		dk.Help = "Keep volumes on their own disk, apart from the system disk."
-		adding, err := h.jobActive(c, d.ID, "disk-add")
+		adding, err := h.jobActive(c, d.ID, kindsAdd...)
 		if err != nil {
 			return dk, err
 		}
@@ -69,9 +69,14 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 		return dk, nil
 	}
 	dk.ID = p.ID
+	if p.Kind == "xfs" {
+		if err := h.xfsDisk(c, &dk, p, d, base, online); err != nil {
+			return dk, err
+		}
+	}
 	if p.State == "ready" {
 		dk.Help = "New volumes on this node are stored here."
-		if p.Total > 0 {
+		if p.Total > 0 && p.Damaged == "" {
 			dk.Used = diskSize(int64(p.Total-p.Free)) + " of " + diskSize(int64(p.Total))
 			dk.StaleAt = render.Ago(p.ReadAt)
 			dk.Pct = strconv.Itoa(int((p.Total - p.Free) * 100 / p.Total))
@@ -81,20 +86,27 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 	if !p.MissingSince.IsZero() {
 		dk.Since = ago(p.MissingSince)
 	}
-	if p.State != "ready" && online {
+	if (p.State != "ready" || p.Damaged != "") && online {
 		dk.Check = base + "/disk/check"
+		if dk.Whole && p.State == "adding" && !p.Formatted {
+			dk.Check = "" // nothing was formatted yet: there is nothing to check
+		}
 		if dk.Checking, err = h.jobActive(c, d.ID, "disk-check"); err != nil {
 			return dk, err
 		}
 	}
 	if p.State == "adding" && online {
-		adding, err := h.jobActive(c, d.ID, "disk-add")
+		adding, err := h.jobActive(c, d.ID, kindsAdd...)
 		if err != nil {
 			return dk, err
 		}
 		if dk.AddFailed = !adding; dk.AddFailed {
-			dk.Add = base + "/disk/add"
-			dk.Dialog.Path = p.Path
+			if dk.Whole { // try again picks the disk again; a formatted one is only mounted
+				dk.Retry = base + "/disk/choose"
+			} else {
+				dk.Add = base + "/disk/add"
+				dk.Dialog.Path = p.Path
+			}
 		}
 	}
 	if err := h.diskActions(c, &dk, p, d, base, online); err != nil {
@@ -117,8 +129,11 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 	return dk, nil
 }
 
-// jobActive is whether a job of kind for the node is queued or running.
-func (h *handler) jobActive(c echo.Context, nodeID, kind string) (bool, error) {
+// kindsAdd are the jobs that add the node's disk: a folder, or a whole disk.
+var kindsAdd = []string{"disk-add", "disk-add-device"}
+
+// jobActive is whether a job of one of kinds for the node is queued or running.
+func (h *handler) jobActive(c echo.Context, nodeID string, kinds ...string) (bool, error) {
 	js, err := h.orch.Jobs(c.Request().Context(), 0, "queued", "waiting", "running")
 	if err != nil {
 		return false, err
@@ -127,7 +142,7 @@ func (h *handler) jobActive(c echo.Context, nodeID, kind string) (bool, error) {
 		var p struct {
 			NodeID string `json:"node_id"`
 		}
-		return j.Kind == kind && json.Unmarshal([]byte(j.Payload), &p) == nil && p.NodeID == nodeID
+		return slices.Contains(kinds, j.Kind) && json.Unmarshal([]byte(j.Payload), &p) == nil && p.NodeID == nodeID
 	}), nil
 }
 
@@ -139,6 +154,7 @@ func diskDialog(c echo.Context) ui.DiskDialog {
 	base := nodesBase + "/" + c.Param("node")
 	return ui.DiskDialog{
 		Probe: base + "/disk/probe", State: base + "/disk/state", Add: base + "/disk/add",
+		Choose: base + "/disk/choose", Pick: base + "/disk/pick", Plan: base + "/disk/format/plan",
 		Path:    strings.TrimSpace(c.FormValue("path")),
 		Checked: c.FormValue("checked"), Network: c.FormValue("net") == "1", NetOK: c.FormValue("net_ok") != "",
 	}
@@ -278,7 +294,7 @@ func (h *handler) diskActions(c echo.Context, dk *ui.NodeDisk, p service.NodeDis
 			dk.Resume = &ui.DiskResume{Action: base + "/disk/adopt", Vals: ui.AdoptVals(p.ID, p.Path, ""), Text: "Adopting did not finish."}
 		}
 	case "missing", "adding":
-		addRun, err := h.jobActive(c, d.ID, "disk-add")
+		addRun, err := h.jobActive(c, d.ID, kindsAdd...)
 		if err != nil {
 			return err
 		}
@@ -286,8 +302,17 @@ func (h *handler) diskActions(c echo.Context, dk *ui.NodeDisk, p service.NodeDis
 		case forgetRun:
 			dk.Note = "Forgetting this disk."
 		case p.State == "adding" && addRun, !online:
+			if dk.Whole && addRun {
+				dk.Note = "Formatting " + dk.Device + "."
+				if p.Formatted {
+					dk.Note = "Mounting " + dk.Device + "."
+				}
+			}
 		default:
 			dk.Note = "Disk gone for good? Forget it."
+			if dk.Whole && p.State == "adding" && p.Formatted {
+				dk.Note = "Try again mounts it. It is not formatted a second time. Disk gone for good? Forget it."
+			}
 			f, err := h.forgetDialog(c, p.ID, d.Name)
 			if errors.Is(err, errs.ErrNotFound) { // the forget finished since the panel was read
 				dk.Note = ""
@@ -388,4 +413,52 @@ func (h *handler) moveJobs(c echo.Context, nodeID string) ([]ui.MoveJobRow, erro
 		}
 	}
 	return out, nil
+}
+
+// xfsDisk fills what only a disk made from a whole device has: the device, a
+// device that changed, and new space to grow into. Rows and the job table
+// only: a poll never reaches Docker or a helper.
+func (h *handler) xfsDisk(c echo.Context, dk *ui.NodeDisk, p service.NodeDiskPanel, d service.NodeDetail, base string, online bool) error {
+	xfsView(dk, p, base, online)
+	if dk.Grow == "" {
+		return nil
+	}
+	var err error
+	dk.Growing, err = h.jobActive(c, d.ID, "disk-grow")
+	return err
+}
+
+// xfsView is the xfs part of the section from the panel's rows alone.
+func xfsView(dk *ui.NodeDisk, p service.NodeDiskPanel, base string, online bool) {
+	dk.Whole, dk.Formatted = true, p.Formatted
+	dk.Device = devLabel(p.Device)
+	now, was := p.DeviceBytes, p.WasBytes
+	if now == 0 {
+		now = was
+	}
+	if now > 0 {
+		dk.DeviceSize = diskSize(int64(now))
+	}
+	if p.State != "ready" {
+		return
+	}
+	switch p.Damaged {
+	case "smaller":
+		dk.DeviceWas = diskSize(int64(was))
+		dk.Damaged = dk.Device + " is now " + dk.DeviceSize + ", was " + dk.DeviceWas + ". Data on it may be damaged. Make the device " + dk.DeviceWas + " again, then check the disk."
+	case "other_fs":
+		dk.Damaged = "Another filesystem is on " + dk.Device + " now. The disk's data may be gone."
+	}
+	if p.Damaged == "" && p.NewSpace > 0 && online {
+		dk.NewSpace = diskSize(int64(p.NewSpace))
+		dk.Grow = base + "/disk/grow"
+	}
+}
+
+// devLabel is a device as the card names it: sdb for /dev/sdb, an id as it is.
+func devLabel(id string) string {
+	if strings.HasPrefix(id, "/dev/") {
+		return strings.TrimPrefix(id, "/dev/")
+	}
+	return id
 }

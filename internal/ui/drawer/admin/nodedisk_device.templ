@@ -1,0 +1,324 @@
+package admin
+
+import (
+	"encoding/json"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// Add disk, whole disk: the picker, the Format dialog and the grow row. The
+// picker is an answer into #disk-part of the Add disk dialog (an explicit
+// POST: the helper runs there and nowhere else); a pick and Continue run no
+// helper. Rows are flat inside the dialog.
+
+// DiskDevice is one disk of the picker. Value is the whole listed device as
+// JSON: it goes back with the pick, so a disk that changed is caught. Why is
+// the reason it cannot be picked, "" = it can.
+type DiskDevice struct {
+	Name, Model, Size, Ident string
+	Value                    string
+	Chip, Tone               string // what is on it: "No filesystem", "Earlier stackr disk" ...
+	Why                      string
+	Picked                   bool
+}
+
+// DiskPicker is the list the node's devices answer. Msg is a refusal.
+type DiskPicker struct {
+	Devices []DiskDevice
+	Msg     string
+}
+
+func (p DiskPicker) usable() bool {
+	for _, d := range p.Devices {
+		if d.Why == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (p DiskPicker) picked() bool {
+	for _, d := range p.Devices {
+		if d.Picked && d.Why == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// DiskFormat is the Format dialog of a picked disk. Anyway = Format anyway:
+// the disk holds data, a partition table or an earlier stackr disk. Msg is a
+// refusal of the press: the dialog then has no typed word and only closes.
+type DiskFormat struct {
+	Add, Node    string
+	Name, Model  string
+	Size, Serial string
+	ID, Holds    string
+	Hint         string // under the facts: "To keep them, adopt the disk instead."
+	Table        bool   // the disk holds only a partition table
+	Anyway       bool
+	Value        string // the whole listed device, JSON
+	Msg          string
+}
+
+func (f DiskFormat) title() string {
+	if f.Anyway {
+		return "Format " + f.Name + " anyway"
+	}
+	return "Format " + f.Name
+}
+
+func (f DiskFormat) button() string {
+	if f.Anyway {
+		return "Format anyway"
+	}
+	return "Format disk"
+}
+
+func (f DiskFormat) vals() string {
+	m := map[string]string{"device": f.Value}
+	if f.Anyway {
+		m["force"] = "1"
+	}
+	b, _ := json.Marshal(m) // a string map always marshals
+	return string(b)
+}
+
+func (f DiskFormat) lead() string {
+	switch {
+	case !f.Anyway:
+		return "Erases " + f.Name + " and formats it xfs. It becomes this node's disk."
+	case f.Table:
+		return f.Name + " has a partition table. Formatting erases it. It cannot be undone."
+	}
+	return f.Name + " holds data. Formatting erases all of it. It cannot be undone."
+}
+
+// diskHow is one of the two choices of the Add disk dialog.
+templ diskHow(d DiskDialog, value, label, sub string) {
+	<label class="flex items-start gap-3 py-3 text-sm cursor-pointer">
+		<input
+			type="radio"
+			name="how"
+			value={ value }
+			checked?={ d.how() == value }
+			class="mt-1 accent-[rgb(var(--rw-accent))]"
+			hx-post={ d.Choose }
+			hx-trigger="change"
+			hx-target="#disk-part"
+			hx-swap="innerHTML"
+			if value == "disk" {
+				hx-indicator="#disk-reading"
+			}
+		/>
+		<span class="min-w-0">
+			<span class="block text-rw-text">{ label }</span>
+			<span class="block text-xs text-rw-muted mt-0.5">{ sub }</span>
+		</span>
+	</label>
+}
+
+templ diskChoice(d DiskDialog) {
+	<div class="divide-y divide-rw-border" role="radiogroup" aria-label="What to add">
+		@diskHow(d, "folder", "A folder that is already mounted", "Nothing is erased.")
+		@diskHow(d, "disk", "A whole disk", "stackr formats it. Everything on it is erased.")
+	</div>
+}
+
+// diskPart is what the choice shows under it: the folder field, or the picker.
+templ diskPart(d DiskDialog) {
+	if d.how() == "disk" {
+		@diskPicker(d)
+	} else {
+		@diskFolderPart(d)
+	}
+}
+
+templ diskPicker(d DiskDialog) {
+	<div class="mt-4 flex items-center">
+		<h3 class="label mb-0">Disks on { d.Node }</h3>
+		<button type="button" class="link ml-auto text-xs" hx-post={ d.Choose } hx-vals={ templ.JSONString(map[string]string{"how": "disk"}) } hx-target="#disk-part" hx-swap="innerHTML" hx-indicator="#disk-reading">Refresh</button>
+	</div>
+	if d.Picker != nil {
+		if d.Picker.Msg != "" {
+			<div class="mt-3">
+				@c.DlgAlert(d.Picker.Msg)
+			</div>
+		}
+		<ul class="divide-y divide-rw-border">
+			for _, v := range d.Picker.Devices {
+				@diskDeviceRow(d, v)
+			}
+		</ul>
+		if d.Picker.Msg == "" && !d.Picker.usable() {
+			<p class="mt-3 text-sm text-rw-muted">No disk can be used. Attach one, then refresh.</p>
+		}
+	}
+}
+
+templ diskDeviceRow(d DiskDialog, v DiskDevice) {
+	<li>
+		<label class={ "flex items-start gap-3 py-3 text-sm", templ.KV("cursor-pointer", v.Why == ""), templ.KV("cursor-not-allowed", v.Why != "") }>
+			<input
+				type="radio"
+				name="device"
+				value={ v.Value }
+				checked?={ v.Picked && v.Why == "" }
+				disabled?={ v.Why != "" }
+				class="mt-1 accent-[rgb(var(--rw-accent))]"
+				aria-label={ v.Name }
+				hx-post={ d.Pick }
+				hx-trigger="change"
+				hx-swap="none"
+			/>
+			<span class="min-w-0 flex-1">
+				<span class={ "flex flex-wrap items-center gap-x-2 gap-y-1", templ.KV("opacity-60", v.Why != "") }>
+					<span class="font-mono text-rw-text">{ v.Name }</span>
+					if v.Model != "" {
+						<span class="text-rw-muted">{ v.Model }</span>
+					}
+					<span class="ml-auto text-xs text-rw-muted tabular-nums">{ v.Size }</span>
+				</span>
+				<span class={ "mt-1 flex flex-wrap items-center gap-x-2 gap-y-1", templ.KV("opacity-60", v.Why != "") }>
+					<span class="text-xs text-rw-faint font-mono [overflow-wrap:anywhere]">{ v.Ident }</span>
+					if v.Chip != "" {
+						@c.Chip(v.Chip, v.Tone)
+					}
+				</span>
+				if v.Why != "" {
+					<p class="mt-1 text-xs text-rw-muted">Not available: { v.Why }.</p>
+				}
+			</span>
+		</label>
+	</li>
+}
+
+// diskFoot is the foot of the Add disk dialog: Use folder, or Continue.
+templ diskFoot(d DiskDialog) {
+	<button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+	if d.how() == "disk" {
+		@diskContinue(d)
+	} else {
+		@diskUse(d, false)
+	}
+}
+
+templ diskContinue(d DiskDialog) {
+	<button
+		type="button"
+		id="disk-continue"
+		class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+		hx-post={ d.Plan }
+		hx-include="closest form"
+		hx-target="#disk-fmt-dlg"
+		hx-swap="innerHTML"
+		hx-disabled-elt="this"
+		disabled?={ d.Picker == nil || !d.Picker.picked() }
+	>Continue</button>
+}
+
+// DiskChoose is what the choice answers: the part under it, and the foot out
+// of band. The first answer to a pick carries the open dialog (Open).
+templ DiskChoose(d DiskDialog) {
+	if d.Open {
+		@diskDialog(d, "", "")
+	} else {
+		@diskPart(d)
+		<div hx-swap-oob="innerHTML:#disk-foot">
+			@diskFoot(d)
+		</div>
+	}
+}
+
+// DiskPicked is the answer to a pick: Continue, out of band.
+templ DiskPicked(d DiskDialog) {
+	@diskContinue(d)
+}
+
+// DiskFormatDialog is the Format dialog an answer puts into #disk-fmt-dlg.
+templ DiskFormatDialog(f DiskFormat) {
+	if f.Msg != "" {
+		@c.DlgShell(f.title(), f.Node, diskCloseFoot()) {
+			<p>{ f.lead() }</p>
+			@diskFacts(f)
+			<div class="mt-3">
+				@c.DlgAlert(f.Msg)
+			</div>
+		}
+	} else {
+		@c.DiskConfirm(c.DiskConfirmView{
+			Title: f.title(), Sub: f.Node, Word: f.Name, Button: f.button(),
+			Action: f.Add, Target: drawerTarget(), Vals: f.vals(), Include: "find [data-word]",
+			Open: true, Body: diskFormatBody(f),
+		})
+	}
+}
+
+templ diskCloseFoot() {
+	<button type="button" class="btn btn-ghost btn-sm" data-cancel>Close</button>
+}
+
+templ diskFormatBody(f DiskFormat) {
+	if f.Anyway {
+		<p class="flex items-start gap-2 text-sm text-rw-danger" role="alert">
+			@diskIcon("warn")
+			<span>{ f.lead() }</span>
+		</p>
+	} else {
+		<p>{ f.lead() }</p>
+	}
+	@diskFacts(f)
+	if f.Hint != "" {
+		<p class="text-xs text-rw-muted -mt-2">{ f.Hint }</p>
+	}
+}
+
+templ diskFacts(f DiskFormat) {
+	<dl class="dl text-sm">
+		<dt class="text-rw-muted">Disk</dt>
+		<dd class="text-rw-text">
+			<span class="font-mono text-xs">{ f.Name }</span>
+			if f.Model != "" {
+				<span class="text-rw-muted">{ f.Model }</span>
+			}
+		</dd>
+		<dt class="text-rw-muted">Size</dt>
+		<dd class="text-rw-text">{ f.Size }</dd>
+		if f.Serial != "" {
+			<dt class="text-rw-muted">Serial</dt>
+			<dd class="text-rw-text font-mono text-xs">{ f.Serial }</dd>
+		}
+		<dt class="text-rw-muted">ID</dt>
+		<dd class="text-rw-text font-mono text-xs">{ f.ID }</dd>
+		if f.Holds != "" {
+			<dt class="text-rw-muted">On it</dt>
+			<dd class="text-rw-text">{ f.Holds }</dd>
+		}
+	</dl>
+}
+
+// diskGrowRow is the new space of an xfs disk's device and Use it. The row
+// goes by itself once the worker reads the grown disk.
+templ diskGrowRow(d NodeDisk) {
+	if d.NewSpace != "" {
+		<div class="mt-4">
+			<div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+				<span class="text-rw-text">New space on the device: { d.NewSpace }.</span>
+				<span class="ml-auto">
+					if d.Growing {
+						<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>Use it</button>
+					} else {
+						@c.PrimaryPost("Use it", d.Grow)
+					}
+				</span>
+			</div>
+			<p class="mt-1 text-xs text-rw-muted">The disk stays in use.</p>
+		</div>
+	}
+}
+
+// diskRetry is Try again of an xfs add that stopped: it opens the picker, and
+// a disk that already carries this add's filesystem is only mounted.
+templ diskRetry(d NodeDisk) {
+	<button type="button" class="btn btn-primary btn-sm" hx-post={ d.Retry } hx-vals={ templ.JSONString(map[string]string{"how": "disk", "open": "1"}) } hx-target="#disk-retry" hx-swap="innerHTML" hx-disabled-elt="this">Try again</button>
+}

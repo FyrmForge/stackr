@@ -469,12 +469,15 @@ func EnvURL(c echo.Context) string {
 }
 
 // jobKindLabel is a job kind as the status line says it: disk.add,
-// disk.check, disk.forget, disk.adopt, volume.to_disk.
+// disk.check, disk.forget, disk.adopt, disk.add_device, disk.grow, volume.to_disk.
 func jobKindLabel(k string) string {
 	if k == "volume-to-disk" {
 		return "volume.to_disk"
 	}
-	return strings.Replace(k, "disk-", "disk.", 1)
+	if rest, ok := strings.CutPrefix(k, "disk-"); ok {
+		return "disk." + strings.ReplaceAll(rest, "-", "_")
+	}
+	return k
 }
 
 // JobView is a job's status line; page is the path its job stream hangs

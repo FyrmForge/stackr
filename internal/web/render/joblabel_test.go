@@ -11,6 +11,7 @@ import (
 func TestJobViewLabelsDiskJobs(t *testing.T) {
 	for kind, want := range map[string]string{
 		"disk-add": "disk.add", "disk-check": "disk.check", "disk-forget": "disk.forget", "disk-adopt": "disk.adopt",
+		"disk-add-device": "disk.add_device", "disk-grow": "disk.grow",
 		"volume-to-disk": "volume.to_disk", "deploy": "deploy",
 	} {
 		if got := render.JobView("", service.Job{Kind: kind}).Kind; got != want {

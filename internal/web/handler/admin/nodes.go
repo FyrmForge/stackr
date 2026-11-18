@@ -148,6 +148,13 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 	g.POST(nodesBase+"/:node/disk/probe", h.diskProbe, m)
 	g.POST(nodesBase+"/:node/disk/state", h.diskState, m)
 	g.POST(nodesBase+"/:node/disk/add", h.diskAdd, m)
+	g.POST(nodesBase+"/:node/disk/choose", h.diskChoose, m)
+	g.POST(nodesBase+"/:node/disk/pick", h.diskPick, m)
+	g.POST(nodesBase+"/:node/disk/format/plan", h.diskFormatPlan, m)
+	g.POST(nodesBase+"/:node/disk/format", h.diskFormat, m)
+	g.POST(nodesBase+"/:node/disk/grow", h.nodeJob("overview", "Growing the disk.", func(c echo.Context) (service.Job, error) {
+		return h.orch.GrowNodeDisk(c.Request().Context(), middleware.Principal(c), c.Param("node"))
+	}), m)
 	g.POST(nodesBase+"/:node/disk/adopt/plan", h.diskAdoptPlan, m)
 	g.POST(nodesBase+"/:node/disk/adopt", h.diskAdopt, m)
 	g.POST(nodesBase+"/:node/disk/adopt/discard-copy", h.diskAdoptDiscard, m)

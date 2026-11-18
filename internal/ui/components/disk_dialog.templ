@@ -18,6 +18,10 @@ type DiskConfirmView struct {
 	Action string // hx-post on "confirmed"
 	Target string // what the answer replaces (outerHTML)
 	Vals   string // hx-vals JSON posted with the action
+	// Include is an hx-include selector for what the action also posts. With
+	// it the typed word is posted too, as "typed": a destructive verb the
+	// server must see the word for.
+	Include string
 	Primary bool  // the confirm is not destructive
 	Open   bool   // open on arrival
 	Body   templ.Component
@@ -34,6 +38,9 @@ templ DiskConfirm(v DiskConfirmView) {
 		}
 		if v.Vals != "" {
 			hx-vals={ v.Vals }
+		}
+		if v.Include != "" {
+			hx-include={ v.Include }
 		}
 		class="inline-block"
 	>
@@ -54,7 +61,7 @@ templ DiskConfirm(v DiskConfirmView) {
 					if v.Word != "" {
 						<div>
 							<label class="label">Type <span class="font-mono text-rw-text">{ v.Word }</span> to confirm</label>
-							<input type="text" class="input font-mono" data-word autocomplete="off" aria-label={ "Type " + v.Word + " to confirm" }/>
+							<input type="text" class="input font-mono" data-word autocomplete="off" if v.Include != "" { name="typed" } aria-label={ "Type " + v.Word + " to confirm" }/>
 						</div>
 					}
 				</div>
