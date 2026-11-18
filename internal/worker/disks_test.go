@@ -295,3 +295,80 @@ func TestDisksPutRouteAndFactsEchoTheRegistry(t *testing.T) {
 		t.Fatalf("echo %v", f.DiskRegs)
 	}
 }
+
+// H8: only a real answer is a read; an I/O or stamp failure leaves the path stale.
+func TestDisksReadOnlyARealAnswerCountsAsARead(t *testing.T) {
+	root := t.TempDir()
+	mnt := filepath.Join(root, "mnt/data")
+	if err := os.MkdirAll(mnt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "proc/1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dev, err := hostdisk.DevString(mnt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := rootLine + "2 1 " + dev + " / /mnt/data rw - ext4 /dev/sdb1 rw\n"
+	if err := os.WriteFile(filepath.Join(root, "proc/1/mountinfo"), []byte(table), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New(Config{StateDir: t.TempDir(), HostRoot: root, DockerSock: "/nonexistent"})
+	t.Cleanup(s.Stop)
+	read := func() error { _, _, _, err := s.readDiskDefault(context.Background(), "/mnt/data"); return err }
+	if err := read(); err != nil { // mounted, no stamp: a read with an empty stamp
+		t.Fatalf("no stamp: %v", err)
+	}
+	stamp := filepath.Join(mnt, ".stackr-disk")
+	if err := os.WriteFile(stamp, []byte(`{"id":"d1","owner":"n1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if st, _, _, err := s.readDiskDefault(context.Background(), "/mnt/data"); err != nil || st.ID != "d1" {
+		t.Fatalf("stamp: %+v %v", st, err)
+	}
+	if err := os.WriteFile(stamp, nil, 0o644); err != nil { // broken stamp
+		t.Fatal(err)
+	}
+	if read() == nil {
+		t.Error("a broken stamp must not count as a read")
+	}
+	if err := os.Remove(stamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(stamp, 0o755); err != nil { // read fails with an I/O error
+		t.Fatal(err)
+	}
+	if read() == nil {
+		t.Error("an I/O error must not count as a read")
+	}
+	// a typed io refusal (no mount table) is not a read either
+	if err := os.Remove(filepath.Join(root, "proc/1/mountinfo")); err != nil {
+		t.Fatal(err)
+	}
+	if read() == nil {
+		t.Error("a typed io error must not count as a read")
+	}
+	// not the disk at all: a real answer, an empty stamp
+	if err := os.WriteFile(filepath.Join(root, "proc/1/mountinfo"), []byte(rootLine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if st, _, _, err := s.readDiskDefault(context.Background(), "/mnt/data"); err != nil || st.ID != "" {
+		t.Fatalf("unmounted: %+v %v", st, err)
+	}
+}
+
+// H9: a fact carries the time of the read it came from.
+func TestDisksFactsCarryTheReadTime(t *testing.T) {
+	s := diskServer(t, rootLine+dataLine, func(context.Context, string) (hostdisk.Stamp, uint64, uint64, error) {
+		return hostdisk.Stamp{ID: "d1"}, 1, 2, nil
+	})
+	before := time.Now()
+	if err := s.PutDisks([]DiskReg{regA}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "first read", func() bool { return !facts(s).Disks[0].ReadAt.IsZero() })
+	if at := facts(s).Disks[0].ReadAt; at.Before(before) {
+		t.Fatalf("read at %v before the read started %v", at, before)
+	}
+}

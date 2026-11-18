@@ -502,3 +502,11 @@ func TestSymlinkedMountPathIsRefusedWithTheRealPath(t *testing.T) {
 		}
 	}
 }
+
+func TestIsNetwork(t *testing.T) {
+	for fs, want := range map[string]bool{"nfs4": true, "cifs": true, "fuse.sshfs": true, "ext4": false, "xfs": false} {
+		if IsNetwork(fs) != want {
+			t.Errorf("%s: want %v", fs, want)
+		}
+	}
+}

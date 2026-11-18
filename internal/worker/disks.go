@@ -63,10 +63,17 @@ func (s *Server) diskEnv() hostdisk.Env { return hostdisk.Env{Root: s.cfg.HostRo
 
 // readDiskDefault is the stamp and free space of one path. Both are plain
 // syscalls that can block on a dead mount: only the refresher calls it.
+// Only a real answer is a read: a stamp, no stamp on a mounted path, or the
+// path not being the disk at all (disk_missing). Anything else (an I/O error,
+// a broken stamp) is an error, so the path goes stale and latches nothing.
 func (s *Server) readDiskDefault(ctx context.Context, path string) (hostdisk.Stamp, uint64, uint64, error) {
 	st, err := hostdisk.ReadStamp(ctx, s.diskEnv(), path)
 	var he *hostdisk.Error
-	if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.As(err, &he) {
+	switch {
+	case err == nil, errors.Is(err, fs.ErrNotExist):
+	case errors.As(err, &he) && he.Code == hostdisk.CodeDiskMissing:
+		return hostdisk.Stamp{}, 0, 0, nil
+	default:
 		return st, 0, 0, err
 	}
 	var sf syscall.Statfs_t
@@ -223,11 +230,11 @@ func (s *Server) diskFacts(f *Facts) {
 	for _, r := range regs {
 		e := ents[r.Path]
 		d := hostdisk.Fact{Path: r.Path, StampID: e.stamp.ID, StampOwner: e.stamp.Owner,
-			StampInstall: e.stamp.Install, Free: e.free, Total: e.total}
+			StampInstall: e.stamp.Install, Free: e.free, Total: e.total, ReadAt: e.at}
 		for _, m := range ms { // the last entry for the point wins
 			if m.Point == r.Path {
 				d.Mounted, d.FSType, d.RootFS = true, m.FSType, m.Dev == rootDev
-				d.Network = strings.HasPrefix(m.FSType, "nfs") || strings.Contains(" cifs smb3 smbfs ceph glusterfs 9p fuse.sshfs ", " "+m.FSType+" ")
+				d.Network = hostdisk.IsNetwork(m.FSType)
 			}
 		}
 		f.Disks = append(f.Disks, d)
