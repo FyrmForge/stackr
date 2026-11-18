@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	rootLine = "1 0 8:1 / / rw - ext4 /dev/sda1 rw\n"
+	rootLine = "1 0 4094:1 / / rw - ext4 /dev/sda1 rw\n"
 	dataLine = "2 1 8:16 / /mnt/data rw - ext4 /dev/sdb1 rw\n"
 	nfsLine  = "3 1 0:40 / /mnt/nas rw - nfs4 nas:/x rw\n"
 )
