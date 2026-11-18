@@ -72,6 +72,7 @@ type Fake struct {
 	Copied        map[string][]byte         // CopyTo's files by container id + path
 	TarOut        []byte                    // what TarVolume writes
 	Untarred      []byte                    // what UntarVolume last read
+	OnUntar       func(name string)         // when set, runs after UntarVolume read its source (a test writes the extracted files)
 	ExecHang      bool                      // ExecStream's output stays open until its ctx ends
 	ExecIn        []byte                    // what ExecStream's stdin last carried
 	TTYServer     net.Conn                  // the far end of the last ExecTTY pipe: the "container" side
@@ -433,7 +434,11 @@ func (f *Fake) UntarVolume(_ context.Context, name string, src io.Reader) error 
 	}
 	f.mu.Lock()
 	f.Untarred = b
+	hook := f.OnUntar
 	f.mu.Unlock()
+	if hook != nil {
+		hook(name)
+	}
 	return f.rec("UntarVolume", name)
 }
 
