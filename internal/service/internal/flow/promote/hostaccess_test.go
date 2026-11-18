@@ -196,3 +196,33 @@ environments:
 		t.Errorf("warnings = %q; want %q", p.Warnings, want)
 	}
 }
+
+// The two-tile example in docs/guide/config-files.md (Tile outputs) plans
+// without a blocker.
+func TestPlanDocsTileOutputsExample(t *testing.T) {
+	w := setup(t)
+	w.files["c1"] = `
+version: 1
+stack: shop
+ladder: [dev, prd]
+head: main
+base:
+  tiles:
+    sonarr:
+      image: lscr.io/linuxserver/sonarr:4
+      port: 8989
+    prowlarr:
+      image: lscr.io/linuxserver/prowlarr:2
+      port: 9696
+      env:
+        SONARR_URL: ${{ tile.sonarr.url }}
+environments:
+  dev: {}
+  prd: {}
+`
+	p, err := w.f.Plan(ctx, w.dev.ID, w.release(t, "c1").ID, io.Discard)
+	must(t, err)
+	if p.Blocked() {
+		t.Fatalf("blockers = %v", p.Blockers)
+	}
+}
