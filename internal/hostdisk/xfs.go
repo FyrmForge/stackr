@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
+	"unsafe"
 )
 
 // XFSRoot holds the mount points of xfs disks, one per disk id. The panel
@@ -37,6 +39,8 @@ func (xfsKind) run(ctx context.Context, e Env, r Request) Result {
 		return xfsFormat(ctx, e, r)
 	case "mount":
 		return xfsMountOp(ctx, e, r)
+	case "unmount":
+		return xfsUnmount(ctx, e, r)
 	case "add":
 		return e.guarded(r, func() Result {
 			res := addStamp(e, r, "xfs", func(t *target) *Error {
@@ -122,12 +126,24 @@ func xfsFormat(ctx context.Context, e Env, r Request) Result {
 	if dev.Signature != "" && !r.Force {
 		return Result{Error: &Error{CodeNeedsForce, dev.Path + " holds a " + dev.Signature + " signature"}, Devices: []Device{dev}}
 	}
+	// Every destructive command runs on the stable by-id path when there is
+	// one, and only after the device node is stat'ed again: the kernel name
+	// can move to another disk between processes. A device with no by-id link
+	// (virtio) is guarded by the same rdev, size and identity check.
+	target := e.target(dev)
+	if herr := e.recheck(ctx, dev, target, true); herr != nil {
+		return Result{Error: herr}
+	}
 	if dev.Signature != "" {
-		if _, err := e.exec(ctx, "wipefs", "-a", dev.Path); err != nil {
+		if _, err := e.exec(ctx, "wipefs", "-a", target); err != nil {
 			return fail(CodeIO, err.Error())
 		}
 	}
-	if _, err := e.exec(ctx, "mkfs.xfs", "-m", "reflink=1", "-L", stackrLabel, dev.Path); err != nil {
+	if herr := e.recheck(ctx, dev, target, false); herr != nil {
+		return Result{Error: herr}
+	}
+	// -K: no discard, so mkfs does not trim the whole device before it starts.
+	if _, err := e.exec(ctx, "mkfs.xfs", "-K", "-m", "reflink=1", "-L", stackrLabel, target); err != nil {
 		return fail(CodeIO, err.Error())
 	}
 	devs, _, herr := e.devices(ctx)
@@ -139,6 +155,62 @@ func xfsFormat(ctx context.Context, e Env, r Request) Result {
 		return fail(CodeIO, "the filesystem is not there after mkfs")
 	}
 	return Result{Devices: []Device{after}}
+}
+
+// target is the path a destructive command runs on: the by-id link when the
+// device has one (read under Root, where the helper found it), else the node.
+func (e Env) target(d Device) string {
+	if d.ID != d.Path {
+		return joinRoot(e.Root, d.ID)
+	}
+	return d.Path
+}
+
+// rdevOf is the "major:minor" of the block device node at p.
+func (e Env) rdevOf(p string) (string, error) {
+	if e.StatRdev != nil {
+		return e.StatRdev(p)
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return "", err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok || fi.Mode()&os.ModeDevice == 0 {
+		return "", errors.New(p + " is not a device node")
+	}
+	r := uint64(st.Rdev)
+	return fmt.Sprintf("%d:%d", (r>>8)&0xfff|(r>>32)&^0xfff, r&0xff|(r>>12)&^0xff), nil
+}
+
+// recheck is the guard right before a destructive command: the node at target
+// is still the listed device (same major:minor), the list still shows the same
+// disk (identity and size) and it is still not blocked. With full the
+// filesystem and table fields must match too (before wipefs); after wipefs
+// they are gone by design.
+func (e Env) recheck(ctx context.Context, listed Device, target string, full bool) *Error {
+	rdev, err := e.rdevOf(target)
+	if err != nil {
+		return &Error{CodeDeviceChanged, target + ": " + err.Error()}
+	}
+	if rdev != listed.MajMin {
+		return &Error{CodeDeviceChanged, target + " is not the device that was listed"}
+	}
+	devs, _, herr := e.devices(ctx)
+	if herr != nil {
+		return herr
+	}
+	now, ok := find(devs, listed.ID)
+	if !ok {
+		return &Error{CodeDeviceChanged, listed.ID + " is gone"}
+	}
+	if !full {
+		now.FSType, now.FSUUID, now.Label, now.PTType, now.PTUUID = listed.FSType, listed.FSUUID, listed.Label, listed.PTType, listed.PTUUID
+	}
+	if !sameDevice(now, listed) || now.Blocked != "" {
+		return &Error{CodeDeviceChanged, listed.ID + " is not the device that was listed"}
+	}
+	return nil
 }
 
 var uuidRe = regexp.MustCompile(`^[A-Za-z0-9-]{8,64}$`)
@@ -162,16 +234,28 @@ func xfsMountOp(ctx context.Context, e Env, r Request) Result {
 	if !uuidRe.MatchString(dev.FSUUID) || dev.FSType != "xfs" || dev.Label != stackrLabel {
 		return fail(CodeForeignStamp, dev.Path+" is not a stackr disk")
 	}
-	onlyHere := len(dev.Mounts) == 0 || (len(dev.Mounts) == 1 && dev.Mounts[0] == point)
+	table, err := os.ReadFile(e.mountinfo())
+	if err != nil {
+		return fail(CodeIO, "read the mount table: "+err.Error())
+	}
+	// "Mounted here" is decided from the host's mount table, not from lsblk:
+	// the helper's lsblk reports its mount points under /host.
+	onlyHere := true
+	for _, m := range ParseMounts(table) {
+		if m.Source == dev.Path && m.Point != point {
+			onlyHere = false
+		}
+	}
+	for _, m := range dev.Mounts { // lsblk in the helper shows the host's mounts under /host
+		if strings.TrimPrefix(m, "/host") != point {
+			onlyHere = false
+		}
+	}
 	if dev.Blocked == "mounted" && onlyHere {
 		dev.Blocked = ""
 	}
 	if dev.Blocked != "" {
 		return Result{Error: &Error{CodeDeviceBlocked, dev.Path + " cannot be mounted: " + dev.Blocked}, Devices: []Device{dev}}
-	}
-	table, err := os.ReadFile(e.mountinfo())
-	if err != nil {
-		return fail(CodeIO, "read the mount table: "+err.Error())
 	}
 	cur, ok := lastCovering(ParseMounts(table), point)
 	here := ok && cur.Point == point
@@ -265,13 +349,15 @@ func unitName(point string) string {
 // unitText mounts by filesystem uuid with project quotas, before Docker. nofail
 // and WantedBy (not RequiredBy) keep the machine booting when the device is gone.
 func unitText(point, uuid string) string {
-	return "[Unit]\nDescription=stackr disk " + path.Base(point) + "\nBefore=docker.service\n\n" +
+	return "# managed by stackr\n[Unit]\nDescription=stackr disk " + path.Base(point) + "\nBefore=docker.service\n\n" +
 		"[Mount]\nWhat=UUID=" + uuid + "\nWhere=" + point + "\nType=xfs\nOptions=prjquota,nofail\n\n" +
 		"[Install]\nWantedBy=local-fs.target\n"
 }
 
 // writeUnit puts the unit in /etc/systemd/system of the host: a temp file,
-// synced, then renamed.
+// synced, then linked in under its name, which fails when one is there. An
+// existing unit is accepted only when it is exactly the one this disk would
+// get (marker, uuid, mount point); a foreign unit is never overwritten.
 func (e Env) writeUnit(point, uuid string) *Error {
 	const dir = "/etc/systemd/system"
 	canon, err := resolveUnder(e.Root, dir)
@@ -283,6 +369,18 @@ func (e Env) writeUnit(point, uuid string) *Error {
 		return &Error{CodeIO, err.Error()}
 	}
 	defer func() { _ = root.Close() }()
+	name := unitName(point)
+	foreign := func() *Error {
+		return &Error{CodeBusy, name + " already exists and is not the stackr mount unit of this disk"}
+	}
+	if have, err := root.ReadFile(name); err == nil {
+		if string(have) == unitText(point, uuid) {
+			return nil
+		}
+		return foreign()
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return &Error{CodeIO, err.Error()}
+	}
 	var rnd [8]byte
 	_, _ = rand.Read(rnd[:])
 	tmp := ".stackr-unit-" + hex.EncodeToString(rnd[:])
@@ -298,10 +396,13 @@ func (e Env) writeUnit(point, uuid string) *Error {
 		err = cerr
 	}
 	if err == nil {
-		err = root.Rename(tmp, unitName(point))
+		err = root.Link(tmp, name)
+	}
+	_ = root.Remove(tmp)
+	if errors.Is(err, fs.ErrExist) {
+		return foreign()
 	}
 	if err != nil {
-		_ = root.Remove(tmp)
 		return &Error{CodeIO, "write the mount unit: " + err.Error()}
 	}
 	return nil
@@ -363,6 +464,9 @@ func xfsGrow(ctx context.Context, e Env, r Request) Result {
 	dev, herr := e.deviceBehind(ctx, r.Mount)
 	if herr != nil {
 		return Result{Error: herr}
+	}
+	if r.FSUUID == "" || dev.FSUUID != r.FSUUID {
+		return fail(CodeDeviceChanged, "the filesystem behind "+r.Mount+" is not the one recorded for this disk")
 	}
 	if r.DeviceBytes > 0 && dev.Bytes < r.DeviceBytes {
 		return fail(CodeDeviceSmaller, dev.Path+" is smaller than before")
@@ -439,8 +543,8 @@ func xfsFolder(ctx context.Context, e Env, r Request) Result {
 	}
 	dir := joinRoot(e.Root, r.Mount) + "/" + r.DiskID
 	for _, n := range r.Names {
-		if r.Quotas[n].Applied {
-			continue
+		if proj, inh, err := e.projectOf(dir + "/" + n); err == nil && inh && proj == r.Quotas[n].Project {
+			continue // already in its project: no walk of the tree
 		}
 		if _, err := e.quota(ctx, r.Mount, fmt.Sprintf("project -s -p %s/%s %d", dir, n, r.Quotas[n].Project)); err != nil {
 			return fail(CodeIO, err.Error())
@@ -461,7 +565,65 @@ func xfsFolder(ctx context.Context, e Env, r Request) Result {
 			return fail(CodeIO, err.Error())
 		}
 	}
+	// xfs_quota can print an error and still exit 0: read every limit back.
+	out, err := e.quota(ctx, r.Mount, "report -p -b -N")
+	if err != nil {
+		return fail(CodeIO, err.Error())
+	}
+	hard := parseHard(out)
+	for _, n := range r.Names {
+		q := r.Quotas[n]
+		want := int64(0)
+		if q.Cap > 0 {
+			want = (q.Cap + 1023) / 1024
+		}
+		if hard[q.Project] != want {
+			return fail(CodeIO, fmt.Sprintf("the cap of %s was not applied (limit now %dk, wanted %dk)", n, hard[q.Project], want))
+		}
+	}
 	return res
+}
+
+// projectOf is a folder's xfs project number and whether new files inherit it
+// (FS_IOC_FSGETXATTR). An error means unknown: the caller sets it again.
+func (e Env) projectOf(dir string) (uint32, bool, error) {
+	if e.ProjOf != nil {
+		return e.ProjOf(dir)
+	}
+	f, err := os.Open(dir)
+	if err != nil {
+		return 0, false, err
+	}
+	defer func() { _ = f.Close() }()
+	var x struct {
+		Flags, Extsize, Nextents, Projid, Cowextsize uint32
+		Pad                                          [8]byte
+	}
+	const fsIocFsgetxattr, projInherit = 0x801c581f, 0x200
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), fsIocFsgetxattr, uintptr(unsafe.Pointer(&x))); errno != 0 {
+		return 0, false, errno
+	}
+	return x.Projid, x.Flags&projInherit != 0, nil
+}
+
+// parseHard reads the hard limit (KiB, fourth column) per project from the
+// same report lines parseReport reads.
+func parseHard(out []byte) map[uint32]int64 {
+	m := map[uint32]int64{}
+	for _, l := range strings.Split(string(out), "\n") {
+		f := strings.Fields(l)
+		if len(f) < 4 {
+			continue
+		}
+		p, err := strconv.ParseUint(strings.TrimPrefix(f[0], "#"), 10, 32)
+		if err != nil {
+			continue
+		}
+		if kb, err := strconv.ParseInt(f[3], 10, 64); err == nil {
+			m[uint32(p)] = kb
+		}
+	}
+	return m
 }
 
 // capText is a byte cap in the KiB xfs_quota reads (rounded up); 0 clears it.
@@ -501,4 +663,68 @@ func xfsUsage(ctx context.Context, e Env, r Request) Result {
 		}
 	}
 	return res
+}
+
+// xfsUnmount takes a disk off the host: umount in the host namespace, the
+// systemd unit disabled and removed, the mount point made writable again and
+// removed. Each step is skipped when already done. Refused while anything
+// else is mounted below the point. It never touches the device.
+func xfsUnmount(ctx context.Context, e Env, r Request) Result {
+	if herr := badName(r.DiskID); herr != nil {
+		return Result{Error: herr}
+	}
+	point := MountPoint(r.DiskID)
+	if r.Mount != point {
+		return fail(CodeBadName, "an xfs disk is mounted at "+point)
+	}
+	table, err := os.ReadFile(e.mountinfo())
+	if err != nil {
+		return fail(CodeIO, "read the mount table: "+err.Error())
+	}
+	mounted := false
+	for _, m := range ParseMounts(table) {
+		switch {
+		case m.Point == point:
+			if m.FSType != "xfs" {
+				return fail(CodeDiskMissing, point+" is not an xfs filesystem")
+			}
+			mounted = true
+		case strings.HasPrefix(m.Point, point+"/"):
+			return fail(CodeBusy, m.Point+" is mounted inside "+point)
+		}
+	}
+	if mounted {
+		if _, err := e.host(ctx, "umount", point); err != nil {
+			return fail(CodeBusy, err.Error())
+		}
+		table, err := os.ReadFile(e.mountinfo())
+		if err != nil {
+			return fail(CodeIO, "read the mount table: "+err.Error())
+		}
+		for _, m := range ParseMounts(table) {
+			if m.Point == point {
+				return fail(CodeBusy, point+" is still mounted")
+			}
+		}
+	}
+	unit := unitName(point)
+	if _, err := e.host(ctx, "systemctl", "disable", unit); err != nil {
+		return fail(CodeIO, "disable the mount unit: "+err.Error())
+	}
+	if err := os.Remove(joinRoot(e.Root, "/etc/systemd/system/"+unit)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fail(CodeIO, err.Error())
+	}
+	if _, err := e.host(ctx, "systemctl", "daemon-reload"); err != nil {
+		return fail(CodeIO, "reload systemd: "+err.Error())
+	}
+	dir := joinRoot(e.Root, point)
+	if _, err := os.Lstat(dir); err == nil {
+		if _, err := e.exec(ctx, "chattr", "-i", dir); err != nil {
+			return fail(CodeIO, err.Error())
+		}
+		if err := os.Remove(dir); err != nil {
+			return fail(CodeNotEmpty, point+" could not be removed: "+err.Error())
+		}
+	}
+	return Result{}
 }

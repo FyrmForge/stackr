@@ -16,11 +16,12 @@ import (
 // concludes about it. The picker shows these; format takes one back as
 // Request.Expect and aborts when the device now differs.
 type Device struct {
-	Path   string   `json:"path"`             // kernel node, /dev/sdb
-	ID     string   `json:"id"`               // stable name: the /dev/disk/by-id link, else Path
-	Model  string   `json:"model,omitempty"`  //
-	Serial string   `json:"serial,omitempty"` //
-	WWN    string   `json:"wwn,omitempty"`    //
+	Path   string   `json:"path"`              // kernel node, /dev/sdb
+	MajMin string   `json:"maj_min,omitempty"` // major:minor of the node, checked against the node again before format
+	ID     string   `json:"id"`                // stable name: the /dev/disk/by-id link, else Path
+	Model  string   `json:"model,omitempty"`   //
+	Serial string   `json:"serial,omitempty"`  //
+	WWN    string   `json:"wwn,omitempty"`     //
 	Bytes  int64    `json:"bytes"`
 	FSType string   `json:"fs_type,omitempty"`
 	FSUUID string   `json:"fs_uuid,omitempty"`
@@ -39,7 +40,7 @@ type Device struct {
 // sameDevice is the identity compare between the list and the format: the
 // derived fields (mounts, blocked, signature) are not part of it.
 func sameDevice(a, b Device) bool {
-	return a.Path == b.Path && a.ID == b.ID && a.Model == b.Model && a.Serial == b.Serial && a.WWN == b.WWN &&
+	return a.Path == b.Path && a.MajMin == b.MajMin && a.ID == b.ID && a.Model == b.Model && a.Serial == b.Serial && a.WWN == b.WWN &&
 		a.Bytes == b.Bytes && a.FSType == b.FSType && a.FSUUID == b.FSUUID && a.Label == b.Label &&
 		a.PTType == b.PTType && a.PTUUID == b.PTUUID
 }
@@ -66,12 +67,13 @@ func (e Env) exec(ctx context.Context, name string, args ...string) ([]byte, err
 	return out.Bytes(), nil
 }
 
-const lsblkCols = "NAME,KNAME,PATH,TYPE,SIZE,RO,FSTYPE,UUID,LABEL,PTTYPE,PTUUID,MODEL,SERIAL,WWN,MOUNTPOINTS"
+const lsblkCols = "NAME,KNAME,MAJ:MIN,PATH,TYPE,SIZE,RO,FSTYPE,UUID,LABEL,PTTYPE,PTUUID,MODEL,SERIAL,WWN,MOUNTPOINTS"
 
 // lsNode is one lsblk JSON entry. Older util-linux writes numbers and
 // booleans as strings, newer as numbers and booleans.
 type lsNode struct {
 	Kname       string      `json:"kname"`
+	MajMin      *string     `json:"maj:min"`
 	Path        string      `json:"path"`
 	Type        string      `json:"type"`
 	Size        json.Number `json:"size"`
@@ -163,7 +165,7 @@ func byIDLinks(root string) map[string]string {
 
 func (n lsNode) device(byID map[string]string) Device {
 	size, _ := n.Size.Int64()
-	d := Device{Path: n.Path, ID: n.Path, Model: str(n.Model), Serial: str(n.Serial), WWN: str(n.WWN), Bytes: size,
+	d := Device{Path: n.Path, MajMin: str(n.MajMin), ID: n.Path, Model: str(n.Model), Serial: str(n.Serial), WWN: str(n.WWN), Bytes: size,
 		FSType: str(n.FSType), FSUUID: str(n.UUID), Label: str(n.Label), PTType: str(n.PTType), PTUUID: str(n.PTUUID)}
 	if id := byID[n.Kname]; id != "" {
 		d.ID = id

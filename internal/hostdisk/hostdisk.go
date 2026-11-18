@@ -32,6 +32,9 @@ type Env struct {
 
 	beforeTakeover func() // test seam: runs between the emptiness check and the takeover
 	beforeStamp    func() // test seam: runs between the emptiness check and the first stamp write
+	// StatRdev and ProjOf are test seams: the "major:minor" of a device node, and a folder's xfs project and inherit flag. Nil reads the real node and runs the real ioctl.
+	StatRdev func(path string) (string, error)                          // test seam: "major:minor" of a device node
+	ProjOf   func(dir string) (project uint32, inherit bool, err error) // test seam: a folder's xfs project and inherit flag
 }
 
 func (e Env) mountinfo() string {
@@ -42,7 +45,7 @@ func (e Env) mountinfo() string {
 }
 
 // Request ops. path: probe, add, verify, folder, usage, drop, claim.
-// xfs: list, format, mount, add, verify, folder, usage, drop, claim, grow.
+// xfs: list, format, mount, unmount, add, verify, folder, usage, drop, claim, grow.
 type Request struct {
 	Op      string   `json:"op"`
 	Kind    string   `json:"kind"` // "path" or "xfs"
@@ -56,6 +59,7 @@ type Request struct {
 
 	// xfs only.
 	Device      string           `json:"device,omitempty"`       // format, mount: a Device.ID or Device.Path from list
+	FSUUID      string           `json:"fs_uuid,omitempty"`      // grow: the filesystem uuid recorded at add; another filesystem behind the mount is refused
 	DeviceBytes int64            `json:"device_bytes,omitempty"` // grow: the size recorded at add; a smaller device is refused
 	Expect      *Device          `json:"expect,omitempty"`       // format, mount: the device as list showed it; any difference now aborts
 	Force       bool             `json:"force,omitempty"`        // format: overwrite a stackr stamp or a foreign filesystem signature (never a blocked device)
@@ -67,9 +71,6 @@ type Request struct {
 type Quota struct {
 	Project uint32 `json:"project"`
 	Cap     int64  `json:"cap,omitempty"`
-	// Applied: the project was already set on this folder, so folder skips
-	// "project -s" and only writes the cap. An older helper ignores it.
-	Applied bool `json:"applied,omitempty"`
 }
 
 type Use struct {

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"path"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,7 +47,6 @@ type Leaf struct {
 	folders store.DiskFolderStore
 	host    Host
 	caps    func(ctx context.Context, name string) (int64, error)
-	applied sync.Map // folder row id -> cap (int64) last applied on the host
 }
 
 // WithCaps sets how the leaf learns a folder's size cap in bytes (0 = none),
@@ -306,9 +304,6 @@ func (l *Leaf) Place(ctx context.Context, d store.NodeDisk, name string) (map[st
 	r, err := l.reqQ(ctx, d, "folder", name)
 	if err == nil {
 		_, err = l.run(ctx, d, r)
-	}
-	if err == nil && d.Kind == KindXFS {
-		l.noteApplied(ctx, d, r)
 	}
 	if err != nil {
 		if made {

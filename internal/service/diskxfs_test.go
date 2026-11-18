@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -38,7 +39,9 @@ type xfsFake struct {
 	mounts    []string // mount points of sdb
 	system    bool     // an extra mount of sdb elsewhere: it is in use
 	failMount bool
-	used      map[uint32]int64 // KiB by project, what the quota report says
+	used      map[uint32]int64  // KiB by project, what the quota report says
+	hard      map[uint32]int64  // KiB hard limits set by limit commands
+	proj      map[string]uint32 // folder -> project set by project -s commands
 	aside     map[string]string
 }
 
@@ -61,7 +64,7 @@ func (f *xfsFake) lsblk() string {
 	node := func(path, typ string, kv ...any) map[string]any {
 		m := map[string]any{"kname": filepath.Base(path), "path": path, "type": typ, "size": 1 << 30, "ro": false,
 			"fstype": nil, "uuid": nil, "label": nil, "pttype": nil, "ptuuid": nil, "model": "QEMU", "serial": "S-" + filepath.Base(path),
-			"wwn": nil, "mountpoints": []any{nil}}
+			"wwn": nil, "mountpoints": []any{nil}, "maj:min": "8:16"}
 		for i := 0; i < len(kv); i += 2 {
 			m[kv[i].(string)] = kv[i+1]
 		}
@@ -132,9 +135,24 @@ func (f *xfsFake) exec(_ context.Context, name string, args ...string) ([]byte, 
 		if strings.HasPrefix(args[2], "report") {
 			var out strings.Builder
 			for p, kb := range f.used {
-				fmt.Fprintf(&out, "#%d %d 0 0 00 [--------]\n", p, kb)
+				fmt.Fprintf(&out, "#%d %d 0 %d 00 [--------]\n", p, kb, f.hard[p])
+			}
+			for p, h := range f.hard {
+				if _, ok := f.used[p]; !ok {
+					fmt.Fprintf(&out, "#%d 0 0 %d 00 [--------]\n", p, h)
+				}
 			}
 			return []byte(out.String()), nil
+		}
+		var dir string
+		var kb string
+		var p uint32
+		if n, _ := fmt.Sscanf(args[2], "project -s -p %s %d", &dir, &p); n == 2 {
+			f.proj[dir] = p
+		}
+		if n, _ := fmt.Sscanf(args[2], "limit -p bhard=%s %d", &kb, &p); n == 2 {
+			h, _ := strconv.ParseInt(strings.TrimSuffix(kb, "k"), 10, 64)
+			f.hard[p] = h
 		}
 	}
 	return nil, nil
@@ -174,9 +192,16 @@ type xfsTest struct {
 
 func newXFSTest(t *testing.T) *xfsTest {
 	t.Helper()
-	fx := &xfsFake{size: 1 << 30, used: map[uint32]int64{}, aside: map[string]string{}}
+	fx := &xfsFake{size: 1 << 30, used: map[uint32]int64{}, hard: map[uint32]int64{}, proj: map[string]uint32{}, aside: map[string]string{}}
 	d := &diskTest{put: &putMesh{}}
-	d.env = hostdisk.Env{Root: t.TempDir(), Mountinfo: filepath.Join(t.TempDir(), "mountinfo"), TempMounts: true, Exec: fx.exec}
+	d.env = hostdisk.Env{Root: t.TempDir(), Mountinfo: filepath.Join(t.TempDir(), "mountinfo"), TempMounts: true, Exec: fx.exec,
+		StatRdev: func(string) (string, error) { return "8:16", nil },
+		ProjOf: func(dir string) (uint32, bool, error) {
+			fx.mu.Lock()
+			defer fx.mu.Unlock()
+			p, ok := fx.proj[dir]
+			return p, ok, nil
+		}}
 	fx.root, fx.mountinfo = d.env.Root, d.env.Mountinfo
 	must(t, os.MkdirAll(filepath.Join(d.env.Root, "etc/systemd/system"), 0o755))
 	fx.writeTable()
@@ -262,7 +287,7 @@ func TestXFSAddDeviceFormatsMountsAndStampsInThreeRuns(t *testing.T) { // DL: no
 		t.Errorf("registry pushed = %+v", got)
 	}
 	mk := x.fx.ran("mkfs.xfs")
-	if len(mk) != 1 || strings.Join(mk[0], " ") != "mkfs.xfs -m reflink=1 -L stackr /dev/sdb" {
+	if len(mk) != 1 || strings.Join(mk[0], " ") != "mkfs.xfs -K -m reflink=1 -L stackr /dev/sdb" {
 		t.Errorf("mkfs = %v", mk)
 	}
 	// a list before the format, and another one between the format and the mount
@@ -502,8 +527,8 @@ func TestXFSPlaceAssignsProjectsAndCapsSurviveAReplace(t *testing.T) { // DL: ca
 	if on, err := x.orch.CapEnforced(ctx, got); err != nil || !on {
 		t.Errorf("an xfs folder's cap is not enforced: %v %v", on, err)
 	}
-	if cmds := x.fx.quotaCmds(); cmds[len(cmds)-1] != "limit -p bhard=307200k 1" {
-		t.Errorf("last quota command = %q", cmds[len(cmds)-1])
+	if cmds := x.fx.quotaCmds(); cmds[len(cmds)-2] != "limit -p bhard=307200k 1" {
+		t.Errorf("limit command = %q", cmds[len(cmds)-2])
 	}
 
 	// cap_lower_than_use_refused: the host says no before anything changes, the row keeps the old cap
