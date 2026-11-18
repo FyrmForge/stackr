@@ -126,7 +126,7 @@ func TestFailedPushShows(t *testing.T) {
 			t.Errorf("%s lacks the failed push:\n%s", path, body)
 		}
 	}
-	if body := get(t, s, "/acme"); !strings.Contains(body, ">Push failed<") || !strings.Contains(body, "exit status 1</p>") {
+	if body := get(t, s, "/acme"); !strings.Contains(body, ">Push failed<") || !strings.Contains(body, "exit status 1</span>") || !strings.Contains(body, `href="/acme/-/jobs/`+id+`"`) || strings.Contains(body, `<a href="/acme/shop"`) {
 		t.Errorf("stack card:\n%s", body)
 	}
 	s.PushJob(t, s.Tile.Stack, "done", "", at.Add(time.Minute))

@@ -453,7 +453,7 @@ func (e *Env) PushJob(t *testing.T, stackID, state, errMsg string, at time.Time)
 	t.Helper()
 	id := uuid.NewString()
 	must(t, e.Store.Jobs.Create(context.Background(), store.Job{
-		ID: id, Kind: "push", State: state, Error: errMsg, LockSet: store.StringList{"push:" + stackID},
+		ID: id, Kind: "push", State: state, Error: errMsg, LockSet: store.StringList{"push:" + stackID, "push:" + stackID + ":acme/shop@main"}, // the stack, then its repo@branch, as enqueuePush locks
 		Payload: "{}", CreatedAt: at, FinishedAt: &at,
 	}))
 	return id

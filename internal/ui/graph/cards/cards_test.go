@@ -88,8 +88,8 @@ func TestFooterExtUpdates(t *testing.T) {
 func TestProgressLine(t *testing.T) {
 	since := time.Now().Add(-9*time.Minute - 20*time.Second - 500*time.Millisecond)
 	for _, c := range []struct{ status, under, want string }{
-		{"building", "running", "Online<span"},
-		{"building", "", "Building ("},
+		{"building", "running", "updating <local-time"},
+		{"building", "", ">Building<"},
 	} {
 		out := render(t, Footer("n1", FooterView{Kind: "service", Status: c.status, Under: c.under, Since: since}))
 		if !strings.Contains(out, c.want) || !strings.Contains(out, ">00:00</local-time>") {
@@ -97,7 +97,7 @@ func TestProgressLine(t *testing.T) {
 		}
 	}
 	out := render(t, Footer("n1", FooterView{Kind: "service", Status: "building", Under: "running", Since: since}))
-	if !strings.Contains(out, "text-rw-success") || !strings.Contains(out, " · Building (<local-time") || !strings.Contains(out, "</local-time>)") {
+	if !strings.Contains(out, "text-rw-success") || !strings.Contains(out, ">Online<") || !strings.Contains(out, "updating <local-time") {
 		t.Errorf("online with the build muted beside it: %s", out)
 	}
 	// the same job a poll later renders the same bytes: the canvas dedupes it
@@ -119,8 +119,17 @@ func TestFooterPhase(t *testing.T) {
 		t.Errorf("queued: %s", q)
 	}
 	r := render(t, Footer("n1", FooterView{Kind: "service", Status: "building", Phase: "Pulling image", Since: since}))
-	if !strings.Contains(r, "Pulling image (") || !strings.Contains(r, "animate-spin") || !strings.Contains(r, "<local-time") {
+	if !strings.Contains(r, ">Pulling image<") || !strings.Contains(r, "animate-spin") || !strings.Contains(r, "<local-time") {
 		t.Errorf("running: %s", r)
+	}
+}
+
+// A job that waits for a dependency is a faint word with a hollow dot and
+// no clock, not a running step.
+func TestFooterWaitsForDependency(t *testing.T) {
+	out := render(t, Footer("n1", FooterView{Kind: "service", Status: "building", Phase: "Waiting for pg to be healthy", Since: time.Now().Add(-time.Minute)}))
+	if !strings.Contains(out, ">Waiting for pg to be healthy<") || strings.Contains(out, "local-time") || strings.Contains(out, "animate-spin") || !strings.Contains(out, "border border-rw-faint") {
+		t.Errorf("waiting for a dependency: %s", out)
 	}
 }
 
