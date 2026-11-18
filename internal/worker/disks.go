@@ -148,8 +148,8 @@ func (s *Server) setDisks(gen uint64, regs []DiskReg) {
 	}
 }
 
-// replayDisks restores the saved registry at start.
-func (s *Server) replayDisks() {
+// ReplayDisks restores the saved registry at start.
+func (s *Server) ReplayDisks() {
 	b, err := os.ReadFile(s.disksPath())
 	if err != nil {
 		return

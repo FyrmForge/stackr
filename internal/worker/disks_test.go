@@ -121,7 +121,7 @@ func TestDisksRegistryPersistsAndReplaysAtStart(t *testing.T) {
 	if len(facts(s2).DiskRegs) != 0 {
 		t.Fatal("registry must be empty before replay")
 	}
-	s2.replayDisks()
+	s2.ReplayDisks()
 	if got := facts(s2).DiskRegs; !slices.Equal(got, regs) || s2.disks.gen != 1 {
 		t.Fatalf("replayed %v gen %d", got, s2.disks.gen)
 	}

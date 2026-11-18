@@ -44,6 +44,7 @@ func (o *Orchestrator) startMesh(ctlID string) {
 			HostRoot:   o.cfg.HostRoot,
 			DiskPath:   o.cfg.DataDir,
 		})
+		local.ReplayDisks() // the registry the panel last pushed, before the first poll
 	}
 	o.mesh = newMeshSvc(o.store, func(id string) (MeshNode, bool) {
 		if id == ctlID {

@@ -866,3 +866,19 @@ func TestFolderDiskRefusedOnTheControllerOfAnInstalledPanel(t *testing.T) {
 		t.Fatalf("a source build was refused: %v", err)
 	}
 }
+
+// V3: the controller's tick puts its local worker's registry right, like the
+// facts poll does for a worker node.
+func TestControllerTickPushesTheLocalWorkersRegistry(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	w := worker.New(worker.Config{StateDir: t.TempDir(), HostRoot: t.TempDir(), DockerSock: "/nonexistent"})
+	t.Cleanup(w.Stop)
+	d.orch.localWorker = w
+	must(t, d.st.NodeDisks.Create(ctx, store.NodeDisk{ID: "cd1", NodeID: d.ctl.ID, Kind: "path", MountPath: "/cdisk", State: disk.StateReady}))
+	before := d.put.pushes()
+	d.orch.controllerDiskAlert(ctx)
+	if d.put.pushes() != before+1 || len(d.put.last()) != 1 || d.put.last()[0].ID != "cd1" {
+		t.Fatalf("pushes %d -> %d, last %+v", before, d.put.pushes(), d.put.last())
+	}
+}
