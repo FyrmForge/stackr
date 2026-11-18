@@ -49,7 +49,7 @@ func TestReleasesLive(t *testing.T) {
 	if !strings.Contains(renderLive(t, Releases(ReleasesView{Live: "/d?tab=releases"})), `hx-select="#tab-releases"`) {
 		t.Error("releases not live")
 	}
-	if strings.Contains(renderLive(t, Releases(ReleasesView{Live: "/d", Ask: &ConfirmView{}})), "hx-get") {
-		t.Error("releases polls over an open question")
+	if !strings.Contains(renderLive(t, Review(ReviewView{Live: "/d?tab=releases&plan=x", Action: "/p"})), `hx-select="#tab-releases"`) {
+		t.Error("the review is not live")
 	}
 }

@@ -264,6 +264,12 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 		c.Set(jobKey, queued{job: j, page: urlOf(cd.s)})
 		return "Queued: the job below follows it.", nil
 	}), a.Require("env.write"))
+	site.POST(s+"/promote/:env/:release/secret", h.stackAction("releases", func(c echo.Context, cd card) (string, error) {
+		if cd.s.Env == nil {
+			return "", errs.ErrNotFound
+		}
+		return "Saved.", h.fillPromoteGap(c, cd.s.Env.ID, c.Param("release"))
+	}), a.Require("env.write"))
 	site.POST(s+"/delete", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
 		j, err := h.orch.TeardownStack(c.Request().Context(), cd.s.Stack.ID, c.FormValue("confirm"))
 		if err != nil {

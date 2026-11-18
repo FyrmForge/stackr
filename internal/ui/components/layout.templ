@@ -100,28 +100,6 @@ templ rail(s Shell, oob bool) {
 					<path d="M10 6.5h4M7.5 10l2.5 4M16.5 10 14 14"></path>
 				}
 			}
-			if l, ok := s.nav("/-/waiting"); ok {
-				<a
-					href="/-/waiting"
-					hx-get="/-/waiting"
-					hx-target="#main"
-					hx-push-url="true"
-					title="Waiting on you"
-					aria-label="Waiting on you"
-					class={ "relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
-						templ.KV("bg-rw-accent/15 text-rw-accentHi", l.Active),
-						templ.KV("text-rw-muted hover:text-rw-text hover:bg-rw-raised", !l.Active) }
-					if l.Active {
-						aria-current="page"
-					}
-				>
-					@WaitingBadge(s.WaitingYou, false)
-					<svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<path d="M22 12h-6l-2 3h-4l-2-3H2"></path>
-						<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
-					</svg>
-				</a>
-			}
 			if s.Admin {
 				<a
 					href="/-/admin/overview"
@@ -229,8 +207,14 @@ templ topBar(s Shell, oob bool) {
 				if len(s.Crumbs) == 2 {
 					<span class="text-xs text-rw-faint">stack</span>
 				}
-				if s.Actions != nil || s.Settings != "" {
-					<div class="ml-auto flex items-center gap-2">
+				if len(s.Crumbs) >= 3 {
+					@StopChip(s.Stopped != nil, false)
+				}
+				if l, ok := s.nav("/-/waiting"); ok || s.Actions != nil || s.Settings != "" {
+					<div class="ml-auto flex items-center gap-3">
+						if ok {
+							@waitingLink(l, s.WaitingYou)
+						}
 						if s.Actions != nil {
 							@s.Actions
 						}
@@ -240,9 +224,31 @@ templ topBar(s Shell, oob bool) {
 					</div>
 				}
 			</div>
+		} else if l, ok := s.nav("/-/waiting"); ok {
+			<div class="flex items-center justify-end border-b border-rw-border bg-rw-surface px-4 sm:px-6 py-2.5">
+				@waitingLink(l, s.WaitingYou)
+			</div>
 		}
 		@Banners(s)
 	</header>
+}
+
+// waitingLink is the top bar's "Waiting" item and its count of what waits on
+// the viewer (the count is WaitingBadge, which the banners poll swaps).
+templ waitingLink(l Link, n int) {
+	<a
+		href="/-/waiting"
+		hx-get="/-/waiting"
+		hx-target="#main"
+		hx-push-url="true"
+		class={ "inline-flex items-center gap-1.5 text-sm hover:underline", templ.KV("text-rw-accentHi", l.Active), templ.KV("text-rw-text", !l.Active) }
+		if l.Active {
+			aria-current="page"
+		}
+	>
+		Waiting
+		@WaitingBadge(n, false)
+	</a>
 }
 
 // Banners is the header's problem, upgrade and node-down banners in #banners,
@@ -250,7 +256,7 @@ templ topBar(s Shell, oob bool) {
 templ Banners(s Shell) {
 	<div id="banners">
 		if s.BannersURL != "" {
-			// the poll also swaps the rail's waiting count, out of band
+			// the poll also swaps the top bar's waiting count, out of band
 			<span hidden data-live-tab data-poll-guard="region rows fields dirty" hx-get={ s.BannersURL } hx-trigger="every 3s" hx-select="#banners" hx-select-oob="#rail-you" hx-target="#banners" hx-swap="outerHTML"></span>
 		}
 		if s.PollBanners && s.User != "" {
@@ -258,6 +264,14 @@ templ Banners(s Shell) {
 		}
 		if len(s.Problems) > 0 {
 			@problems(s)
+		}
+		if s.PollBanners && s.User != "" && len(s.Crumbs) >= 3 {
+			@StopChip(s.Stopped != nil, true)
+		}
+		if s.Stopped != nil {
+			<div class="px-4 sm:px-6 pt-3">
+				@RolloutStopped(*s.Stopped)
+			</div>
 		}
 		if s.PushFailed != nil {
 			<div class="px-4 sm:px-6 pt-3">

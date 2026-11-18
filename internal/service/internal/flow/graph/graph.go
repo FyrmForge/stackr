@@ -66,6 +66,8 @@ type Flow struct {
 	Phase func(ctx context.Context, j store.Job) string
 	// PushFail is the error of a stack's last push when it failed; nil = none asked.
 	PushFail func(ctx context.Context, stackID string) (string, bool)
+	// Stop is the env's last promote when it failed at a tile; nil = none asked.
+	Stop func(ctx context.Context, envID string) (Stopped, bool)
 }
 
 // Node kinds besides the tile kinds (service, image, operated, cron,
@@ -155,6 +157,8 @@ type Node struct {
 	Since          time.Time  // that job's start (queued: its creation); zero = no such job
 	Phase          string     // the live job's step, "" = the word alone
 	Fail           string     // the failed deploy's error, whole; "" = none
+	Stop, StopJob  string     // a tile the failed promote never reached: the tile it stopped at, and that job
+	Wait           int        // env card: the release the rung below runs and this one does not; 0 = none
 	// Vars card counts; never a value.
 	Params, Secrets int
 	Consumers       int // slice: the tiles that ref it, name it in slice_access or hold a cred on it
@@ -166,12 +170,23 @@ type Sub struct{ ID, Kind, Name, Status, Detail string }
 
 type Edge struct{ Kind, From, To string }
 
+// Stopped is an env's failed promote: where it stopped and which tiles it
+// never reached. Tile "" = it failed before any tile ran.
+type Stopped struct {
+	JobID   string
+	Release int
+	Tile    string
+	Pending []string
+	Error   string
+}
+
 // Rung is one env in the compare pill: the release it runs, and whether
 // the rung below it runs a newer one.
 type Rung struct {
 	EnvID, Name, Slug, Color string
 	Release                  int // 0 = none yet
 	Behind                   bool
+	Waiting                  int // Behind: the release of the rung below, waiting to be promoted here
 }
 
 // Show is what the server draws; the look toggles are the element's.
@@ -399,6 +414,7 @@ func (f *Flow) stack(ctx context.Context, v *View, stackID string, in In) error 
 		n.Color = rs[i].Color
 		n.Detail = plural(len(ts), "tile") // v0's env card line
 		n.Deck = deck(len(ts))
+		n.Wait = rs[i].Waiting
 		if in.Status {
 			if n.Status, err = f.worstOf(ctx, "", ts); err != nil {
 				return err
@@ -450,6 +466,9 @@ func (f *Flow) ladder(ctx context.Context, stackID string) ([]store.Environment,
 			r.Release = rel.Number
 		}
 		r.Behind = i > 0 && prev > r.Release
+		if r.Behind {
+			r.Waiting = prev
+		}
 		prev = r.Release
 		rs = append(rs, r)
 	}
@@ -822,6 +841,11 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		}
 		v.Nodes = append(v.Nodes, n)
 	}
+	if in.Status && f.Stop != nil {
+		if st, ok := f.Stop(ctx, envID); ok {
+			f.stopped(v, st)
+		}
+	}
 	// Sync ghosts: tiles the target lacks, drawn like unsaved cards. No edges.
 	for _, t := range in.New {
 		n, err := f.tileCard(ctx, t, vols, false)
@@ -931,6 +955,28 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		v.Nodes = append(v.Nodes, n)
 	}
 	return nil
+}
+
+// stopped marks the tiles of a failed promote: the one it stopped at failed,
+// the ones after it were never deployed. A tile with a live job of its own
+// keeps that word.
+func (f *Flow) stopped(v *View, st Stopped) {
+	for i := range v.Nodes {
+		n := &v.Nodes[i]
+		switch n.Status {
+		case "building", "queued", "removing", "waiting":
+			continue
+		}
+		switch {
+		case st.Tile != "" && n.Slug == st.Tile && n.Kind != KindVolume:
+			n.Status = "failed"
+			if n.Fail == "" {
+				n.Fail = st.Error
+			}
+		case slices.Contains(st.Pending, n.Slug) && n.Kind != KindVolume:
+			n.Status, n.Stop, n.StopJob = "notdeployed", st.Tile, st.JobID
+		}
+	}
 }
 
 // nouns are what a slice is on each engine's instance, as the card says it.

@@ -1,0 +1,387 @@
+package components
+
+import (
+	"strconv"
+	"strings"
+	"time"
+)
+
+// ReviewView is a release's review in the Releases tab: what taking it into
+// an env changes, what blocks or needs approving, and the one button that
+// does it. Promote and Roll back exist only here.
+type ReviewView struct {
+	Back   string // GET of the Releases tab
+	Title  string
+	Chip   string // "Waiting", "Rollback"; "" = none
+	Tone   string
+	By     string
+	When   time.Time
+	Commit string
+	Plan   PlanView
+	// Notes are plain warn lines under the summary (a skipped rung, what a
+	// rollback removes).
+	Notes []string
+	// Access is the elevated access the plan needs approved; nil = none.
+	Access *ReviewAccess
+	// Running is the release that is still deploying in this env; it blocks.
+	Running *ReviewRunning
+	Button  string
+	Danger  bool
+	Action  string // POST of the button; "" = the viewer cannot promote
+	Include string // hx-include of the removal ticks, "" = none
+	// Live is this view's own GET, polled while a block can clear by itself.
+	Live string
+}
+
+// ReviewAccess is the access block: Admin = promoting approves it in their
+// name, else a server admin must.
+type ReviewAccess struct {
+	Admin bool
+	Tiles []AccessTile
+}
+
+// AccessTile is one tile and what it asks for, one line per grant.
+type AccessTile struct {
+	Tile   string
+	Grants []string
+}
+
+// ReviewRunning is the line of a deploy that is still running.
+type ReviewRunning struct{ Text, Href string }
+
+// PlanCounts is the review's summary: rows that add, change and remove.
+func PlanCounts(cs []ChangeView) (add, change, remove int) {
+	for _, c := range groupCreates(cs) {
+		switch {
+		case c.Optional || c.Kind == "delete" || c.Kind == "orphan" || c.Kind == "detach":
+			remove++
+		case c.Kind == "create":
+			add++
+		default:
+			change++
+		}
+	}
+	return
+}
+
+// secretGaps are the plan's unset secrets that can be filled here.
+func secretGaps(p PlanView) []GapView {
+	var out []GapView
+	for _, g := range p.Gaps {
+		if g.Kind == "secret" && g.Post != "" {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// blocked: the button is off.
+func (v ReviewView) blocked() bool {
+	return v.Action == "" || v.Running != nil || len(secretGaps(v.Plan)) > 0 || len(v.Plan.Blockers) > 0
+}
+
+// reviewNote is the footer's reason, or the promise on a plain promote.
+func (v ReviewView) reviewNote() string {
+	switch {
+	case v.Running != nil:
+		return "This page updates by itself."
+	case v.Action == "":
+		return "You cannot promote in this environment."
+	case len(secretGaps(v.Plan)) > 0:
+		return "Set " + secretGaps(v.Plan)[0].Label + " first."
+	case len(v.Plan.Blockers) > 0:
+		return "Fix what blocks it first."
+	case v.Danger || v.Access != nil || len(v.Notes) > 0:
+		return ""
+	}
+	return "Nothing is deployed until you press it."
+}
+
+// rowSummary is the right-hand words of a collapsed row.
+func rowSummary(c ChangeView) string {
+	switch {
+	case c.Kind == "create":
+		var engine, major, image string
+		for _, d := range c.Details {
+			switch d.Label {
+			case "Engine":
+				engine = d.Value
+			case "Major":
+				major = d.Value
+			case "Image":
+				image = d.Value
+			}
+		}
+		switch {
+		case engine != "":
+			return strings.TrimSpace(engine + " " + major)
+		case image != "":
+			return c.New + ", " + image
+		}
+		return c.New
+	case c.Old != "" && c.New != "":
+		return c.Field + " " + c.Old + " to " + c.New
+	case c.Field != "" && c.New != "":
+		return c.Field + " " + c.New
+	case c.Field != "":
+		return c.Field
+	}
+	return c.New
+}
+
+// rowOpens: a row has more to show than its head.
+func rowOpens(c ChangeView) bool {
+	return len(c.Details) > 0 || len(c.Child) > 0 || (c.Old != "" && c.New != "") || c.Impact != "" || c.Note != "" || c.Apply != ""
+}
+
+func accessTitle(a ReviewAccess) string {
+	n := len(a.Tiles)
+	s := strconv.Itoa(n) + " tile"
+	if n != 1 {
+		s += "s"
+	}
+	switch {
+	case a.Admin && n == 1:
+		return s + " gets elevated access"
+	case a.Admin:
+		return s + " get elevated access"
+	case n == 1:
+		return s + " needs elevated access"
+	}
+	return s + " need elevated access"
+}
+
+func accessLead(a ReviewAccess) string {
+	if a.Admin {
+		return "Promoting approves this in your name."
+	}
+	return "A server admin must approve. Promote deploys the rest."
+}
+
+func gapsTitle(n int) string {
+	if n == 1 {
+		return "One secret is missing."
+	}
+	return strconv.Itoa(n) + " secrets are missing."
+}
+
+// ReviewPlan is the review's summary line and its one flat card of rows.
+templ reviewRows(p PlanView) {
+	<section class="panel p-4 sm:p-6 overflow-hidden" aria-label={ p.Title }>
+		if len(p.Changes) == 0 {
+			<p class="text-sm text-rw-faint">Nothing changes.</p>
+		}
+		<ul class="divide-y divide-rw-border">
+			for i, c := range groupCreates(p.Changes) {
+				<li class={ "py-2.5 first:pt-0 last:pb-0", templ.KV("border-l-2 border-rw-warn/40 pl-3", c.Impact != "") }>
+					if rowOpens(c) {
+						<details class="group" open?={ i == 0 && c.Kind == "create" && len(c.Details) > 0 }>
+							<summary class="flex w-full cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 text-sm font-mono [&::-webkit-details-marker]:hidden">
+								@reviewHead(p, c, true)
+							</summary>
+							<div class="mt-3 pl-9 space-y-3">
+								if len(c.Details) > 0 {
+									<dl class="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+										for _, d := range c.Details {
+											<dt class="text-rw-muted">{ d.Label }</dt>
+											<dd class="text-rw-text font-mono text-xs [overflow-wrap:anywhere] self-center">{ d.Value }</dd>
+										}
+									</dl>
+								} else if c.Old != "" && c.New != "" {
+									<dl class="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+										<dt class="text-rw-muted">{ reviewLabel(c) }</dt>
+										<dd class="text-rw-text font-mono text-xs [overflow-wrap:anywhere] self-center"><span class="text-rw-danger line-through">{ c.Old }</span> <span class="text-rw-faint">to</span> <span class="text-rw-success">{ c.New }</span></dd>
+									</dl>
+								}
+								if len(c.Child) > 0 {
+									<div>
+										<p class="text-xs text-rw-faint mb-1">Settings of the new tile</p>
+										<ul class="space-y-0.5 font-mono text-xs">
+											for _, ch := range c.Child {
+												<li><span class="text-rw-success">+</span> <span class="text-rw-muted">{ ch.Field }</span> <span class="text-rw-text">{ ch.New }</span></li>
+											}
+										</ul>
+									</div>
+								}
+								if c.Impact != "" {
+									<p class="text-xs font-medium text-rw-warn">{ c.Impact }</p>
+								}
+								if c.Note != "" {
+									<p class="text-xs text-rw-muted">{ c.Note }</p>
+								}
+								if c.Apply != "" {
+									<div>
+										<button type="button" class="btn btn-primary btn-sm" hx-post={ c.Apply } hx-vals={ c.Vals } hx-target={ orDrawer(p.Target) } hx-swap="outerHTML">Apply lock change</button>
+									</div>
+								}
+							</div>
+						</details>
+					} else {
+						<div class="flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-sm font-mono">
+							@reviewHead(p, c, false)
+						</div>
+					}
+				</li>
+			}
+		</ul>
+	</section>
+}
+
+func reviewLabel(c ChangeView) string {
+	if c.Field == "" {
+		return "Value"
+	}
+	return strings.ToUpper(c.Field[:1]) + c.Field[1:]
+}
+
+templ reviewHead(p PlanView, c ChangeView, opens bool) {
+	<span class={ planSignClass(c) } aria-hidden="true">{ planSign(c) }</span>
+	if opens {
+		<svg class="h-3.5 w-3.5 shrink-0 text-rw-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+	} else {
+		<span class="h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+	}
+	if c.Optional && p.Ticks {
+		<label class="flex cursor-pointer items-center gap-2 rounded border border-rw-warn/40 bg-rw-warn/10 px-2 py-1 text-rw-warn">
+			<input type="checkbox" name="ticked" value={ c.Key } class="h-4 w-4 accent-rw-accent" aria-label={ "Remove " + c.Field }/>
+			remove?
+		</label>
+	} else if c.Optional {
+		@Chip("remove?", "warn")
+	}
+	<span class="text-rw-faint">{ c.Kind }</span>
+	if c.Tile != "" {
+		<span class="text-rw-text">{ c.Tile }</span>
+	} else if c.Field != "" && c.Kind == "create" {
+		<span class="text-rw-text">{ c.Field }</span>
+	}
+	if s := rowSummary(c); s != "" {
+		<span class="ml-auto text-xs text-rw-muted font-sans [overflow-wrap:anywhere]">{ s }</span>
+	}
+}
+
+// Review is the release review page.
+templ Review(v ReviewView) {
+	{{ add, change, remove := PlanCounts(v.Plan.Changes) }}
+	<div id="tab-releases" class="flex flex-col gap-4">
+		if v.Live != "" {
+			@LiveTab(v.Live, "tab-releases")
+		}
+		<div>
+			<a href={ templ.SafeURL(v.Back) } hx-get={ v.Back } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML" class="link inline-flex items-center gap-1 text-sm">
+				<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+				Releases
+			</a>
+		</div>
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+			<h2 class="text-base font-semibold text-rw-text">{ v.Title }</h2>
+			if v.Chip != "" {
+				@Chip(v.Chip, v.Tone)
+			}
+			<span class="ml-auto text-xs text-rw-faint">
+				if v.By != "" {
+					{ "pushed by " + v.By + ", " }
+				}
+				@When(v.When)
+				if v.Commit != "" {
+					{ ", " + v.Commit[:min(7, len(v.Commit))] }
+				}
+			</span>
+		</div>
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+			if add > 0 {
+				<span class="text-rw-success">{ strconv.Itoa(add) } to add</span>
+			}
+			if change > 0 {
+				<span class="text-rw-warn">{ strconv.Itoa(change) } to change</span>
+			}
+			if remove > 0 {
+				<span class="text-rw-danger">{ strconv.Itoa(remove) } to remove</span>
+			}
+		</div>
+		if v.Running != nil {
+			<div class="banner banner-danger" role="status">
+				<p class="font-medium">Cannot promote yet</p>
+				<p class="mt-0.5 text-sm">
+					{ v.Running.Text }
+					if v.Running.Href != "" {
+						{ " " }<a href={ templ.SafeURL(v.Running.Href) } class="underline">Job log</a>
+					}
+				</p>
+			</div>
+		}
+		if gs := secretGaps(v.Plan); len(gs) > 0 {
+			<div class="banner banner-danger" role="status">
+				<p class="font-medium">Cannot promote yet</p>
+				<p class="mt-0.5 text-sm">{ gapsTitle(len(gs)) }</p>
+				for i, g := range gs {
+					<form class="mt-2 flex flex-wrap items-center gap-2 text-sm" novalidate hx-post={ g.Post } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">
+						<span class="font-mono text-rw-text">{ g.Label }</span>
+						<input type="hidden" name="name" value={ g.Field }/>
+						<input class="input !w-48 font-mono" type="password" name="value" id={ "gap-" + strconv.Itoa(i) } autocomplete="new-password" aria-label={ "Value of " + g.Label }/>
+						<button type="submit" class="btn btn-primary btn-sm">Save and re-plan</button>
+					</form>
+				}
+			</div>
+		}
+		if len(v.Plan.Blockers) > 0 {
+			<div class="banner banner-danger" role="alert">
+				<p class="font-medium">Cannot promote yet</p>
+				<ul class="mt-0.5 list-disc pl-5 text-sm">
+					for _, b := range v.Plan.Blockers {
+						<li>{ b }</li>
+					}
+				</ul>
+			</div>
+		}
+		if v.Access != nil {
+			<div class="banner border-rw-warn/40 bg-rw-warn/10 text-rw-warn" role="status">
+				<p class="font-medium">{ accessTitle(*v.Access) }</p>
+				<p class="mt-0.5 text-sm">{ accessLead(*v.Access) }</p>
+				<div class="mt-2 divide-y divide-rw-border">
+					for _, t := range v.Access.Tiles {
+						<div class="py-1.5">
+							<p class="text-sm text-rw-text">{ t.Tile }</p>
+							<ul class="text-xs font-mono text-rw-muted">
+								for _, g := range t.Grants {
+									<li>{ g }</li>
+								}
+							</ul>
+						</div>
+					}
+				</div>
+			</div>
+		}
+		if len(v.Plan.Warnings) > 0 {
+			<div class="banner border-rw-warn/40 bg-rw-warn/10 text-rw-warn">
+				<ul class="list-disc pl-5 text-sm">
+					for _, w := range v.Plan.Warnings {
+						<li>{ w }</li>
+					}
+				</ul>
+			</div>
+		}
+		for _, n := range v.Notes {
+			<p class="text-sm text-rw-warn">{ n }</p>
+		}
+		@reviewRows(v.Plan)
+		<div class="flex flex-wrap items-center gap-3">
+			<button
+				type="button"
+				class={ "btn", templ.KV("btn-danger", v.Danger), templ.KV("btn-primary", !v.Danger) }
+				disabled?={ v.blocked() }
+				if !v.blocked() {
+					hx-post={ v.Action }
+					hx-target={ "#" + DrawerRoot }
+					hx-swap="outerHTML"
+				}
+				if !v.blocked() && v.Include != "" {
+					hx-include={ v.Include }
+				}
+			>{ v.Button }</button>
+			if n := v.reviewNote(); n != "" {
+				<span class="text-sm text-rw-muted">{ n }</span>
+			}
+		</div>
+	</div>
+}

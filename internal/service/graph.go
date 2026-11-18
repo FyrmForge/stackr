@@ -17,6 +17,7 @@ type (
 	GraphEdge   = graph.Edge
 	GraphSub    = graph.Sub
 	GraphRung   = graph.Rung
+	RolloutStop = graph.Stopped
 	GraphShow   = graph.Show
 	Annotation  = store.Annotation
 )

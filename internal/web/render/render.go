@@ -126,6 +126,9 @@ func Shell(c echo.Context, title string) components.Shell {
 		if pf, ok := c.Get(pushFailKey).(func() *components.PushFailView); ok {
 			s.PushFailed = pf()
 		}
+		if st, ok := c.Get(stopKey).(func() *components.StopView); ok {
+			s.Stopped = st()
+		}
 		if down, ok := c.Get(nodeDownKey).(func(envID string) string); ok {
 			if s.NodeDown = down(sc.Env.ID); s.NodeDown != "" {
 				if p := middleware.Principal(c); p != nil && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
@@ -203,6 +206,22 @@ const ingressDownKey = "env_ingress_down"
 const diskDownKey = "env_disk_down"
 const upgradingKey = "panel_upgrading"
 const pushFailKey = "stack_push_failed"
+const stopKey = "env_promote_stopped"
+
+// RolloutStop is the line for the env's last promote when it failed, nil
+// when it did not (or the scope has no env).
+func RolloutStop(c echo.Context, orch *service.Orchestrator) *components.StopView {
+	s := middleware.ScopeOf(c)
+	if s.Env == nil || s.Stack == nil || s.Org == nil {
+		return nil
+	}
+	st, ok := orch.RolloutStop(c.Request().Context(), s.Env.ID)
+	if !ok {
+		return nil
+	}
+	v := components.NewStop(st.Release, st.Tile, EnvURL(c)+"/-/jobs/"+st.JobID)
+	return &v
+}
 
 // PushFailure is the line for the env's stack when its last push failed,
 // nil when it did not (or the scope has no env).
@@ -265,6 +284,7 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 				return "The ingress serving " + hosts + " is offline."
 			})
 			c.Set(pushFailKey, func() *components.PushFailView { return PushFailure(c, orch) })
+			c.Set(stopKey, func() *components.StopView { return RolloutStop(c, orch) })
 			return next(c)
 		}
 	}

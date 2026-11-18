@@ -11,6 +11,8 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/ui/access"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -85,11 +87,24 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 			if runs(e) == r.Number {
 				continue
 			}
+			label := "Review plan"
+			if r.Number < runs(e) {
+				label = "Review rollback"
+			}
+			if cd.kind == "stack" {
+				label += " for " + e.Name
+			}
 			rows[i].Moves = append(rows[i].Moves, comp.ReleaseMove{
-				Env:  e.Name,
-				Back: r.Number < runs(e),
-				Ask:  f.Base + "?tab=releases&env=" + e.ID + "&plan=" + r.ID,
+				Label: label,
+				Ask:   f.Base + "?tab=releases&env=" + e.ID + "&plan=" + r.ID,
 			})
+		}
+	}
+	if cd.kind == "env" {
+		if rel, ok := h.orch.WaitingRelease(ctx, st.ID, cd.s.Env.ID); ok {
+			for i := range rows {
+				rows[i].Waiting = rs[i].ID == rel.ID
+			}
 		}
 	}
 	v.Rows = rows
@@ -127,47 +142,56 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	if err != nil {
 		return nil, err
 	}
-	ask := comp.PromoteAsk{Back: n < cur, Target: e.Name, Plan: planView(p)}
-	canGo := p.CanDeploy && can(c, cd.s, "env.write")
-	ask.Plan.Ticks = canGo
-	if cd.kind == "env" && can(c, cd.s, "env.lock") {
-		applyLocks(&ask.Plan, "/"+cd.s.Org.Slug+"/"+cd.s.Stack.Slug+"/"+e.Slug+"/-/drawer/lock")
+	back := n < cur
+	canGo := can(c, cd.s, "env.write") // the review disables its button on a blocker itself
+	rv := comp.ReviewView{
+		Back:   f.Base + "?tab=releases",
+		Title:  "Release " + strconv.Itoa(n) + " for " + e.Name,
+		By:     rows[ri].By,
+		When:   rows[ri].When,
+		Commit: rows[ri].Commit,
+		Plan:   planView(p),
+		Button: "Promote to " + e.Name,
 	}
-	lo, hi := min(n, cur), max(n, cur)
-	for i, r := range rs {
-		if r.Number > lo && r.Number <= hi {
-			ask.Carried = append(ask.Carried, rows[i])
+	rv.Plan.Title = "What changes"
+	rv.Plan.Ticks = canGo
+	if cd.kind == "env" && can(c, cd.s, "env.lock") {
+		applyLocks(&rv.Plan, "/"+cd.s.Org.Slug+"/"+cd.s.Stack.Slug+"/"+e.Slug+"/-/drawer/lock")
+	}
+	rv.Plan.Gaps = nil
+	for _, g := range p.Plan.Gaps {
+		if g.Kind == "secret" && g.Scope == "env" {
+			rv.Plan.Gaps = append(rv.Plan.Gaps, comp.GapView{Kind: "secret", Label: g.Key, Field: g.Key, Post: gapPost(f.Base, cd.kind, e.Slug, plan, e.ID)})
 		}
 	}
-	if ei > 0 && !ask.Back && runs(es[ei-1]) < n {
-		ask.Skipped = es[ei-1].Name
-	}
-	m := "#" + strconv.Itoa(n)
-	cv := comp.ConfirmView{
-		Button:  "Promote",
-		Title:   "Promote " + m + " to " + e.Name + "?",
-		Primary: true,
-		Open:    true,
-		Body:    comp.Ask(ask),
-		Target:  "#" + comp.DrawerRoot,
-	}
-	if ask.Plan.Ticks && slices.ContainsFunc(ask.Plan.Changes, func(c comp.ChangeView) bool { return c.Optional }) {
-		cv.Include = "[name=ticked]" // htmx logs an error when the selector finds nothing
+	if len(p.Access) > 0 { // the access blocker is its own block, not a refusal
+		rv.Plan.Blockers = nil
+		rv.Access = accessView(p.Access, middleware.Principal(c).Access.Admin)
 	}
 	switch {
-	case ask.Back:
-		cv.Button, cv.Title, cv.Primary = "Roll back", "Roll back "+e.Name+" to "+m+"?", false
-	case ask.Skipped != "":
-		cv.Button = "Promote anyway"
+	case back:
+		rv.Title, rv.Chip, rv.Tone, rv.Button, rv.Danger = "Roll back "+e.Name+" to release "+strconv.Itoa(n), "Rollback", "warn", "Roll back "+e.Name, true
+		rv.Notes = append(rv.Notes, "Removes "+strconv.Itoa(cur-n)+" release"+map[bool]string{true: "", false: "s"}[cur-n == 1]+" from "+e.Name+".")
+	case ei > 0 && runs(es[ei-1]) == n && cur < n:
+		rv.Chip, rv.Tone = "Waiting", "accent"
+	}
+	if ei > 0 && !back && runs(es[ei-1]) < n {
+		rv.Notes = append(rv.Notes, es[ei-1].Name+" does not run this release yet.")
+		rv.Button = "Promote anyway"
+	}
+	if rv.Running = h.rolloutRunning(ctx, cd, e, rs); rv.Running != nil {
+		rv.Live = f.Base + "?tab=releases&env=" + e.ID + "&plan=" + plan // it clears by itself
 	}
 	if canGo {
-		cv.Action = f.Base + "/promote/" + plan
+		rv.Action = f.Base + "/promote/" + plan
 		if cd.kind == "stack" {
-			cv.Action = f.Base + "/promote/" + e.Slug + "/" + plan
+			rv.Action = f.Base + "/promote/" + e.Slug + "/" + plan
 		}
 	}
-	v.Ask = &cv
-	return comp.Releases(v), nil
+	if rv.Plan.Ticks && slices.ContainsFunc(rv.Plan.Changes, func(c comp.ChangeView) bool { return c.Optional }) {
+		rv.Include = "[name=ticked]" // htmx logs an error when the selector finds nothing
+	}
+	return comp.Review(rv), nil
 }
 
 func planView(p service.PromotePlan) comp.PlanView {
@@ -241,4 +265,81 @@ func byWord(by string, names map[string]string) string {
 		return "image watch"
 	}
 	return by
+}
+
+// rolloutRunning is a promote or deploy of the env that is queued or
+// running: a new promote waits for it, so the review says so.
+func (h *handler) rolloutRunning(ctx context.Context, cd card, e service.Environment, rs []service.Release) *comp.ReviewRunning {
+	js, err := h.orch.ScopeJobs(ctx, cd.s.Org.ID, cd.s.Stack.ID, e.ID, 0, "queued", "running")
+	if err != nil {
+		return nil
+	}
+	for _, j := range js { // newest first
+		if j.Kind != "promote" && j.Kind != "deploy" {
+			continue
+		}
+		run := &comp.ReviewRunning{Text: "A deploy is still running in " + e.Name + ".", Href: "/" + cd.s.Org.Slug + "/" + cd.s.Stack.Slug + "/" + e.Slug + "/-/jobs/" + j.ID}
+		if j.ReleaseID != nil {
+			if i := slices.IndexFunc(rs, func(r service.Release) bool { return r.ID == *j.ReleaseID }); i >= 0 {
+				run.Text = "Release " + strconv.Itoa(rs[i].Number) + " is still deploying to " + e.Name + "."
+			}
+		}
+		return run
+	}
+	return nil
+}
+
+// gapPost is where a review's missing-secret form posts: it saves the value
+// and plans again.
+func gapPost(base, kind, envSlug, plan, envID string) string {
+	if kind == "stack" {
+		return base + "/promote/" + envSlug + "/" + plan + "/secret?env=" + envID + "&plan=" + plan
+	}
+	return base + "/promote/" + plan + "/secret?plan=" + plan
+}
+
+// accessView groups the lines of a plan's elevated access under their
+// tile, one line per grant; the source fingerprint is not a grant to read.
+func accessView(lines []string, admin bool) *comp.ReviewAccess {
+	a := &comp.ReviewAccess{Admin: admin}
+	for _, l := range lines {
+		p := access.Parse(l)
+		if p.Kind == access.KindSource {
+			continue
+		}
+		word := strings.ToLower(p.Label)
+		if p.Detail != "" {
+			word += " " + p.Detail
+		}
+		if n := len(a.Tiles); n == 0 || a.Tiles[n-1].Tile != p.Tile {
+			a.Tiles = append(a.Tiles, comp.AccessTile{Tile: p.Tile})
+		}
+		a.Tiles[len(a.Tiles)-1].Grants = append(a.Tiles[len(a.Tiles)-1].Grants, word)
+	}
+	return a
+}
+
+// fillPromoteGap saves the value of one secret the plan of release in env
+// waits on (the review's "Save and re-plan"). Only a secret the plan names
+// can be set here; the value is never logged or echoed.
+func (h *handler) fillPromoteGap(c echo.Context, envID, release string) error {
+	ctx := c.Request().Context()
+	p, err := h.orch.PlanPromote(ctx, middleware.Principal(c), envID, release)
+	if err != nil {
+		return err
+	}
+	name, value := c.FormValue("name"), c.FormValue("value")
+	if value == "" {
+		return errs.Invalidf("value", "Enter a value.")
+	}
+	col, key, _ := strings.Cut(name, ".")
+	named := false
+	for _, g := range p.Plan.Gaps {
+		named = named || g.Kind == "secret" && g.Scope == "env" && g.Key == name
+	}
+	if !named || key == "" {
+		return errs.Invalidf("name", "That secret is not missing.")
+	}
+	_, err = h.orch.SetParams(ctx, service.ParamScope{Kind: "env", ID: envID}, []service.ParamEntry{{Collection: col, Name: key, Kind: "secret", Value: value}})
+	return err
 }

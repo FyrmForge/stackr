@@ -68,12 +68,12 @@ templ waitRow(r WaitRowView) {
 	</div>
 }
 
-// WaitingBadge is the rail's count of what waits on the viewer. It is always
-// in the rail (hidden at 0) so the banners poll can swap it in place.
+// WaitingBadge is the top bar's count of what waits on the viewer. It is
+// always in the bar (hidden at 0) so the banners poll can swap it in place.
 templ WaitingBadge(n int, oob bool) {
 	<span
 		id="rail-you"
-		class={ "absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rw-accent px-1 text-[10px] font-semibold text-white", templ.KV("hidden", n == 0) }
+		class={ "chip bg-rw-accent/15 text-rw-accentHi", templ.KV("hidden", n == 0) }
 		if oob {
 			hx-swap-oob="true"
 		}

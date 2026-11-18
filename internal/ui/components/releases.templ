@@ -1,9 +1,6 @@
 package components
 
-import (
-	"strconv"
-	"time"
-)
+import "time"
 
 // ReleasesView is v0's releases page as a drawer tab (stack and env): the
 // ladder strip (what each env runs), one row per release with the envs
@@ -14,7 +11,6 @@ type ReleasesView struct {
 	Ladder []EnvRun
 	Rows   []ReleaseRow
 	Job    *JobStatusView
-	Ask    *ConfirmView // the promote question, open on arrival
 	Live   string       // the tab's own GET, polled while no question is open; "" = static
 	// PushFail is the line over the list after a failed push; nil = none.
 	PushFail *PushFailView
@@ -31,31 +27,19 @@ type ReleaseRow struct {
 	When   time.Time
 	Envs   []EnvRun // the envs running it
 	Moves  []ReleaseMove
+	// Waiting: the env below runs it and the viewed env does not.
+	Waiting bool
 }
 
-// ReleaseMove is one env's button on a row; it fetches the question.
+// ReleaseMove is one env's button on a row; it opens the review.
 type ReleaseMove struct {
-	Env  string
-	Back bool   // the env runs a newer release: Roll back, in danger
-	Ask  string // GET the tab with the question open
+	Label string // "Review plan", "Review rollback"
+	Ask   string // GET the tab with the review open
 }
-
-// PromoteAsk is the question's body (v0 promoteStepOne): what the move
-// skips or removes, the releases it carries, then the dry run.
-type PromoteAsk struct {
-	Back    bool
-	Skipped string // the rung below that does not run it yet
-	Target  string // the env
-	Carried []ReleaseRow
-	Plan    PlanView
-}
-
-// askRows is how many carried releases show before the rest fold.
-const askRows = 5
 
 templ Releases(v ReleasesView) {
 	<div id="tab-releases">
-		if v.Live != "" && v.Ask == nil && (v.Job == nil || !v.Job.Live) {
+		if v.Live != "" && (v.Job == nil || !v.Job.Live) {
 			@LiveTab(v.Live, "tab-releases")
 		}
 		if v.PushFail != nil {
@@ -64,9 +48,6 @@ templ Releases(v ReleasesView) {
 			</div>
 		}
 		@JobSlot(v.Job, "promote,deploy")
-		if v.Ask != nil {
-			@Confirm(*v.Ask)
-		}
 		if len(v.Ladder) > 0 {
 			<ul class="flex flex-wrap gap-2 mb-6">
 				for _, e := range v.Ladder {
@@ -93,7 +74,13 @@ templ Releases(v ReleasesView) {
 							<span class="flex h-5 w-5 items-center justify-center rounded bg-rw-inset text-[9px] font-bold uppercase text-rw-accentHi shrink-0">{ Initials(r.By) }</span>
 							<span class="font-mono text-xs text-rw-muted shrink-0">#{ r.Number }</span>
 							<span class="min-w-0 flex-1">
-								<span class="block text-rw-text sm:truncate [overflow-wrap:anywhere]">Release { r.Number }</span>
+								<span class="block text-rw-text sm:truncate [overflow-wrap:anywhere]">
+									Release { r.Number }
+									if r.Waiting {
+										{ " " }
+										@Chip("Waiting", "accent")
+									}
+								</span>
 								<span class="block text-[10px] text-rw-faint sm:truncate [overflow-wrap:anywhere]">
 									{ r.By + " · " }
 									@When(r.When)
@@ -116,17 +103,11 @@ templ Releases(v ReleasesView) {
 								for _, m := range r.Moves {
 									<button
 										type="button"
-										class={ "btn btn-sm shrink-0", templ.KV("btn-danger", m.Back), templ.KV("btn-ghost", !m.Back) }
+										class="btn btn-ghost btn-sm shrink-0"
 										hx-get={ m.Ask }
 										hx-target={ "#" + DrawerRoot }
 										hx-swap="outerHTML"
-									>
-										if m.Back {
-											Roll back { m.Env }
-										} else {
-											Promote to { m.Env }
-										}
-									</button>
+									>{ m.Label }</button>
 								}
 							</span>
 						}
@@ -136,46 +117,6 @@ templ Releases(v ReleasesView) {
 			</ul>
 		}
 	</div>
-}
-
-// Ask is the promote question's body.
-templ Ask(a PromoteAsk) {
-	if a.Back {
-		<p class="text-xs text-rw-danger">Removes { strconv.Itoa(len(a.Carried)) } release{ plural(len(a.Carried)) } from { a.Target }.</p>
-	} else if a.Skipped != "" {
-		<p class="text-xs text-rw-warn">{ a.Skipped } does not run this release yet.</p>
-	}
-	if len(a.Carried) > 0 {
-		<ul class="text-xs divide-y divide-rw-border border-y border-rw-border">
-			for i, r := range a.Carried {
-				if i < askRows {
-					@askRow(r)
-				}
-			}
-		</ul>
-		if len(a.Carried) > askRows {
-			<details class="text-xs">
-				<summary class="px-1 py-1.5 text-rw-faint cursor-pointer">{ strconv.Itoa(len(a.Carried) - askRows) } more</summary>
-				<ul class="divide-y divide-rw-border border-b border-rw-border">
-					for i, r := range a.Carried {
-						if i >= askRows {
-							@askRow(r)
-						}
-					}
-				</ul>
-			</details>
-		}
-	}
-	@Plan(a.Plan)
-}
-
-templ askRow(r ReleaseRow) {
-	<li class="flex items-center gap-2 px-1 py-1.5 min-w-0">
-		<span class="font-mono text-rw-muted">#{ r.Number }</span>
-		<span class="flex h-4 w-4 items-center justify-center rounded bg-rw-inset text-[8px] font-bold uppercase text-rw-accentHi shrink-0">{ Initials(r.By) }</span>
-		<span class="min-w-0 flex-1 truncate text-rw-text">{ r.By }</span>
-		<span class="text-rw-faint shrink-0">@When(r.When)</span>
-	</li>
 }
 
 func plural(n int) string {

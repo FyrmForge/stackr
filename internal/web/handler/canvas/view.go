@@ -53,6 +53,7 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 			Detail: n.Detail,
 			Status: n.Status,
 			Fail:   n.Fail,
+			Wait:   n.Wait,
 			X:      n.X,
 			Y:      n.Y,
 			W:      n.W,
@@ -137,6 +138,7 @@ func exposed(n service.GraphNode, level string) cards.FooterView {
 		Kind:   n.Kind,
 		Status: n.Status,
 		Fail:   n.Fail,
+		Wait:   n.Wait,
 		Nav:    true,
 	}
 	if level == service.CanvasOrg {
@@ -218,6 +220,9 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 		Fail:    n.Fail,
 		Up:      n.Running,
 		Want:    n.Replicas,
+	}
+	if n.Stop != "" {
+		f.StoppedAt, f.StopHref = n.Stop, base+"/-/jobs/"+n.StopJob
 	}
 	if n.Status == "none" && (n.Kind == "cron" || n.Kind == "function" || n.Kind == "slice") { // no runs or provision yet: idle, as their drawers say
 		f.Status = ""

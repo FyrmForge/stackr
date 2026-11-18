@@ -10,6 +10,7 @@ import (
 	"context"
 	"hash/fnv"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -132,6 +133,13 @@ func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focu
 	v := mapView(gv, l, sh, focus, g)
 	if review {
 		v.Events, v.SyncBar, v.Review = "", syncBar(l, pl, q), q.query()
+	}
+	if v.Empty != "" && l.scope.Kind == service.CanvasEnv {
+		if rel, ok := h.orch.WaitingRelease(ctx, l.stack, l.scope.ID); ok {
+			v.Empty = "Release " + strconv.Itoa(rel.Number) + " is waiting."
+			v.EmptyNote = "Nothing runs here until it is promoted."
+			v.EmptyHref = l.base + "?drawer=" + url.QueryEscape("env:"+l.scope.ID) + "&tab=releases&plan=" + rel.ID
+		}
 	}
 	if v.Lanes != nil {
 		es, err := h.orch.Traffic(ctx, l.scope.ID)
@@ -385,6 +393,7 @@ func Sig(v ui.View) string {
 	for _, n := range v.Nodes {
 		parts = append(parts, "n "+n.ID+" "+n.Name+" "+n.Detail+" "+n.Color+" "+strconv.FormatBool(n.Pending))
 	}
+	parts = append(parts, "empty "+v.Empty+" "+v.EmptyHref)
 	for _, e := range v.Edges {
 		parts = append(parts, "e "+e.Kind+" "+e.From+" "+e.To)
 	}

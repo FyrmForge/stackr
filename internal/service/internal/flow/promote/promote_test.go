@@ -949,3 +949,19 @@ func TestPlanProtectPair(t *testing.T) {
 		t.Error("new password did not diff")
 	}
 }
+
+// A rollout that fails names the tile and the ones after it, and keeps the
+// park errors readable through the wrapper.
+func TestPartlyStopped(t *testing.T) {
+	err := partly("bazarr", []string{"radarr", "sonarr"}, errors.New("port taken"))
+	var st *Stopped
+	if !errors.As(err, &st) || st.Tile != "bazarr" || len(st.Pending) != 2 || st.Pending[0] != "radarr" {
+		t.Fatalf("err = %#v", err)
+	}
+	if !strings.Contains(err.Error(), "deploy bazarr: port taken; the environment is partly rolled out") {
+		t.Errorf("text = %q", err)
+	}
+	if _, ok := errs.IsUnset(partly("a", nil, errs.Unset{Param: "x"})); !ok {
+		t.Error("a park is lost behind the wrapper")
+	}
+}

@@ -138,7 +138,17 @@ templ Canvas(v View) {
 			@node(v, n)
 		}
 		if v.Empty != "" {
-			<div class="absolute inset-0 flex items-center justify-center text-rw-faint text-sm pointer-events-none">{ v.Empty }</div>
+			<div class="absolute inset-0 flex flex-col items-center justify-center gap-1 text-rw-faint text-sm pointer-events-none">
+				<p class={ templ.KV("text-rw-text", v.EmptyHref != "") }>
+					{ v.Empty }
+					if v.EmptyHref != "" {
+						{ " " }<a href={ templ.SafeURL(v.EmptyHref) } class="link pointer-events-auto">Review plan</a>
+					}
+				</p>
+				if v.EmptyNote != "" {
+					<p class="text-rw-muted">{ v.EmptyNote }</p>
+				}
+			</div>
 		}
 		if len(v.Compare) > 0 {
 			@compare(v.Compare)

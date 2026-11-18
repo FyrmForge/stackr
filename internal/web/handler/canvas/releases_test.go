@@ -39,13 +39,16 @@ func TestEnvReleases(t *testing.T) {
 		t.Errorf("releases tab:\n%s", body)
 	}
 	body = get(t, s, base+"?tab=releases&plan="+id)
-	if !strings.Contains(body, "Promote #1 to dev?") || !strings.Contains(body, base+"/promote/"+id) {
+	if !strings.Contains(body, "Release 1 for dev") || !strings.Contains(body, `hx-post="`+base+"/promote/"+id+`"`) || !strings.Contains(body, ">Promote to dev<") || strings.Contains(body, "<confirm-dialog") {
 		t.Errorf("dry run:\n%s", body)
+	}
+	if strings.Contains(body, "hx-trigger=\"every 3s\"") && strings.Contains(body, "plan="+id) {
+		t.Errorf("an idle review polls:\n%s", body)
 	}
 	if strings.Contains(body, "hx-include") { // no removal rows: no ticks to include
 		t.Errorf("a plan with no removals includes ticks:\n%s", body)
 	}
-	if body = get(t, s, base+"?tab=releases&plan=nope"); strings.Contains(body, "Promote #") {
+	if body = get(t, s, base+"?tab=releases&plan=nope"); strings.Contains(body, "Release 1 for") {
 		t.Errorf("an unknown release was planned:\n%s", body)
 	}
 	rec := s.Do(t, "POST", base+"/promote/"+id, nil)

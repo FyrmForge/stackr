@@ -354,8 +354,8 @@ func waitRow(r WaitRowView) templ.Component {
 	})
 }
 
-// WaitingBadge is the rail's count of what waits on the viewer. It is always
-// in the rail (hidden at 0) so the banners poll can swap it in place.
+// WaitingBadge is the top bar's count of what waits on the viewer. It is
+// always in the bar (hidden at 0) so the banners poll can swap it in place.
 func WaitingBadge(n int, oob bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -381,7 +381,7 @@ func WaitingBadge(n int, oob bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var16 = []any{"absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rw-accent px-1 text-[10px] font-semibold text-white", templ.KV("hidden", n == 0)}
+			var templ_7745c5c3_Var16 = []any{"chip bg-rw-accent/15 text-rw-accentHi", templ.KV("hidden", n == 0)}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_ElementWriter, templ_7745c5c3_Var16...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

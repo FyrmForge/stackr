@@ -62,6 +62,9 @@ type FooterView struct {
 	Since      time.Time // that job's start; zero = none, the line reads as the word alone
 	Phase      string    // that job's step ("Pulling image", "Queued (2 of 5)"); "" = the word
 	Fail       string    // the last deploy's error while it failed; "" = none
+	StoppedAt  string    // a tile the failed promote never reached: the tile it stopped at
+	StopHref   string    // that promote's job log
+	Wait       int       // env card: the release waiting to be promoted here; 0 = none
 	Up, Want   int       // replica roll-up, drawn when Want > 1
 	LastRun    string    // cron/function: "ok · ", "never run", "running · since ", LastAt follows
 	LastAt     time.Time // the last run's start; zero = none
@@ -191,6 +194,8 @@ func word(status, waiting string) (tone, text string) {
 		return "danger", "Crashed"
 	case "failed":
 		return "danger", "Deploy failed"
+	case "notdeployed":
+		return "faint", "Not deployed"
 	case "pushfailed":
 		return "danger", "Push failed"
 	case "unhealthy":

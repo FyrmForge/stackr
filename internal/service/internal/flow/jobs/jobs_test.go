@@ -596,3 +596,19 @@ func TestEnded(t *testing.T) {
 		}
 	}
 }
+
+// A handler may rewrite its payload before it fails; the finished row keeps
+// it (a failed promote records where it stopped).
+func TestFailKeepsPayload(t *testing.T) {
+	h := func(ctx context.Context, r *jobs.Run) error {
+		r.Job.Payload = `{"stopped_at":"api"}`
+		return errors.New("boom")
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{})
+	start(t, r)
+	id := enqueue(t, r, "a", "t1")
+	waitState(t, l, id, job.Failed)
+	if j, _ := l.Get(ctx, id); j.Payload != `{"stopped_at":"api"}` {
+		t.Errorf("payload = %q", j.Payload)
+	}
+}

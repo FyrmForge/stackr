@@ -382,15 +382,26 @@ func (f *Flow) swapOrDefer(ctx context.Context, w *work, swap func() error) (lat
 	return nil, swap()
 }
 
+// Stopped is a rollout that failed at Tile: Pending are the tiles after it
+// that never ran. The service keeps both on the failed job for the canvas.
+type Stopped struct {
+	Tile    string
+	Pending []string
+	Err     error
+}
+
+func (s *Stopped) Error() string { return s.Err.Error() }
+func (s *Stopped) Unwrap() error { return s.Err }
+
 // partly is a tile's rollout failure once the env already points at the new
 // release: some tiles run it and some do not. A park keeps its own text.
-func partly(slug string, err error) error {
+func partly(slug string, pending []string, err error) error {
 	_, unset := errs.IsUnset(err)
 	_, approval := errs.IsNeedsApproval(err)
 	if unset || approval {
-		return fmt.Errorf("deploy %s: %w", slug, err)
+		return &Stopped{slug, pending, fmt.Errorf("deploy %s: %w", slug, err)}
 	}
-	return fmt.Errorf("deploy %s: %w; the environment is partly rolled out on the new release, promote again to finish it", slug, err)
+	return &Stopped{slug, pending, fmt.Errorf("deploy %s: %w; the environment is partly rolled out on the new release, promote again to finish it", slug, err)}
 }
 
 // applyInstances writes the file's allow list and env pairs onto each
@@ -730,7 +741,7 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 		return err
 	}
 	var repin []release.Pin
-	for _, s := range run {
+	for i, s := range run {
 		t := bySlug[s]
 		ref, pinned := t.ImageRef, false
 		if !w.unpin[s] {
@@ -751,7 +762,7 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 		logf(log, "deploying %s\n", s)
 		digest, err := d.Run(ctx, t, ref, log, swap)
 		if err != nil {
-			return partly(s, err)
+			return partly(s, run[i+1:], err)
 		}
 		w.deployed = append(w.deployed, t.ID)
 		if tile.Pulls(t) && !pinned && digest != "" {

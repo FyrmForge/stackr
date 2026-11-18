@@ -31,6 +31,8 @@ type View struct {
 	Walled  bool // system cards and the rest both drawn: the server boundary between them
 	Divider int  // world x of that boundary (0 is a real place)
 	Empty   string
+	// EmptyNote is the second line under Empty, EmptyHref the "Review plan" link after it.
+	EmptyNote, EmptyHref string
 	Compare []Rung
 	Create  []Create        // the level's create dialogs the viewer may open
 	Lanes   []cards.Lane    // env traffic at the last sample; nil = no lanes layer
@@ -75,6 +77,7 @@ type Node struct {
 	Slug                   string // the drill-down path segment; a connector's id
 	Status                 string // one word, "" = nothing to show
 	Fail                   string // the error under a failed status, "" = none
+	Wait                   int    // env card: a release waits to be promoted here; 0 = none
 	X, Y, W, H             int    // the card's own box; sub-tiles hang below it
 	// Members makes the card a container (the Cluster map's network box):
 	// the canvas keeps it wrapped around these cards, Pad (top right bottom
@@ -144,7 +147,7 @@ func (n Node) Foot() templ.Component {
 	if n.Footer != nil {
 		return n.Footer
 	}
-	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status, Fail: n.Fail})
+	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status, Fail: n.Fail, Wait: n.Wait})
 }
 
 // Toggle is the page URL with one show param flipped.

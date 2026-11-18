@@ -307,6 +307,9 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		c.Set(jobKey, queued{job: j, page: urlOf(cd.s)})
 		return "Queued: the job below follows it.", nil
 	}), write)
+	site.POST(e+"/promote/:release/secret", h.envAction("releases", func(c echo.Context, cd card) (string, error) {
+		return "Saved.", h.fillPromoteGap(c, cd.s.Env.ID, c.Param("release"))
+	}), write)
 	site.POST(e+"/sync/:from", h.envAction("sync", func(c echo.Context, cd card) (string, error) {
 		form, _ := c.FormParams()
 		j, err := h.orch.EnvSync(c.Request().Context(), cd.s.Env.ID, c.Param("from"), form["keep"], c.FormValue("sig"))

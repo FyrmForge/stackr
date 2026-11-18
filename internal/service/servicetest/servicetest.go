@@ -459,6 +459,19 @@ func (e *Env) PushJob(t *testing.T, stackID, state, errMsg string, at time.Time)
 	return id
 }
 
+// PromoteJob records a promote job of env in state at at (errMsg is its
+// error, payload its JSON, releaseID the release it takes), the way the
+// runner leaves one, and returns its id.
+func (e *Env) PromoteJob(t *testing.T, envID, state, errMsg, payload, releaseID string, at time.Time) string {
+	t.Helper()
+	id := uuid.NewString()
+	must(t, e.Store.Jobs.Create(context.Background(), store.Job{
+		ID: id, Kind: "promote", State: state, Error: errMsg, LockSet: store.StringList{"env:" + envID},
+		Payload: payload, ReleaseID: &releaseID, CreatedAt: at, FinishedAt: &at,
+	}))
+	return id
+}
+
 // WaitingJob records a deploy parked on param (payload is its JSON) that
 // nothing picks up, and returns its id.
 func (e *Env) WaitingJob(t *testing.T, param, payload string) string {

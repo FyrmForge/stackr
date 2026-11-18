@@ -84,7 +84,7 @@ templ top(kind, name, detail string, host, newVersion bool, acc Access) {
 // (hx-target="this", or it would inherit the card's #drawer-body).
 templ Footer(id string, f FooterView) {
 	<div
-		class={ "node-footer mt-auto border-t border-rw-border flex items-center justify-between gap-2 min-w-0 relative", templ.KV("pt-3", f.Fail == ""), templ.KV("pt-1.5", f.Fail != "") }
+		class={ "node-footer mt-auto border-t border-rw-border flex items-center justify-between gap-2 min-w-0 relative", templ.KV("pt-3", f.Fail == "" && f.StoppedAt == ""), templ.KV("pt-1.5", f.Fail != "" || f.StoppedAt != "") }
 		data-kind={ f.Kind }
 		sse-swap={ "footer:" + id }
 		hx-target="this"
@@ -92,6 +92,14 @@ templ Footer(id string, f FooterView) {
 	>
 		if short, full := FailLine(f.Fail); short != "" {
 			<p class="node-fail absolute bottom-full mb-px inset-x-0 truncate text-[11px] leading-none text-rw-danger" title={ full }>{ short }</p>
+		}
+		if f.StoppedAt != "" {
+			<p class="node-fail absolute bottom-full mb-px inset-x-0 truncate text-[11px] leading-none text-rw-faint">
+				{ "Stopped at " + f.StoppedAt + "." }
+				if f.StopHref != "" {
+					{ " " }<a href={ templ.SafeURL(f.StopHref) } class="underline">Job log</a>
+				}
+			</p>
 		}
 		switch f.Kind {
 			case "cron", "function":
@@ -134,6 +142,9 @@ templ Footer(id string, f FooterView) {
 					@line("success", "running · "+itoa(f.Up)+"/"+itoa(f.Want))
 				} else {
 					@Status(f.Status, f.Waiting)
+				}
+				if f.Wait > 0 {
+					<span class="node-wait flex items-center gap-1.5 text-xs min-w-0"><span class="text-rw-faint">·</span><span class="text-rw-accentHi truncate">{ "Release " + itoa(f.Wait) + " waiting" }</span></span>
 				}
 				if f.ExtUpdates > 0 {
 					<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn" title="newer extension builds are available">Extension updates</span>
