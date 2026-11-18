@@ -914,6 +914,15 @@ func TestHelperImagePullIsOutsideTheDeadlineAndRetriedOnce(t *testing.T) {
 			t.Fatalf("a hung pull ran %v and returned %v", time.Since(start), err)
 		}
 	})
+	t.Run("hung image resolution", func(t *testing.T) { // Q9: the deadline covers the ref lookup too
+		_, h := helperTest(t)
+		h.pullWait = 50 * time.Millisecond
+		h.image = func(ctx context.Context) (string, error) { <-ctx.Done(); return "", ctx.Err() }
+		start := time.Now()
+		if _, err := h.Disk(context.Background(), "w1", verify()); err == nil || time.Since(start) > 10*time.Second {
+			t.Fatalf("a hung image lookup ran %v and returned %v", time.Since(start), err)
+		}
+	})
 	t.Run("image gone", func(t *testing.T) {
 		n, h := helperTest(t)
 		n.wFake.Err = map[string]error{"Run": docker.ErrNotFound}

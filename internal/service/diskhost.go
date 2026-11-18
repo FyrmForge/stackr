@@ -116,15 +116,17 @@ func (h *diskHost) Disk(ctx context.Context, nodeID string, r hostdisk.Request) 
 
 // pull makes sure the helper image is on the node and names it.
 func (h *diskHost) pull(ctx context.Context, nodeID string) (string, error) {
-	ref, err := h.image(ctx)
+	// one deadline for the whole image step: resolving the ref can wait for a
+	// publication, and the pull follows
+	pctx, cancel := context.WithTimeout(ctx, h.pullWait)
+	defer cancel()
+	ref, err := h.image(pctx)
 	if err != nil {
 		return "", err
 	}
 	if _, done := h.pulled.Load(nodeID + " " + ref); done {
 		return ref, nil
 	}
-	pctx, cancel := context.WithTimeout(ctx, h.pullWait)
-	defer cancel()
 	if err := h.o.docker.Pull(docker.WithNode(pctx, nodeID), ref, "", io.Discard); err != nil {
 		return "", fmt.Errorf("pull %s: %w", ref, err)
 	}
