@@ -10,15 +10,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -42,7 +45,51 @@ type Env struct {
 	Store  *store.Store // for seeding and for asserting rows
 	Config service.Config
 	DNS    *DNS // the fake DNS accounts
+	Disk   *DiskRig
 }
+
+// DiskRig is the host the disk commands run on: a temp dir as its root and a
+// mount table the test writes. Nothing is mounted until Mount says so.
+type DiskRig struct {
+	Root, Mountinfo string
+	mounts          []string
+}
+
+const rootMount = "25 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
+
+func newDiskRig(t *testing.T) *DiskRig {
+	t.Helper()
+	r := &DiskRig{Root: t.TempDir(), Mountinfo: filepath.Join(t.TempDir(), "mountinfo")}
+	r.write(t)
+	return r
+}
+
+func (r *DiskRig) write(t *testing.T) {
+	t.Helper()
+	tbl := rootMount
+	for i, p := range r.mounts {
+		tbl += fmt.Sprintf("%d 25 8:%d / %s rw - ext4 /dev/sd%c rw\n", 36+i, 17+i, p, 'b'+i)
+	}
+	must(t, os.WriteFile(r.Mountinfo, []byte(tbl), 0o644))
+}
+
+// Mount makes path an empty mount point.
+func (r *DiskRig) Mount(t *testing.T, path string) {
+	t.Helper()
+	must(t, os.MkdirAll(filepath.Join(r.Root, path), 0o755))
+	r.mounts = append(r.mounts, path)
+	r.write(t)
+}
+
+// Unmount takes path out of the mount table; its files stay, as under a real unmount.
+func (r *DiskRig) Unmount(t *testing.T, path string) {
+	t.Helper()
+	r.mounts = slices.DeleteFunc(r.mounts, func(p string) bool { return p == path })
+	r.write(t)
+}
+
+// Dir is where path really is, for a test that reads or writes the disk.
+func (r *DiskRig) Dir(path string) string { return filepath.Join(r.Root, path) }
 
 // New builds a fresh orchestrator. edit, if given, adjusts the config.
 func New(t *testing.T, edit ...func(*service.Config)) *Env {
@@ -73,8 +120,10 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 	}
 	fake := dockerfake.New()
 	dns := &DNS{}
+	rig := newDiskRig(t)
 	orch, err := service.New(cfg, append([]service.Option{
 		service.WithDocker(fake),
+		service.WithDiskHost(service.InProcessDisk(hostdisk.Env{Root: rig.Root, Mountinfo: rig.Mountinfo})),
 		service.WithDNS(dns.open),
 		// no mesh, no probe and no real lookup: a test's panel name is nobody's
 		service.WithPanelSeams(nil, nil, func(context.Context, string) ([]string, error) { return nil, errors.New("no network in tests") }),
@@ -96,6 +145,7 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 		Store:  open(t, cfg.DBPath),
 		Config: cfg,
 		DNS:    dns,
+		Disk:   rig,
 	}
 }
 

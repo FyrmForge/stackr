@@ -409,6 +409,8 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindRemoveNode:     controllerJob(o, payload(o.runRemoveNode)),
 		kindForgetNode:     controllerJob(o, payload(o.runForgetNode)),
 		kindNodeBackup:     controllerJob(o, payload(o.runNodeBackup)),
+		kindDiskAdd:        controllerJob(o, payload(o.runDiskAdd)),
+		kindDiskCheck:      controllerJob(o, payload(o.runDiskCheck)),
 		kindWorkerRollout:  controllerJob(o, o.runWorkerRollout),
 	}
 }

@@ -131,6 +131,16 @@ func (o *Orchestrator) runRemoveNode(ctx context.Context, r *jobs.Run, p nodeJob
 			return err
 		}
 	}
+	// The disk's rows go with the node; the content stays on the disk.
+	d, has, err := o.nodeDisk(ctx, n.ID)
+	if err != nil {
+		return err
+	}
+	if has {
+		if err := o.diskLeaf.Delete(ctx, d); err != nil {
+			return err
+		}
+	}
 	by := &Principal{User: User{ID: p.By}, KeyID: p.KeyID}
 	return o.dropNode(ctx, by, n, auditNodeRemove, false)
 }
@@ -144,7 +154,7 @@ func (o *Orchestrator) stopNodeContainers(ctx context.Context, log io.Writer) ([
 	}
 	var stopped []string
 	for _, c := range cs {
-		if c.State != "running" || c.Labels[installspec.LabelRole] == "host-helper" {
+		if role := c.Labels[installspec.LabelRole]; c.State != "running" || role == "host-helper" || role == diskHelperRole {
 			continue
 		}
 		_, _ = fmt.Fprintf(log, "stopping %s\n", c.Name)
@@ -178,13 +188,37 @@ func (o *Orchestrator) nodeSubjects(ctx context.Context, n store.Node) ([]fbacku
 	if err != nil {
 		return nil, err
 	}
-	var out []fbackup.Subject
+	names := make([]string, 0, len(infos))
 	for _, vi := range infos {
-		if _, files := vi.Labels[labelFilesTile]; files {
-			continue
+		if _, files := vi.Labels[labelFilesTile]; !files {
+			names = append(names, vi.Name)
 		}
-		v := store.Volume{Name: vi.Name, Slug: vi.Name, NodeID: n.ID}
-		if i := slices.IndexFunc(orphans, func(v store.Volume) bool { return v.Name == vi.Name }); i >= 0 {
+	}
+	// A folder with no Docker object is data too: bind the object again so the
+	// backup can tar it. A disk that is not ready fails here and refuses the remove.
+	d, has, err := o.nodeDisk(ctx, n.ID)
+	if err != nil {
+		return nil, err
+	}
+	if has {
+		fs, err := o.diskLeaf.Folders(ctx, d)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range fs {
+			if slices.Contains(names, f.Name) {
+				continue
+			}
+			if err := o.volumes.EnsureNamed(ctx, n.ID, f.Name, map[string]string{"stackr.volume": ""}); err != nil {
+				return nil, err
+			}
+			names = append(names, f.Name)
+		}
+	}
+	var out []fbackup.Subject
+	for _, name := range names {
+		v := store.Volume{Name: name, Slug: name, NodeID: n.ID}
+		if i := slices.IndexFunc(orphans, func(v store.Volume) bool { return v.Name == name }); i >= 0 {
 			v = orphans[i]
 		}
 		out = append(out, fbackup.Subject{Volume: v})
@@ -228,14 +262,7 @@ func (o *Orchestrator) runHostUninstall(ctx context.Context, nodeID string, log 
 		_, _ = fmt.Fprintln(log, "fake host: nothing to uninstall")
 		return nil
 	}
-	img, err := o.controllerStackrImage(ctx)
-	if err != nil {
-		return err
-	}
-	if err := o.waitStackrPublished(ctx); err != nil {
-		return err
-	}
-	ref, err := stackrSystemRef(img)
+	ref, err := o.helperImage(ctx)
 	if err != nil {
 		return err
 	}
@@ -257,4 +284,17 @@ func (o *Orchestrator) runHostUninstall(ctx context.Context, nodeID string, log 
 		return fmt.Errorf("host helper exited %d: %s", code, out)
 	}
 	return nil
+}
+
+// helperImage is the stackr image a host helper runs from, as the cluster
+// registry holds it. It waits for the boot publish.
+func (o *Orchestrator) helperImage(ctx context.Context) (string, error) {
+	img, err := o.controllerStackrImage(ctx)
+	if err != nil {
+		return "", err
+	}
+	if err := o.waitStackrPublished(ctx); err != nil {
+		return "", err
+	}
+	return stackrSystemRef(img)
 }

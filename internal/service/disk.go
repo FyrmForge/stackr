@@ -1,0 +1,431 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+	"slices"
+
+	"github.com/FyrmForge/stackr/internal/hostdisk"
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
+)
+
+// A node's disk: one folder on the node, a mounted path that carries a stamp,
+// where its volumes live. "No disk" is no node_disks row and nothing else;
+// any other state refuses (leaf/disk).
+
+const (
+	kindDiskAdd   jobs.Kind = "disk-add"
+	kindDiskCheck jobs.Kind = "disk-check"
+
+	auditDiskAdd   = "disk.add"
+	auditDiskCheck = "disk.check"
+)
+
+// NodeDiskView is a node's disk as the panel shows it.
+type NodeDiskView struct {
+	Has         bool
+	Kind, Path  string
+	State       string // adding | ready | missing
+	Free, Total uint64
+	Network     bool
+	Stale       bool // the worker's last read of the disk is old, or there is none
+	Volumes     int
+}
+
+// FolderProbe is what a path on a node looks like before it is added. A
+// refusal (not a mount point, the root filesystem, not empty ...) is an
+// answer: Code and Message say it, and the error is nil.
+type FolderProbe struct {
+	Path                            string
+	FSType                          string
+	Mounted, RootFS, Network, Empty bool
+	Free, Total                     uint64
+	StampOwner                      string // the node a stamp on it names, "" = none
+	Code, Message                   string
+}
+
+type diskJob struct {
+	NodeID string `json:"node_id"`
+	Path   string `json:"path,omitempty"`
+	By     string `json:"by,omitempty"`
+	KeyID  string `json:"key_id,omitempty"`
+}
+
+// nodeDisk is the node's disk row. A lookup error is a failure everywhere,
+// never "no disk".
+func (o *Orchestrator) nodeDisk(ctx context.Context, nodeID string) (store.NodeDisk, bool, error) {
+	if nodeID == "" {
+		return store.NodeDisk{}, false, nil
+	}
+	return o.diskLeaf.OfNode(ctx, nodeID)
+}
+
+// diskAdapter is leaf/disk as the volume leaf's Disk. It turns leaf/disk's
+// *MissingError into the volume leaf's own, which that leaf checks for.
+type diskAdapter struct{ o *Orchestrator }
+
+func missing(err error) error {
+	var m *disk.MissingError
+	if errors.As(err, &m) {
+		return &volume.MissingError{Node: m.Node}
+	}
+	return err
+}
+
+func (a diskAdapter) State(ctx context.Context, nodeID string) (volume.DiskState, error) {
+	d, ok, err := a.o.nodeDisk(ctx, nodeID)
+	switch {
+	case err != nil:
+		return volume.DiskNone, err // never read as "no disk"
+	case !ok:
+		return volume.DiskNone, nil
+	case d.State == disk.StateReady:
+		return volume.DiskReady, nil
+	}
+	return volume.DiskNotReady, nil
+}
+
+func (a diskAdapter) Folders(ctx context.Context, nodeID string, names ...string) (map[string]bool, error) {
+	d, ok, err := a.o.nodeDisk(ctx, nodeID)
+	if err != nil || !ok {
+		return map[string]bool{}, err
+	}
+	return a.o.diskLeaf.HasFolders(ctx, d, names...)
+}
+
+// ready is the row of a node whose disk is there to work on. No row is
+// *MissingError too: the caller asked after a state that has since gone.
+func (a diskAdapter) ready(ctx context.Context, nodeID string) (store.NodeDisk, error) {
+	d, ok, err := a.o.nodeDisk(ctx, nodeID)
+	if err != nil {
+		return d, err
+	}
+	if !ok || d.State != disk.StateReady {
+		return d, &volume.MissingError{Node: nodeID}
+	}
+	return d, nil
+}
+
+func (a diskAdapter) Place(ctx context.Context, nodeID, name string) (map[string]string, error) {
+	d, err := a.ready(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	opts, err := a.o.diskLeaf.Place(ctx, d, name)
+	return opts, missing(err)
+}
+
+func (a diskAdapter) Usage(ctx context.Context, nodeID string, mode volume.UseMode, names ...string) (map[string]volume.Use, error) {
+	d, err := a.ready(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	var use map[string]hostdisk.Use
+	switch mode {
+	case volume.UseCached:
+		use = a.o.cachedSizes(d, names)
+	default:
+		if use, err = a.o.diskLeaf.Usage(ctx, d, mode == volume.UseFresh, names...); err != nil {
+			return nil, missing(err)
+		}
+	}
+	out := make(map[string]volume.Use, len(use))
+	for n, u := range use {
+		out[n] = volume.Use{Bytes: u.Bytes, Empty: u.Empty, Missing: u.Missing}
+	}
+	return out, nil
+}
+
+func (a diskAdapter) Drop(ctx context.Context, nodeID, name string) error {
+	d, err := a.ready(ctx, nodeID)
+	if err != nil {
+		return err
+	}
+	return missing(a.o.diskLeaf.Drop(ctx, d, name))
+}
+
+// NodeDisk is the node's disk for its drawer. Free and total come from the
+// worker's last facts, never from a helper run.
+func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskView, error) {
+	d, ok, err := o.nodeDisk(ctx, nodeID)
+	if err != nil || !ok {
+		return NodeDiskView{}, err
+	}
+	fs, err := o.diskLeaf.Folders(ctx, d)
+	if err != nil {
+		return NodeDiskView{}, err
+	}
+	v := NodeDiskView{Has: true, Kind: d.Kind, Path: d.MountPath, State: d.State, Volumes: len(fs), Stale: true}
+	n, err := o.store.Nodes.Get(ctx, nodeID)
+	if err != nil {
+		return v, err
+	}
+	if f := o.diskFacts(ctx, n); f != nil && f.DisksRead {
+		if i := slices.IndexFunc(f.Disks, func(x hostdisk.Fact) bool { return x.Path == d.MountPath }); i >= 0 {
+			x := f.Disks[i]
+			v.Free, v.Total, v.Network, v.Stale = x.Free, x.Total, x.Network, f.DisksStale
+		}
+	}
+	return v, nil
+}
+
+// diskNodeUp is the node a disk verb may work on: an online one.
+func (o *Orchestrator) diskNodeUp(ctx context.Context, nodeID string) (store.Node, error) {
+	n, err := o.nodeLeaf().Get(ctx, nodeID)
+	if err != nil {
+		return n, err
+	}
+	if n.Status == node.StatusPending {
+		return n, errs.ErrNotFound
+	}
+	return n, o.nodeUp(ctx, n.ID)
+}
+
+func (o *Orchestrator) auditDiskLog(ctx context.Context, by *Principal, action, nodeID, detail string) {
+	uid, kid := actorOf(by)
+	if err := securitylog.New(o.store.SecurityEvents).Append(ctx, securitylog.Event{
+		Action: action, ActorID: uid, KeyID: kid, TargetKind: "node", TargetID: nodeID, Detail: detail,
+	}); err != nil {
+		slog.Error("audit", "action", action, "error", err.Error())
+	}
+}
+
+// ProbeNodeFolder reads a path on the node and writes nothing.
+func (o *Orchestrator) ProbeNodeFolder(ctx context.Context, by *Principal, nodeID, path string) (FolderProbe, error) {
+	if err := nodeAdmin(by); err != nil {
+		return FolderProbe{}, err
+	}
+	if err := diskPath(path); err != nil {
+		return FolderProbe{}, err
+	}
+	if _, err := o.diskNodeUp(ctx, nodeID); err != nil {
+		return FolderProbe{}, err
+	}
+	f, err := o.diskLeaf.Probe(ctx, nodeID, path)
+	var he *hostdisk.Error
+	if errors.As(err, &he) {
+		return FolderProbe{Path: path, Code: he.Code, Message: he.Message}, nil
+	}
+	if err != nil {
+		return FolderProbe{}, err
+	}
+	return FolderProbe{
+		Path: path, FSType: f.FSType, Mounted: f.Mounted, RootFS: f.RootFS, Network: f.Network, Empty: f.Empty,
+		Free: f.Free, Total: f.Total, StampOwner: f.StampOwner,
+	}, nil
+}
+
+func diskPath(path string) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || path == "/" {
+		return errs.Invalidf("path", "Give a full path to a mounted folder, like /mnt/data.")
+	}
+	return nil
+}
+
+// AddNodeFolder queues making the mounted folder at path the node's disk.
+func (o *Orchestrator) AddNodeFolder(ctx context.Context, by *Principal, nodeID, path string) (Job, error) {
+	if err := nodeAdmin(by); err != nil {
+		return Job{}, err
+	}
+	if err := diskPath(path); err != nil {
+		return Job{}, err
+	}
+	n, err := o.diskNodeUp(ctx, nodeID)
+	if err != nil {
+		return Job{}, err
+	}
+	d, has, err := o.nodeDisk(ctx, n.ID)
+	if err != nil {
+		return Job{}, err
+	}
+	if has && (d.State != disk.StateAdding || d.MountPath != path) {
+		return Job{}, errs.Conflictf("This node already has a disk.")
+	}
+	// A worker too old to say what it holds would never be told which folder
+	// is the disk, and so could not report it.
+	if o.diskWorker(n) {
+		if f := o.diskFacts(ctx, n); f == nil || !f.DisksRead {
+			return Job{}, errs.Refusedf("This node's worker is too old to manage a disk. Update it first.")
+		}
+	}
+	lock, err := o.nodeLock(ctx, n)
+	if err != nil {
+		return Job{}, err
+	}
+	j, err := o.enqueue(ctx, kindDiskAdd, diskJob{NodeID: n.ID, Path: path, By: by.User.ID, KeyID: by.KeyID}, lock...)
+	if err == nil {
+		o.auditDiskLog(ctx, by, auditDiskAdd, n.ID, path)
+	}
+	return j, err
+}
+
+// CheckNodeDisk queues the disk check: the host verifies the mount and the
+// stamp, the row goes ready, and the tiles with disk volumes that are not
+// running deploy. It is the only way out of missing.
+func (o *Orchestrator) CheckNodeDisk(ctx context.Context, by *Principal, nodeID string) (Job, error) {
+	if err := nodeAdmin(by); err != nil {
+		return Job{}, err
+	}
+	n, err := o.diskNodeUp(ctx, nodeID)
+	if err != nil {
+		return Job{}, err
+	}
+	if _, has, err := o.nodeDisk(ctx, n.ID); err != nil {
+		return Job{}, err
+	} else if !has {
+		return Job{}, errs.ErrNotFound
+	}
+	lock, err := o.nodeLock(ctx, n)
+	if err != nil {
+		return Job{}, err
+	}
+	j, err := o.enqueue(ctx, kindDiskCheck, diskJob{NodeID: n.ID, By: by.User.ID, KeyID: by.KeyID}, lock...)
+	if err == nil {
+		o.auditDiskLog(ctx, by, auditDiskCheck, n.ID, "")
+	}
+	return j, err
+}
+
+func (o *Orchestrator) runDiskAdd(ctx context.Context, r *jobs.Run, p diskJob) error {
+	n, err := o.nodeLeaf().Get(ctx, p.NodeID)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(r.Log, "adding %s on %s\n", p.Path, n.Name)
+	d, err := o.diskLeaf.AddPath(ctx, n.ID, p.Path, o.cfg.InstallID)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(r.Log, "disk ready: %s\n", d.MountPath)
+	// The worker learns the path now; the facts poll repairs a push that fails.
+	if err := o.pushDisks(ctx, n); err != nil {
+		_, _ = fmt.Fprintf(r.Log, "the worker was not told yet (%v); it is retried\n", err)
+	}
+	return nil
+}
+
+func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob) error {
+	d, has, err := o.nodeDisk(ctx, p.NodeID)
+	if err != nil {
+		return err
+	}
+	if !has {
+		return errs.ErrNotFound
+	}
+	d, err = o.diskLeaf.Verify(ctx, d)
+	if err != nil {
+		return err
+	}
+	if d.State != disk.StateReady {
+		return errors.New("The disk is not ready: " + d.State + ".")
+	}
+	_, _ = fmt.Fprintf(r.Log, "disk ready: %s\n", d.MountPath)
+	return o.deployDiskTiles(ctx, r, d)
+}
+
+// deployDiskTiles deploys the tiles on the disk's node that have volumes on
+// the disk and are not running. A healthy tile is left alone.
+func (o *Orchestrator) deployDiskTiles(ctx context.Context, r *jobs.Run, d store.NodeDisk) error {
+	fs, err := o.diskLeaf.Folders(ctx, d)
+	if err != nil {
+		return err
+	}
+	on := map[string]bool{}
+	for _, f := range fs {
+		on[f.Name] = true
+	}
+	es, err := o.store.Environments.ListByNode(ctx, d.NodeID)
+	if err != nil {
+		return err
+	}
+	var failed []error
+	for _, e := range es {
+		ts, err := o.diskTiles(ctx, e, on)
+		if err != nil {
+			return err
+		}
+		for _, t := range ts {
+			if o.tileRunning(ctx, t) || t.Paused {
+				continue
+			}
+			// stackr keeps no desired state: a stop is the tile's last own job.
+			if stopped, err := o.stoppedByUser(ctx, t); err != nil {
+				failed = append(failed, err)
+				continue
+			} else if stopped {
+				_, _ = fmt.Fprintf(r.Log, "%s was stopped, left alone\n", t.Slug)
+				continue
+			}
+			if ok, err := o.reachedByRedeploy(ctx, t); err != nil || !ok {
+				if err != nil {
+					failed = append(failed, err)
+				}
+				continue
+			}
+			if _, err := o.Deploy(ctx, t.ID); err != nil {
+				failed = append(failed, fmt.Errorf("%s: %w", t.Slug, err))
+				continue
+			}
+			_, _ = fmt.Fprintf(r.Log, "deploying %s\n", t.Slug)
+		}
+	}
+	return errors.Join(failed...)
+}
+
+// diskTiles are the env's tiles that mount, or own, a volume with a folder
+// on the disk (on holds the folder names).
+func (o *Orchestrator) diskTiles(ctx context.Context, e store.Environment, on map[string]bool) ([]Tile, error) {
+	vs, err := o.volumes.List(ctx, volume.Scope{Kind: "env", ID: e.ID})
+	if err != nil {
+		return nil, err
+	}
+	vs = slices.DeleteFunc(vs, func(v Volume) bool { return v.OrphanedAt != nil || !on[v.Name] })
+	if len(vs) == 0 {
+		return nil, nil
+	}
+	ts, err := o.tiles.List(ctx, e.ID)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(ts, func(t Tile) bool {
+		return !slices.ContainsFunc(vs, func(v Volume) bool {
+			if v.InstanceID != nil && *v.InstanceID == t.ID {
+				return true
+			}
+			for _, l := range tile.Lines(t.Volumes) {
+				if sl, _, ok := MountedVolume(l); ok && sl == v.Slug {
+					return true
+				}
+			}
+			return false
+		})
+	}), nil
+}
+
+// stoppedByUser: of the jobs that start or stop the tile itself (a node-wide
+// job such as this check also touches it), the newest is a stop.
+func (o *Orchestrator) stoppedByUser(ctx context.Context, t Tile) (bool, error) {
+	js, err := o.jobRows.History(ctx, []string{t.ID}, 30)
+	if err != nil {
+		return false, err
+	}
+	for _, j := range js {
+		switch jobs.Kind(j.Kind) {
+		case kindStop:
+			return true, nil
+		case kindDeploy, kindStart, kindRestart, kindPromote:
+			return false, nil
+		}
+	}
+	return false, nil
+}

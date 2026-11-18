@@ -1,0 +1,186 @@
+package service
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"log/slog"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/FyrmForge/stackr/internal/hostdisk"
+	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
+)
+
+// The disk host runs one hostdisk command on a node: in a privileged helper
+// container (the host's / at /host), or in process on the controller when the
+// panel is not an installed container.
+
+const (
+	// diskHelperRole is the helper's role label. It is not host-helper: the
+	// worker rollout stops every host-helper, and a drawer read must survive it.
+	diskHelperRole = "disk-helper"
+	// labelDiskDeadline is the unix second after which a helper is a leftover.
+	labelDiskDeadline = "stackr.disk-deadline"
+	diskHelperPrefix  = "stackr-disk-"
+
+	diskShortWait = 30 * time.Second // verify, folder, drop, a readdir
+	diskLongWait  = 5 * time.Minute  // a sizes walk
+	diskCleanWait = 15 * time.Second // removing the helper after a cancel
+	diskSlack     = time.Minute      // past its deadline, a helper is swept
+)
+
+type diskHost struct {
+	o           *Orchestrator
+	short, long time.Duration
+	// image is the helper image on a node; tests replace it.
+	image  func(ctx context.Context) (string, error)
+	pulled sync.Map // node id + image ref -> true
+}
+
+func newDiskHost(o *Orchestrator) *diskHost {
+	return &diskHost{o: o, short: diskShortWait, long: diskLongWait, image: o.helperImage}
+}
+
+// InProcessDisk runs every command on e, whatever the node. For tests and
+// the harness, where there is no helper image.
+func InProcessDisk(e hostdisk.Env) disk.Host { return processDisk{e} }
+
+type processDisk struct{ env hostdisk.Env }
+
+func (p processDisk) Disk(ctx context.Context, _ string, r hostdisk.Request) (hostdisk.Result, error) {
+	return hostdisk.Run(ctx, p.env, r), nil
+}
+
+// WithDiskHost replaces the disk host. nil keeps the helper runner.
+func WithDiskHost(h disk.Host) Option {
+	return func(o *options) { o.diskHost = h }
+}
+
+// inProcess: the controller node of a panel that is not an installed
+// container. Any other node always gets the helper, so a source-build
+// controller never runs a worker's disk command on its own filesystem.
+func (h *diskHost) inProcess(ctx context.Context, nodeID string) bool {
+	c := h.o.cfg
+	if c.PanelSpec != nil && c.FakeHost == "" && c.Version != "" {
+		return false
+	}
+	ctl, err := h.o.controllerID(ctx)
+	return err == nil && ctl == nodeID
+}
+
+// Disk implements disk.Host. Every call has its own deadline: a stat on a
+// dead network path would otherwise hold the caller's locks for good.
+func (h *diskHost) Disk(ctx context.Context, nodeID string, r hostdisk.Request) (hostdisk.Result, error) {
+	wait := h.short
+	if r.Op == "usage" && r.Sizes {
+		wait = h.long
+	}
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	if h.inProcess(ctx, nodeID) {
+		return hostdisk.Run(ctx, hostdisk.Env{Root: "/"}, r), nil
+	}
+	return h.helper(ctx, nodeID, r, wait)
+}
+
+// diskHelperSpec is hostHelperSpec under its own name and role label.
+func diskHelperSpec(image, name, deadline, request string) docker.ContainerSpec {
+	s := hostHelperSpec(image, "host-run", "disk", request)
+	s.Name = name
+	s.Labels = map[string]string{installspec.LabelRole: diskHelperRole, labelDiskDeadline: deadline}
+	return s
+}
+
+func (h *diskHost) helper(ctx context.Context, nodeID string, r hostdisk.Request, wait time.Duration) (hostdisk.Result, error) {
+	o := h.o
+	nctx := docker.WithNode(ctx, nodeID)
+	h.sweep(nctx)
+	ref, err := h.image(ctx)
+	if err != nil {
+		return hostdisk.Result{}, err
+	}
+	if _, done := h.pulled.Load(nodeID + " " + ref); !done {
+		if err := o.docker.Pull(nctx, ref, "", io.Discard); err != nil {
+			return hostdisk.Result{}, fmt.Errorf("pull %s: %w", ref, err)
+		}
+		h.pulled.Store(nodeID+" "+ref, true)
+	}
+	var b [3]byte
+	_, _ = rand.Read(b[:])
+	name := diskHelperPrefix + hex.EncodeToString(b[:])
+	deadline := strconv.FormatInt(time.Now().Add(wait+diskSlack).Unix(), 10)
+	id, err := o.docker.Run(nctx, diskHelperSpec(ref, name, deadline, hostdisk.EncodeRequest(r)))
+	// Removed even when the caller gave up, and even when Run failed half way.
+	defer func() {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(nctx), diskCleanWait)
+		defer cancel()
+		if id == "" {
+			id = name
+		}
+		_ = o.docker.StopRemove(cctx, id)
+	}()
+	if err != nil {
+		return hostdisk.Result{}, err
+	}
+	code, err := o.docker.Wait(nctx, id)
+	if err != nil {
+		return hostdisk.Result{}, fmt.Errorf("disk helper: %w", err)
+	}
+	out, err := o.docker.Logs(nctx, id, 50)
+	if err != nil {
+		return hostdisk.Result{}, fmt.Errorf("disk helper: %w", err)
+	}
+	res, ok := hostdisk.ParseResult([]byte(out))
+	if !ok || code != 0 {
+		return hostdisk.Result{}, fmt.Errorf("the disk helper crashed (exit %d): %s", code, tail(out, 300))
+	}
+	return res, nil
+}
+
+// sweep removes this node's disk helpers that are past their deadline: a
+// panel that died mid-call leaves one behind.
+func (h *diskHost) sweep(nctx context.Context) {
+	cs, err := h.o.docker.List(nctx, map[string]string{installspec.LabelRole: diskHelperRole})
+	if err != nil {
+		return
+	}
+	now := time.Now().Unix()
+	for _, c := range cs {
+		if at, err := strconv.ParseInt(c.Labels[labelDiskDeadline], 10, 64); err == nil && at > now {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(nctx), diskCleanWait)
+		if err := h.o.docker.StopRemove(cctx, c.ID); err != nil {
+			slog.Warn("disk helper: leftover not removed", "container", c.Name, "err", err)
+		}
+		cancel()
+	}
+}
+
+// sweepBoot is the sweep once at start, for the controller's own Docker. A
+// panel with no disk rows has nothing to sweep and makes no Docker call.
+func (o *Orchestrator) sweepBoot(ctx context.Context) {
+	ds, err := o.store.NodeDisks.List(ctx)
+	if err != nil || len(ds) == 0 {
+		return
+	}
+	ctx, err = o.withController(ctx)
+	if err == nil {
+		o.dh.sweep(ctx)
+	}
+}
+
+func tail(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) > n {
+		s = "..." + s[len(s)-n:]
+	}
+	return s
+}

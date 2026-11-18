@@ -42,6 +42,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/canvas"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
@@ -178,6 +179,7 @@ type options struct {
 	ifaces       func() []worker.Iface
 	registryBase string
 	panelSeam    panelSeams
+	diskHost     disk.Host // nil = the helper runner (diskhost.go)
 }
 
 // DNSProvider is one DNS account (the DNS capability): what WithDNS fakes.
@@ -276,26 +278,31 @@ type Orchestrator struct {
 	images      *image.Leaf
 	params      *params.Leaf
 	volumes     *volume.Leaf
-	domains     *domain.Leaf
-	domainres   *domainres.Leaf
-	routes      *route.Leaf
-	hostgrant   *hostgrant.Leaf
-	creds       *credential.Leaf
-	regs        *registry.Leaf
-	regCleaned  lastRegistryClean
-	conns       *connector.Leaf
-	dns         *dnscap.Leaf
-	kinds       []connectors.Kind // registered connector kinds (connectors/all)
-	dnsOpen     func(kind string, c DNSCreds) (DNSProvider, error)
-	operated    *operated.Leaf
-	members     *opmember.Leaf
-	releases    *release.Leaf
-	jobRows     *job.Leaf
-	backups     *backup.Leaf
-	settings    *settings.Leaf
-	runs        *lrun.Leaf
-	traffic     *ltraffic.Leaf
-	canvas      *canvas.Leaf
+	diskLeaf    *disk.Leaf // node_disks and disk_folders (disk.go)
+	dh          *diskHost  // the helper runner, the default disk.Host
+	diskSize    diskSizes  // the usage cache (diskfacts.go)
+	// diskNodeOf finds a node's worker for a registry push; tests swap it.
+	diskNodeOf func(store.Node) (MeshNode, bool)
+	domains    *domain.Leaf
+	domainres  *domainres.Leaf
+	routes     *route.Leaf
+	hostgrant  *hostgrant.Leaf
+	creds      *credential.Leaf
+	regs       *registry.Leaf
+	regCleaned lastRegistryClean
+	conns      *connector.Leaf
+	dns        *dnscap.Leaf
+	kinds      []connectors.Kind // registered connector kinds (connectors/all)
+	dnsOpen    func(kind string, c DNSCreds) (DNSProvider, error)
+	operated   *operated.Leaf
+	members    *opmember.Leaf
+	releases   *release.Leaf
+	jobRows    *job.Leaf
+	backups    *backup.Leaf
+	settings   *settings.Leaf
+	runs       *lrun.Leaf
+	traffic    *ltraffic.Leaf
+	canvas     *canvas.Leaf
 
 	deploy    *deploy.Flow
 	engines   *mflow.Flow
@@ -607,8 +614,16 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
 	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d).WithSubnets(nodes).WithFilter(orch.filterBuildNode) })
 	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
+	// Not a build(): the constructor list a test checks is the leaves, and
+	// this one only has to exist before the volume leaf takes it.
+	orch.dh = newDiskHost(orch)
+	var dhost disk.Host = orch.dh
+	if o.diskHost != nil {
+		dhost = o.diskHost
+	}
+	orch.diskLeaf = disk.New(st.NodeDisks, st.DiskFolders, dhost)
 	orch.volumes = build("leaf/volume", func() *volume.Leaf {
-		v := volume.New(st.Volumes, d).WithShares(st.Shares).WithNode(orch.scopeNode)
+		v := volume.New(st.Volumes, d).WithShares(st.Shares).WithNode(orch.scopeNode).WithDisk(diskAdapter{orch})
 		v.Created = orch.volumeCreated
 		return v
 	})
@@ -963,6 +978,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.resumePGUpgrades(ctx)
 	orch.resumePGExt(ctx)
 	orch.redeployRestored(ctx)
+	orch.detach(context.Background(), orch.sweepBoot) // disk helpers a dead panel left behind
 	// Tracked like the rollover steps: Close waits for it, stopNodes cancels it.
 	orch.startAlerts()
 	orch.startSyncWatch()
