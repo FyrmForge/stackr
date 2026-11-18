@@ -63,12 +63,17 @@ func WithDiskHost(h disk.Host) Option {
 	return func(o *options) { o.diskHost = h }
 }
 
+// installedPanel: the panel runs as an installed container, so the host's
+// paths are not its own. A source build or a dev run sees the host directly.
+func (c Config) installedPanel() bool {
+	return c.PanelSpec != nil && c.FakeHost == "" && c.Version != ""
+}
+
 // inProcess: the controller node of a panel that is not an installed
 // container. Any other node always gets the helper, so a source-build
 // controller never runs a worker's disk command on its own filesystem.
 func (h *diskHost) inProcess(ctx context.Context, nodeID string) bool {
-	c := h.o.cfg
-	if c.PanelSpec != nil && c.FakeHost == "" && c.Version != "" {
+	if h.o.cfg.installedPanel() {
 		return false
 	}
 	ctl, err := h.o.controllerID(ctx)

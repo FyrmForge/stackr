@@ -843,3 +843,26 @@ func TestCheckDiskSkipsATileTheUserStopped(t *testing.T) {
 		t.Error("a tile the user stopped was deployed")
 	}
 }
+
+// V2: the controller of an installed panel cannot see the host's folders.
+func TestFolderDiskRefusedOnTheControllerOfAnInstalledPanel(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	d.mount(t, "/disk")
+	d.orch.cfg.PanelSpec = func(string) ContainerSpec { return ContainerSpec{} }
+	d.orch.cfg.Version = "1.2.3"
+	_, err := d.orch.ProbeNodeFolder(ctx, adminP(), d.ctl.ID, "/disk")
+	if !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), "Add the disk on a worker node") {
+		t.Fatalf("probe on the controller: %v", err)
+	}
+	if _, err := d.orch.AddNodeFolder(ctx, adminP(), d.ctl.ID, "/disk"); !errors.Is(err, errs.ErrRefused) {
+		t.Fatalf("add on the controller: %v", err)
+	}
+	if p, err := d.orch.ProbeNodeFolder(ctx, adminP(), "w1", "/disk"); err != nil || p.Code != "" {
+		t.Fatalf("a worker stays allowed: %+v %v", p, err)
+	}
+	d.orch.cfg.Version = "" // a source build keeps working
+	if _, err := d.orch.ProbeNodeFolder(ctx, adminP(), d.ctl.ID, "/disk"); errors.Is(err, errs.ErrRefused) {
+		t.Fatalf("a source build was refused: %v", err)
+	}
+}

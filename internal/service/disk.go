@@ -218,7 +218,11 @@ func (o *Orchestrator) ProbeNodeFolder(ctx context.Context, by *Principal, nodeI
 	if err := diskPath(path); err != nil {
 		return FolderProbe{}, err
 	}
-	if _, err := o.diskNodeUp(ctx, nodeID); err != nil {
+	n, err := o.diskNodeUp(ctx, nodeID)
+	if err != nil {
+		return FolderProbe{}, err
+	}
+	if err := o.folderDiskOK(ctx, n.ID); err != nil {
 		return FolderProbe{}, err
 	}
 	f, err := o.diskLeaf.Probe(ctx, nodeID, path)
@@ -233,6 +237,22 @@ func (o *Orchestrator) ProbeNodeFolder(ctx context.Context, by *Principal, nodeI
 		Path: path, FSType: f.FSType, Mounted: f.Mounted, RootFS: f.RootFS, Network: f.Network, Empty: f.Empty,
 		Free: f.Free, Total: f.Total, StampOwner: f.StampOwner,
 	}, nil
+}
+
+// folderDiskOK refuses the controller of an installed panel: its worker runs
+// in the panel's container and cannot see the host's folders.
+func (o *Orchestrator) folderDiskOK(ctx context.Context, nodeID string) error {
+	if !o.cfg.installedPanel() {
+		return nil
+	}
+	ctl, err := o.controllerID(ctx)
+	if err != nil {
+		return err
+	}
+	if ctl == nodeID {
+		return errs.Refusedf("The panel cannot use a folder disk yet. Add the disk on a worker node.")
+	}
+	return nil
 }
 
 func diskPath(path string) error {
@@ -252,6 +272,9 @@ func (o *Orchestrator) AddNodeFolder(ctx context.Context, by *Principal, nodeID,
 	}
 	n, err := o.diskNodeUp(ctx, nodeID)
 	if err != nil {
+		return Job{}, err
+	}
+	if err := o.folderDiskOK(ctx, n.ID); err != nil {
 		return Job{}, err
 	}
 	d, has, err := o.nodeDisk(ctx, n.ID)
