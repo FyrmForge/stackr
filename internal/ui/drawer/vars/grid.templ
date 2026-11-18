@@ -98,7 +98,7 @@ templ grid(v View) {
 			</div>
 		}
 		if !v.Grid.ReadOnly {
-			<p class="text-xs text-rw-faint" data-hint>Saving or unsetting a value redeploys the running tiles that read it.</p>
+			<p class="text-xs text-rw-faint" data-hint>Saving or unsetting a value can redeploy the running tiles that read it.</p>
 		}
 		if len(v.Grid.Groups) == 0 {
 			<p class="text-sm text-rw-faint">Nothing here yet.</p>
@@ -330,7 +330,7 @@ templ editInput(g Grid, col Col, group string, r Row, cell Cell, refused *c.Refu
 		<input class="input font-mono ff" name={ "param." + group + "." + r.Name } value={ keptCell(refused, "param."+group+"."+r.Name, cell.Value) } autocomplete="off" aria-label={ "Value of " + group + "." + r.Name }/>
 	}
 	if len(cell.Waits) > 0 {
-		<p class="mt-1 text-xs text-rw-warn">Saving starts { strings.Join(cell.Waits, ", ") }.</p>
+		<p class="mt-1 text-xs text-rw-warn">Saving starts { NaturalList(cell.Waits) }.</p>
 	}
 	if refused != nil {
 		<p class="field-error basis-full" role="alert">{ refused.Msg }</p>

@@ -100,3 +100,19 @@ func TestPollSwapsGridOnly(t *testing.T) {
 		t.Errorf("note or error is inside the polled grid:\n%s", got)
 	}
 }
+
+// Copy: the tiles a save starts read as a list with "and", and the hints do
+// not claim a save always redeploys (it can be applied later).
+func TestSaveCopy(t *testing.T) {
+	g := envGrid()
+	g.Edit = &CellRef{Scope: "env:1", Group: "gate", Name: "password"}
+	got := page(t, g)
+	for _, w := range []string{"Saving starts bazarr, radarr and sonarr.", "can redeploy the running tiles"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("no %q in\n%s", w, got)
+		}
+	}
+	if strings.Contains(got, " redeploys the running") {
+		t.Error("a hint says a save always redeploys")
+	}
+}

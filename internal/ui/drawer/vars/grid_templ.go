@@ -163,7 +163,7 @@ func grid(v View) templ.Component {
 			}
 		}
 		if !v.Grid.ReadOnly {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<p class=\"text-xs text-rw-faint\" data-hint>Saving or unsetting a value redeploys the running tiles that read it.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<p class=\"text-xs text-rw-faint\" data-hint>Saving or unsetting a value can redeploy the running tiles that read it.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1246,9 +1246,9 @@ func editInput(g Grid, col Col, group string, r Row, cell Cell, refused *c.Refus
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var48 string
-			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(strings.Join(cell.Waits, ", "))
+			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(NaturalList(cell.Waits))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/vars/grid.templ`, Line: 333, Col: 85}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/vars/grid.templ`, Line: 333, Col: 78}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 			if templ_7745c5c3_Err != nil {

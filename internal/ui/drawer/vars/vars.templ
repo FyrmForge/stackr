@@ -23,6 +23,8 @@ templ Editor(v View) {
 	<div id={ Root } class="space-y-4" hx-history="false">
 		if v.Lead != "" {
 			<p class="text-sm text-rw-muted">{ v.Lead }</p>
+		} else if v.Grid != nil {
+			<p class="text-sm text-rw-muted">Variables of { v.Scope }. A save can redeploy the running tiles that read them.</p>
 		} else {
 			<p class="text-sm text-rw-muted">Variables of { v.Scope }. A save redeploys the running tiles that read them.</p>
 		}
