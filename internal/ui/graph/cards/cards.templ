@@ -55,7 +55,7 @@ templ top(kind, name, detail string, host, newVersion bool, acc Access) {
 		</span>
 		<div class="min-w-0">
 			<div class="font-semibold text-rw-text truncate text-sm leading-tight">{ name }</div>
-			<div class="flex items-center gap-1.5 min-w-0">
+			<div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
 				<span class="text-xs text-rw-faint truncate">{ detail }</span>
 				if KindLabel(kind) != "" {
 					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted">{ KindLabel(kind) }</span>

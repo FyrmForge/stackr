@@ -195,7 +195,7 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 		NewVersion: n.NewVersion,
 	}
 	if p, ok := access.Strongest(g.Lines, n.Slug); ok {
-		cv.Access.Chip, cv.Access.Title = p.Chip, p.Label
+		cv.Access.Chip, cv.Access.Title = p.Chip, p.Hint()
 	}
 	cv.Access.Waiting = access.Waits(g.Pending, n.Slug)
 	// a sync ghost is a tile the env does not have yet: no drawer to open

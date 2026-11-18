@@ -70,6 +70,14 @@ func Parse(line string) Perm {
 	return p
 }
 
+// Hint is the card chip's tooltip: what the grant lets the tile do.
+func (p Perm) Hint() string {
+	if p.Kind == KindSource {
+		return "Approved to run this image and command. A change asks again."
+	}
+	return p.Label
+}
+
 // Warn is the plain line for a LAN range that reaches more than the LAN:
 // the server's own addresses (addrs, the panel's among them), the cloud
 // metadata address or the tailnet range. "" = nothing to say.
