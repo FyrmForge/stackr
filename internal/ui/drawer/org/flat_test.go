@@ -33,3 +33,19 @@ func TestOrgSectionsAreFlat(t *testing.T) {
 	}
 	uitest.NoPanelInCard(t, b.String())
 }
+
+// The role picker is flat radio rows, not bordered tiles inside the Add people card.
+func TestRoleChoicesAreFlatRows(t *testing.T) {
+	var b strings.Builder
+	if err := Members(MembersView{Base: "/o", Manage: true, Roles: []string{"owner", "member", "viewer"}}).Render(t.Context(), &b); err != nil {
+		t.Fatal(err)
+	}
+	_, group, ok := strings.Cut(b.String(), `role="radiogroup"`)
+	if !ok {
+		t.Fatal("no role picker")
+	}
+	group, _, _ = strings.Cut(group, "<button")
+	if strings.Count(group, `type="radio"`) != 3 || strings.Contains(group, "rounded-lg") || strings.Contains(group, "bg-rw-inset") {
+		t.Errorf("role choices are not flat rows\n%s", group)
+	}
+}

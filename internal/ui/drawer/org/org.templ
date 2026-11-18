@@ -318,17 +318,15 @@ templ tierMove(base, label, arrow string, ids []string) {
 	</form>
 }
 
-// roleButtons is v0's segmented role picker: the roles as radios in one
-// control.
+// roleButtons is the role picker: flat radio rows, a label and a one-line
+// hint each, never a box of their own inside the card.
 templ roleButtons(roles []string, name, picked string) {
-	<div class="flex gap-2" role="radiogroup" aria-label="Role">
+	<div class="divide-y divide-rw-border" role="radiogroup" aria-label="Role">
 		for _, r := range roles {
-			<label class="flex-1">
-				<input type="radio" name={ name } value={ r } checked?={ r == picked } class="peer sr-only"/>
-				<span class="block text-center rounded-lg border border-rw-border bg-rw-inset px-3 py-1.5 text-sm text-rw-muted transition-colors hover:text-rw-text cursor-pointer peer-checked:border-rw-accent peer-checked:bg-rw-accent/10 peer-checked:text-rw-text peer-focus-visible:ring-2 peer-focus-visible:ring-rw-accent/40">
-					{ r }
-					<span class="block text-xs text-rw-faint">{ roleHelp(r) }</span>
-				</span>
+			<label class="block py-2 text-sm text-rw-text cursor-pointer">
+				<input type="radio" name={ name } value={ r } checked?={ r == picked } class="accent-rw-accent"/>
+				{ r }
+				<span class="block pl-6 text-xs text-rw-faint">{ roleHelp(r) }</span>
 			</label>
 		}
 	</div>
