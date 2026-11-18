@@ -606,7 +606,8 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base, tab strin
 	for _, w := range live.Warnings {
 		v.Warnings = append(v.Warnings, ui.WarningRow{Detail: w.Detail, Critical: w.Severity == service.SevCritical})
 	}
-	if j, ok := c.Get("job").(service.Job); ok {
+	// a move job is shown once, by the node disk's move lines
+	if j, ok := c.Get("job").(service.Job); ok && j.Kind != "volume-to-disk" {
 		jv := render.JobView("", j)
 		v.Job = &jv
 	}
