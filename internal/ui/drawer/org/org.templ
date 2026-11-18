@@ -681,6 +681,9 @@ templ Backups(v c.DestsView) {
 
 templ Config(v ConfigView) {
 	<div id="tab-config">
+		if v.Base != "" && (v.Job == nil || !v.Job.Live) {
+			@c.LiveTab(v.Base+"?tab=config", "tab-config")
+		}
 		@c.Section("Export", "organization", "This organization's live state as a stackr-org.yml, the way out of panel-first and into config-as-code. Secrets come out as declarations, never values.") {
 			<a href={ templ.SafeURL(v.Export) } download="stackr-org.yml" class="btn btn-ghost btn-sm">Download stackr-org.yml</a>
 		}

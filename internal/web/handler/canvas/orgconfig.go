@@ -91,6 +91,7 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 		box.Review.Applying, box.Review.Ticked = true, latest.Ticked
 	case latest.Status == "applied":
 		box.Review.Done, box.Review.Ticked = true, latest.Ticked
+		box.Row.Summary = comp.AppliedSummary(box.Review)
 	case latest.Status == "pending" && can(c, cd.s, "orgplan.approve"):
 		box.Review.Reject = f.Base + "/plans/" + latest.ID + "/reject"
 		if pl.CanApprove() {

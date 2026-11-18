@@ -112,3 +112,33 @@ func TestPlanApplyLock(t *testing.T) {
 		t.Errorf("plan:\n%s", sb.String())
 	}
 }
+
+// Once applied, rows read in the past tense; the header says what was done.
+func TestPlanDonePastTense(t *testing.T) {
+	v := PlanReviewView{Done: true, Ticked: []string{"route:a"}, Plan: PlanView{Changes: []ChangeView{
+		{Kind: "create", Tile: "route x"},
+		{Kind: "route-update", Field: "f"},
+		{Kind: "route-delete", Field: "a", Key: "route:a", Optional: true},
+		{Kind: "route-delete", Field: "b", Key: "route:b", Optional: true},
+	}}}
+	body := renderPlan(t, v)
+	for _, want := range []string{">created<", ">route-updated<"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("no %q in\n%s", want, body)
+		}
+	}
+	if got := AppliedSummary(v); got != "2 applied, 1 removed, 1 kept" {
+		t.Errorf("summary = %q", got)
+	}
+	if got := AppliedSummary(PlanReviewView{Plan: PlanView{Changes: []ChangeView{removal}}}); got != "nothing changed, 1 kept" {
+		t.Errorf("removal-only summary = %q", got)
+	}
+}
+
+// The removal tick is a visible control, not a bare checkbox.
+func TestPlanTickIsAControl(t *testing.T) {
+	body := renderPlan(t, PlanReviewView{Plan: PlanView{Changes: []ChangeView{removal}}, Approve: "/a"})
+	if !strings.Contains(body, "border-rw-warn/40 bg-rw-warn/10") || !strings.Contains(body, "h-4 w-4") {
+		t.Errorf("tick not a control:\n%s", body)
+	}
+}

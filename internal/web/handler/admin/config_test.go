@@ -50,3 +50,24 @@ func TestAdminConfigAppliedPlanShowsTicks(t *testing.T) {
 		t.Errorf("applied plan does not show its ticks:\n%s", body)
 	}
 }
+
+// An applied removal-only plan with nothing ticked says nothing changed in
+// its header, not the "removal to review" it was planned with; the tab polls
+// itself so the card never waits for a reload.
+func TestAdminConfigAppliedRemovalOnlyHeader(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	p := serverPlan(t, s, "repo", `{"changes":[{"kind":"route-delete","field":"pve.example.com","key":"route:pve.example.com","optional":true}]}`)
+	now := time.Now()
+	p.DecidedAt, p.Status = &now, "applied"
+	if err := s.Store.ServerPlans.Update(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	body := s.As(t, root, "GET", "/-/admin/config", nil).Body.String()
+	if strings.Contains(body, "removal to review") || !strings.Contains(body, "nothing changed, 1 kept") {
+		t.Errorf("applied header still the planned one:\n%s", body)
+	}
+	if !strings.Contains(body, `hx-get="/-/admin/config"`) {
+		t.Errorf("the config tab does not poll:\n%s", body)
+	}
+}

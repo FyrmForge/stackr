@@ -129,6 +129,7 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 		box.Review.Applying, box.Review.Ticked = true, latest.Ticked
 	case latest.Status == "applied":
 		box.Review.Done, box.Review.Ticked = true, latest.Ticked
+		box.Row.Summary = comp.AppliedSummary(box.Review)
 	case latest.Status == "pending":
 		for _, g := range pl.Gaps {
 			box.Review.Plan.Gaps = append(box.Review.Plan.Gaps, gapView(g.Kind, g.Key, g.Tags))

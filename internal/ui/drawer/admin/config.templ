@@ -32,6 +32,9 @@ type ConfigPlan struct {
 
 templ Config(v ConfigView) {
 	<div id="tab-config">
+		if v.Job == nil || !v.Job.Live {
+			@c.LiveTab(Href("config"), "tab-config")
+		}
 		@c.Section("Export", "instance", "This server's live state as a stackr-server.yml, the way into config-as-code. Secrets come out as names, never values.") {
 			<a href={ templ.SafeURL(v.Export) } download="stackr-server.yml" class="btn btn-ghost btn-sm">Download stackr-server.yml</a>
 		}

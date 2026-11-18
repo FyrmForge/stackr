@@ -3,6 +3,8 @@ package components
 import (
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -158,15 +160,15 @@ templ Plan(p PlanView) {
 									@Chip("kept", "")
 								}
 							} else if p.Ticks {
-								<label class="flex items-center gap-1.5 text-rw-warn">
-									<input type="checkbox" name="ticked" value={ c.Key } class="accent-rw-accent" aria-label={ "Remove " + c.Field }/>
+								<label class="flex cursor-pointer items-center gap-2 rounded border border-rw-warn/40 bg-rw-warn/10 px-2 py-1 text-rw-warn">
+									<input type="checkbox" name="ticked" value={ c.Key } class="h-4 w-4 accent-rw-accent" aria-label={ "Remove " + c.Field }/>
 									remove?
 								</label>
 							} else {
 								@Chip("remove?", "warn")
 							}
 						}
-						<span class="text-rw-faint">{ c.Kind }</span>
+						<span class="text-rw-faint">{ planKindWord(c.Kind, p.Done) }</span>
 						if c.Tile != "" {
 							<span class="text-rw-text">{ c.Tile }</span>
 						}
@@ -202,6 +204,53 @@ templ Plan(p PlanView) {
 			}
 		</ul>
 	</section>
+}
+
+// planKindWord is the row's verb: past tense once the plan is applied.
+func planKindWord(kind string, done bool) string {
+	if !done {
+		return kind
+	}
+	for verb, past := range map[string]string{"create": "created", "update": "updated", "delete": "deleted"} {
+		if kind == verb {
+			return past
+		}
+		if head, ok := strings.CutSuffix(kind, "-"+verb); ok {
+			return head + "-" + past
+		}
+	}
+	return kind
+}
+
+// AppliedSummary is an applied plan's header: what was done, not the
+// "to review" line it was planned with. Removal rows count as removed when
+// the approver ticked them, else kept.
+func AppliedSummary(v PlanReviewView) string {
+	var applied, removed, kept int
+	for _, c := range v.Plan.Changes {
+		switch {
+		case !c.Optional:
+			applied++
+		case slices.Contains(v.Ticked, c.Key):
+			removed++
+		default:
+			kept++
+		}
+	}
+	var parts []string
+	if applied > 0 {
+		parts = append(parts, strconv.Itoa(applied)+" applied")
+	}
+	if removed > 0 {
+		parts = append(parts, strconv.Itoa(removed)+" removed")
+	}
+	if applied == 0 && removed == 0 {
+		parts = append(parts, "nothing changed")
+	}
+	if kept > 0 {
+		parts = append(parts, strconv.Itoa(kept)+" kept")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func gapWord(g GapView) string {
