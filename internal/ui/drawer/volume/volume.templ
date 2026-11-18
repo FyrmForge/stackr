@@ -434,6 +434,10 @@ func restore(b BackupsView, r Run) c.ConfirmView {
 // says why it cannot go ("" = it can): v0's "Detach before deleting".
 templ Settings(v View, blocked string, cap *CapCard) {
 	<div id="tab-settings" class="flex flex-col gap-4">
+		if cap != nil && cap.Mode == "read" && v.Base != "" {
+			// "Cap not applied yet." comes and goes by itself; an edit or a staged change is not polled
+			@c.LiveTab(v.Base+"?tab=settings", "tab-settings")
+		}
 		if cap != nil {
 			@capCard(*cap)
 		}
