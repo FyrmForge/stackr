@@ -246,10 +246,10 @@ type JobsView struct {
 
 // Cancel is the cancel action's URL; "" = no button (finished, or no verb).
 // Line is the release line the job makes ("rebuild"), Waits why a queued
-// job has not started; "" = none.
+// job has not started; "" = none. Href is the job's log page.
 type JobRow struct {
-	Kind, Line, State, Error, Cancel, Waits string
-	When                                    time.Time
+	Kind, Line, State, Error, Cancel, Waits, Href string
+	When                                          time.Time
 }
 
 type ImageView struct {

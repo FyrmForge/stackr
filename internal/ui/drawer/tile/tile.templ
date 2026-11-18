@@ -372,7 +372,11 @@ templ Jobs(v View, j JobsView) {
 			<ul class="space-y-2">
 				for _, r := range j.Rows {
 					<li class="panel px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-						<span class="text-sm text-rw-text font-mono">{ r.Kind }</span>
+						if r.Href != "" {
+							<a href={ templ.SafeURL(r.Href) } class="link text-sm font-mono">{ r.Kind }</a>
+						} else {
+							<span class="text-sm text-rw-text font-mono">{ r.Kind }</span>
+						}
 						if r.Line != "" {
 							<span class="text-xs text-rw-muted">{ r.Line }</span>
 						}

@@ -219,8 +219,10 @@ func without(blob, name string) string {
 // may not cancel. The tab polls itself, quickly while a job is moving.
 func jobsView(drawer, base string, js []service.Job) ui.JobsView {
 	v := ui.JobsView{Poll: drawer + "?tab=jobs"}
+	env, _, _ := strings.Cut(drawer, "/tiles/") // the env's /-/ prefix, where its job logs are
 	for _, j := range js {
 		r := ui.JobRow{
+			Href:  env + "/jobs/" + j.ID,
 			Kind:  j.Kind,
 			Line:  j.Line,
 			State: j.State,
