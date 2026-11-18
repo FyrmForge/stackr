@@ -251,7 +251,7 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		if _, err := o.orgs.Get(ctx, id); errors.Is(err, errs.ErrNotFound) {
 			return "", "", false
 		}
-		return "/-/admin/overview", "Open overview", true
+		return "/" + o.scopePath(ctx, ScopeOrg, id) + "?drawer=org:" + id + "&tab=config", "Open config", true
 	case "observe":
 		return "/-/admin/metrics", "Open metrics and logs", true
 	case "crash", "down":

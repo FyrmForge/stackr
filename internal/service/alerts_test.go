@@ -542,3 +542,16 @@ func TestConfigStateAlertsOnce(t *testing.T) {
 		t.Error("clean left the drift problem")
 	}
 }
+
+// An org's config problem links to that org's Config as code tab, not to a
+// page that loops back to the problem.
+func TestOrgConfigProblemLinksToConfigTab(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	o := newClusterPanel(t)
+	must(t, o.store.Orgs.Create(ctx, store.Org{ID: "o1", Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}))
+	href, text, ok := o.problemLink(ctx, "config.drift.o1", map[string]bool{})
+	if !ok || text != "Open config" || href != "/acme?drawer=org:o1&tab=config" {
+		t.Errorf("link = %q %q %v", href, text, ok)
+	}
+}
