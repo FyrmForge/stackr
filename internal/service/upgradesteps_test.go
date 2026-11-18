@@ -61,7 +61,7 @@ func TestUpgradeProgress(t *testing.T) {
 		t.Fatalf("idle step = %d", p.Step)
 	}
 	start := time.Now().Add(-21 * time.Second)
-	j := store.Job{ID: uuid.NewString(), Kind: string(kindUpgrade), State: "running", Payload: `{"tag":"v0.9.1"}`, LockSet: store.StringList{}, CreatedAt: start, StartedAt: &start}
+	j := store.Job{ID: uuid.NewString(), Kind: string(kindUpgrade), State: "running", Payload: `{"tag":"v0.9.1"}`, LockSet: store.StringList{"*"}, CreatedAt: start, StartedAt: &start}
 	must(t, n.st.Jobs.Create(ctx, j))
 
 	o.setUpgradeStep("archive")

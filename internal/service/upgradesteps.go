@@ -51,11 +51,14 @@ func (o *Orchestrator) setUpgradeStep(s string) {
 
 // newestUpgrade is the newest upgrade job in any state.
 func (o *Orchestrator) newestUpgrade(ctx context.Context) (store.Job, upgradeJob, bool) {
-	js, err := o.store.Jobs.ListByState(ctx, "queued", "running", "waiting", "done", "failed") // newest first
+	// an upgrade holds every tile's lock; only its kind is read, the newest few
+	js, err := o.store.Jobs.ListTouching(ctx, []string{job.All}, string(kindUpgrade), 10) // newest first
 	if err != nil {
 		return store.Job{}, upgradeJob{}, false
 	}
-	i := slices.IndexFunc(js, func(j store.Job) bool { return j.Kind == string(kindUpgrade) })
+	i := slices.IndexFunc(js, func(j store.Job) bool {
+		return slices.Contains([]string{job.Queued, job.Running, job.Waiting, job.Done, job.Failed}, j.State)
+	})
 	if i < 0 {
 		return store.Job{}, upgradeJob{}, false
 	}
