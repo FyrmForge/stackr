@@ -6,9 +6,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
@@ -40,11 +42,53 @@ func (w Waiting) Count() int {
 	return n
 }
 
+// waitCountTTL is how long a user's count serves the badge: it is drawn on
+// every page and polled every few seconds.
+const waitCountTTL = 10 * time.Second
+
+type waitCountCache struct {
+	mu sync.Mutex
+	m  map[string]waitCount
+}
+
+type waitCount struct {
+	n  int
+	at time.Time
+}
+
+// WaitingCount is len of what waits on the principal, for the shell's badge:
+// the cheap path (no plan is computed) and at most waitCountTTL old. The
+// Waiting page runs the full list.
+func (o *Orchestrator) WaitingCount(ctx context.Context, p *Principal) int {
+	c := &o.waitCounts
+	c.mu.Lock()
+	if e, ok := c.m[p.User.ID]; ok && time.Since(e.at) < waitCountTTL {
+		c.mu.Unlock()
+		return e.n
+	}
+	c.mu.Unlock()
+	w, _ := o.waitingOnYou(ctx, p, false)
+	n := w.Count()
+	c.mu.Lock()
+	if c.m == nil {
+		c.m = map[string]waitCount{}
+	}
+	c.m[p.User.ID] = waitCount{n, time.Now()}
+	c.mu.Unlock()
+	return n
+}
+
 // WaitingOnYou lists what waits on the principal: config plans to approve,
 // releases behind the env below them, values a parked deploy needs, access
 // and backup destinations an admin must approve, the server file's plan.
 // Each group is only what their role lets them act on.
 func (o *Orchestrator) WaitingOnYou(ctx context.Context, p *Principal) (Waiting, error) {
+	return o.waitingOnYou(ctx, p, true)
+}
+
+// waitingOnYou is WaitingOnYou; plans = false leaves out what only the
+// rows' words need (a release's plan counts), which the count never reads.
+func (o *Orchestrator) waitingOnYou(ctx context.Context, p *Principal, plans bool) (Waiting, error) {
 	var w Waiting
 	add := func(title string, it WaitItem) {
 		if i := slices.IndexFunc(w.Groups, func(g WaitGroup) bool { return g.Title == title }); i >= 0 {
@@ -94,9 +138,13 @@ func (o *Orchestrator) WaitingOnYou(ctx context.Context, p *Principal) (Waiting,
 			}
 			for i, r := range rungs {
 				if r.Behind {
+					sub := ""
+					if plans {
+						sub = o.releaseWaitSub(ctx, p, st.ID, r)
+					}
 					add("Releases to promote", WaitItem{
 						Title: st.Name + " / " + r.Name + ", release " + strconv.Itoa(rungs[i-1].Release),
-						Sub:   r.Name + " runs release " + strconv.Itoa(r.Release),
+						Sub:   sub,
 						Href:  "/" + og.Slug + "/" + st.Slug + "/" + r.Slug + "?drawer=env%3A" + r.EnvID + "&tab=releases", Act: "Review plan",
 					})
 				}
@@ -118,6 +166,62 @@ func (o *Orchestrator) WaitingOnYou(ctx context.Context, p *Principal) (Waiting,
 		}
 	}
 	return w, nil
+}
+
+// releaseWaitSub is a release row's words: what promoting it would do, as
+// the review's summary counts it ("2 to add, 1 to change"); the plain fact
+// when the plan cannot be made.
+func (o *Orchestrator) releaseWaitSub(ctx context.Context, p *Principal, stackID string, r GraphRung) string {
+	fact := "release " + strconv.Itoa(r.Waiting) + " is not on " + r.Name
+	rs, err := o.releases.List(ctx, stackID)
+	if err != nil {
+		return fact
+	}
+	i := slices.IndexFunc(rs, func(x Release) bool { return x.Number == r.Waiting })
+	if i < 0 {
+		return fact
+	}
+	pl, err := o.PlanPromote(ctx, p, r.EnvID, rs[i].ID)
+	if err != nil {
+		return fact
+	}
+	var parts []string
+	add, change, remove := planCounts(pl.Plan.Changes)
+	for _, c := range []struct {
+		n int
+		w string
+	}{{add, "to add"}, {change, "to change"}, {remove, "to remove"}} {
+		if c.n > 0 {
+			parts = append(parts, strconv.Itoa(c.n)+" "+c.w)
+		}
+	}
+	if len(parts) == 0 {
+		return "nothing to change"
+	}
+	return strings.Join(parts, ", ")
+}
+
+// planCounts is the review's summary: rows that add, change and remove (the
+// operated rows of a tile the plan creates fold into its create row).
+func planCounts(cs []promote.Change) (add, change, remove int) {
+	made := map[string]bool{}
+	for _, c := range cs {
+		if c.Kind == "create" {
+			made[c.Tile] = true
+		}
+	}
+	for _, c := range cs {
+		switch {
+		case c.Kind == "operated" && made[c.Tile]:
+		case c.Optional || c.Kind == "delete" || c.Kind == "orphan" || c.Kind == "detach":
+			remove++
+		case c.Kind == "create":
+			add++
+		default:
+			change++
+		}
+	}
+	return
 }
 
 // waitingParked adds what the parked jobs wait for: a value (to a person who
@@ -231,9 +335,9 @@ func (o *Orchestrator) waitingParked(ctx context.Context, p *Principal, w *Waiti
 			continue
 		}
 		if p.Access.Admin {
-			add("Access to approve", WaitItem{Title: st.Name, Sub: plural(n, "job") + waits(n) + " for access", Href: "/-/admin/access", Act: "Review"})
+			add("Access to approve", WaitItem{Title: st.Name, Sub: plural(n, "tile") + waits(n) + " for access", Href: "/-/admin/access", Act: "Review"})
 		} else if authz.Can(p.Access, "env.write", authz.Resource{OrgID: st.OrgID, StackID: st.ID}) == nil {
-			w.Others = append(w.Others, WaitItem{Title: st.Name + ", access", Sub: plural(n, "job") + waits(n) + " for a server admin"})
+			w.Others = append(w.Others, WaitItem{Title: st.Name + ", access", Sub: plural(n, "tile") + waits(n) + " for a server admin"})
 		}
 	}
 	return nil

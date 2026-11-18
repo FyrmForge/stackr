@@ -290,6 +290,12 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 	}
 }
 
+// WaitingCountIs lets a page that already listed what waits on the viewer give
+// the shell badge that number, not ask again.
+func WaitingCountIs(c echo.Context, n int) {
+	c.Set(waitingYouKey, func() int { return n })
+}
+
 // Waiting lets the shell show the admin rail's badge and the problem banner:
 // for a server admin it leaves a lazy count of stacks waiting on elevated
 // access and a lazy list of open problems, which Shell
@@ -299,12 +305,7 @@ func Waiting(orch *service.Orchestrator) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			if p := middleware.Principal(c); p != nil {
-				// ponytail: every drawn page and banners poll runs the whole query;
-				// cache per request/second if a big install feels it
-				c.Set(waitingYouKey, func() int {
-					w, _ := orch.WaitingOnYou(c.Request().Context(), p)
-					return w.Count()
-				})
+				c.Set(waitingYouKey, func() int { return orch.WaitingCount(c.Request().Context(), p) })
 			}
 			if p := middleware.Principal(c); p != nil && p.Access.Admin {
 				c.Set(waitingKey, func() int {

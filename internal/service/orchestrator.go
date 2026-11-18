@@ -330,6 +330,7 @@ type Orchestrator struct {
 	upgrading       atomic.Bool           // an upgrade helper runs on the controller (UpgradeHeld)
 	upgradeStep     atomic.Int32          // the running upgrade's step (UpgradePull..), 0 = none
 	vipAsync        sync.WaitGroup        // rerouteVIPsAsync runs in flight; tests wait on it
+	waitCounts      waitCountCache        // per user: the shell badge's count, a few seconds old
 	trustAsync      sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
 	vipLocks        sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
 	moveAllLocks    sync.Map              // node ID -> *sync.Mutex: one Move all batch per node at a time

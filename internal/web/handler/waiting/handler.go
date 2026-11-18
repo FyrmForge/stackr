@@ -23,6 +23,7 @@ func (h *handler) Page(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	render.WaitingCountIs(c, w.Count())
 	v := components.WaitingView{Count: w.Count(), Live: "/-/waiting"}
 	for _, g := range w.Groups {
 		gv := components.WaitGroupView{Title: g.Title}
