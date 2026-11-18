@@ -1,6 +1,210 @@
 package admin
 
-// nodeDiskAdopt is the Adopt disk action in the node disk section: the plan
-// dialog and the Resume of an adopting row. Work package 2A fills it in.
+import (
+	"encoding/json"
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// DiskAdopt is the Adopt a disk action of a node with no disk: Plan is the
+// POST that opens the dialog (no folder yet: it lists the forgotten disks).
+type DiskAdopt struct{ Plan string }
+
+// AdoptDialog is what the adopt POSTs answer into #adopt-dlg. Step one (View
+// nil) asks for the folder and lists the disks of forgotten nodes; Msg is the
+// refusal under the folder. The plan (View) lists what the adopt would do.
+type AdoptDialog struct {
+	PlanURL, Adopt string
+	Path, Msg      string
+	Cands          []AdoptCand
+	View           *AdoptPlanView
+}
+
+// AdoptCand is a disk of a forgotten node; Forget is its record's dialog.
+type AdoptCand struct {
+	Disk, Was string
+	Forget    DiskForget
+}
+
+// AdoptPlanView is the plan of an adopt. Vals are the values Adopt disk posts.
+// A copy in the way disables Adopt disk until it is discarded. Msg is a
+// refusal that came with the press.
+type AdoptPlanView struct {
+	Sub, Node, Vals, Msg string
+	Envs                 []DlgPair
+	OnDisk, Elsewhere    []DlgPair
+	Unclaimed            []string
+	Copies               []AdoptCopyRow
+}
+
+// DlgPair is a row: its name, where it is and the note on the right.
+type DlgPair struct {
+	Name, Where, Note string
+	Warn              bool
+}
+
+// AdoptCopyRow is a copy in the way. Discard is its typed confirm.
+type AdoptCopyRow struct {
+	Name, Where, Note string
+	Discard           c.DiskConfirmView
+}
+
+// adoptVals is the JSON of the values an adopt press posts.
+func AdoptVals(disk, path, confirm string) string {
+	b, _ := json.Marshal(map[string]string{"disk": disk, "path": path, "confirm": confirm})
+	return string(b)
+}
+
+// DiscardVals is the JSON of the values a discard of a copy posts.
+func DiscardVals(disk, path, volume, confirm string) string {
+	b, _ := json.Marshal(map[string]string{"disk": disk, "path": path, "volume": volume, "confirm": confirm})
+	return string(b)
+}
+
+// nodeDiskAdopt is the Adopt a disk button next to Add disk.
 templ nodeDiskAdopt(d NodeDisk) {
+	if d.Adopt != nil {
+		<button type="button" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ d.Adopt.Plan } hx-target="#adopt-dlg" hx-swap="outerHTML" hx-disabled-elt="this">Adopt a disk</button>
+	}
+}
+
+// AdoptDialogView answers an adopt POST: a div that replaces #adopt-dlg.
+templ AdoptDialogView(a AdoptDialog) {
+	<div id="adopt-dlg">
+		if a.View != nil {
+			@c.DlgShell("Adopt this disk", a.View.Sub, adoptFoot(a)) {
+				@adoptPlan(*a.View)
+			}
+		} else {
+			@c.DlgShell("Adopt a disk", "Take over a disk whose node is gone. Its volumes stay on it.", adoptFoot(a)) {
+				@adoptFolder(a)
+				if len(a.Cands) > 0 {
+					@c.DlgHeading("Disks of forgotten nodes · "+strconv.Itoa(len(a.Cands)), false)
+					<ul class="divide-y divide-rw-border">
+						for _, k := range a.Cands {
+							@c.DlgRow(k.Disk, wasOn(k.Was), "", "") {
+								@forgetDialog(k.Forget, true)
+							}
+						}
+					</ul>
+				}
+			}
+		}
+	</div>
+}
+
+func wasOn(node string) string {
+	if node == "" {
+		return ""
+	}
+	return "was " + node
+}
+
+templ adoptFoot(a AdoptDialog) {
+	<button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+	if a.View != nil {
+		<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ a.Adopt } hx-vals={ a.View.Vals } hx-target={ drawerTarget() } hx-swap="outerHTML" hx-disabled-elt="this" disabled?={ len(a.View.Copies) > 0 || a.View.Msg != "" }>Adopt disk</button>
+	} else {
+		<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>Adopt disk</button>
+	}
+}
+
+// adoptFolder is step one's folder field. Check posts the plan POST with the
+// path; the answer replaces the whole dialog.
+templ adoptFolder(a AdoptDialog) {
+	<form hx-post={ a.PlanURL } hx-target="#adopt-dlg" hx-swap="outerHTML" hx-indicator="#adopt-reading" hx-disabled-elt="#adopt-check" hx-disinherit="hx-indicator hx-disabled-elt" hx-sync="this:replace">
+		<label class="label" for="adopt-path">Folder</label>
+		<div class="flex gap-2">
+			<input
+				id="adopt-path"
+				name="path"
+				type="text"
+				value={ a.Path }
+				placeholder="/mnt/disk"
+				required
+				autocomplete="off"
+				spellcheck="false"
+				aria-describedby="adopt-result adopt-hint"
+				class={ "input font-mono", templ.KV("!border-rw-danger", a.Msg != "") }
+				if a.Msg != "" {
+					aria-invalid="true"
+				}
+			/>
+			<button type="submit" id="adopt-check" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed shrink-0">Check</button>
+		</div>
+		<span class="settings-help" id="adopt-hint">The mounted folder of a disk from another node.</span>
+		<div id="adopt-result" aria-live="polite" class="[&:not(:empty)]:mt-3">
+			if a.Msg != "" {
+				@c.DlgAlert(a.Msg)
+			}
+		</div>
+		<p id="adopt-reading" class="htmx-indicator max-h-0 overflow-hidden [&.htmx-request]:max-h-10 [&.htmx-request]:mt-3 flex items-start gap-2 text-sm text-rw-muted">
+			<span class="inline-block size-3.5 rounded-full border-2 border-rw-muted border-t-transparent animate-spin shrink-0 mt-0.5" aria-hidden="true"></span>
+			<span>Reading the disk...</span>
+		</p>
+	</form>
+}
+
+// adoptPlan lists what the adopt does: envs that move, volumes on the disk,
+// volumes restored from backups, folders kept, and copies in the way.
+templ adoptPlan(p AdoptPlanView) {
+	if len(p.Envs) > 0 {
+		@c.DlgHeading("Envs", true)
+		<ul class="divide-y divide-rw-border">
+			for _, e := range p.Envs {
+				@c.DlgRow(e.Name, e.Where, e.Note, "")
+			}
+		</ul>
+	}
+	if len(p.OnDisk) > 0 {
+		@c.DlgHeading("Volumes on the disk · "+strconv.Itoa(len(p.OnDisk)), len(p.Envs) == 0)
+		<ul class="divide-y divide-rw-border">
+			for _, v := range p.OnDisk {
+				@c.DlgRow(v.Name, v.Where, v.Note, "")
+			}
+		</ul>
+	}
+	if len(p.Elsewhere) > 0 {
+		@c.DlgHeading("Volumes not on the disk · "+strconv.Itoa(len(p.Elsewhere)), len(p.Envs)+len(p.OnDisk) == 0)
+		<ul class="divide-y divide-rw-border">
+			for _, v := range p.Elsewhere {
+				if v.Warn {
+					@c.DlgRow(v.Name, v.Where, v.Note, "warn")
+				} else {
+					@c.DlgRow(v.Name, v.Where, v.Note, "")
+				}
+			}
+		</ul>
+	}
+	if len(p.Unclaimed) > 0 {
+		@c.DlgHeading("Unclaimed folders · "+strconv.Itoa(len(p.Unclaimed)), len(p.Envs)+len(p.OnDisk)+len(p.Elsewhere) == 0)
+		<ul class="divide-y divide-rw-border">
+			for _, u := range p.Unclaimed {
+				@c.DlgRow(u, "no volume", "kept on the disk", "")
+			}
+		</ul>
+		<p class="text-xs text-rw-faint mt-1">Unclaimed folders are kept.</p>
+	}
+	if len(p.Copies) > 0 {
+		@c.DlgHeading("Already on "+p.Node+" · "+strconv.Itoa(len(p.Copies)), false)
+		<ul class="divide-y divide-rw-border">
+			for _, k := range p.Copies {
+				@c.DlgRow(k.Name, k.Where, k.Note, "danger") {
+					@c.DiskConfirm(k.Discard)
+				}
+			}
+		</ul>
+		<p class="text-xs text-rw-faint mt-1">Discard this copy to adopt.</p>
+	}
+	if p.Msg != "" {
+		<div class="mt-2">
+			@c.DlgAlert(p.Msg)
+		</div>
+	}
+}
+
+// TextBody is one paragraph, for a dialog body built outside this package.
+templ TextBody(text string) {
+	<p>{ text }</p>
 }

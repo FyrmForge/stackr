@@ -255,6 +255,17 @@ type NodeDisk struct {
 	Since               string // "2 min ago": missing since; "" = not known
 	Count               int    // volumes on the disk
 	Rows, More          []DiskVolRow
+
+	// Forget, adopt, move: the actions of nodedisk_*.templ. Each is nil when
+	// the disk's state does not offer it.
+	ID       string
+	Op       string // adopting | forgetting while the row is in that operation
+	Note     string // the line under the facts of a disk in trouble or in an operation
+	Adopt    *DiskAdopt
+	Forget   *DiskForget
+	Resume   *DiskResume // the strip's button of an interrupted adopt or forget
+	MoveAll  *DiskMoveAll
+	MoveJobs []MoveJobRow
 }
 
 // DiskVolRow is a volume on the disk. Open "" = no drawer to open.
@@ -880,6 +891,7 @@ templ NodeBody(tab string, v NodeView) {
 						}
 					</div>
 				}
+				@moveJobs(v.NodeDisk)
 				@diskStrip(v.NodeDisk)
 				@c.Section("Node", "", "") {
 					<dl class="grid grid-cols-[8rem_minmax(0,1fr)] max-[480px]:grid-cols-1 gap-x-4 gap-y-3 max-[480px]:gap-y-0 text-sm [&>dd]:[overflow-wrap:anywhere] max-[480px]:[&>dt]:mt-3 max-[480px]:[&>dt:first-child]:mt-0 max-[480px]:[&>dd]:mt-0.5">
@@ -1037,7 +1049,7 @@ templ NodeBody(tab string, v NodeView) {
 // diskStrip is the node's disk warning: missing, or an add that did not
 // finish. A persistent state, so status and not alert.
 templ diskStrip(d NodeDisk) {
-	if d.State == "missing" || d.AddFailed {
+	if d.State == "missing" || d.AddFailed || d.Resume != nil {
 		<div class="node-warnings panel px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-3" role="status">
 			<ul class="space-y-1 flex-1 min-w-[16rem]">
 				if d.State == "missing" {
@@ -1049,6 +1061,8 @@ templ diskStrip(d NodeDisk) {
 							Tiles that use it do not start. The node is offline. Check it once it is back.
 						}
 					</li>
+				} else if d.Resume != nil {
+					<li class="text-rw-warn font-medium">{ d.Resume.Text }</li>
 				} else {
 					<li class="text-rw-warn font-medium">Adding did not finish.</li>
 				}
@@ -1064,6 +1078,9 @@ templ diskStrip(d NodeDisk) {
 				if d.AddFailed && d.Add != "" {
 					@diskDialog(d.Dialog, "Try again", "btn btn-primary btn-sm")
 				}
+				if d.Resume != nil {
+					@diskResume(d.Resume)
+				}
 			</div>
 		</div>
 	}
@@ -1076,12 +1093,19 @@ templ diskSection(d NodeDisk) {
 	@c.Section("Node disk", "", d.Help) {
 		if !d.Has {
 			if d.Add != "" {
-				@diskDialog(d.Dialog, "Add disk", "btn btn-primary btn-sm")
+				if d.Adopt != nil {
+					<div class="mt-4 flex flex-wrap items-center gap-2">
+						@diskDialog(d.Dialog, "Add disk", "btn btn-primary btn-sm")
+						@nodeDiskAdopt(d)
+					</div>
+					<div id="adopt-dlg"></div>
+				} else {
+					@diskDialog(d.Dialog, "Add disk", "btn btn-primary btn-sm")
+				}
 			} else if d.Why != "" {
 				<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>Add disk</button>
 				<p class="mt-3 text-sm text-rw-muted">{ d.Why }</p>
 			}
-			@nodeDiskAdopt(d)
 		} else {
 			<dl class="grid grid-cols-[8rem_minmax(0,1fr)] max-[480px]:grid-cols-1 gap-x-4 gap-y-3 max-[480px]:gap-y-0 text-sm [&>dd]:[overflow-wrap:anywhere] max-[480px]:[&>dt]:mt-3 max-[480px]:[&>dt:first-child]:mt-0 max-[480px]:[&>dd]:mt-0.5">
 				<dt class="text-rw-muted">State</dt>
@@ -1091,6 +1115,10 @@ templ diskSection(d NodeDisk) {
 							@c.Chip("Ready", "success")
 						case "missing":
 							@c.Chip("Disk missing", "danger")
+						case "forgetting":
+							@c.Chip("Forgetting", "warn")
+						case "adopting":
+							@c.Chip("Adopting", "warn")
 						default:
 							@c.Chip("Adding", "warn")
 					}
@@ -1130,12 +1158,12 @@ templ diskSection(d NodeDisk) {
 					<span>Databases on a network disk risk corruption and slow writes.</span>
 				</p>
 			}
-			if d.State == "missing" {
-				<p class="mt-3 text-sm text-rw-muted">Disk gone for good? Its volumes are lost. Forget the node under Security.</p>
+			if d.Note != "" {
+				<p class="mt-3 text-sm text-rw-muted">{ d.Note }</p>
 			}
 			@nodeDiskForget(d)
 			@nodeDiskMoveAll(d)
-			if d.State != "adding" {
+			if d.State == "ready" || d.State == "missing" {
 				@diskVolumes(d)
 			}
 		}

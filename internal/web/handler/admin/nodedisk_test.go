@@ -181,7 +181,7 @@ func TestNodeDiskMissingOffersCheckDisk(t *testing.T) {
 	rec = s.As(t, root, "GET", "/-/admin/nodes/"+id, nil)
 	body := rec.Body.String()
 	has(t, "missing", body, "Disk missing", "The disk is missing.", "Reattach it, then press Check disk.", `role="status"`,
-		"Check disk", "Disk gone for good? Its volumes are lost. Forget the node under Security.", `hx-post="/-/admin/nodes/`+id+`/disk/check"`)
+		"Check disk", "Disk gone for good? Forget it.", `hx-post="/-/admin/nodes/`+id+`/disk/check"`)
 	if !strings.Contains(section(t, body), "Disk missing") {
 		t.Error("the section does not carry the state")
 	}

@@ -1,6 +1,134 @@
 package admin
 
-// nodeDiskMoveAll is the Move all to disk action in the node disk section:
-// the plan dialog and its confirm. Work package 2N fills it in.
+import (
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// DiskMoveAll is the Move all to disk action of a ready disk. Note is the
+// line above the button; Plan opens the dialog (a POST that measures).
+// Disabled = a move is running.
+type DiskMoveAll struct {
+	Plan, Note string
+	Disabled   bool
+}
+
+// MoveAllDialog is what the plan POST answers. Msg is a refusal: it replaces
+// nothing but is shown under the lists, and Move to disk stays off.
+type MoveAllDialog struct {
+	Plan, Move string
+	Node       string
+	Count      int
+	Groups     []MoveGroup
+	Skipped    []MoveRow
+	Need, Free string
+	Low        bool
+	Msg        string
+}
+
+// MoveGroup is one job of Move all: its tiles restart once.
+type MoveGroup struct {
+	Title string // "Group 1 · restarts web"
+	Rows  []MoveRow
+}
+
+// MoveRow is a volume of the plan; Note says what happens to it.
+type MoveRow struct{ Name, Where, Note string }
+
+// MoveJobRow is one volume-to-disk job of the node, with its volumes.
+type MoveJobRow struct {
+	Names, State, Msg, Href string
+	Failed                  bool
+}
+
+// nodeDiskMoveAll is the Move all to disk action in the node disk section.
 templ nodeDiskMoveAll(d NodeDisk) {
+	if m := d.MoveAll; m != nil {
+		if m.Note != "" {
+			<p class="mt-3 text-sm text-rw-muted">{ m.Note }</p>
+		}
+		<div class="mt-4 flex flex-wrap items-center gap-2">
+			if m.Disabled {
+				<button type="button" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>Move all to disk</button>
+			} else {
+				<button type="button" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ m.Plan } hx-target="#moveall-dlg" hx-swap="innerHTML" hx-disabled-elt="this">Move all to disk</button>
+			}
+		</div>
+		<div id="moveall-dlg"></div>
+	}
+}
+
+// MoveAllDialogView is the plan dialog, as an answer into #moveall-dlg.
+templ MoveAllDialogView(m MoveAllDialog) {
+	@c.DlgShell("Move all to disk", movePlural(m.Count)+" on "+m.Node, moveAllFoot(m)) {
+		<p>Each group copies in turn. Only its own tiles are stopped.</p>
+		for i, g := range m.Groups {
+			@c.DlgHeading(g.Title, i == 0)
+			<ul class="divide-y divide-rw-border">
+				for _, r := range g.Rows {
+					@c.DlgRow(r.Name, r.Where, r.Note, "")
+				}
+			</ul>
+		}
+		if len(m.Skipped) > 0 {
+			@c.DlgHeading("Skipped", len(m.Groups) == 0)
+			<ul class="divide-y divide-rw-border">
+				for _, r := range m.Skipped {
+					@c.DlgRow(r.Name, r.Where, r.Note, "")
+				}
+			</ul>
+		}
+		if m.Need != "" {
+			@c.DlgFacts(m.Need, m.Free, m.Low, "mt-4")
+		}
+		if m.Low || m.Msg != "" {
+			<div class="mt-2">
+				@c.DlgAlert(moveAllMsg(m))
+			</div>
+		}
+	}
+}
+
+func moveAllMsg(m MoveAllDialog) string {
+	if m.Msg != "" {
+		return m.Msg
+	}
+	return "Not enough room. Needs " + m.Need + ", " + m.Free + " free."
+}
+
+func movePlural(n int) string {
+	if n == 1 {
+		return "1 volume"
+	}
+	return strconv.Itoa(n) + " volumes"
+}
+
+templ moveAllFoot(m MoveAllDialog) {
+	<button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+	<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ m.Move } hx-target={ drawerTarget() } hx-swap="outerHTML" hx-disabled-elt="this" disabled?={ m.Low || m.Msg != "" || len(m.Groups) == 0 }>Move all to disk</button>
+}
+
+// moveJobs is the progress of Move all: one line per volume-to-disk job of
+// the node. It sits in the live region, so it is as fresh as the drawer.
+templ moveJobs(d NodeDisk) {
+	if len(d.MoveJobs) > 0 {
+		<ul class="divide-y divide-rw-border mb-4">
+			for _, j := range d.MoveJobs {
+				<li class="py-2">
+					<div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+						<span class="text-rw-faint font-mono">volume.to_disk</span>
+						<span class="text-rw-text">{ j.Names }</span>
+						@c.JobBadge(j.State)
+						<span class="ml-auto">
+							@c.NavLink(c.Link{Label: "details", Href: j.Href})
+						</span>
+					</div>
+					if j.Msg != "" {
+						<p class={ "mt-0.5 text-xs", templ.KV("text-rw-danger", j.Failed), templ.KV("text-rw-muted", !j.Failed) }>{ j.Msg }</p>
+					}
+				</li>
+			}
+		</ul>
+	}
 }

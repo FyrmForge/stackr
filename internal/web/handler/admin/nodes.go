@@ -150,6 +150,7 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 	g.POST(nodesBase+"/:node/disk/add", h.diskAdd, m)
 	g.POST(nodesBase+"/:node/disk/adopt/plan", h.diskAdoptPlan, m)
 	g.POST(nodesBase+"/:node/disk/adopt", h.diskAdopt, m)
+	g.POST(nodesBase+"/:node/disk/adopt/discard-copy", h.diskAdoptDiscard, m)
 	g.POST(nodesBase+"/:node/disk/forget", h.diskForget, m)
 	g.POST(nodesBase+"/:node/disk/move-all/plan", h.diskMoveAllPlan, m)
 	g.POST(nodesBase+"/:node/disk/move-all", h.diskMoveAll, m)

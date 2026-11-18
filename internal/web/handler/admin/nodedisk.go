@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
@@ -17,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -44,9 +46,15 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 		if err != nil {
 			return dk, err
 		}
+		adopting, err := h.jobActive(c, d.ID, "disk-adopt")
+		if err != nil {
+			return dk, err
+		}
 		switch {
 		case adding:
 			dk.Why = "Adding the disk."
+		case adopting: // queued: the row says adopting once the job records it
+			dk.Why = "Adopting this disk."
 		case p.Refusal != "":
 			dk.Help = p.Refusal
 		case !online:
@@ -55,9 +63,12 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 			dk.Help = "Update this node to add a disk."
 		default:
 			dk.Add = base + "/disk/add"
+			dk.Adopt = &ui.DiskAdopt{Plan: base + "/disk/adopt/plan"}
+			dk.Help += " Or adopt a disk from a node that is gone."
 		}
 		return dk, nil
 	}
+	dk.ID = p.ID
 	if p.State == "ready" {
 		dk.Help = "New volumes on this node are stored here."
 		if p.Total > 0 {
@@ -85,6 +96,9 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 			dk.Add = base + "/disk/add"
 			dk.Dialog.Path = p.Path
 		}
+	}
+	if err := h.diskActions(c, &dk, p, d, base, online); err != nil {
+		return dk, err
 	}
 	for i, r := range p.Volumes {
 		row := ui.DiskVolRow{Name: r.Slug, Where: r.Where, Size: "unknown", Orphaned: r.Orphaned}
@@ -118,21 +132,7 @@ func (h *handler) jobActive(c echo.Context, nodeID, kind string) (bool, error) {
 }
 
 // diskSize is a disk size as the section says it: 86 MB, 4.2 GB, 278 GB, 1.8 TB.
-func diskSize(b int64) string {
-	switch {
-	case b >= 1<<40:
-		return fmt.Sprintf("%.1f TB", float64(b)/(1<<40))
-	case b >= 10<<30:
-		return fmt.Sprintf("%.0f GB", float64(b)/(1<<30))
-	case b >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(b)/(1<<30))
-	case b >= 1<<20:
-		return fmt.Sprintf("%.0f MB", float64(b)/(1<<20))
-	case b >= 1<<10:
-		return fmt.Sprintf("%d KB", b>>10)
-	}
-	return fmt.Sprintf("%d B", b)
-}
+func diskSize(b int64) string { return render.DiskSize(b) }
 
 // diskDialog is the dialog's fields as posted.
 func diskDialog(c echo.Context) ui.DiskDialog {
@@ -249,4 +249,142 @@ func (h *handler) diskAdd(c echo.Context) error {
 	}
 	c.Set("job", j)
 	return h.nodeAnswer(c, "overview", "Adding the disk.", nil)
+}
+
+// diskActions fills the forget, resume and move-all parts of the section. Rows
+// and the job table only: a poll never reaches Docker or a helper.
+func (h *handler) diskActions(c echo.Context, dk *ui.NodeDisk, p service.NodeDiskPanel, d service.NodeDetail, base string, online bool) error {
+	forgetRun, err := h.jobActive(c, d.ID, "disk-forget")
+	if err != nil {
+		return err
+	}
+	adoptRun, err := h.jobActive(c, d.ID, "disk-adopt")
+	if err != nil {
+		return err
+	}
+	switch p.State {
+	case "forgetting":
+		dk.Op = "Forgetting"
+		dk.Note = "Forgetting this disk."
+		if !forgetRun && online {
+			dk.Note = "Nothing starts on this disk until it is forgotten."
+			dk.Resume = &ui.DiskResume{Action: base + "/disk/forget", Vals: ui.AdoptVals(p.ID, "", p.ID), Text: "Forgetting did not finish."}
+		}
+	case "adopting":
+		dk.Op = "Adopting"
+		dk.Note = "Adopting this disk."
+		if !adoptRun && online {
+			dk.Note = "Nothing starts on this disk until the adoption is done."
+			dk.Resume = &ui.DiskResume{Action: base + "/disk/adopt", Vals: ui.AdoptVals(p.ID, p.Path, ""), Text: "Adopting did not finish."}
+		}
+	case "missing", "adding":
+		addRun, err := h.jobActive(c, d.ID, "disk-add")
+		if err != nil {
+			return err
+		}
+		switch {
+		case forgetRun:
+			dk.Note = "Forgetting this disk."
+		case p.State == "adding" && addRun, !online:
+		default:
+			dk.Note = "Disk gone for good? Forget it."
+			f, err := h.forgetDialog(c, p.ID, d.Name)
+			if errors.Is(err, errs.ErrNotFound) { // the forget finished since the panel was read
+				dk.Note = ""
+				break
+			}
+			if err != nil {
+				return err
+			}
+			f.Action = base + "/disk/forget"
+			dk.Forget = &f
+		}
+	case "ready":
+		if !online {
+			break
+		}
+		switch {
+		case p.MoveLive:
+			dk.MoveAll = &ui.DiskMoveAll{Disabled: true, Note: "A move is running."}
+		case p.InDocker > 0:
+			dk.MoveAll = &ui.DiskMoveAll{Plan: base + "/disk/move-all/plan", Note: inDockerNote(p.InDocker)}
+		}
+		var err error
+		if dk.MoveJobs, err = h.moveJobs(c, d.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func inDockerNote(n int) string {
+	if n == 1 {
+		return "1 volume is still in Docker storage."
+	}
+	return fmt.Sprintf("%d volumes are still in Docker storage.", n)
+}
+
+// forgetDialog is the Forget dialog's data for a disk: the volumes the forget
+// restores, and what it would refuse with now. node is the typed word.
+func (h *handler) forgetDialog(c echo.Context, diskID, node string) (ui.DiskForget, error) {
+	fp, err := h.orch.PlanDiskForget(c.Request().Context(), diskID)
+	if err != nil {
+		return ui.DiskForget{}, err
+	}
+	f := ui.DiskForget{Node: fp.Node, Disk: diskID, Gone: fp.Gone, Refusal: fp.Refusal, Word: cmp.Or(node, diskID)}
+	if fp.Gone {
+		f.Word = diskID
+	}
+	f.Vals = ui.AdoptVals(diskID, "", f.Word)
+	for _, v := range fp.Volumes {
+		r := ui.ForgetVolume{Name: v.Slug, Where: v.Where, Note: "starts empty", Empty: true}
+		if v.HasBackup {
+			r.Note, r.Empty = "backup of "+v.Backup.Format("Jan 2"), false
+		}
+		f.Volumes = append(f.Volumes, r)
+	}
+	return f, nil
+}
+
+// moveJobs are the volume-to-disk jobs of the node: the live ones, and those
+// that ended in the last ten minutes, newest first.
+func (h *handler) moveJobs(c echo.Context, nodeID string) ([]ui.MoveJobRow, error) {
+	ctx := c.Request().Context()
+	js, err := h.orch.Jobs(ctx, 100)
+	if err != nil {
+		return nil, err
+	}
+	var out []ui.MoveJobRow
+	for _, j := range js {
+		var p struct {
+			NodeID  string `json:"node_id"`
+			Volumes []struct {
+				VolumeID string `json:"volume_id"`
+			} `json:"volumes"`
+		}
+		if j.Kind != "volume-to-disk" || json.Unmarshal([]byte(j.Payload), &p) != nil || p.NodeID != nodeID {
+			continue
+		}
+		if j.FinishedAt != nil && time.Since(*j.FinishedAt) > 10*time.Minute {
+			continue
+		}
+		var names []string
+		for _, v := range p.Volumes {
+			if x, err := h.orch.Volume(ctx, v.VolumeID); err == nil {
+				names = append(names, x.Slug)
+			}
+		}
+		state := j.State
+		if state == "waiting" {
+			state = "queued"
+		}
+		out = append(out, ui.MoveJobRow{
+			Names: strings.Join(names, ", "), State: state, Msg: j.Error, Failed: j.State == "failed",
+			Href: render.JobView("", j).Href,
+		})
+		if len(out) == 8 {
+			break
+		}
+	}
+	return out, nil
 }

@@ -1,6 +1,102 @@
 package admin
 
-// nodeDiskForget is the Forget disk action in the node disk section and the
-// Resume of a forgetting row. Work package 2F fills it in.
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// DiskForget is the Forget disk dialog of the node disk section, and of the
+// record of a forgotten node's disk in the Adopt dialog (Gone). Refusal is
+// what Forget would refuse with now: the dialog then only says so and closes.
+type DiskForget struct {
+	Action     string // POST: forget, or resume a forgetting row
+	Vals       string // its JSON values: the disk and the typed word
+	Node, Disk string // Node is the name the disk's node has or had, "" when not known
+	Word       string // what is typed to confirm
+	Gone       bool
+	Refusal    string
+	Volumes    []ForgetVolume
+}
+
+// ForgetVolume is one volume a forget restores: Note says from what.
+type ForgetVolume struct {
+	Name, Where, Note string
+	Empty             bool // no backup: it starts empty
+}
+
+// DiskResume is the strip's Resume button of an interrupted forget or adopt:
+// the same POST again, with the values it needs.
+type DiskResume struct{ Action, Vals, Text string }
+
+// nodeDiskForget is the Forget disk action in the node disk section.
 templ nodeDiskForget(d NodeDisk) {
+	if d.Forget != nil {
+		<div class="mt-4 flex flex-wrap items-center gap-2">
+			@forgetDialog(*d.Forget, false)
+		</div>
+	}
+}
+
+// forgetDialog is the confirm. link = the opener is the Forget record link.
+templ forgetDialog(f DiskForget, link bool) {
+	@c.DiskConfirm(forgetView(f, link))
+}
+
+func forgetView(f DiskForget, link bool) c.DiskConfirmView {
+	v := c.DiskConfirmView{
+		Opener: "Forget disk", Link: link, Title: "Forget this disk", Sub: f.Disk,
+		Word: f.Word, Button: "Forget disk", Action: f.Action, Target: drawerTarget(), Vals: f.Vals,
+		Body: forgetBody(f),
+	}
+	if f.Node != "" && !f.Gone {
+		v.Sub = f.Node + ", disk " + f.Disk
+	}
+	if f.Gone {
+		v.Opener, v.Title, v.Button = "Forget record", "Forget this disk record", "Forget record"
+		v.Sub = f.Disk
+		if f.Node != "" {
+			v.Sub += ", was on " + f.Node
+		}
+	}
+	if f.Refusal != "" { // known on open: nothing to type
+		v.Word, v.Action = "", ""
+	}
+	return v
+}
+
+templ forgetBody(f DiskForget) {
+	if f.Gone {
+		<p>The record of this disk is removed. Nothing else changes.</p>
+	} else {
+		<p>Its volumes come back from their newest backup. Tiles that use them restart.</p>
+		if forgetEmpty(f) {
+			<p>Volumes without a backup start empty.</p>
+		}
+		if len(f.Volumes) > 0 {
+			@c.DlgHeading("Volumes", true)
+			<ul class="divide-y divide-rw-border">
+				for _, v := range f.Volumes {
+					if v.Empty {
+						@c.DlgRow(v.Name, v.Where, v.Note, "warn")
+					} else {
+						@c.DlgRow(v.Name, v.Where, v.Note, "")
+					}
+				}
+			</ul>
+		}
+	}
+	if f.Refusal != "" {
+		@c.DlgAlert(f.Refusal)
+	}
+}
+
+func forgetEmpty(f DiskForget) bool {
+	for _, v := range f.Volumes {
+		if v.Empty {
+			return true
+		}
+	}
+	return false
+}
+
+// diskResume is the Resume button of a strip.
+templ diskResume(r *DiskResume) {
+	<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ r.Action } hx-vals={ r.Vals } hx-target={ drawerTarget() } hx-swap="outerHTML" hx-disabled-elt="this">Resume</button>
 }
