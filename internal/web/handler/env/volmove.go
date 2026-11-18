@@ -147,7 +147,7 @@ func (h *handler) diskScreens(c echo.Context, vol service.Volume, o *volume.Over
 	if j, ok, err := h.orch.VolumeMoveJob(ctx, vol.ID); err != nil {
 		return err
 	} else if ok {
-		jv := render.JobView(render.EnvURL(c), j)
+		jv := render.JobViewNote(ctx, h.orch, render.EnvURL(c), j)
 		jv.Live = false // the overview polls
 		o.Job = &jv
 	}

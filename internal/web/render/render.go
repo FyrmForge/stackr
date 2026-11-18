@@ -483,11 +483,57 @@ func JobView(page string, j service.Job) components.JobStatusView {
 	return components.JobStatusView{
 		Kind:      jobKindLabel(j.Kind),
 		State:     j.State,
-		Error:     j.Error,
+		Error:     diskJobError(j),
 		Href:      page + "/-/jobs/" + j.ID,
 		StreamURL: page + "/-/jobs/" + j.ID + "/events",
 		Live:      j.FinishedAt == nil,
 	}
+}
+
+// diskJobError words a failed disk job in one plain sentence. The raw error,
+// paths and Docker text included, stays behind the job log link.
+func diskJobError(j service.Job) string {
+	if j.State != "failed" {
+		return j.Error
+	}
+	switch j.Kind {
+	case "volume-to-disk":
+		var names []string
+		for _, l := range strings.Split(j.Error, "\n") {
+			if n, _, ok := strings.Cut(l, " did not start on the new copy"); ok && n != "" {
+				names = append(names, n)
+			}
+		}
+		if len(names) > 0 {
+			return strings.Join(names, " and ") + " did not start on the new copy."
+		}
+		return "The copy failed. The volume is unchanged."
+	case "disk-forget":
+		return "Forgetting did not finish."
+	case "disk-adopt":
+		return "Adopting did not finish."
+	}
+	return j.Error
+}
+
+// JobViewNote is JobView plus, for a volume-to-disk job that is running, the
+// tiles it has stopped. Rows only.
+func JobViewNote(ctx context.Context, orch *service.Orchestrator, page string, j service.Job) components.JobStatusView {
+	v := JobView(page, j)
+	if j.Kind == "volume-to-disk" && j.State == "running" {
+		if ts := orch.MoveJobTiles(ctx, j); len(ts) > 0 {
+			v.Note = TilesStopped(ts) + " while it copies."
+		}
+	}
+	return v
+}
+
+// TilesStopped is "web is stopped", "web and api are stopped".
+func TilesStopped(tiles []string) string {
+	if len(tiles) == 1 {
+		return tiles[0] + " is stopped"
+	}
+	return strings.Join(tiles[:len(tiles)-1], ", ") + " and " + tiles[len(tiles)-1] + " are stopped"
 }
 
 // OrgPlanView is the org file's plan as the plan component draws it: its
@@ -537,7 +583,7 @@ func JobStream(c echo.Context, orch *service.Orchestrator, page string) error {
 		if err != nil {
 			return nil, 0, false, err
 		}
-		b, err := Event(ctx, components.JobStatusBody(JobView(page, j)))
+		b, err := Event(ctx, components.JobStatusBody(JobViewNote(ctx, orch, page, j)))
 		if err != nil {
 			return nil, 0, false, err
 		}

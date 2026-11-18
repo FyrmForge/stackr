@@ -8,6 +8,7 @@ type JobStatusView struct {
 	Kind      string
 	State     string // leaf/job state
 	Error     string
+	Note      string // a muted line under the status, "" = none
 	Href      string // the job page; "" = none
 	StreamURL string
 	Live      bool
@@ -45,6 +46,9 @@ templ JobStatusBody(v JobStatusView) {
 			@NavLink(Link{Label: "details", Href: v.Href})
 		}
 	</div>
+	if v.Note != "" {
+		<p class="mt-1 text-xs text-rw-muted">{ v.Note }</p>
+	}
 	if v.Error != "" {
 		<p class="mt-1 text-xs text-rw-danger">{ v.Error }</p>
 	}

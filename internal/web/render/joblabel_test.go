@@ -18,3 +18,21 @@ func TestJobViewLabelsDiskJobs(t *testing.T) {
 		}
 	}
 }
+
+// A failed disk job reads as one plain sentence; the raw error (paths, Docker text) is not in the line.
+func TestJobViewWordsFailedDiskJobs(t *testing.T) {
+	for _, c := range []struct{ kind, err, want string }{
+		{"volume-to-disk", "checking the copy of x: open /mnt/d/x: boom", "The copy failed. The volume is unchanged."},
+		{"volume-to-disk", "web did not start on the new copy: boom\napi did not start on the new copy: boom", "web and api did not start on the new copy."},
+		{"disk-forget", "remove volume v: Docker said no", "Forgetting did not finish."},
+		{"disk-adopt", "x: boom", "Adopting did not finish."},
+		{"deploy", "boom", "boom"},
+	} {
+		if got := render.JobView("", service.Job{Kind: c.kind, State: "failed", Error: c.err}).Error; got != c.want {
+			t.Errorf("%s: %q, want %q", c.kind, got, c.want)
+		}
+	}
+	if got := render.JobView("", service.Job{Kind: "disk-forget", State: "running", Error: "x"}).Error; got != "x" {
+		t.Errorf("a live job keeps its text: %q", got)
+	}
+}

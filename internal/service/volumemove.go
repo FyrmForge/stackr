@@ -643,7 +643,7 @@ func (m *volumeMove) deploy(ctx context.Context) error {
 		b, _ := json.Marshal(tileJob{TileID: t.ID})
 		run := &jobs.Run{Job: store.Job{Payload: string(b), CreatedAt: m.r.Job.CreatedAt, ActorID: m.r.Job.ActorID, ActorKeyID: m.r.Job.ActorKeyID}, Log: m.r.Log}
 		if err := m.o.handlers()[kindDeploy](ctx, run); err != nil {
-			failed = append(failed, fmt.Errorf("%s: %w", t.Slug, err))
+			failed = append(failed, fmt.Errorf("%s did not start on the new copy: %w", t.Slug, err))
 		}
 	}
 	return errors.Join(failed...)
@@ -816,4 +816,25 @@ func (o *Orchestrator) VolumeMoveJob(ctx context.Context, volumeID string) (Job,
 		return j, true, nil
 	}
 	return Job{}, false, nil
+}
+
+// MoveJobTiles are the names of the tiles a volume-to-disk job stops while it
+// copies. Rows only.
+func (o *Orchestrator) MoveJobTiles(ctx context.Context, j Job) []string {
+	var p volumeMoveJob
+	if j.Kind != string(kindVolumeToDisk) || json.Unmarshal([]byte(j.Payload), &p) != nil {
+		return nil
+	}
+	var vs []Volume
+	for _, it := range p.Volumes {
+		if v, err := o.volumes.Get(ctx, it.VolumeID); err == nil {
+			vs = append(vs, v)
+		}
+	}
+	ts, _ := o.moveTiles(ctx, vs)
+	var out []string
+	for _, t := range ts {
+		out = append(out, t.Name)
+	}
+	return out
 }

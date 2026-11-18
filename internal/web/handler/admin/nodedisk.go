@@ -378,9 +378,10 @@ func (h *handler) moveJobs(c echo.Context, nodeID string) ([]ui.MoveJobRow, erro
 		if state == "waiting" {
 			state = "queued"
 		}
+		jv := render.JobViewNote(ctx, h.orch, "", j)
 		out = append(out, ui.MoveJobRow{
-			Names: strings.Join(names, ", "), State: state, Msg: j.Error, Failed: j.State == "failed",
-			Href: render.JobView("", j).Href,
+			Names: strings.Join(names, ", "), State: state, Msg: cmp.Or(jv.Error, jv.Note), Failed: j.State == "failed",
+			Href: jv.Href,
 		})
 		if len(out) == 8 {
 			break
