@@ -16,12 +16,12 @@ func TestDisksFactsCarryTheDeviceOfAnXFSDisk(t *testing.T) {
 		return hostdisk.Stamp{ID: "d1"}, 5, 10, nil
 	})
 	r := s.cfg.HostRoot
-	for _, d := range []string{"dev/disk/by-id", "dev/disk/by-uuid", "sys/class/block/sdb"} {
+	for _, d := range []string{"dev/disk/by-id", "dev/disk/by-uuid", "sys/class/block/sdb", "sys/dev/block"} {
 		if err := os.MkdirAll(filepath.Join(r, d), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, l := range [][2]string{{"../../sdb", "dev/disk/by-id/ata-X"}, {"../../sdb", "dev/disk/by-uuid/uuid-1"}} {
+	for _, l := range [][2]string{{"../../sdb", "dev/disk/by-id/ata-X"}, {"../../sdb", "dev/disk/by-uuid/uuid-1"}, {"../../devices/pci/block/sdb", "sys/dev/block/8:16"}} {
 		if err := os.Symlink(l[0], filepath.Join(r, l[1])); err != nil {
 			t.Fatal(err)
 		}
@@ -46,17 +46,17 @@ func TestDisksFactsCarryTheDeviceOfAnXFSDisk(t *testing.T) {
 // X8: with no by-id link the recorded name is a kernel name that can be another disk after a reboot.
 // The facts follow the device the mount stands on, so a moved name is no false alarm.
 func TestDisksFactsFollowTheMountNotTheRecordedName(t *testing.T) {
-	s := diskServer(t, rootLine+"2 1 8:32 / /mnt/data rw - xfs /dev/vdc rw\n", func(context.Context, string) (hostdisk.Stamp, uint64, uint64, error) {
+	s := diskServer(t, rootLine+"2 1 8:32 / /mnt/data rw - xfs /dev/vdb rw\n", func(context.Context, string) (hostdisk.Stamp, uint64, uint64, error) {
 		return hostdisk.Stamp{ID: "d1"}, 5, 10, nil
 	})
 	r := s.cfg.HostRoot
-	for _, d := range []string{"dev/disk/by-uuid", "sys/class/block/vdb", "sys/class/block/vdc"} {
+	for _, d := range []string{"dev/disk/by-uuid", "sys/class/block/vdb", "sys/class/block/vdc", "sys/dev/block"} {
 		if err := os.MkdirAll(filepath.Join(r, d), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// vdb is now some other, smaller disk with another filesystem; the data disk is vdc
-	for _, l := range [][2]string{{"../../vdb", "dev/disk/by-uuid/other-fs"}, {"../../vdc", "dev/disk/by-uuid/uuid-1"}} {
+	for _, l := range [][2]string{{"../../vdb", "dev/disk/by-uuid/other-fs"}, {"../../vdc", "dev/disk/by-uuid/uuid-1"}, {"../../devices/pci/block/vdc", "sys/dev/block/8:32"}} {
 		if err := os.Symlink(l[0], filepath.Join(r, l[1])); err != nil {
 			t.Fatal(err)
 		}

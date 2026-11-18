@@ -242,7 +242,7 @@ func xfsMountOp(ctx context.Context, e Env, r Request) Result {
 	// the helper's lsblk reports its mount points under /host.
 	onlyHere := true
 	for _, m := range ParseMounts(table) {
-		if m.Source == dev.Path && m.Point != point {
+		if m.Dev == dev.MajMin && m.Point != point {
 			onlyHere = false
 		}
 	}
@@ -259,7 +259,7 @@ func xfsMountOp(ctx context.Context, e Env, r Request) Result {
 	}
 	cur, ok := lastCovering(ParseMounts(table), point)
 	here := ok && cur.Point == point
-	if here && cur.Source != dev.Path {
+	if here && cur.Dev != dev.MajMin { // identity is major:minor, never the name in the Source column
 		return fail(CodeBusy, point+" is mounted from "+cur.Source)
 	}
 	if !here {
@@ -408,7 +408,9 @@ func (e Env) writeUnit(point, uuid string) *Error {
 	return nil
 }
 
-// deviceBehind is the block device the xfs mount at point sits on.
+// deviceBehind is the block device the xfs mount at point sits on, found by
+// the mount's major:minor. The Source column is only a name and can name
+// another disk once a kernel name is reused.
 func (e Env) deviceBehind(ctx context.Context, point string) (Device, *Error) {
 	table, err := os.ReadFile(e.mountinfo())
 	if err != nil {
@@ -427,13 +429,13 @@ func (e Env) deviceBehind(ctx context.Context, point string) (Device, *Error) {
 	var found bool
 	for _, n := range nodes {
 		n.all(func(c lsNode) {
-			if c.Path == m.Source {
+			if m.Dev != "" && str(c.MajMin) == m.Dev {
 				dev, found = c.device(byID), true
 			}
 		})
 	}
 	if !found {
-		return Device{}, &Error{CodeIO, "no device " + m.Source}
+		return Device{}, &Error{CodeIO, "no device " + m.Dev}
 	}
 	return dev, nil
 }
@@ -448,6 +450,22 @@ func (e Env) decorate(ctx context.Context, res Result, point string) Result {
 		res.Disk.Device, res.Disk.DeviceBytes, res.Disk.FSUUID = d.ID, d.Bytes, d.FSUUID
 	}
 	return res
+}
+
+// recorded checks the device behind a mount against what the panel recorded:
+// the filesystem uuid and the device id (a cloned filesystem keeps its uuid).
+// needID makes an empty device id a refusal too.
+func recorded(dev Device, r Request, needID bool) *Error {
+	bad := r.FSUUID == "" || dev.FSUUID != r.FSUUID
+	if r.DeviceID != "" {
+		bad = bad || (dev.ID != r.DeviceID && dev.Path != r.DeviceID)
+	} else if needID {
+		bad = true
+	}
+	if bad {
+		return &Error{CodeDeviceChanged, "the filesystem behind " + r.Mount + " is not the one recorded for this disk"}
+	}
+	return nil
 }
 
 // xfsGrow grows the filesystem to its device. The device must not be smaller
@@ -465,8 +483,8 @@ func xfsGrow(ctx context.Context, e Env, r Request) Result {
 	if herr != nil {
 		return Result{Error: herr}
 	}
-	if r.FSUUID == "" || dev.FSUUID != r.FSUUID {
-		return fail(CodeDeviceChanged, "the filesystem behind "+r.Mount+" is not the one recorded for this disk")
+	if herr := recorded(dev, r, true); herr != nil {
+		return Result{Error: herr}
 	}
 	if r.DeviceBytes > 0 && dev.Bytes < r.DeviceBytes {
 		return fail(CodeDeviceSmaller, dev.Path+" is smaller than before")
@@ -577,8 +595,8 @@ func xfsFolder(ctx context.Context, e Env, r Request) Result {
 		if q.Cap > 0 {
 			want = (q.Cap + 1023) / 1024
 		}
-		if hard[q.Project] != want {
-			return fail(CodeIO, fmt.Sprintf("the cap of %s was not applied (limit now %dk, wanted %dk)", n, hard[q.Project], want))
+		if got, ok := hard[q.Project]; !ok || got != want { // no row is no proof, a cleared cap included
+			return fail(CodeIO, fmt.Sprintf("the cap of %s was not applied (limit now %dk, wanted %dk)", n, got, want))
 		}
 	}
 	return res
@@ -693,7 +711,30 @@ func xfsUnmount(ctx context.Context, e Env, r Request) Result {
 			return fail(CodeBusy, m.Point+" is mounted inside "+point)
 		}
 	}
+	if r.FSUUID == "" {
+		return fail(CodeDeviceChanged, "no recorded filesystem for "+point)
+	}
+	// Only our own unit is ever removed, and only our own filesystem is ever
+	// unmounted: both are checked before anything is changed.
+	unit := unitName(point)
+	unitFile := joinRoot(e.Root, "/etc/systemd/system/"+unit)
+	haveUnit := false
+	if b, err := os.ReadFile(unitFile); err == nil {
+		if string(b) != unitText(point, r.FSUUID) {
+			return fail(CodeBusy, unit+" is not the stackr mount unit of this disk")
+		}
+		haveUnit = true
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fail(CodeIO, err.Error())
+	}
 	if mounted {
+		dev, herr := e.deviceBehind(ctx, point)
+		if herr != nil {
+			return Result{Error: herr}
+		}
+		if herr := recorded(dev, r, false); herr != nil {
+			return Result{Error: herr}
+		}
 		if _, err := e.host(ctx, "umount", point); err != nil {
 			return fail(CodeBusy, err.Error())
 		}
@@ -707,9 +748,7 @@ func xfsUnmount(ctx context.Context, e Env, r Request) Result {
 			}
 		}
 	}
-	unit := unitName(point)
-	unitFile := joinRoot(e.Root, "/etc/systemd/system/"+unit)
-	if _, err := os.Lstat(unitFile); err == nil {
+	if haveUnit {
 		if _, err := e.host(ctx, "systemctl", "disable", unit); err != nil {
 			return fail(CodeIO, "disable the mount unit: "+err.Error())
 		}

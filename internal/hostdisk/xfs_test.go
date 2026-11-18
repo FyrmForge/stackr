@@ -112,10 +112,13 @@ func (x *xrig) setTable(extra string) {
 	}
 }
 
-const xfsLine = "36 25 8:17 / /var/lib/stackr-disks/d1 rw,prjquota - xfs /dev/sdb rw\n"
+const xfsLine = "36 25 8:16 / /var/lib/stackr-disks/d1 rw,prjquota - xfs /dev/sdb rw\n"
 
 func (x *xrig) run(op string, mod func(*Request)) Result {
 	req := Request{Op: op, Kind: "xfs", Mount: MountPoint("d1"), DiskID: "d1", Owner: "n1", Install: "i1"}
+	if op == "unmount" {
+		req.FSUUID, req.DeviceID = "u-new-1234", "/dev/sdb"
+	}
 	if mod != nil {
 		mod(&req)
 	}
@@ -571,7 +574,7 @@ func TestVerifyAndClaimOnXFS(t *testing.T) {
 
 func TestGrowRunsXfsGrowfsOnTheMount(t *testing.T) {
 	x := mountedX(t)
-	res := x.run("grow", func(q *Request) { q.DeviceBytes, q.FSUUID = 2<<30, "u-new-1234" })
+	res := x.run("grow", func(q *Request) { q.DeviceBytes, q.FSUUID, q.DeviceID = 2<<30, "u-new-1234", "/dev/sdb" })
 	wantCode(t, res, "")
 	g := x.fx.ran("xfs_growfs")
 	if len(g) != 1 || strings.Join(g[0], " ") != "xfs_growfs "+x.real {
@@ -584,7 +587,7 @@ func TestGrowRunsXfsGrowfsOnTheMount(t *testing.T) {
 
 func TestGrowRefusedWhenTheDeviceIsSmaller(t *testing.T) { // DL
 	x := mountedX(t)
-	wantCode(t, x.run("grow", func(q *Request) { q.DeviceBytes, q.FSUUID = 8<<30, "u-new-1234" }), CodeDeviceSmaller)
+	wantCode(t, x.run("grow", func(q *Request) { q.DeviceBytes, q.FSUUID, q.DeviceID = 8<<30, "u-new-1234", "/dev/sdb" }), CodeDeviceSmaller)
 	if len(x.fx.ran("xfs_growfs")) != 0 {
 		t.Fatal("grew a shrunk device")
 	}
@@ -599,7 +602,7 @@ func TestGrowFailureIsIO(t *testing.T) {
 		}
 		return inner(argv)
 	}
-	wantCode(t, x.run("grow", func(q *Request) { q.FSUUID = "u-new-1234" }), CodeIO)
+	wantCode(t, x.run("grow", func(q *Request) { q.FSUUID, q.DeviceID = "u-new-1234", "/dev/sdb" }), CodeIO)
 }
 
 const reportFixture = `#0                  0          0          0     00 [--------]
@@ -937,7 +940,7 @@ func TestMountRetryWhenTheHelperReportsMountsUnderHost(t *testing.T) { // X7
 	x.setTable(xfsLine)
 	wantCode(t, x.mount(), "")
 	// mounted somewhere else too: still refused
-	x.setTable(xfsLine + "40 25 8:99 / /mnt/y rw - xfs /dev/sdb rw\n")
+	x.setTable(xfsLine + "40 25 8:16 / /mnt/y rw - xfs /dev/sdb rw\n")
 	wantCode(t, x.mount(), CodeDeviceBlocked)
 }
 
@@ -994,6 +997,7 @@ func TestUnmountTakesTheDiskOffTheHost(t *testing.T) { // X9
 		seq = append(seq, strings.Join(c, " "))
 	}
 	want := []string{
+		"lsblk -J -b -o " + lsblkCols, // who is behind the mount, before it is unmounted
 		"nsenter -t 1 -m -- umount /var/lib/stackr-disks/d1",
 		`nsenter -t 1 -m -- systemctl disable var-lib-stackr\x2ddisks-d1.mount`,
 		"nsenter -t 1 -m -- systemctl daemon-reload",
@@ -1051,4 +1055,95 @@ func TestUnmountOfADiskThatIsNotMountedAndHasNoUnit(t *testing.T) { // X9: a ret
 	if _, err := os.Stat(filepath.Join(x.real, "keep")); err != nil {
 		t.Fatal("a file in the mount point was removed")
 	}
+}
+
+// reusedName: the old mount (8:16) sits on a disk now listed as sdc, and a
+// different disk (8:32) has taken the name sdb.
+func reusedName(x *xrig) {
+	x.lsblk = lsJSON(sysDisk,
+		dev("/dev/sdb", "disk", "maj:min", "8:32", "fstype", "xfs", "label", "stackr", "uuid", "u-new-1234"),
+		dev("/dev/sdc", "disk", "maj:min", "8:16", "fstype", "xfs", "label", "stackr", "uuid", "u-old-1234", "mountpoints", []any{"/var/lib/stackr-disks/d1"}))
+}
+
+func TestMountedDeviceIsFoundByMajorMinorNotByName(t *testing.T) { // DL, X7 X8
+	x := newX(t, storedDisk())
+	x.setTable(xfsLine) // Source says /dev/sdb
+	reusedName(x)
+	// X8: the facts of the mount are the ones of 8:16 (sdc), never of the name "sdb"
+	d, herr := x.env.deviceBehind(context.Background(), MountPoint("d1"))
+	if herr != nil || d.Path != "/dev/sdc" || d.FSUUID != "u-old-1234" {
+		t.Fatalf("%+v %v", d, herr)
+	}
+	// X7: the disk that now carries the name must not pass for the mounted one
+	x.rdev = "8:32"
+	listed := x.listed()
+	if listed.MajMin != "8:32" {
+		t.Fatalf("%+v", listed)
+	}
+	res := x.run("mount", func(q *Request) { q.Device, q.Expect = listed.ID, &listed })
+	if res.Error == nil || len(x.fx.ran("systemctl")) != 0 {
+		t.Fatalf("%+v %v", res.Error, x.fx.calls)
+	}
+	if _, err := os.Stat(filepath.Join(x.env.Root, "etc/systemd/system", unitName(MountPoint("d1")))); err == nil {
+		t.Fatal("a unit for another disk was written")
+	}
+}
+
+func TestUnmountRefusesAForeignFilesystemAtTheMountPoint(t *testing.T) { // DL, X9
+	x := mountedX(t)
+	for name, mod := range map[string]func(*Request){
+		"other uuid":   func(q *Request) { q.FSUUID = "u-other-1234" },
+		"other device": func(q *Request) { q.DeviceID = "/dev/disk/by-id/other" },
+	} {
+		wantCode(t, x.run("unmount", mod), CodeDeviceChanged)
+		if len(x.fx.ran("umount")) != 0 {
+			t.Fatalf("%s: unmounted a foreign filesystem", name)
+		}
+	}
+	wantCode(t, x.run("unmount", func(q *Request) { q.FSUUID = "" }), CodeDeviceChanged)
+	reusedName(x) // the mount sits on 8:16, which is another filesystem now
+	wantCode(t, x.run("unmount", nil), CodeDeviceChanged)
+	if len(x.fx.ran("umount")) != 0 {
+		t.Fatal("unmounted a foreign filesystem")
+	}
+}
+
+func TestUnmountKeepsAForeignUnit(t *testing.T) { // DL, X10
+	x := mountedX(t)
+	unit := filepath.Join(x.env.Root, "etc/systemd/system", unitName(MountPoint("d1")))
+	if err := os.WriteFile(unit, []byte("[Mount]\nWhat=/dev/other\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, x.run("unmount", nil), CodeBusy)
+	if b, _ := os.ReadFile(unit); string(b) != "[Mount]\nWhat=/dev/other\n" {
+		t.Fatalf("removed or changed: %q", b)
+	}
+	if len(x.fx.ran("umount"))+len(x.fx.ran("systemctl")) != 0 {
+		t.Fatalf("went on with a foreign unit: %v", x.fx.calls)
+	}
+}
+
+func TestGrowRefusedWhenTheDeviceIsNotTheRecordedOne(t *testing.T) { // DL, X3
+	x := mountedX(t)
+	for _, id := range []string{"", "/dev/disk/by-id/other"} { // a clone keeps the uuid
+		wantCode(t, x.run("grow", func(q *Request) { q.FSUUID, q.DeviceID = "u-new-1234", id }), CodeDeviceChanged)
+	}
+	if len(x.fx.ran("xfs_growfs")) != 0 {
+		t.Fatal("grew another device")
+	}
+}
+
+func TestClearingACapNeedsTheRowInTheReport(t *testing.T) { // X13
+	x := mountedX(t)
+	quotas(x, "")
+	inner := x.fx.out
+	x.fx.out = func(argv []string) ([]byte, error) {
+		if argv[0] == "xfs_quota" && strings.HasSuffix(argv[3], "report -p -b -N") {
+			return []byte("xfs_quota: some error\n"), nil // exit 0, no row
+		}
+		return inner(argv)
+	}
+	wantCode(t, x.run("folder", func(q *Request) {
+		q.Names, q.Quotas = []string{"vol"}, map[string]Quota{"vol": {Project: 7, Cap: 0}}
+	}), CodeIO)
 }

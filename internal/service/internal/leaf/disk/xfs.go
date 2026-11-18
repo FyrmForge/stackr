@@ -289,7 +289,7 @@ func (l *Leaf) UnmountXFS(ctx context.Context, d store.NodeDisk) error {
 	if d.Kind != KindXFS {
 		return nil
 	}
-	res, err := l.host.Disk(ctx, d.NodeID, hostdisk.Request{Op: "unmount", Kind: KindXFS, DiskID: d.ID, Mount: d.MountPath})
+	res, err := l.host.Disk(ctx, d.NodeID, hostdisk.Request{Op: "unmount", Kind: KindXFS, DiskID: d.ID, Mount: d.MountPath, FSUUID: d.FSUUID, DeviceID: d.DeviceID})
 	if err != nil {
 		return err
 	}
@@ -324,7 +324,7 @@ func (l *Leaf) Grow(ctx context.Context, d store.NodeDisk) (store.NodeDisk, erro
 		return d, errs.Refusedf("Only a disk made from a whole device can grow.")
 	}
 	r := l.req(d, "grow")
-	r.DeviceBytes, r.FSUUID = d.DeviceBytes, d.FSUUID
+	r.DeviceBytes, r.FSUUID, r.DeviceID = d.DeviceBytes, d.FSUUID, d.DeviceID
 	res, err := l.run(ctx, d, r)
 	if err != nil {
 		return d, err

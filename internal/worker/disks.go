@@ -211,8 +211,8 @@ func (s *Server) refreshDisk(ctx context.Context, e *diskEntry) {
 			// The device is the one the mount stands on, not the recorded name: with
 			// no by-id link a kernel name can be another disk after a reboot.
 			e.devSize, e.fsuuid = 0, ""
-			if src := mountSource(s.cfg.HostRoot, path); src != "" {
-				if sz, u, derr := hostdisk.ReadDevice(s.cfg.HostRoot, src); derr == nil {
+			if md := mountDev(s.cfg.HostRoot, path); md != "" {
+				if sz, u, derr := hostdisk.ReadMounted(s.cfg.HostRoot, md); derr == nil {
 					e.devSize, e.fsuuid = sz, u
 				}
 			}
@@ -220,12 +220,12 @@ func (s *Server) refreshDisk(ctx context.Context, e *diskEntry) {
 	}()
 }
 
-// mountSource is the device the host has mounted at path ("" when nothing is).
-func mountSource(root, path string) string {
+// mountDev is the major:minor of the device the host has mounted at path ("" when nothing is).
+func mountDev(root, path string) string {
 	ms := hostdisk.ParseMounts([]byte(readFile(strings.TrimSuffix(root, "/") + "/proc/1/mountinfo")))
 	for i := len(ms) - 1; i >= 0; i-- {
 		if ms[i].Point == path {
-			return ms[i].Source
+			return ms[i].Dev
 		}
 	}
 	return ""

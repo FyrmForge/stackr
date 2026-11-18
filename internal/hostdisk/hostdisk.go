@@ -59,7 +59,8 @@ type Request struct {
 
 	// xfs only.
 	Device      string           `json:"device,omitempty"`       // format, mount: a Device.ID or Device.Path from list
-	FSUUID      string           `json:"fs_uuid,omitempty"`      // grow: the filesystem uuid recorded at add; another filesystem behind the mount is refused
+	FSUUID      string           `json:"fs_uuid,omitempty"`      // grow, unmount: the filesystem uuid recorded at add; another filesystem behind the mount is refused
+	DeviceID    string           `json:"device_id,omitempty"`    // grow, unmount: the Device.ID recorded at add; grow requires it
 	DeviceBytes int64            `json:"device_bytes,omitempty"` // grow: the size recorded at add; a smaller device is refused
 	Expect      *Device          `json:"expect,omitempty"`       // format, mount: the device as list showed it; any difference now aborts
 	Force       bool             `json:"force,omitempty"`        // format: overwrite a stackr stamp or a foreign filesystem signature (never a blocked device)

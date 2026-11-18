@@ -86,7 +86,10 @@ func (f *xfsFake) lsblk() string {
 	node := func(path, typ string, kv ...any) map[string]any {
 		m := map[string]any{"kname": filepath.Base(path), "path": path, "type": typ, "size": 1 << 30, "ro": false,
 			"fstype": nil, "uuid": nil, "label": nil, "pttype": nil, "ptuuid": nil, "model": "QEMU", "serial": "S-" + filepath.Base(path),
-			"wwn": nil, "mountpoints": []any{nil}, "maj:min": "8:16"}
+			"wwn": nil, "mountpoints": []any{nil}, "maj:min": map[string]string{"/dev/sdb": "8:16", "/dev/sda1": "8:1"}[path]}
+		if m["maj:min"] == "" {
+			m["maj:min"] = "8:0"
+		}
 		for i := 0; i < len(kv); i += 2 {
 			m[kv[i].(string)] = kv[i+1]
 		}
@@ -117,11 +120,7 @@ func (f *xfsFake) lsblk() string {
 func (f *xfsFake) writeTable() {
 	tbl := "25 1 4094:1 / / rw - ext4 /dev/sda1 rw\n"
 	for i, p := range f.mounts {
-		dev, err := hostdisk.DevString(filepath.Join(f.root, p))
-		if err != nil {
-			panic(err)
-		}
-		tbl += fmt.Sprintf("%d 25 %s / %s rw,prjquota - xfs /dev/sdb rw\n", 36+i, dev, p)
+		tbl += fmt.Sprintf("%d 25 8:16 / %s rw,prjquota - xfs /dev/sdb rw\n", 36+i, p)
 	}
 	if err := os.WriteFile(f.mountinfo, []byte(tbl), 0o644); err != nil {
 		panic(err)
@@ -466,6 +465,8 @@ func TestXFSGrowAndNewSpaceAndDamaged(t *testing.T) {
 	if v, _ := x.orch.NodeDisk(ctx, "w1"); v.Damaged != "other_fs" {
 		t.Errorf("other fs: %+v", v)
 	}
+	row.DeviceID = "/dev/sdb" // the host really lists it so
+	must(t, x.st.NodeDisks.Update(ctx, row))
 
 	// grow_refused_when_device_smaller: nothing runs, the row keeps its size
 	x.fx.mu.Lock()
@@ -947,5 +948,29 @@ func TestXFSCheckDiskRefreshesTheDeviceID(t *testing.T) {
 	}
 	if got, _, _ := x.orch.nodeDisk(ctx, "w1"); got.DeviceID != "/dev/sdb" {
 		t.Errorf("device id = %q", got.DeviceID)
+	}
+}
+
+// X9: a container that binds a folder below the disk directly is invisible to the host
+// unmount (its mount lives in its own namespace): the forget refuses, at job time.
+func TestXFSForgetRefusesWhileAContainerBindsBelowTheDisk(t *testing.T) { // DL
+	ctx := context.Background()
+	x := newXFSTest(t)
+	row := x.addXFS(t)
+	setState(t, x.diskTest, row, disk.StateMissing)
+	x.wFake.Containers = []docker.Container{{ID: "c1", Name: "stray"}}
+	x.wFake.Details = map[string]docker.Detail{"c1": {ID: "c1", Name: "stray", Mounts: []string{row.MountPath + "/" + row.ID + "/x -> /data"}}}
+	j, err := x.orch.ForgetNodeDisk(ctx, adminP(), row.ID, "w1")
+	if j = x.run(t, j, err); j.State != job.Failed || !strings.Contains(j.Error, "A container still uses this disk: stray. Stop it first.") {
+		t.Fatalf("forget = %s %q", j.State, j.Error)
+	}
+	if len(x.fx.ran("umount")) != 0 {
+		t.Fatal("unmounted under a container")
+	}
+	// a path that only shares the prefix, and a named volume, are not on the disk
+	x.wFake.Details["c1"] = docker.Detail{ID: "c1", Name: "stray", Mounts: []string{row.MountPath + "2/x -> /data", "somevol -> /v"}}
+	j, err = x.orch.ForgetNodeDisk(ctx, adminP(), row.ID, "w1")
+	if j = x.run(t, j, err); j.State != job.Done {
+		t.Fatalf("forget = %s %q", j.State, j.Error)
 	}
 }

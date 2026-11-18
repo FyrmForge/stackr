@@ -132,6 +132,17 @@ func resolveUnder(root, p string) (string, error) {
 	return "/" + strings.Join(cur, "/"), nil
 }
 
+// ReadMounted is ReadDevice for the block device with this major:minor (a
+// mountinfo Dev), found through /sys/dev/block. The mount's name column is
+// never used: a kernel name can belong to another disk by now.
+func ReadMounted(root, majmin string) (size int64, fsuuid string, err error) {
+	dst, err := os.Readlink(joinRoot(root, "/sys/dev/block/"+majmin))
+	if err != nil {
+		return 0, "", err
+	}
+	return ReadDevice(root, "/dev/"+filepath.Base(dst))
+}
+
 // ReadDevice is the size and filesystem uuid of the block device a Device.ID
 // (a /dev/disk/by-id link or a kernel path) names, from sysfs and the by-uuid
 // links under root. It runs no command. The uuid is "" when no link points at
