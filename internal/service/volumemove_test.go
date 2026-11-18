@@ -661,3 +661,31 @@ func TestMoveGroupFailureOnTheSecondDeploysTheMixedSetOnce(t *testing.T) {
 		t.Errorf("an old copy was removed outside the orphan job: %v", callNames(r.wFake))
 	}
 }
+
+// DL: the old copy is not eligible for orphan retention until the move's
+// deploy succeeded. The deploy fails after the swap: retention, however long,
+// keeps the old copy; the resume's successful deploy starts the clock.
+func TestMoveOldCopyIsHeldFromRetentionUntilTheDeploySucceeds(t *testing.T) {
+	ctx := context.Background()
+	r := newMoveRig(t)
+	r.wFake.Err = map[string]error{"Create": errors.New("deploy failed")}
+	if err := r.mover(t, r.v).run(ctx); err == nil || !strings.Contains(err.Error(), "deploy failed") {
+		t.Fatalf("run = %v, want the deploy failure", err)
+	}
+	r.wantMoved(t, r.v)
+	far := time.Now().AddDate(100, 0, 0)
+	exp, err := r.orch.volumes.Expired(ctx, 30*24*time.Hour, far)
+	must(t, err)
+	if len(exp) != 0 {
+		t.Fatalf("the old copy is expired before the deploy succeeded: %+v", exp)
+	}
+	r.wFake.Err = nil
+	r.wFake.Containers = nil
+	r.finish(t, r.v)
+	if exp, err = r.orch.volumes.Expired(ctx, 30*24*time.Hour, far); err != nil || len(exp) != 1 {
+		t.Fatalf("after the deploy the old copy should expire: %+v, %v", exp, err)
+	}
+	if exp, _ = r.orch.volumes.Expired(ctx, 30*24*time.Hour, time.Now()); len(exp) != 0 {
+		t.Errorf("released copy expired at once: %+v", exp)
+	}
+}

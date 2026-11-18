@@ -441,6 +441,13 @@ func (m *volumeMove) run(ctx context.Context) error {
 	if err := m.deploy(ctx); err != nil {
 		return err
 	}
+	all := make([]int, len(m.p.Volumes))
+	for i := range all {
+		all[i] = i
+	}
+	if err := m.release(ctx, all); err != nil {
+		return err
+	}
 	return m.step("deploy")
 }
 
@@ -534,6 +541,36 @@ func pipeVolume(ctx context.Context, o *Orchestrator, src, dst Volume) error {
 	return uerr
 }
 
+// moveHold is the orphaned_at of an old copy whose move has not deployed yet:
+// retention (older than N days) never reaches it, so the orphan job cannot
+// back up and delete the only good copy while the disk copy is unproven.
+// release starts the clock once the deploy succeeded.
+// ponytail: an env deleted while held keeps the hold (the delete trigger keeps
+// orphaned_at), so that old copy never expires; an admin deletes it by hand.
+var moveHold = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// release starts retention on the old copies of the items idx, once their
+// deploy succeeded. Only rows still held are touched.
+func (m *volumeMove) release(ctx context.Context, idx []int) error {
+	orphans, err := m.o.store.Volumes.ListOrphaned(ctx)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for _, i := range idx {
+		for _, x := range orphans {
+			if x.Name == m.p.Volumes[i].OldName && x.ScopeID == m.vs[i].ScopeID && x.ScopeKind == m.vs[i].ScopeKind &&
+				x.OrphanedAt != nil && x.OrphanedAt.Equal(moveHold) {
+				x.OrphanedAt = &now
+				if err := m.o.store.Volumes.Update(ctx, x); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // swap is step 9, one transaction for the volumes copied: the row names the
 // target, the old name goes onto an orphaned row the orphan job removes
 // (the swapData pattern). A relocated primary never moves, so no member row follows.
@@ -555,7 +592,7 @@ func (m *volumeMove) swap(ctx context.Context, idx []int) error {
 			id := uuid.NewString()
 			if err := tx.Volumes.Create(ctx, store.Volume{
 				ID: id, ScopeKind: cur.ScopeKind, ScopeID: cur.ScopeID, Slug: cur.Slug + "-" + id[:8],
-				Name: it.OldName, OrphanedAt: &now, CreatedAt: now, NodeID: m.p.NodeID,
+				Name: it.OldName, OrphanedAt: &moveHold, CreatedAt: now, NodeID: m.p.NodeID,
 			}); err != nil {
 				return err
 			}
@@ -638,6 +675,8 @@ func (m *volumeMove) abort(ctx context.Context, cause error, copied []int, faile
 		errList = append(errList, err)
 	}
 	if err := m.deploy(ctx); err != nil {
+		errList = append(errList, err)
+	} else if err := m.release(ctx, copied); err != nil {
 		errList = append(errList, err)
 	}
 	return errors.Join(errList...)
