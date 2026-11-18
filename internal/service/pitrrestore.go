@@ -163,7 +163,10 @@ func (o *Orchestrator) restoreRoom(ctx context.Context, src pitrSource, plan bac
 	if id == "" {
 		return nil
 	}
-	free, _ := o.diskOf(ctx, id)
+	free, _, err := o.dataDiskOf(ctx, id)
+	if err != nil {
+		return err // a disk that cannot be read is no room
+	}
 	if free == 0 {
 		return nil // the node does not report its disk: not judged, as a deploy's check
 	}

@@ -273,6 +273,10 @@ func (o *Orchestrator) refreshStandby(ctx context.Context, t store.Tile, m Insta
 		}
 		t = fresh
 	}
+	// before the old container goes: a missing disk refuses with it still up
+	if err := o.volumes.EnsureNamed(ctx, m.NodeID, m.Volume, map[string]string{LabelMember: m.ID}); err != nil {
+		return false, false, err
+	}
 	if err := o.docker.StopRemove(nctx, c.ID); err != nil {
 		return false, false, err
 	}

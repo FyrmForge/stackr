@@ -901,6 +901,9 @@ func (o *Orchestrator) foCheck(ctx context.Context, t store.Tile, inst store.Ope
 		if err != nil {
 			return err
 		}
+		if err := o.ensureMemberVolume(ctx, f.OldNode, vol, f.Old); err != nil {
+			return err
+		}
 		spec, err := o.engines.ControlSpec(ctx, t, "stackr-ctl-"+f.Old[:8], vol)
 		if err != nil {
 			return err
@@ -1038,9 +1041,11 @@ func (o *Orchestrator) foRecreate(ctx context.Context, t store.Tile, _ store.Ope
 	if _, err := o.images.Ensure(nctx, spec.Image, "", io.Discard); err != nil {
 		return err
 	}
-	for _, b := range spec.Volumes[1:] { // the archive volume, on the primary's own node
+	// the data volume first (a crash after the old container went must not let
+	// Docker auto-create a plain empty one), then the archive volume
+	for _, b := range spec.Volumes {
 		name, _, _ := strings.Cut(b, ":")
-		if err := o.docker.CreateVolume(nctx, name, "local", nil, map[string]string{LabelMember: target.ID}); err != nil {
+		if err := o.ensureMemberVolume(ctx, target.NodeID, name, target.ID); err != nil {
 			return err
 		}
 	}
@@ -1435,6 +1440,9 @@ func (o *Orchestrator) rewind(ctx context.Context, t store.Tile, m InstanceMembe
 	if err != nil {
 		return err
 	}
+	if err := o.ensureMemberVolume(ctx, m.NodeID, m.Volume, m.ID); err != nil {
+		return err
+	}
 	_, code, err := o.oneShot(ctx, m.NodeID, spec, pass)
 	if err != nil {
 		return err
@@ -1443,6 +1451,22 @@ func (o *Orchestrator) rewind(ctx context.Context, t store.Tile, m InstanceMembe
 		slog.Warn("failover: rewind failed, the standby is copied afresh", "member", m.ID, "exit", code)
 	}
 	return nil
+}
+
+// ensureMemberVolume makes a member's Docker volume on its node through the
+// volume leaf, so a disk volume is rebound and never created as a plain one.
+func (o *Orchestrator) ensureMemberVolume(ctx context.Context, nodeID, name, memberID string) error {
+	return o.volumes.EnsureNamed(ctx, nodeID, name, map[string]string{LabelMember: memberID})
+}
+
+// removeMemberArchive removes a member's own archive volume through the leaf
+// (an absent one is fine, a failed remove is the caller's error). A row with
+// no volume of its own has no archive volume next to it.
+func (o *Orchestrator) removeMemberArchive(ctx context.Context, m InstanceMember) error {
+	if m.Volume == "" {
+		return nil
+	}
+	return o.volumes.RemoveNamed(ctx, m.NodeID, mflow.MemberArchiveVolume(m))
 }
 
 // oneShot runs spec to completion on node and returns its output and exit
@@ -1676,12 +1700,12 @@ func (o *Orchestrator) cleanSpool(ctx context.Context, t store.Tile, p InstanceM
 				return err
 			}
 		}
-		if err := o.docker.RemoveVolume(nctx, sv.Name); err != nil {
+		// RemoveNamed, not a bare remove: a disk volume's folder keeps its old WAL
+		if err := o.volumes.RemoveNamed(ctx, p.NodeID, sv.Name); err != nil {
 			return err
 		}
 	}
-	_ = o.docker.RemoveVolume(nctx, mflow.MemberArchiveVolume(p))
-	return nil
+	return o.removeMemberArchive(ctx, p)
 }
 
 // ---- the primary down ----
@@ -1888,6 +1912,8 @@ func (o *Orchestrator) dropRelocated(ctx context.Context, t store.Tile, p Instan
 	if err := o.removePoolers(nctx, p); err != nil {
 		return err
 	}
-	_ = o.docker.RemoveVolume(nctx, mflow.MemberArchiveVolume(p))
+	if err := o.removeMemberArchive(ctx, p); err != nil {
+		return err
+	}
 	return o.envs.DropShared(nctx, operated.Network(p.InstanceID))
 }

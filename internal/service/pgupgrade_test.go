@@ -38,7 +38,10 @@ type pgupRig struct {
 	mark  int               // the calls before this one are the rig's own
 }
 
-func newPGUpRig(t *testing.T) *pgupRig { t.Helper(); return newPGUpRigOn(t, newBranchRig(t)) }
+func newPGUpRig(t *testing.T, opts ...Option) *pgupRig {
+	t.Helper()
+	return newPGUpRigOn(t, newBranchRig(t, opts...))
+}
 
 func newPGUpRigOn(t *testing.T, b *branchRig) *pgupRig {
 	t.Helper()

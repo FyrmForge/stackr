@@ -34,8 +34,12 @@ const prodID = "sha256:0123456789abcdef"
 
 func newImageRig(t *testing.T, label, primaryNew bool) *imageRig {
 	t.Helper()
+	return newImageRigOn(t, newTwoNodes(t), label, primaryNew)
+}
+
+func newImageRigOn(t *testing.T, n *twoNodes, label, primaryNew bool) *imageRig {
+	t.Helper()
 	ctx := context.Background()
-	n := newTwoNodes(t)
 	in := pgOn(t, n)
 	_, err := n.orch.operated.SetMajor(ctx, in, mflow.ImageMajor(mflow.Engines["postgres"].Definition().Image))
 	must(t, err)

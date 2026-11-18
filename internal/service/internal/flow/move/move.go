@@ -54,7 +54,9 @@ const RsyncPort = 8873
 
 // Docker is the slice of one node's Docker handle the move uses.
 type Docker interface {
-	CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error
+	// EnsureVolume makes the volume on the node through the volume leaf, so a
+	// disk volume is bound to its folder and never created as a plain one.
+	EnsureVolume(ctx context.Context, name string, labels map[string]string) error
 	InspectVolume(ctx context.Context, name string) (docker.VolumeInfo, error)
 	EnsureTool(ctx context.Context) error
 	TarVolume(ctx context.Context, name string, w io.Writer, live bool) error
@@ -277,12 +279,14 @@ func (f *Flow) prepare(ctx context.Context, m store.EnvMove) error {
 		}
 	}
 	for _, v := range vols {
-		if err := dst.CreateVolume(ctx, v.Name, "local", nil, map[string]string{"stackr.volume": v.ID}); err != nil {
+		if err := dst.EnsureVolume(ctx, v.Name, volLabels(v)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+
+func volLabels(v store.Volume) map[string]string { return map[string]string{"stackr.volume": v.ID} }
 
 func (f *Flow) docks(m store.EnvMove) (src, dst Docker, err error) {
 	if src, err = f.Nodes.Docker(m.FromNode); err != nil {
@@ -305,6 +309,10 @@ func (f *Flow) copyCold(ctx context.Context, m *store.EnvMove, log io.Writer) er
 	m.Bytes = 0
 	for _, v := range vols {
 		logf(log, "copying %s\n", v.Slug)
+		// the source helper mounts it by name: a missing object is rebound, never auto-created empty
+		if err := src.EnsureVolume(ctx, v.Name, volLabels(v)); err != nil {
+			return err
+		}
 		n, err := stream(ctx, src, dst, v.Name)
 		if err != nil {
 			return err
@@ -374,6 +382,7 @@ func (f *Flow) sync(ctx context.Context, m *store.EnvMove, check bool, log io.Wr
 		if err := pass(ctx, src, dst, m.ID, i, v, srcAddr, dstAddr, check); err != nil {
 			return err
 		}
+		// progress bytes only, never a decision: Docker's number is fine for it, even for a disk volume
 		if info, err := src.InspectVolume(ctx, v.Name); err == nil && info.SizeBytes > 0 {
 			m.Bytes += info.SizeBytes
 		}
@@ -397,6 +406,9 @@ func pass(ctx context.Context, src, dst Docker, moveID string, i int, v store.Vo
 	// A crash can leave last run's helpers behind under the same names.
 	_ = dst.StopRemove(ctx, daemon)
 	_ = src.StopRemove(ctx, client)
+	if err := src.EnsureVolume(ctx, v.Name, volLabels(v)); err != nil {
+		return err
+	}
 	did, err := dst.Run(ctx, docker.ContainerSpec{
 		Name:    daemon,
 		Image:   RsyncImage,

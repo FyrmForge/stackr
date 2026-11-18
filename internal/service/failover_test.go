@@ -347,8 +347,12 @@ func (r *failRig) members() (primary, replica InstanceMember) {
 // standbyNode, both running and streaming.
 func newFailRig(t *testing.T, onWorker bool) *failRig {
 	t.Helper()
+	return newFailRigOn(t, newTwoNodes(t), onWorker)
+}
+
+func newFailRigOn(t *testing.T, n *twoNodes, onWorker bool) *failRig {
+	t.Helper()
 	ctx := context.Background()
-	n := newTwoNodes(t)
 	r := &failRig{n: n, t: t, promoted: map[string]bool{}, lsn: map[string]string{}, sims: map[string]*sim{}, probeOut: "1,streaming", slotOut: "1|0/5000000|reserved"}
 	pt, standbyOn, primaryOn := n.devT, "w1", n.ctl.ID
 	if onWorker {

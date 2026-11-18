@@ -248,7 +248,10 @@ func (o *Orchestrator) pgupRoom(ctx context.Context, c pgChange) error {
 	if id == "" {
 		return nil
 	}
-	free, _ := o.diskOf(ctx, id)
+	free, _, err := o.dataDiskOf(ctx, id)
+	if err != nil {
+		return err // a disk that cannot be read is no room
+	}
 	if free == 0 {
 		return nil // the node does not report its disk: not judged, as a deploy's check
 	}
@@ -387,6 +390,7 @@ type pgupRun struct {
 	t     Tile
 	m     OperatedInstance
 	sv    store.Volume
+	cv    store.Volume // the candidate's data volume, set by convert
 	st    pgUp
 	after func(step string) error // a test's way to stop the run after a step
 	ran   func(mflow.UpgradeRun)  // a test's view of each helper run
@@ -434,6 +438,15 @@ func (u *pgupRun) helper(ctx context.Context, run mflow.UpgradeRun, tail int) (s
 		return "", err
 	}
 	node, _ := docker.NodeFrom(ctx) // the run's own node: the data is there
+	// both volumes are mounted by name: a missing object is rebound to its
+	// folder here, never auto-created plain by Docker
+	for _, v := range []store.Volume{u.sv, u.cv} {
+		if v.Name != "" && (v.Name == run.OldVol || v.Name == run.NewVol) {
+			if err := u.o.volumes.EnsureNamed(ctx, node, v.Name, map[string]string{"stackr.volume": v.ID}); err != nil {
+				return "", err
+			}
+		}
+	}
 	out, code, err := u.o.oneShotFor(ctx, node, spec, nil, pgupWait, tail)
 	if err != nil {
 		return "", err
@@ -468,11 +481,12 @@ func (u *pgupRun) check(ctx context.Context, to int) error {
 	if o.tileRunning(ctx, u.t) {
 		// the instance runs: check a copy, so it is neither stopped nor touched
 		name := "stackr-pgupcheck-" + u.m.ID[:8]
-		_ = o.docker.RemoveVolume(ctx, name)
-		if err := o.docker.CreateVolume(ctx, name, "local", nil, map[string]string{mflow.LabelPGUpgrade: u.m.ID}); err != nil {
+		node, _ := docker.NodeFrom(ctx)
+		_ = o.volumes.RemoveNamed(ctx, node, name)
+		if err := o.volumes.EnsureNamed(ctx, node, name, map[string]string{mflow.LabelPGUpgrade: u.m.ID}); err != nil {
 			return err
 		}
-		defer func() { _ = o.docker.RemoveVolume(context.WithoutCancel(ctx), name) }()
+		defer func() { _ = o.volumes.RemoveNamed(context.WithoutCancel(ctx), node, name) }()
 		if err := u.copyTo(ctx, name); err != nil {
 			return err
 		}
@@ -644,6 +658,7 @@ func (u *pgupRun) convert(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	u.cv = cv
 	run := mflow.UpgradeRun{Name: "stackr-pgup-run-" + u.m.ID[:8], OldVol: u.sv.Name, NewVol: cv.Name, To: u.st.To, Facts: u.st.Facts}
 	if u.st.To < u.st.From {
 		_, _ = fmt.Fprintf(u.r.Log, "dumping postgres %d and loading it into postgres %d\n", u.st.From, u.st.To)

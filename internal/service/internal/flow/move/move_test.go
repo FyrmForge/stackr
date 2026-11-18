@@ -17,12 +17,20 @@ import (
 
 type nodes struct{ src, dst *dockerfake.Fake }
 
+// ensuring is the fake as the router's nodeDocker: EnsureVolume is the leaf's
+// ensure, which on a node with no disk is a plain create.
+type ensuring struct{ *dockerfake.Fake }
+
+func (e ensuring) EnsureVolume(ctx context.Context, name string, labels map[string]string) error {
+	return e.CreateVolume(ctx, name, "local", nil, labels)
+}
+
 func (n nodes) Docker(id string) (Docker, error) {
 	switch id {
 	case "a":
-		return n.src, nil
+		return ensuring{n.src}, nil
 	case "b":
-		return n.dst, nil
+		return ensuring{n.dst}, nil
 	}
 	return nil, errors.New("no such node " + id)
 }
@@ -323,5 +331,31 @@ func TestCancelledRunResumesInsteadOfRollingBack(t *testing.T) {
 	saved, _ := r.moves.Get(context.Background(), m.ID)
 	if saved.Phase != Stopping {
 		t.Fatalf("phase = %s, want stopping", saved.Phase)
+	}
+}
+
+// DL: the source helpers mount the volume by name, so the flow ensures it on
+// the source node first (the leaf rebinds a disk volume whose object is gone
+// instead of Docker auto-creating an empty one).
+func TestMoveSourceTarAndRsyncEnsureTheSourceVolume(t *testing.T) {
+	ensuredBefore := func(f *dockerfake.Fake, later string) bool {
+		ms := methods(f)
+		i, j := slices.Index(ms, "CreateVolume"), slices.Index(ms, later)
+		return i >= 0 && j >= 0 && i < j
+	}
+	cold := newRig(t)
+	if _, err := cold.f.Run(context.Background(), cold.begin(t, false).ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !ensuredBefore(cold.src, "TarVolume") {
+		t.Errorf("source calls %v: the volume is not ensured before the tar", methods(cold.src))
+	}
+	live := newRig(t)
+	live.f.EnsureRsync = func(context.Context) error { return nil }
+	if _, err := live.f.Run(context.Background(), live.begin(t, true).ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !ensuredBefore(live.src, "Run") {
+		t.Errorf("source calls %v: the volume is not ensured before the rsync client", methods(live.src))
 	}
 }

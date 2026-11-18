@@ -320,7 +320,7 @@ func (o *Orchestrator) openRsync(ctx context.Context, m EnvMove) (func(), error)
 type moveNodes struct{ o *Orchestrator }
 
 func (n moveNodes) Docker(nodeID string) (move.Docker, error) {
-	return nodeDocker{n.o.docker, nodeID}, nil
+	return nodeDocker{n.o.docker, nodeID, n.o.volumes.EnsureNamed}, nil
 }
 
 // Addr is the node's WireGuard address, without a mask.
@@ -337,14 +337,15 @@ func (n moveNodes) Addr(ctx context.Context, nodeID string) (string, error) {
 
 // nodeDocker is one node's slice of the router: every call carries the node.
 type nodeDocker struct {
-	d  Docker
-	id string
+	d      Docker
+	id     string
+	ensure func(ctx context.Context, nodeID, name string, labels map[string]string) error // the volume leaf's EnsureNamed
 }
 
 func (n nodeDocker) c(ctx context.Context) context.Context { return docker.WithNode(ctx, n.id) }
 
-func (n nodeDocker) CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error {
-	return n.d.CreateVolume(n.c(ctx), name, driver, opts, labels)
+func (n nodeDocker) EnsureVolume(ctx context.Context, name string, labels map[string]string) error {
+	return n.ensure(ctx, n.id, name, labels)
 }
 func (n nodeDocker) InspectVolume(ctx context.Context, name string) (docker.VolumeInfo, error) {
 	return n.d.InspectVolume(n.c(ctx), name)

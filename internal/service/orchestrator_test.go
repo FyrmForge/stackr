@@ -57,20 +57,22 @@ func (w *world) lastPush() string {
 
 // newWorld: an orchestrator on the fake daemon with an org, a stack and a
 // dev env seeded.
-func newWorld(t *testing.T) *world {
+func newWorld(t *testing.T, opts ...Option) *world {
 	t.Helper()
 	dir := t.TempDir()
 	w := &world{fake: dockerfake.New()}
 	orch, err := New(
 		Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack"},
-		WithDocker(w.fake),
-		WithVIP(vipStub{}),
-		WithProxy(func(_ context.Context, cfg json.RawMessage) error {
-			w.mu.Lock()
-			w.pushed = append(w.pushed, string(cfg))
-			w.mu.Unlock()
-			return nil
-		}),
+		append([]Option{
+			WithDocker(w.fake),
+			WithVIP(vipStub{}),
+			WithProxy(func(_ context.Context, cfg json.RawMessage) error {
+				w.mu.Lock()
+				w.pushed = append(w.pushed, string(cfg))
+				w.mu.Unlock()
+				return nil
+			}),
+		}, opts...)...,
 	)
 	if err != nil {
 		t.Fatal(err)

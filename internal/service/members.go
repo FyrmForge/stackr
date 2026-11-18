@@ -190,7 +190,7 @@ func (o *Orchestrator) addStandby(ctx context.Context, tileID, nodeRef string) (
 		}
 	}
 	if err == nil {
-		err = o.docker.CreateVolume(nctx, m.Volume, "local", nil, map[string]string{LabelMember: m.ID})
+		err = o.volumes.EnsureNamed(ctx, nodeID, m.Volume, map[string]string{LabelMember: m.ID})
 	}
 	if err == nil {
 		// the primary's half: role, pg_hba lines, slot cap and this standby's slot
@@ -364,10 +364,14 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 	if err := o.detachStandby(ctx, m); err != nil {
 		return err
 	}
-	if err := o.docker.RemoveVolume(nctx, m.Volume); err != nil {
+	if err := o.volumes.RemoveNamed(ctx, m.NodeID, m.Volume); err != nil {
 		return err
 	}
-	_ = o.docker.RemoveVolume(nctx, mflow.MemberArchiveVolume(m)) // kept while it was a primary with PITR on
+	// kept while it was a primary with PITR on; an absent one is fine, a failed
+	// remove must not leak a folder
+	if err := o.removeMemberArchive(ctx, m); err != nil {
+		return err
+	}
 	// Consumers of the read alias are on the network until they are
 	// redeployed (below); the row stays 'removing' and the tick drops the
 	// network once they have left, so it is never left behind empty.

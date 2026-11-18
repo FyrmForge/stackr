@@ -31,9 +31,9 @@ type branchRig struct {
 	inst        store.OperatedInstance
 }
 
-func newBranchRig(t *testing.T) *branchRig {
+func newBranchRig(t *testing.T, opts ...Option) *branchRig {
 	t.Helper()
-	w := newWorld(t)
+	w := newWorld(t, opts...)
 	ctx := context.Background()
 	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres", 0)
 	must(t, err)

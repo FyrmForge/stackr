@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -327,14 +326,19 @@ func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, res
 			}
 			continue
 		}
-		info, err := o.docker.InspectVolume(docker.WithNode(ctx, from), v.Name)
-		if err != nil || info.SizeBytes < 0 {
+		// the leaf measures: a disk volume is never asked of Docker
+		sz := o.volumes.SizeBytes(ctx, v)
+		if sz < 0 {
 			unknown++
 			continue
 		}
-		total += uint64(info.SizeBytes)
+		total += uint64(sz)
 	}
-	free, disk := o.diskOf(ctx, to)
+	free, disk, err := o.dataDiskOf(ctx, to)
+	if err != nil {
+		c.OK, c.Detail = false, nm.label(to)+": "+err.Error()
+		return c
+	}
 	if free == 0 && disk == 0 {
 		c.Detail = nm.label(to) + " does not report its disk"
 	} else {
@@ -425,12 +429,12 @@ func (o *Orchestrator) pmLine(ctx context.Context, e store.Environment, restore 
 		l.Bytes, l.Downtime = -1, "until restored from backups"
 	default:
 		for _, v := range vols {
-			info, err := o.docker.InspectVolume(docker.WithNode(ctx, e.NodeID), v.Name)
-			if err != nil || info.SizeBytes < 0 {
+			sz := o.volumes.SizeBytes(ctx, v)
+			if sz < 0 {
 				l.Bytes = -1
 				break
 			}
-			l.Bytes += info.SizeBytes
+			l.Bytes += sz
 		}
 	}
 	return l, nil

@@ -47,6 +47,10 @@ func (o *Orchestrator) createStandby(ctx context.Context, t store.Tile, m Instan
 	if _, err := o.images.Ensure(nctx, spec.Image, "", io.Discard); err != nil {
 		return err
 	}
+	// a ghost plain volume must not shadow the folder, and a missing object is not missing data
+	if err := o.volumes.EnsureNamed(ctx, m.NodeID, m.Volume, map[string]string{LabelMember: m.ID}); err != nil {
+		return err
+	}
 	id, err := o.docker.Create(nctx, spec)
 	if err != nil {
 		return err

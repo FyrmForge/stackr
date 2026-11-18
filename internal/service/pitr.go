@@ -709,7 +709,8 @@ func (o *Orchestrator) pitrAlerts(ctx context.Context, m OperatedInstance, it st
 	o.pitrProblem(ctx, "alert.pitr.lag."+m.ID, AlertPITRLag, sev, it.Slug, msg)
 	var free, minFree uint64
 	if id := o.volumeNode(ctx, v.ID); id != "" {
-		free, _ = o.diskOf(ctx, id)
+		// an unreadable disk is not judged here; the node's own alert says it
+		free, _, _ = o.dataDiskOf(ctx, id)
 	}
 	if n, err := o.settings.Int(ctx, "observe_min_free"); err == nil {
 		minFree = uint64(n) << 30
