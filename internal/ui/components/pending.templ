@@ -10,6 +10,8 @@ type PendingChange struct{ Label, Old, New string }
 // the changes, what applying does to running tiles, and the buttons. The
 // hidden inputs the Apply posts are its children.
 type PendingView struct {
+	ID      string // the form's id, for a request that must post what it holds; "" = none
+	Include string // an hx-include selector: more fields Apply posts (an open input); "" = none
 	Action  string // hx-post of Apply
 	Target  string // the region Apply and Cancel answer into (outerHTML), "#id"
 	Cancel  string // hx-get that draws the region without the edit
@@ -35,7 +37,7 @@ func PendingApply(verb string, tiles int) string {
 // PendingFooter sits at the bottom of a `panel p-4 sm:p-6 overflow-hidden`.
 // While Apply is in flight only a busy Apply shows.
 templ PendingFooter(v PendingView) {
-	<form data-hold class="group -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 mt-4 border-t border-rw-border bg-rw-inset px-4 py-3 sm:px-6" hx-post={ v.Action } hx-target={ v.Target } hx-swap="outerHTML">
+	<form data-hold class="group -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 mt-4 border-t border-rw-border bg-rw-inset px-4 py-3 sm:px-6" hx-post={ v.Action } hx-target={ v.Target } hx-swap="outerHTML" if v.ID != "" { id={ v.ID } } if v.Include != "" { hx-include={ v.Include } }>
 		{ children... }
 		<p class="text-xs font-medium text-rw-muted">{ pendingCount(len(v.Changes)) }</p>
 		<ul class="mt-1.5 space-y-1">

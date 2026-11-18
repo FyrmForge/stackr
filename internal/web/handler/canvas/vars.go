@@ -205,12 +205,12 @@ func (h *handler) SetVars(c echo.Context) error {
 	if form.Has("add_form") || strings.TrimSpace(form.Get("add_name")) != "" {
 		return h.addVar(c, s, cs, form)
 	}
-	col, ok := pick(cs, form.Get("scope"))
+	col, ok := pick(cs, cmp.Or(form.Get("held_scope"), form.Get("scope")))
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
 	if form.Get("restart") == "later" {
-		names, waiting, err := h.orch.SetParamsLater(ctx, col.ps, render.ParamEntries(form))
+		names, waiting, err := h.orch.SetParamsLater(ctx, col.ps, entriesOf(form))
 		note := "Saved."
 		if len(names) > 0 {
 			note += " " + strings.Join(names, ", ") + " redeploy later."
@@ -224,7 +224,7 @@ func (h *handler) SetVars(c echo.Context) error {
 		}
 		return h.varsAfter(c, s, note, err)
 	}
-	rs, err := h.orch.SetParams(ctx, col.ps, render.ParamEntries(form))
+	rs, err := h.orch.SetParams(ctx, col.ps, entriesOf(form))
 	return h.varsAfter(c, s, saved("Saved.", rs), err)
 }
 
@@ -303,6 +303,15 @@ func (h *handler) varsAfter(c echo.Context, s service.Scope, note string, err er
 		status, note = http.StatusUnprocessableEntity, ""
 		// an add or cell form shows its own refusal, open with what was typed
 		if form, _ := c.FormParams(); vars.Takes(form) {
+			// a held change reopens as an input too, with its refusal under it
+			for k, v := range form {
+				if rest, ok := strings.CutPrefix(k, "held."); ok && !form.Has(rest) {
+					form[rest] = v
+				}
+			}
+			if hs := form.Get("held_scope"); hs != "" {
+				form.Set("scope", hs)
+			}
 			r := &comp.Refused{Msg: msg, Vals: form, More: render.FieldErrs(err)}
 			c.SetRequest(c.Request().WithContext(comp.WithRefused(c.Request().Context(), r)))
 			msg = ""

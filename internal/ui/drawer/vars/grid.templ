@@ -25,10 +25,10 @@ type Grid struct {
 	Added *string
 	Note  string
 	// Edit is the one cell open as an input; Shown the one secret on view;
-	// Pending the one change waiting for Apply.
-	Edit    *CellRef
-	Shown   *Shown
-	Pending *Pending
+	// Held the changes waiting for Apply.
+	Edit  *CellRef
+	Shown *Shown
+	Held  *Held
 }
 
 // CellRef names one cell: its column's scope token, group and name.
@@ -40,18 +40,26 @@ type Shown struct {
 	Value string
 }
 
-// Pending is an edit held until Apply: what it replaces, what it becomes
-// and what applying does to running tiles. Field and Value are the form
-// field Apply posts back (param.g.n or secret.g.n).
+// Pending is an edit held until Apply: what it replaces and what it becomes.
+// Field and Value are the form field it posts back (param.g.n or secret.g.n).
+// A Draft is the secret whose input is still open: listed in the footer, its
+// value posted by the input itself.
 type Pending struct {
 	CellRef
 	Label    string
 	Old, New string
 	Field    string
 	Value    string
-	Impact   []string
-	Starts   bool // the tiles wait for it: applying starts them, it does not restart them
-	Tiles    int
+	Draft    bool
+}
+
+// Held is the changes waiting for Apply, all in one column, and what applying
+// does to running tiles.
+type Held struct {
+	Changes []Pending
+	Impact  []string // one sentence each
+	Starts  bool     // the tiles wait for it: applying starts them, it does not restart them
+	Tiles   int
 }
 
 type Col struct {
@@ -127,19 +135,32 @@ func (g Grid) shown(col Col, group, name string) *Shown {
 }
 
 func (g Grid) pending(col Col, group, name string) *Pending {
-	if p := g.Pending; p != nil && p.Scope == col.Token && p.Group == group && p.Name == name {
-		return p
+	if g.Held == nil {
+		return nil
+	}
+	for i, p := range g.Held.Changes {
+		if !p.Draft && p.Scope == col.Token && p.Group == group && p.Name == name {
+			return &g.Held.Changes[i]
+		}
 	}
 	return nil
 }
 
-// editURL draws the editor with one cell open as an input.
-func (g Grid) editURL(col Col, group, name string) string {
-	q := url.Values{"scope": {col.Token}, "group": {group}, "name": {name}}
-	return g.Action + "/edit?" + q.Encode()
+// editVals are the fields of the POST that draws the editor with one cell open.
+func editVals(col Col, group, name string, secret bool) string {
+	m := map[string]string{"scope": col.Token, "group": group, "name": name}
+	if secret {
+		m["secret"] = "1" // the footer lists it while its input is open
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
 }
 
-// plainURL draws the editor with nothing open: Cancel, Undo and Hide.
+// heldSel is the form of the held changes: every request that redraws the
+// editor posts it, so no click loses them.
+const heldSel = "#vars-held"
+
+// plainURL draws the editor with nothing open and nothing held.
 func (g Grid) plainURL() string { return g.Action + "/edit" }
 
 templ groupPanel(g Grid, grp Group) {
@@ -198,8 +219,8 @@ templ groupPanel(g Grid, grp Group) {
 		if !g.ReadOnly {
 			@addForm(g, grp.Name)
 		}
-		if p := g.Pending; p != nil && p.Group == grp.Name {
-			@pendingFooter(g, *p)
+		if h := g.Held; h != nil && h.Group() == grp.Name {
+			@pendingFooter(g, *h)
 		}
 	</section>
 }
@@ -208,14 +229,13 @@ templ groupPanel(g Grid, grp Group) {
 templ listRow(g Grid, col Col, group string, r Row, cell Cell) {
 	{{ refused := cellRefused(ctx, col, group, r.Name) }}
 	if !g.ReadOnly && (g.editing(col, group, r.Name) || refused != nil) {
-		<form data-hold class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[11rem_minmax(0,1fr)_auto]" hx-post={ g.Action + "/preview" } hx-target="#vars-editor" hx-swap="outerHTML">
+		<form data-hold class="vars-edit grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[11rem_minmax(0,1fr)_auto]" hx-post={ g.Action + "/preview" } hx-trigger="submit, change" hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">
 			<div class="min-w-0 col-span-2 sm:col-span-1">@nameOf(r)</div>
 			<div class="min-w-0">
 				@editInput(g, col, group, r, cell, refused)
 			</div>
 			<div class="flex items-center justify-end gap-1">
-				<button type="submit" class="btn btn-primary btn-sm">Review</button>
-				<button type="button" class="btn btn-sm" hx-get={ g.plainURL() } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
+				<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
 			</div>
 		</form>
 		if cell.Set && g.DeleteAction != "" {
@@ -252,10 +272,9 @@ templ nameOf(r Row) {
 templ cellView(g Grid, col Col, group string, r Row, cell Cell) {
 	{{ refused := cellRefused(ctx, col, group, r.Name) }}
 	if !g.ReadOnly && (g.editing(col, group, r.Name) || refused != nil) {
-		<form data-hold class="flex flex-wrap items-center gap-1" hx-post={ g.Action + "/preview" } hx-target="#vars-editor" hx-swap="outerHTML">
+		<form data-hold class="vars-edit flex flex-wrap items-center gap-1" hx-post={ g.Action + "/preview" } hx-trigger="submit, change" hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">
 			@editInput(g, col, group, r, cell, refused)
-			<button type="submit" class="btn btn-primary btn-sm">Review</button>
-			<button type="button" class="btn btn-sm" hx-get={ g.plainURL() } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
+			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
 		</form>
 		if cell.Set && g.DeleteAction != "" {
 			@unsetButton(g, col, group, r)
@@ -299,18 +318,18 @@ templ cellValue(g Grid, col Col, group string, r Row, cell Cell) {
 templ cellActions(g Grid, col Col, group string, r Row, cell Cell) {
 	if g.ReadOnly {
 	} else if g.pending(col, group, r.Name) != nil {
-		<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + group + "." + r.Name } hx-get={ g.plainURL() } hx-target="#vars-editor" hx-swap="outerHTML">@undoIcon()</button>
+		<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + group + "." + r.Name } hx-post={ g.Action + "/preview" } hx-vals={ dropVals(g.pending(col, group, r.Name).Field) } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">@undoIcon()</button>
 	} else if cell.Set && cell.Secret {
 		if g.shown(col, group, r.Name) != nil {
-			<button type="button" class="btn btn-sm" hx-get={ g.plainURL() } hx-target="#vars-editor" hx-swap="outerHTML">Hide</button>
+			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">Hide</button>
 		} else {
-			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/reveal" } hx-vals={ delVals(col.Token, group, r.Name) } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Show " + group + "." + r.Name }>Show</button>
+			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/reveal" } hx-vals={ delVals(col.Token, group, r.Name) } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Show " + group + "." + r.Name }>Show</button>
 		}
-		<button type="button" class="btn btn-sm" hx-get={ g.editURL(col, group, r.Name) } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Replace " + group + "." + r.Name }>Replace</button>
+		<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-vals={ editVals(col, group, r.Name, true) } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Replace " + group + "." + r.Name }>Replace</button>
 	} else if r.Secret {
-		<button type="button" class="btn btn-primary btn-sm" hx-get={ g.editURL(col, group, r.Name) } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Set " + group + "." + r.Name }>Set</button>
+		<button type="button" class="btn btn-primary btn-sm" hx-post={ g.Action + "/edit" } hx-vals={ editVals(col, group, r.Name, true) } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Set " + group + "." + r.Name }>Set</button>
 	} else {
-		<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Edit" aria-label={ "Edit " + group + "." + r.Name } hx-get={ g.editURL(col, group, r.Name) } hx-target="#vars-editor" hx-swap="outerHTML">@penIcon()</button>
+		<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Edit" aria-label={ "Edit " + group + "." + r.Name } hx-post={ g.Action + "/edit" } hx-vals={ editVals(col, group, r.Name, false) } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">@penIcon()</button>
 	}
 }
 
@@ -318,7 +337,7 @@ templ cellActions(g Grid, col Col, group string, r Row, cell Cell) {
 templ shownNote(g Grid) {
 	<p class="mt-1 text-xs text-rw-faint" data-hold>
 		Shown to you. Logged. Hides in 30 s.
-		<span hidden hx-get={ g.plainURL() } hx-trigger="load delay:30s" hx-target="#vars-editor" hx-swap="outerHTML"></span>
+		<span hidden hx-post={ g.Action + "/edit" } hx-trigger="load delay:30s" hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML"></span>
 	</p>
 }
 
@@ -352,33 +371,55 @@ templ unsetButton(g Grid, col Col, group string, r Row) {
 	</div>
 }
 
-templ pendingFooter(g Grid, p Pending) {
+templ pendingFooter(g Grid, h Held) {
 	@c.PendingFooter(c.PendingView{
+		ID:      "vars-held",
+		Include: ".vars-edit",
 		Action:  g.Action,
 		Target:  "#vars-editor",
 		Cancel:  g.plainURL(),
-		Changes: []c.PendingChange{{Label: p.Label, Old: p.Old, New: p.New}},
-		Impact:  p.Impact,
-		Apply:   c.PendingApply(pendingVerb(p), p.Tiles),
-		Later:   pendingLater(p),
+		Changes: h.views(),
+		Impact:  h.Impact,
+		Apply:   c.PendingApply(h.verb(), h.Tiles),
+		Later:   h.later(),
 	}) {
-		<input type="hidden" name="scope" value={ p.Scope }/>
-		<input type="hidden" name={ p.Field } value={ p.Value }/>
+		<input type="hidden" name="held_scope" value={ h.Changes[0].Scope }/>
+		for _, p := range h.Changes {
+			if !p.Draft {
+				<input type="hidden" name={ "held." + p.Field } value={ p.Value }/>
+			}
+		}
 	}
 }
 
-func pendingVerb(p Pending) string {
-	if p.Starts {
+// Group is the group whose panel carries the footer: the one last changed.
+func (h Held) Group() string { return h.Changes[len(h.Changes)-1].Group }
+
+func (h Held) views() []c.PendingChange {
+	out := make([]c.PendingChange, len(h.Changes))
+	for i, p := range h.Changes {
+		out[i] = c.PendingChange{Label: p.Label, Old: p.Old, New: p.New}
+	}
+	return out
+}
+
+func (h Held) verb() string {
+	if h.Starts {
 		return "start"
 	}
 	return "redeploy"
 }
 
-func pendingLater(p Pending) string {
-	if p.Tiles == 0 {
+func (h Held) later() string {
+	if h.Tiles == 0 {
 		return ""
 	}
-	return "Apply, " + pendingVerb(p) + " later"
+	return "Apply, " + h.verb() + " later"
+}
+
+func dropVals(field string) string {
+	b, _ := json.Marshal(map[string]string{"drop": field})
+	return string(b)
 }
 
 func waitsLine(tiles []string) string {
@@ -532,7 +573,7 @@ func Takes(form url.Values) bool {
 		return true
 	}
 	for k := range form {
-		if strings.HasPrefix(k, "param.") || strings.HasPrefix(k, "secret.") {
+		if strings.HasPrefix(k, "param.") || strings.HasPrefix(k, "secret.") || strings.HasPrefix(k, "held.") {
 			return true
 		}
 	}

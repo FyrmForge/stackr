@@ -30,7 +30,7 @@ func TestOrgUntieredGrid(t *testing.T) {
 	s := webtest.New(t)
 	_, _ = s.Orch.SetParams(context.Background(), service.ParamScope{Kind: "org", ID: s.Org}, []service.ParamEntry{{Collection: "smtp", Name: "host", Kind: "param", Value: "h"}})
 	body := get(t, s, "/acme/-/vars")
-	for _, w := range []string{"data-wide", ">all<", ">pr<", `scope=org"`, `scope=org_pr"`} {
+	for _, w := range []string{"data-wide", ">all<", ">pr<", `&#34;scope&#34;:&#34;org&#34;`, `&#34;scope&#34;:&#34;org_pr&#34;`} {
 		if !strings.Contains(body, w) {
 			t.Errorf("no %q in untiered grid", w)
 		}
@@ -74,7 +74,7 @@ func TestOrgTieredGrid(t *testing.T) {
 		{Collection: "smtp", Name: "pass", Kind: "secret", Value: "hunter2"},
 	})
 	body := get(t, s, "/acme/-/vars")
-	for _, w := range []string{"data-wide", "smtp.dev", ">dev<", ">prod<", ">pr<", "Locked: read only from inside prod", `scope=tier%3A` + dev.ID, "Replace", "unset"} {
+	for _, w := range []string{"data-wide", "smtp.dev", ">dev<", ">prod<", ">pr<", "Locked: read only from inside prod", `&#34;scope&#34;:&#34;tier:` + dev.ID + `&#34;`, "Replace", "unset"} {
 		if !strings.Contains(body, w) {
 			t.Errorf("no %q in grid", w)
 		}

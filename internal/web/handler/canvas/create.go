@@ -187,6 +187,7 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 		site.POST(l+"/-/vars", h.SetVars, a.Require("variable.write"))
 		site.POST(l+"/-/vars/delete", h.DeleteVar, a.Require("variable.write"))
 		site.GET(l+"/-/vars/edit", h.EditVar, a.Require("variable.write"))
+		site.POST(l+"/-/vars/edit", h.EditVar, a.Require("variable.write"))
 		site.POST(l+"/-/vars/preview", h.PreviewVar, a.Require("variable.write"))
 		site.POST(l+"/-/vars/reveal", h.RevealVar, a.Require("variable.write"))
 	}

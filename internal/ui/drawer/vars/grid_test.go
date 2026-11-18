@@ -56,20 +56,33 @@ func TestShownSecret(t *testing.T) {
 	}
 }
 
-// A held change shows its old and new, what it starts, three buttons.
+// Held changes show their old and new, what they start, three buttons, and
+// post themselves back so no click loses them.
 func TestPendingFooter(t *testing.T) {
 	g := envGrid()
-	g.Pending = &Pending{CellRef: CellRef{Scope: "env:1", Group: "gate", Name: "password"}, Label: "gate.password", Old: "unset", New: "a new value",
-		Field: "secret.gate.password", Value: "pw", Impact: []string{"Starts bazarr, radarr, sonarr."}, Starts: true, Tiles: 3}
+	g.Held = &Held{Changes: []Pending{
+		{CellRef: CellRef{Scope: "env:1", Group: "gate", Name: "password"}, Label: "gate.password", Old: "unset", New: "a new value", Field: "secret.gate.password", Value: "pw"},
+		{CellRef: CellRef{Scope: "env:1", Group: "gate", Name: "user"}, Label: "gate.user", Old: "admin", New: "root", Field: "param.gate.user", Value: "root"},
+	}, Impact: []string{"Starts bazarr, radarr, sonarr."}, Starts: true, Tiles: 3}
 	got := page(t, g)
-	for _, w := range []string{"1 change not saved", "gate.password", "a new value", "Starts bazarr, radarr, sonarr.", "Apply and start 3 tiles", "Apply, start later", ">Cancel<", `name="secret.gate.password"`, `name="restart" value="later"`} {
+	for _, w := range []string{"2 changes not saved", "gate.password", "a new value", "gate.user", "Starts bazarr, radarr, sonarr.", "Apply and start 3 tiles", "Apply, start later", ">Cancel<", `name="held.secret.gate.password"`, `name="held.param.gate.user"`, `name="held_scope" value="env:1"`, `id="vars-held"`, `name="restart" value="later"`} {
 		if !strings.Contains(got, w) {
 			t.Errorf("no %s in\n%s", w, got)
 		}
 	}
-	g.Pending.Tiles, g.Pending.Impact = 0, nil
+	// every action that redraws the editor posts the held changes
+	if n := strings.Count(got, `hx-include="#vars-held"`); n < 3 {
+		t.Errorf("only %d actions post the held changes:\n%s", n, got)
+	}
+	g.Held.Tiles, g.Held.Impact = 0, nil
 	if got := page(t, g); !strings.Contains(got, ">Apply<") || strings.Contains(got, `value="later"`) {
 		t.Errorf("a change nobody reads has more than Apply:\n%s", got)
+	}
+	// a draft (input still open) is listed but its value is not held
+	g.Held.Changes = []Pending{{CellRef: CellRef{Scope: "env:1", Group: "gate", Name: "password"}, Label: "gate.password", Old: "unset", New: "a new value", Field: "secret.gate.password", Draft: true}}
+	g.Edit = &CellRef{Scope: "env:1", Group: "gate", Name: "password"}
+	if got := page(t, g); !strings.Contains(got, "1 change not saved") || strings.Contains(got, `name="held.secret.gate.password"`) || strings.Contains(got, ">Review<") {
+		t.Errorf("draft:\n%s", got)
 	}
 }
 

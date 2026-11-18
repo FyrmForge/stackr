@@ -125,3 +125,60 @@ func TestPreviewVar(t *testing.T) {
 		t.Errorf("not saved: %v", got)
 	}
 }
+
+// Held changes survive every redraw: a second edit adds to them, opening or
+// cancelling another cell and Show carry them, Undo drops one. Apply later
+// saves all of them in one post. Nothing is written until then.
+func TestHeldChanges(t *testing.T) {
+	s := webtest.New(t)
+	seedSecret(t, s)
+	scope := "env:" + s.Tile.Env
+	held := func(body string) url.Values { // the footer's hidden fields, as the page would post them
+		v := url.Values{"held_scope": {scope}}
+		for _, f := range []string{"param.app.LOG_LEVEL", "param.app.MODE"} {
+			if strings.Contains(body, `name="held.`+f+`"`) {
+				i := strings.Index(body, `name="held.`+f+`" value="`) + len(`name="held.`+f+`" value="`)
+				v.Set("held."+f, body[i:i+strings.Index(body[i:], `"`)])
+			}
+		}
+		return v
+	}
+	first := s.Do(t, "POST", revealEnv+"/preview", url.Values{"scope": {scope}, "param.app.LOG_LEVEL": {"debug"}}).Body.String()
+	if !strings.Contains(first, "1 change not saved") {
+		t.Fatalf("first:\n%s", first)
+	}
+	f := held(first)
+	f.Set("scope", scope)
+	f.Set("param.app.MODE", "fast")
+	second := s.Do(t, "POST", revealEnv+"/preview", f).Body.String()
+	if !strings.Contains(second, "2 changes not saved") || !strings.Contains(second, `name="held.param.app.LOG_LEVEL"`) || !strings.Contains(second, `name="held.param.app.MODE"`) {
+		t.Fatalf("second edit lost the first:\n%s", second)
+	}
+	// opening another cell keeps both
+	f = held(second)
+	f.Set("scope", scope)
+	f.Set("group", "app")
+	f.Set("name", "API_KEY")
+	f.Set("secret", "1")
+	if body := s.Do(t, "POST", revealEnv+"/edit", f).Body.String(); !strings.Contains(body, "app.LOG_LEVEL") || !strings.Contains(body, "app.MODE") || !strings.Contains(body, "3 changes not saved") {
+		t.Errorf("an open edit dropped the held changes or the draft is not listed:\n%s", body)
+	}
+	// Undo drops one
+	f = held(second)
+	f.Set("drop", "param.app.LOG_LEVEL")
+	if body := s.Do(t, "POST", revealEnv+"/preview", f).Body.String(); !strings.Contains(body, "1 change not saved") || strings.Contains(body, `name="held.param.app.LOG_LEVEL"`) {
+		t.Errorf("undo:\n%s", body)
+	}
+	if got := value(t, s, "env", s.Tile.Env); got["app.LOG_LEVEL"] != "info" || got["app.MODE"] != "" {
+		t.Errorf("a held change was written: %v", got)
+	}
+	// Apply posts the footer: both are saved
+	f = held(second)
+	f.Set("restart", "later")
+	if rec := s.Do(t, "POST", revealEnv, f); rec.Code != http.StatusOK {
+		t.Fatalf("apply = %d %s", rec.Code, rec.Body)
+	}
+	if got := value(t, s, "env", s.Tile.Env); got["app.LOG_LEVEL"] != "debug" || got["app.MODE"] != "fast" {
+		t.Errorf("apply saved %v", got)
+	}
+}
