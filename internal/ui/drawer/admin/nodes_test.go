@@ -67,7 +67,7 @@ func TestUpdateWorkers(t *testing.T) {
 	}
 }
 
-// A live tab polls itself into #tab-update (the poller on its own element,
+// A live tab polls itself into #tab-update, guarded so a settings edit is never swapped away (the poller on its own element,
 // so no button inherits it) and carries the hidden Reconnecting note main.js
 // shows; a settled tab has neither. Pending says why there is no button.
 func TestUpdateLive(t *testing.T) {
@@ -81,7 +81,7 @@ func TestUpdateLive(t *testing.T) {
 	out := render(UpdateView{Version: "1.0", Upgrading: true, Live: "/-/admin/update",
 		Workers: &WorkersView{Pending: true, Rows: []WorkerRow{{Name: "h3", Current: "0.9", Behind: true}}}})
 	for _, want := range []string{
-		`data-live`, `<span hidden hx-get="/-/admin/update" hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML">`,
+		`data-live`, `<span hidden data-live-tab data-poll-guard="region rows fields dirty" hx-get="/-/admin/update" hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML">`,
 		`data-reconnecting hidden`, "Reconnecting...", "The rollout starts once the panel's image is published.",
 	} {
 		if !strings.Contains(out, want) {

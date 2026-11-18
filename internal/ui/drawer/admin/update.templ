@@ -60,7 +60,7 @@ templ stepRow(s UpdateStep) {
 templ Update(v UpdateView) {
 	<div id="tab-update" data-live?={ live(v) }>
 		if v.Live != "" {
-			<span hidden hx-get={ v.Live } hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML"></span>
+			@c.LiveTab(v.Live, "tab-update")
 		}
 		@c.Section("", "", "") {
 			<div class="flex flex-wrap items-center gap-x-4 gap-y-3">

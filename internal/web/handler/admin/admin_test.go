@@ -444,7 +444,7 @@ func TestAdminUpdateUnderway(t *testing.T) {
 	s := webtest.New(t)
 	root := s.Session(t, s.User(t, "root@x.test", true))
 	ctx := context.Background()
-	j := service.Job{ID: uuid.NewString(), Kind: "upgrade", State: "running", Payload: "{}", CreatedAt: time.Now()}
+	j := service.Job{ID: uuid.NewString(), Kind: "upgrade", State: "running", Payload: "{}", LockSet: []string{"*"}, CreatedAt: time.Now()}
 	if err := s.Store.Jobs.Create(ctx, j); err != nil {
 		t.Fatal(err)
 	}
