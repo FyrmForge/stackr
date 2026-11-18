@@ -53,6 +53,7 @@ type Fact struct {
 	Path, StampID, StampOwner, StampInstall, FSType string
 	Mounted, RootFS, Network, Empty                 bool
 	Free, Total                                     uint64
+	ReadAt                                          time.Time `json:"read_at"` // set by the worker: when this read happened
 }
 
 // Error codes are typed; callers never match on the message.

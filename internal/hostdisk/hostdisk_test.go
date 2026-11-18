@@ -2,10 +2,12 @@ package hostdisk
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 const rootLine = "25 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
@@ -32,6 +34,11 @@ func newRig(t *testing.T, extra string) *rig {
 
 func (r *rig) table(s string) {
 	r.t.Helper()
+	dev, err := DevString(r.disk)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	s = strings.ReplaceAll(s, " 8:17 ", " "+dev+" ") // the fake device becomes the real one
 	if err := os.WriteFile(r.env.Mountinfo, []byte(s), 0o644); err != nil {
 		r.t.Fatal(err)
 	}
@@ -118,7 +125,7 @@ func TestProbeLostFoundCountsAsEmpty(t *testing.T) {
 
 func TestProbeNFSAndCIFSWarnNotRefuse(t *testing.T) {
 	for _, fs := range []string{"nfs4", "cifs"} {
-		r := newRig(t, "36 25 0:40 / /disk rw - "+fs+" srv:/x rw\n")
+		r := newRig(t, "36 25 8:17 / /disk rw - "+fs+" srv:/x rw\n")
 		res := r.run("probe", nil)
 		wantCode(t, res, "")
 		if !res.Disk.Network {
@@ -246,7 +253,7 @@ func TestStampAndFolderGoThroughTheRootHandleAndSymlinksCannotEscape(t *testing.
 	if err := os.Symlink("/disk", filepath.Join(r.env.Root, "alias")); err != nil {
 		t.Fatal(err)
 	}
-	wantCode(t, r.run("probe", func(q *Request) { q.Mount = "/alias" }), "")
+	wantCode(t, r.run("probe", func(q *Request) { q.Mount = "/alias" }), CodeNotMountPoint) // not canonical
 	// a link to / is the root filesystem, never a disk
 	if err := os.Symlink("/", filepath.Join(r.env.Root, "up")); err != nil {
 		t.Fatal(err)
@@ -374,4 +381,124 @@ func TestUnsupportedKindAndOp(t *testing.T) {
 	r := newRig(t, diskLine)
 	wantCode(t, r.run("probe", func(q *Request) { q.Kind = "lvm" }), CodeUnsupported)
 	wantCode(t, r.run("grow", nil), CodeUnsupported)
+}
+
+// H1: the opened root must be the device the table named.
+func TestUnmountRaceRefusedWhenTheOpenedRootIsAnotherDevice(t *testing.T) {
+	r := added(t)
+	r.table(rootLine + "36 25 8:99 / /disk rw - ext4 /dev/sdb rw\n") // the table names a device the directory is not on
+	for _, op := range []string{"verify", "folder", "usage", "drop", "add"} {
+		wantCode(t, r.run(op, func(q *Request) { q.Names = []string{"v"} }), CodeDiskMissing)
+	}
+	wantCode(t, r.run("probe", nil), CodeNotMountPoint)
+}
+
+// H2: an existing entry that is a file or a symlink is not a folder.
+func TestFolderRefusesAFileOrSymlinkWhereAFolderBelongs(t *testing.T) {
+	r := added(t)
+	r.write("d1/afile", "x")
+	wantCode(t, r.run("folder", func(q *Request) { q.Names = []string{"afile"} }), CodeIO)
+	if err := os.Symlink(r.disk, filepath.Join(r.disk, "d1", "link")); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, r.run("folder", func(q *Request) { q.Names = []string{"link"} }), CodeIO)
+	// the <id> directory itself
+	if err := os.RemoveAll(filepath.Join(r.disk, "d1")); err != nil {
+		t.Fatal(err)
+	}
+	r.write("d1", "x")
+	wantCode(t, r.run("add", nil), CodeIO)
+	wantCode(t, r.run("verify", nil), CodeIO)
+}
+
+// H3: drop refuses when something is mounted inside the folder.
+func TestDropRefusesAMountInsideTheFolder(t *testing.T) { // DL
+	r := added(t)
+	r.mkdir("d1/vol/sub")
+	r.write("d1/vol/sub/data", "keep")
+	r.table(rootLine + diskLine + "37 36 8:33 / /disk/d1/vol/sub rw - ext4 /dev/sdc rw\n")
+	res := r.run("drop", func(q *Request) { q.Names = []string{"vol"} })
+	wantCode(t, res, CodeIO)
+	if !r.exists("d1/vol/sub/data") {
+		t.Fatal("drop deleted across a mount")
+	}
+	r.table(rootLine + diskLine + "37 36 8:33 / /disk/d1/vol rw - ext4 /dev/sdc rw\n")
+	wantCode(t, r.run("drop", func(q *Request) { q.Names = []string{"vol"} }), CodeIO)
+	r.table(rootLine + diskLine)
+	wantCode(t, r.run("drop", func(q *Request) { q.Names = []string{"vol"} }), "")
+	if r.exists("d1/vol") {
+		t.Fatal("drop did not remove")
+	}
+}
+
+// H4: only a missing entry says disk_missing; any other failure is io.
+func TestOnlyANotExistErrorSaysDiskMissing(t *testing.T) {
+	r := newRig(t, diskLine)
+	long := strings.Repeat("a", 300) // ENAMETOOLONG on lstat, not ENOENT
+	r.write(".stackr-disk", `{"id":"`+long+`","owner":"n1"}`)
+	wantCode(t, r.run("verify", func(q *Request) { q.DiskID = long }), CodeIO)
+	// a folder that is simply gone stays disk_missing
+	r2 := added(t)
+	if err := os.RemoveAll(filepath.Join(r2.disk, "d1")); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, r2.run("verify", nil), CodeDiskMissing)
+}
+
+// H5: a file that vanishes during the size walk is not an error.
+type vanishFS struct{ fstest.MapFS }
+
+func (v vanishFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	if name == "vol/gone" {
+		return nil, fs.ErrNotExist
+	}
+	return v.MapFS.ReadDir(name)
+}
+
+func TestSizeWalkSkipsWhatVanishes(t *testing.T) {
+	fsys := vanishFS{fstest.MapFS{"vol/a": {Data: []byte("12345")}, "vol/gone/b": {Data: []byte("x")}}}
+	n, err := walkSize(context.Background(), fsys, "vol")
+	if err != nil || n != 5 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+}
+
+// H6: a broken stamp is its own refusal, the stamp is written whole.
+func TestBrokenStampIsNamedNotForeign(t *testing.T) {
+	r := newRig(t, diskLine)
+	r.write(".stackr-disk", "")
+	for _, op := range []string{"probe", "add"} {
+		res := r.run(op, nil)
+		if res.Error == nil || res.Error.Code == CodeForeignStamp || !strings.Contains(res.Error.Message, ".stackr-disk") {
+			t.Fatalf("%s: %+v", op, res.Error)
+		}
+	}
+	r.write(".stackr-disk", "{not json")
+	wantCode(t, r.run("add", nil), CodeNotEmpty)
+}
+
+func TestStampIsWrittenByRenameAndALeftoverTempDoesNotBlock(t *testing.T) {
+	r := newRig(t, diskLine)
+	r.write(".stackr-disk.tmp", "") // a crash between create and rename
+	wantCode(t, r.run("add", nil), "")
+	if r.exists(".stackr-disk.tmp") {
+		t.Fatal("temp stamp left behind")
+	}
+	if s, err := ReadStamp(context.Background(), r.env, "/disk"); err != nil || s.ID != "d1" {
+		t.Fatalf("%+v %v", s, err)
+	}
+}
+
+// H7: a symlinked path is refused with the real one named.
+func TestSymlinkedMountPathIsRefusedWithTheRealPath(t *testing.T) {
+	r := newRig(t, diskLine)
+	if err := os.Symlink("/disk", filepath.Join(r.env.Root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range []string{"probe", "add"} {
+		res := r.run(op, func(q *Request) { q.Mount = "/alias" })
+		if res.Error == nil || !strings.Contains(res.Error.Message, "Use the real path: /disk.") {
+			t.Fatalf("%s: %+v", op, res.Error)
+		}
+	}
 }

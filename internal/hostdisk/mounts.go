@@ -72,8 +72,8 @@ func lastCovering(ms []Mount, path string) (Mount, bool) {
 	return Mount{}, false
 }
 
-// isNetwork reports a filesystem that lives across a network.
-func isNetwork(fs string) bool {
+// IsNetwork reports a filesystem that lives across a network.
+func IsNetwork(fs string) bool {
 	switch {
 	case strings.HasPrefix(fs, "nfs"), fs == "cifs", fs == "smb3", fs == "smbfs", fs == "ceph",
 		fs == "glusterfs", fs == "9p", fs == "fuse.sshfs":
