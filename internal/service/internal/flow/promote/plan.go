@@ -654,7 +654,7 @@ func (f *Flow) planResources(ctx context.Context, p *Plan, w *work, r *Resolved)
 					return err
 				}
 				if held {
-					p.block("domains: %s is an external route", row.Host)
+					p.block("domains: %s is an external route. Remove it in Server settings, Traffic, to promote", row.Host)
 					continue
 				}
 			}
@@ -798,7 +798,7 @@ func (f *Flow) planDomains(
 				return err
 			}
 			if held {
-				p.block("tile %s: %s is an external route", name, host)
+				p.block("tile %s: %s is an external route. Remove it in Server settings, Traffic, to promote", name, host)
 			}
 		}
 		switch {

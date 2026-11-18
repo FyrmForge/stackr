@@ -738,7 +738,7 @@ func TestDomainOnRouteHostBlocked(t *testing.T) {
 	w.files["c1"] = autoFile("host: legacy.example.com", "")
 	p, err := w.f.Plan(ctx, w.dev.ID, w.release(t, "c1").ID, io.Discard)
 	must(t, err)
-	if !strings.Contains(strings.Join(p.Blockers, "|"), "legacy.example.com is an external route") {
+	if !strings.Contains(strings.Join(p.Blockers, "|"), "legacy.example.com is an external route. Remove it in Server settings, Traffic") {
 		t.Errorf("blockers = %v", p.Blockers)
 	}
 }
@@ -751,7 +751,7 @@ func TestResourceOnRouteHostBlocked(t *testing.T) {
 	w.files["c1"] = autoFile("host: shop.io", "host: legacy.example.com")
 	p, err := w.f.Plan(ctx, w.dev.ID, w.release(t, "c1").ID, io.Discard)
 	must(t, err)
-	if !strings.Contains(strings.Join(p.Blockers, "|"), "legacy.example.com is an external route") {
+	if !strings.Contains(strings.Join(p.Blockers, "|"), "legacy.example.com is an external route. Remove it in Server settings, Traffic") {
 		t.Errorf("blockers = %v", p.Blockers)
 	}
 }
