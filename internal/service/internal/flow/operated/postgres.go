@@ -198,7 +198,9 @@ func (pg) Definition() Definition {
 }
 
 func (pg) Ready(ctx context.Context, i Instance, x Tools) error {
-	_, err := x.Exec(ctx, []string{"pg_isready", "-h", pgSocketDir, "-U", i.AdminUser})
+	// -d: without it pg_isready asks for a database named after the user and
+	// the server logs FATAL: database "<user>" does not exist on every check.
+	_, err := x.Exec(ctx, []string{"pg_isready", "-h", pgSocketDir, "-U", i.AdminUser, "-d", i.AdminDB})
 	return err
 }
 
