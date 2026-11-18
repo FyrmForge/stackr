@@ -11,9 +11,9 @@ import (
 // last named while it runs. A queued job shows just the word "Queued"; a
 // place in the queue is global (it leaks other orgs' load) and not the real
 // order.
-func (o *Orchestrator) jobPhase(_ context.Context, j store.Job) string {
+func (o *Orchestrator) jobPhase(_ context.Context, j store.Job, slug string) string {
 	if j.State == job.Running {
-		return o.jobs.Phase(j.ID)
+		return o.jobs.Phase(j.ID, slug)
 	}
 	return ""
 }

@@ -63,7 +63,7 @@ type Flow struct {
 	RestartPending func(tileID string) bool
 	// Phase is the step a live job of a tile is at ("Pulling image");
 	// "" = no word beyond the job's own. nil = none asked.
-	Phase func(ctx context.Context, j store.Job) string
+	Phase func(ctx context.Context, j store.Job, tileSlug string) string
 	// PushFail is the error of a stack's last push when it failed; nil = none asked.
 	PushFail func(ctx context.Context, stackID string) (jobID, msg string, failed bool)
 	// Stop is the env's last promote when it failed at a tile; nil = none asked.
@@ -716,8 +716,8 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			if j.StartedAt != nil && s.word == "building" {
 				s.since = *j.StartedAt
 			}
-			if f.Phase != nil && (s.word == "queued" || rollout[j.Kind]) {
-				s.phase = f.Phase(ctx, j)
+			if f.Phase != nil {
+				s.phase = f.Phase(ctx, j, t.Slug)
 			}
 		}
 		if j.State == job.Failed && rollout[j.Kind] {

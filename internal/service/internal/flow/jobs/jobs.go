@@ -156,6 +156,10 @@ type Runner struct {
 	// tile cards. In memory only: a restart loses it, the card then reads
 	// its job word.
 	phase map[string]string
+	// tilePhase is the same inside a job that deploys several tiles (promote,
+	// env sync): its log says "deploying <slug>", and the steps that follow
+	// are that tile's. Only the tile being deployed holds one.
+	tilePhase map[string]map[string]string
 
 	// beforePark runs between a handler's return and the park write; tests
 	// land a cancel there.
@@ -173,12 +177,23 @@ type onceLog struct {
 
 func (o onceLog) Write(p []byte) (int, error) {
 	line := string(p)
+	if slug, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), "deploying "); ok && !strings.Contains(slug, "\n") {
+		o.r.mu.Lock()
+		if o.r.tilePhase == nil {
+			o.r.tilePhase = map[string]map[string]string{}
+		}
+		o.r.tilePhase[o.id] = map[string]string{slug: ""} // the next tile: the last one is done
+		o.r.mu.Unlock()
+	}
 	if w := PhaseOf(line); w != "" {
 		o.r.mu.Lock()
 		if o.r.phase == nil {
 			o.r.phase = map[string]string{}
 		}
 		o.r.phase[o.id] = w
+		for slug := range o.r.tilePhase[o.id] {
+			o.r.tilePhase[o.id][slug] = w
+		}
 		o.r.mu.Unlock()
 	}
 	if (strings.HasPrefix(line, "deploying ") || strings.HasPrefix(line, "warning: ")) &&
@@ -438,6 +453,7 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 		delete(r.parked, j.ID)
 		delete(r.deployed, j.ID)
 		delete(r.phase, j.ID)
+		delete(r.tilePhase, j.ID)
 		// rn.Job, not j: a handler may have rewritten its payload.
 		j.Payload = rn.Job.Payload
 		err = r.jobs.Finish(fresh, j, state, reason)
@@ -634,10 +650,14 @@ func (r *Runner) ParkedParam(id string) string {
 }
 
 // Phase is the step a running job's log last named ("Pulling image"), ""
-// when it has named none.
-func (r *Runner) Phase(id string) string {
+// when it has named none. For a job that deploys tile by tile it is the
+// step of the tile slug, "" for a tile not being deployed now.
+func (r *Runner) Phase(id, slug string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if tp, ok := r.tilePhase[id]; ok {
+		return tp[slug]
+	}
 	return r.phase[id]
 }
 
