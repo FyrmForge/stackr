@@ -109,7 +109,7 @@ func (h *handler) pgStatic(ctx context.Context, s service.Scope, tileID string, 
 		o.Unread["overview"] = unreadReason(err)
 		return o
 	}
-	o.Version = &instance.VersionView{Image: pv.Image, UpdateTo: pv.UpdateTo, EOL: pv.EOL, EOLDate: pv.EOLDate, Majors: pv.Majors}
+	o.Version = &instance.VersionView{Image: pv.Image, UpdateTo: pv.UpdateTo, EOL: pv.EOL, EOLDate: pv.EOLDate, Major: pv.Major, Majors: pv.Majors}
 	if ck := pv.Check; ck != nil {
 		o.Version.Check = fmt.Sprintf("Last check for postgres %d: %s", ck.To, ck.Detail)
 	}

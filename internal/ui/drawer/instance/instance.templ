@@ -192,6 +192,7 @@ type VersionView struct {
 	// run's line, "" = none yet. RollbackFrom is the major a rollback returns
 	// to, 0 = none kept; RollbackUntil says until when.
 	Majors                   []int
+	Major                    int // the running major, 0 = unknown
 	Check                    string
 	RollbackFrom             int
 	RollbackUntil            string
@@ -1377,6 +1378,14 @@ func remove(v View) c.ConfirmView {
 	return d
 }
 
+// currentMajor is the select's first, preselected choice: no change.
+func currentMajor(ver VersionView) string {
+	if ver.Major > 0 {
+		return "Postgres " + strconv.Itoa(ver.Major) + " (current)"
+	}
+	return "Current version"
+}
+
 // majorLabel names a major choice against the running one: "Upgrade to 18".
 func majorLabel(image string, n int) string {
 	tag := image[strings.LastIndex(image, ":")+1:]
@@ -1397,6 +1406,7 @@ templ majorChange(v View, ver VersionView) {
 				<div class="min-w-32">
 					<label for="major-to" class="label">Postgres version</label>
 					<select id="major-to" name="to" class="input">
+						<option value="" selected>{ currentMajor(ver) }</option>
 						for _, n := range ver.Majors {
 							<option value={ strconv.Itoa(n) }>{ majorLabel(ver.Image, n) }</option>
 						}
@@ -1405,6 +1415,7 @@ templ majorChange(v View, ver VersionView) {
 				<button type="submit" name="action" value="check" class="btn btn-ghost btn-sm">Check</button>
 				@c.Confirm(c.ConfirmView{
 					Button:  "Change version",
+					Quiet:   true,
 					Title:   "Change the postgres version?",
 					Warning: "Stops the database while the data moves. The old data is kept for 7 days.",
 					Action:  v.Base + "/major",
