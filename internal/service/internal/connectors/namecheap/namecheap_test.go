@@ -276,3 +276,12 @@ func TestNamecheapReplaceKeepsOtherRecords(t *testing.T) {
 		t.Errorf("the owned record did not move: %s", got)
 	}
 }
+
+func TestKindEndpoint(t *testing.T) {
+	if got := (Kind{}).New().(*Account).url(); got != api {
+		t.Errorf("default url %q", got)
+	}
+	if got := (Kind{Endpoint: "http://x/xml.response"}).New().(*Account).url(); got != "http://x/xml.response" {
+		t.Errorf("dev url %q", got)
+	}
+}

@@ -510,6 +510,13 @@ func TestPushBuildsAndReleases(t *testing.T) {
 
 // Step 3b grammar: kind: cron + schedule:, kind: function + trigger:; the
 // plan diff names what moved.
+func TestNormalizeRepoPort(t *testing.T) {
+	a := NormalizeRepo("https://github.stackr.test:8443/Acme/App.git")
+	if a != NormalizeRepo("https://github.stackr.test:8443/acme/app") || a == NormalizeRepo("https://github.stackr.test/acme/app") {
+		t.Errorf("port spelling: %q", a)
+	}
+}
+
 func TestPlanShowsRunKinds(t *testing.T) {
 	w := setup(t)
 	file := func(sched, trigger string) string {

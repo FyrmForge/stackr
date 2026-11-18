@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -27,10 +29,47 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 )
 
-const apiBase = "https://api.github.com"
+// settings locate one GitHub: its site, API, the host its repositories
+// live on, an extra CA root for git clones, and the API client. Immutable
+// once built, carried by the Kind and from it by every Conn.
+type settings struct {
+	web    string
+	host   string
+	caFile string // extra root for web, "" in production
+	client *Client
+}
 
-// host is where every repository of a GitHub connection lives.
-const host = "github.com"
+// defaults is github.com, what a zero Kind and a zero Conn use.
+var defaults = &settings{web: "https://github.com", host: "github.com", client: New()}
+
+// newSettings points the connector at another GitHub (a GHES-style fake):
+// webURL is its site, the API lives under /api/v3, and ca (optional) is a
+// PEM root trusted for it, by the API client and by git clones.
+func newSettings(webURL, ca string) (*settings, error) {
+	webURL = strings.TrimRight(webURL, "/")
+	u, err := url.Parse(webURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return nil, fmt.Errorf("github: dev URL %q is not an https URL", webURL)
+	}
+	hc := &http.Client{Timeout: 15 * time.Second}
+	if ca != "" {
+		pem, err := os.ReadFile(ca)
+		if err != nil {
+			return nil, err
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("github: no certificate in %s", ca)
+		}
+		hc.Transport = &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: &tls.Config{RootCAs: pool}}
+	}
+	c := New()
+	c.apiURL, c.web, c.http = webURL+"/api/v3", webURL, hc
+	return &settings{web: webURL, host: u.Host, caFile: ca, client: c}, nil
+}
 
 // App is one GitHub App's credentials: a connection's settings blob, in
 // the shape GitHub's manifest conversion answers.
@@ -60,20 +99,18 @@ type Repo struct {
 // Client calls GitHub's API.
 type Client struct {
 	apiURL string // GitHub's API; a field so tests can point it at a fake
+	web    string // GitHub's site, for repoPath
 	http   *http.Client
 
 	mu     sync.Mutex
 	tokens map[[32]byte]cachedToken // tokenKey(App) → installation token
 }
 
-// api is the one client every connection uses, so their tokens share a
-// cache. ponytail: package state; a kind with dependencies passed in when
-// a second client is ever needed.
-var api = New()
-
+// New is a client for github.com.
 func New() *Client {
 	return &Client{
-		apiURL: apiBase,
+		apiURL: "https://api.github.com",
+		web:    "https://github.com",
 		http:   &http.Client{Timeout: 15 * time.Second},
 		tokens: map[[32]byte]cachedToken{},
 	}
@@ -84,7 +121,7 @@ func New() *Client {
 // code, state "<connectorID>.<nonce>", which comes back with it. A non-empty
 // ghOrg creates the app under that GitHub org (needs org admin): private apps
 // install only on their owning account, so org repos need an org-owned app.
-func Manifest(base, back, connectorID, ghOrg, state string) (action, manifest string, err error) {
+func (s *settings) manifest(base, back, connectorID, ghOrg, state string) (action, manifest string, err error) {
 	if len(connectorID) < 4 {
 		return "", "", fmt.Errorf("github: connector id %q too short", connectorID)
 	}
@@ -127,9 +164,9 @@ func Manifest(base, back, connectorID, ghOrg, state string) (action, manifest st
 	if err != nil {
 		return "", "", err
 	}
-	action = "https://github.com/settings/apps/new"
+	action = s.web + "/settings/apps/new"
 	if ghOrg != "" {
-		action = "https://github.com/organizations/" + url.PathEscape(ghOrg) + "/settings/apps/new"
+		action = s.web + "/organizations/" + url.PathEscape(ghOrg) + "/settings/apps/new"
 	}
 	return action + "?state=" + url.QueryEscape(state), string(b), nil
 }
@@ -249,7 +286,7 @@ const maxPages = 50
 // Branches lists repo's branch names (owner/name), for the config picker.
 // ponytail: pages of 100, at most maxPages.
 func (c *Client) Branches(ctx context.Context, token, repo string) ([]string, error) {
-	p, err := repoPath(repo)
+	p, err := c.repoPath(repo)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +312,7 @@ func (c *Client) Branches(ctx context.Context, token, repo string) ([]string, er
 // file picker. ponytail: one tree read capped at 1 MiB like every answer;
 // a repo too big for that lists nothing and the field takes what is typed.
 func (c *Client) YAMLFiles(ctx context.Context, token, repo, ref string) ([]string, error) {
-	p, err := repoPath(repo)
+	p, err := c.repoPath(repo)
 	if err != nil {
 		return nil, err
 	}
@@ -302,8 +339,8 @@ func (c *Client) YAMLFiles(ctx context.Context, token, repo, ref string) ([]stri
 
 // repoPath is /repos/owner/name for an owner/name or a github.com URL,
 // refusing anything else so a typed value never reaches another API path.
-func repoPath(repo string) (string, error) {
-	owner, name, ok := strings.Cut(strings.TrimPrefix(RepoURL(repo), "https://github.com/"), "/")
+func (c *Client) repoPath(repo string) (string, error) {
+	owner, name, ok := strings.Cut(strings.TrimPrefix(repoURL(c.web, repo), c.web+"/"), "/")
 	name = strings.TrimSuffix(name, ".git")
 	if !ok || owner == "" || name == "" || owner == ".." || name == ".." || strings.ContainsAny(owner+name, "/:?#%") {
 		return "", fmt.Errorf("not an owner/name repository: %q", repo)
@@ -380,28 +417,33 @@ func ParseKey(pemKey string) (*rsa.PrivateKey, error) {
 // RepoURL is the one stored spelling of a repo: owner/name becomes
 // https://github.com/owner/name, anything else is kept as typed. The
 // connector lookup reads the host off the URL, so owner/name cloned nothing.
-func RepoURL(repo string) string {
+func repoURL(web, repo string) string {
 	repo = strings.TrimSpace(repo)
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok || owner == "" || name == "" || strings.Contains(owner, ":") || strings.ContainsAny(name, "/:") {
 		return repo
 	}
-	return "https://github.com/" + repo
+	return web + "/" + repo
 }
 
 // CloneAuth returns GIT_CONFIG_* environment lines that authenticate an HTTPS
-// github.com fetch: env, not -c flags, so the token never lands in
+// github fetch: env, not -c flags, so the token never lands in
 // /proc/*/cmdline or in .git/config.
-func CloneAuth(gitURL, token string) []string {
-	if token == "" || !strings.HasPrefix(gitURL, "https://github.com/") {
+func (s *settings) cloneAuth(gitURL, token string) []string {
+	if token == "" || !strings.HasPrefix(gitURL, s.web+"/") {
 		return nil
 	}
 	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	return []string{
+	env := []string{
 		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
+		"GIT_CONFIG_KEY_0=http." + s.web + "/.extraheader",
 		"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
 	}
+	if s.caFile != "" {
+		env[0] = "GIT_CONFIG_COUNT=2"
+		env = append(env, "GIT_CONFIG_KEY_1=http."+s.web+"/.sslCAInfo", "GIT_CONFIG_VALUE_1="+s.caFile)
+	}
+	return env
 }
 
 // tokenKey keys the token cache by App id and private key together: the id

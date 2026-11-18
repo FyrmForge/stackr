@@ -53,6 +53,8 @@ func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMes
 	in := domain.Install{
 		AdminListen:    ProxyAdmin,
 		ACMEEmail:      get("acme_email"),
+		ACMECA:         o.cfg.ACMECA,
+		ACMECARoot:     o.cfg.ACMECARoot,
 		Managed:        o.managedDomains(ctx),
 		TLSOff:         o.cfg.TLSOff,
 		IPv4Only:       !o.ipv6On(ctx),

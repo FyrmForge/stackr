@@ -25,6 +25,8 @@ import (
 type Install struct {
 	AdminListen    string // required on every config, or Caddy falls back to its own localhost
 	ACMEEmail      string // the instance account
+	ACMECA         string // dev.env ACME_CA: a private CA's directory URL; "" = Caddy's default
+	ACMECARoot     string // dev.env ACME_CA_ROOT: that CA's root PEM, a path inside the proxy container
 	Accounts       []Account
 	Managed        []string // managed DNS domains: wildcards under them get DNS-01 through stackrd
 	TLSOff         bool     // STACKR_TLS=off: plain HTTP only, no certificates
@@ -617,7 +619,7 @@ func policies(in Install, hosts []string, wild []Wildcard) []route {
 	})
 	var out []route
 	for _, k := range keys {
-		iss := issuer(k.email)
+		iss := issuer(in, k.email)
 		if k.dns {
 			// No key in the config: the module asks stackrd, which holds
 			// the DNS connectors.
@@ -626,14 +628,21 @@ func policies(in Install, hosts []string, wild []Wildcard) []route {
 		sort.Strings(groups[k])
 		out = append(out, route{"subjects": groups[k], "issuers": []route{iss}})
 	}
-	return append(out, route{"issuers": []route{issuer(in.ACMEEmail)}})
+	return append(out, route{"issuers": []route{issuer(in, in.ACMEEmail)}})
 }
 
-func issuer(email string) route {
-	if email == "" {
-		return route{"module": "acme"}
+func issuer(in Install, email string) route {
+	r := route{"module": "acme"}
+	if email != "" {
+		r["email"] = email
 	}
-	return route{"module": "acme", "email": email}
+	if in.ACMECA != "" {
+		r["ca"] = in.ACMECA
+		if in.ACMECARoot != "" {
+			r["trusted_roots_pem_files"] = []string{in.ACMECARoot}
+		}
+	}
+	return r
 }
 
 func account(accs []Account, host string) string {

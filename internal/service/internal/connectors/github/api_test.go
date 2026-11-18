@@ -15,6 +15,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -196,7 +197,7 @@ func TestSetHookURL(t *testing.T) {
 
 func TestManifestAndConvert(t *testing.T) {
 	c := New()
-	action, m, err := Manifest("https://stackr.example.com/", "https://stackr.example.com/-/connectors/callback", "abcdef12", "acme", "abcdef12.nonce")
+	action, m, err := defaults.manifest("https://stackr.example.com/", "https://stackr.example.com/-/connectors/callback", "abcdef12", "acme", "abcdef12.nonce")
 	if err != nil || action != "https://github.com/organizations/acme/settings/apps/new?state=abcdef12.nonce" {
 		t.Fatalf("action: %q %v", action, err)
 	}
@@ -209,7 +210,7 @@ func TestManifestAndConvert(t *testing.T) {
 		got.Hook.URL != "https://stackr.example.com/hooks/connectors/abcdef12" || len(got.Evts) != 2 {
 		t.Fatalf("manifest: %+v %v", got, err)
 	}
-	if _, _, err := Manifest("https://stackr.example.com", "", "ab", "", "x"); err == nil {
+	if _, _, err := defaults.manifest("https://stackr.example.com", "", "ab", "", "x"); err == nil {
 		t.Fatal("short connector id accepted")
 	}
 
@@ -233,11 +234,11 @@ func TestManifestAndConvert(t *testing.T) {
 }
 
 func TestCloneAuth(t *testing.T) {
-	env := CloneAuth("https://github.com/acme/shop", "tok")
+	env := defaults.cloneAuth("https://github.com/acme/shop", "tok")
 	if len(env) != 3 || !strings.HasSuffix(env[2], base64.StdEncoding.EncodeToString([]byte("x-access-token:tok"))) {
 		t.Fatalf("env: %v", env)
 	}
-	if CloneAuth("https://gitlab.com/acme/shop", "tok") != nil || CloneAuth("https://github.com/a/b", "") != nil {
+	if defaults.cloneAuth("https://gitlab.com/acme/shop", "tok") != nil || defaults.cloneAuth("https://github.com/a/b", "") != nil {
 		t.Fatal("auth for a non-github URL or empty token")
 	}
 }
@@ -275,5 +276,61 @@ func TestReceive(t *testing.T) {
 	}
 	if ev, err := Receive("installation", sign(`{}`), []byte(`{}`), "k"); err != nil || ev.PR != nil || ev.Push != nil {
 		t.Fatalf("ignored event: %+v %v", ev, err)
+	}
+}
+
+func TestDev(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v3/app-manifests/c1/conversions" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":7,"slug":"s"}`))
+	}))
+	defer srv.Close()
+	caPath := t.TempDir() + "/ca.pem"
+	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewKind("http://plain", ""); err == nil {
+		t.Fatal("http dev URL accepted")
+	}
+	k, err := NewKind(srv.URL+"/", caPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := k.s
+	u := strings.TrimPrefix(srv.URL, "https://")
+	if s.host != u {
+		t.Errorf("host = %q", s.host)
+	}
+	if defaults.web != "https://github.com" || (Kind{}).New().(*Conn).set() != defaults {
+		t.Error("dev settings leaked into the defaults")
+	}
+	if app, err := s.client.ConvertManifest(context.Background(), "c1"); err != nil || app.ID != 7 {
+		t.Fatalf("convert over the dev CA: %+v %v", app, err)
+	}
+	action, _, _ := s.manifest("https://p.example.com", "https://p.example.com/cb", "abcd", "", "s")
+	if !strings.HasPrefix(action, srv.URL+"/settings/apps/new?") {
+		t.Errorf("action = %q", action)
+	}
+	c := k.New().(*Conn)
+	c.Slug = "s"
+	if got := c.Install(""); got != srv.URL+"/apps/s/installations/new" {
+		t.Errorf("install = %q", got)
+	}
+	if ru, ok := c.RepoURL("acme/app"); !ok || ru != srv.URL+"/acme/app" {
+		t.Errorf("repo url = %q %v", ru, ok)
+	}
+	if p, err := s.client.repoPath(srv.URL + "/acme/app"); err != nil || p != "/repos/acme/app" {
+		t.Errorf("repoPath = %q %v", p, err)
+	}
+	env := s.cloneAuth(srv.URL+"/acme/app", "tok")
+	if len(env) != 5 || env[0] != "GIT_CONFIG_COUNT=2" || env[3] != "GIT_CONFIG_KEY_1=http."+srv.URL+"/.sslCAInfo" || env[4] != "GIT_CONFIG_VALUE_1="+caPath {
+		t.Errorf("clone env = %v", env)
+	}
+	if s.cloneAuth("https://github.com/a/b", "tok") != nil {
+		t.Error("auth leaked to github.com")
 	}
 }

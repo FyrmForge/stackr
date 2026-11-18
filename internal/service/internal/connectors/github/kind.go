@@ -17,8 +17,16 @@ import (
 
 const kindName = "github"
 
-// Kind is GitHub.
-type Kind struct{}
+// Kind is GitHub. The zero value is github.com; NewKind points it at
+// another GitHub.
+type Kind struct{ s *settings }
+
+// NewKind is a Kind for a GHES-style GitHub (the playground fake) at webURL,
+// trusting the PEM root ca (optional).
+func NewKind(webURL, ca string) (Kind, error) {
+	s, err := newSettings(webURL, ca)
+	return Kind{s}, err
+}
 
 func (Kind) Name() string  { return kindName }
 func (Kind) Label() string { return "GitHub" }
@@ -26,7 +34,7 @@ func (Kind) Hint() string {
 	return "A GitHub App: stackr clones your repositories and deploys on push."
 }
 
-func (Kind) New() connectors.Conn { return &Conn{} }
+func (k Kind) New() connectors.Conn { return &Conn{s: k.s} }
 
 // Steps: the account the App is made under, GitHub's manifest flow, then
 // its install, which comes back through the App's setup_url.
@@ -59,6 +67,15 @@ func (Kind) Alt() connectors.Alt {
 type Conn struct {
 	App
 	Owner string `json:"owner,omitempty"`
+
+	s *settings // nil = github.com
+}
+
+func (c *Conn) set() *settings {
+	if c.s == nil {
+		return defaults
+	}
+	return c.s
 }
 
 var (
@@ -107,7 +124,7 @@ func (c *Conn) Settled() bool { return c.ID > 0 }
 // the panel's own URL is what is left of it.
 func (c *Conn) Out(_ context.Context, id, back, state string) (connectors.Out, error) {
 	base := strings.TrimSuffix(back, connectors.CallbackPath)
-	action, manifest, err := Manifest(base, back, id, c.Owner, state)
+	action, manifest, err := c.set().manifest(base, back, id, c.Owner, state)
 	if err != nil {
 		return connectors.Out{}, err
 	}
@@ -120,7 +137,7 @@ func (c *Conn) Back(ctx context.Context, q url.Values) error {
 	if code == "" {
 		return errs.Refusedf("GitHub sent no code")
 	}
-	app, err := api.ConvertManifest(ctx, code)
+	app, err := c.set().client.ConvertManifest(ctx, code)
 	if err != nil {
 		return err
 	}
@@ -132,7 +149,7 @@ func (c *Conn) Back(ctx context.Context, q url.Values) error {
 // picking its repos. Making the App is not installing it: without an
 // install there is no token to clone with.
 func (c *Conn) Install(state string) string {
-	u := "https://github.com/apps/" + c.Slug + "/installations/new"
+	u := c.set().web + "/apps/" + c.Slug + "/installations/new"
 	if state != "" {
 		u += "?state=" + url.QueryEscape(state)
 	}
@@ -141,52 +158,52 @@ func (c *Conn) Install(state string) string {
 
 // The Git source capability.
 
-func (c *Conn) Host() string { return host }
+func (c *Conn) Host() string { return c.set().host }
 
 func (c *Conn) RepoURL(raw string) (string, bool) {
-	u := RepoURL(raw)
-	return u, strings.HasPrefix(u, "https://"+host+"/")
+	u := repoURL(c.set().web, raw)
+	return u, strings.HasPrefix(u, c.set().web+"/")
 }
 
 // Repos is empty, no error, while the App is installed nowhere.
 func (c *Conn) Repos(ctx context.Context) ([]connectors.Repo, error) {
-	tok, err := api.Token(ctx, c.App)
+	tok, err := c.set().client.Token(ctx, c.App)
 	if errors.Is(err, ErrNotInstalled) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	rs, err := api.Repos(ctx, tok)
+	rs, err := c.set().client.Repos(ctx, tok)
 	out := make([]connectors.Repo, len(rs))
 	for i, r := range rs {
-		out[i] = connectors.Repo{FullName: r.FullName, URL: "https://" + host + "/" + r.FullName, Private: r.Private, DefaultBranch: r.DefaultBranch}
+		out[i] = connectors.Repo{FullName: r.FullName, URL: c.set().web + "/" + r.FullName, Private: r.Private, DefaultBranch: r.DefaultBranch}
 	}
 	return out, err
 }
 
 func (c *Conn) Branches(ctx context.Context, repo string) ([]string, error) {
-	tok, err := api.Token(ctx, c.App)
+	tok, err := c.set().client.Token(ctx, c.App)
 	if err != nil {
 		return nil, err
 	}
-	return api.Branches(ctx, tok, repo)
+	return c.set().client.Branches(ctx, tok, repo)
 }
 
 func (c *Conn) YAMLFiles(ctx context.Context, repo, ref string) ([]string, error) {
-	tok, err := api.Token(ctx, c.App)
+	tok, err := c.set().client.Token(ctx, c.App)
 	if err != nil {
 		return nil, err
 	}
-	return api.YAMLFiles(ctx, tok, repo, ref)
+	return c.set().client.YAMLFiles(ctx, tok, repo, ref)
 }
 
 func (c *Conn) CloneEnv(ctx context.Context, repoURL string) ([]string, error) {
-	tok, err := api.Token(ctx, c.App)
+	tok, err := c.set().client.Token(ctx, c.App)
 	if err != nil {
 		return nil, err
 	}
-	return CloneAuth(repoURL, tok), nil
+	return c.set().cloneAuth(repoURL, tok), nil
 }
 
 // Hook verifies a delivery against the App's webhook secret before it
@@ -200,5 +217,5 @@ func (c *Conn) Hook(_ context.Context, h http.Header, body []byte) (connectors.E
 }
 
 func (c *Conn) SetHook(ctx context.Context, hook string) error {
-	return api.SetHookURL(ctx, hook, c.App)
+	return c.set().client.SetHookURL(ctx, hook, c.App)
 }

@@ -253,7 +253,7 @@ func run(log *slog.Logger, generate bool) error {
 	}
 
 	// The service tree: store, migrations, Docker, leaves and flows.
-	orch, err := service.New(service.Config{
+	cfg := service.Config{
 		DataDir:    envDataDir,
 		DBPath:     envDatabasePath,
 		SecretsKey: masterKey,
@@ -287,7 +287,9 @@ func run(log *slog.Logger, generate bool) error {
 		RootDomain:     config.GetEnvOrDefault("ROOT_DOMAIN", ""),
 		ACMEEmail:      config.GetEnvOrDefault("ACME_EMAIL", ""),
 		TrustedProxies: config.GetEnvOrDefault("CADDY_TRUSTED_PROXIES", ""),
-	})
+	}
+	devSettings(log, envDataDir, &cfg)
+	orch, err := service.New(cfg)
 	if err != nil {
 		return fmt.Errorf("start service: %w", err)
 	}
@@ -329,6 +331,7 @@ func run(log *slog.Logger, generate bool) error {
 		StaticBaseURL: envStaticBaseURL,
 		DevMode:       envDevMode,
 		EmailSender:   emailSender,
+		GitHubWeb:     cfg.GitHubURL,
 	})
 
 	log.Info("starting server", "port", envPort, "devMode", envDevMode)

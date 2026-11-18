@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rig QA for the migration blitz: routes, shares, files, forward auth, host
-# grants (docs/rewrite/tasks/migration-blitz.md). Run it against the rig, after
-# `scripts/rig.sh upgrade <version>`:
+# grants (docs/rewrite/tasks/migration-blitz.md). The defaults point at the old
+# rig (gone); set RIG and RIG_DOMAIN to run it against another cluster:
 #
 #   scripts/qa/blitz.sh [check ...]    checks: login route http share files fwdauth hostgrant
 #

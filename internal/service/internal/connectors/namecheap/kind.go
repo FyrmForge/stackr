@@ -15,7 +15,9 @@ import (
 )
 
 // Kind is Namecheap.
-type Kind struct{}
+type Kind struct {
+	Endpoint string // "" = production; dev.env NAMECHEAP_API
+}
 
 func (Kind) Name() string  { return "namecheap" }
 func (Kind) Label() string { return "Namecheap" }
@@ -23,7 +25,7 @@ func (Kind) Hint() string {
 	return "DNS records and wildcard certificates for your Namecheap domains."
 }
 
-func (Kind) New() connectors.Conn { return &Account{} }
+func (k Kind) New() connectors.Conn { return &Account{endpoint: k.Endpoint} }
 
 // apiAccessURL is Namecheap's API access page, where the key and the allow list live.
 const apiAccessURL = "https://ap.www.namecheap.com/settings/tools/apiaccess/"

@@ -110,6 +110,12 @@ type Config struct {
 	ACMEEmail      string
 	TrustedProxies string // CIDRs Caddy trusts X-Forwarded-For from
 
+	// From <DataDir>/dev.env, all "" in production: a private ACME CA's
+	// directory URL, its root PEM as a path inside the proxy container, and
+	// a Namecheap API URL replacing the real one, and a fake GitHub's URL
+	// with the PEM file (a path in the panel container) that signs it.
+	ACMECA, ACMECARoot, NamecheapAPI, GitHubURL, GitHubCA string
+
 	CookieSecure bool
 	CookieDomain string
 
@@ -408,6 +414,12 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	for _, opt := range opts {
 		opt(&o)
 	}
+	// Before the data dir, the DB and any goroutine: a bad GitHub URL or CA
+	// then leaves nothing to close.
+	builtin, err := all.Kinds(cfg.NamecheapAPI, cfg.GitHubURL, cfg.GitHubCA)
+	if err != nil {
+		return nil, err
+	}
 	box, err := secrets.New(cfg.SecretsKey)
 	if err != nil {
 		return nil, err
@@ -659,7 +671,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 		return l
 	})
-	orch.kinds, orch.dnsOpen = append(all.Kinds(), o.kinds...), o.dnsOpen
+	builtin = append(builtin, o.kinds...)
+	orch.kinds, orch.dnsOpen = builtin, o.dnsOpen
 	orch.panelSeam = o.panelSeam
 	orch.conns = build("leaf/connector", func() *connector.Leaf { return connector.New(st.Connectors, orch.kinds) })
 	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, st.DNSRecords) })

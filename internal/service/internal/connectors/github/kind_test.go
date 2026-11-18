@@ -147,11 +147,10 @@ func TestBackAndRepos(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	old := api.apiURL
-	api.apiURL = srv.URL
-	defer func() { api.apiURL = old }()
 	ctx := context.Background()
-	c := &Conn{Owner: "acme"}
+	cl := New()
+	cl.apiURL = srv.URL
+	c := &Conn{Owner: "acme", s: &settings{web: defaults.web, host: defaults.host, client: cl}}
 	if err := c.Back(ctx, url.Values{}); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("no code: %v", err)
 	}

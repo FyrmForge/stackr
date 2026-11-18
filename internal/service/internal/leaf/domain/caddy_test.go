@@ -385,3 +385,25 @@ func TestBuildListensOnIPv4Only(t *testing.T) {
 		}
 	}
 }
+
+// dev.env's private CA reaches every acme issuer; unset leaves them as they were.
+func TestBuildPrivateACMECA(t *testing.T) {
+	build := func(in domain.Install) string {
+		cfg, err := domain.Build(in, one(row("app.example.com", domain.Extras{})), nil, expand)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(cfg)
+	}
+	in := install
+	in.ACMECA, in.ACMECARoot = "https://acme.stackr.test:14000/dir", "/run/stackr-admin/root.pem"
+	got := build(in)
+	for _, w := range []string{`"ca":"https://acme.stackr.test:14000/dir"`, `"trusted_roots_pem_files":["/run/stackr-admin/root.pem"]`} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %s in %s", w, got)
+		}
+	}
+	if got := build(install); strings.Contains(got, `"ca"`) || strings.Contains(got, "trusted_roots") {
+		t.Errorf("default config carries a CA: %s", got)
+	}
+}

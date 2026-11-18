@@ -42,6 +42,9 @@ type Deps struct {
 	// hamr email inbox at /__hamr/mail (via pkg/emailmock); in production
 	// swap in a real provider adapter that satisfies email.Sender.
 	EmailSender email.Sender
+	// GitHubWeb is the site the GitHub connector's setup form posts to; ""
+	// means github.com (dev.env points it at a fake).
+	GitHubWeb string
 }
 
 // CookieSecure reports whether cookies carry Secure: always, whoever
@@ -77,8 +80,12 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// without it the browser drops the submit with no word to the user.
 	// ponytail: one provider, so one host here; a second provider that takes a
 	// form POST gets its host from the connector kind.
+	ghWeb := deps.GitHubWeb
+	if ghWeb == "" {
+		ghWeb = "https://github.com"
+	}
 	csp := "default-src 'self'; script-src " + script + "; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
-		"base-uri 'self'; form-action 'self' https://github.com; object-src 'none'; frame-ancestors 'none'"
+		"base-uri 'self'; form-action 'self' " + ghWeb + "; object-src 'none'; frame-ancestors 'none'"
 
 	// Site routes.
 	site := e.Group("")

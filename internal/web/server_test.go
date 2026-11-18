@@ -55,6 +55,20 @@ func TestCSPNoInlineScripts(t *testing.T) {
 	}
 }
 
+func TestCSPGitHubWeb(t *testing.T) {
+	env := servicetest.New(t)
+	srv, err := server.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), BaseURL: "https://panel.example.com", GitHubWeb: "https://github.stackr.test:8443"})
+	rec := httptest.NewRecorder()
+	srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'self' https://github.stackr.test:8443;") {
+		t.Errorf("CSP = %q", csp)
+	}
+}
+
 // Cookies are Secure for an https BASE_URL whoever terminates TLS, and only
 // for that. The session cookie takes the same helper; CSRF is checked on the wire.
 func TestCookiesSecureFollowBaseURL(t *testing.T) {
