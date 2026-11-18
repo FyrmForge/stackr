@@ -33,6 +33,7 @@ const (
 
 	diskShortWait = 30 * time.Second // verify, folder, drop, a readdir
 	diskLongWait  = 5 * time.Minute  // a sizes walk
+	diskPullWait  = 10 * time.Minute // pulling the helper image
 	diskCleanWait = 15 * time.Second // removing the helper after a cancel
 	diskSlack     = time.Minute      // past its deadline, a helper is swept
 )
@@ -40,13 +41,14 @@ const (
 type diskHost struct {
 	o           *Orchestrator
 	short, long time.Duration
+	pullWait    time.Duration
 	// image is the helper image on a node; tests replace it.
 	image  func(ctx context.Context) (string, error)
 	pulled sync.Map // node id + image ref -> true
 }
 
 func newDiskHost(o *Orchestrator) *diskHost {
-	return &diskHost{o: o, short: diskShortWait, long: diskLongWait, image: o.helperImage}
+	return &diskHost{o: o, short: diskShortWait, long: diskLongWait, pullWait: diskPullWait, image: o.helperImage}
 }
 
 // InProcessDisk runs every command on e, whatever the node. For tests and
@@ -93,8 +95,9 @@ func (h *diskHost) Disk(ctx context.Context, nodeID string, r hostdisk.Request) 
 		defer cancel()
 		return hostdisk.Run(ctx, hostdisk.Env{Root: "/"}, r), nil
 	}
-	// the image is pulled outside the deadline: a first pull is slow and is
-	// not a dead mount. A node that lost the image since gets one retry.
+	// the image is pulled outside the op deadline (a first pull is slow and is
+	// not a dead mount) under its own, so a hung registry never holds the
+	// caller's locks for good. A node that lost the image since gets one retry.
 	for try := 0; ; try++ {
 		ref, err := h.pull(ctx, nodeID)
 		if err != nil {
@@ -120,7 +123,9 @@ func (h *diskHost) pull(ctx context.Context, nodeID string) (string, error) {
 	if _, done := h.pulled.Load(nodeID + " " + ref); done {
 		return ref, nil
 	}
-	if err := h.o.docker.Pull(docker.WithNode(ctx, nodeID), ref, "", io.Discard); err != nil {
+	pctx, cancel := context.WithTimeout(ctx, h.pullWait)
+	defer cancel()
+	if err := h.o.docker.Pull(docker.WithNode(pctx, nodeID), ref, "", io.Discard); err != nil {
 		return "", fmt.Errorf("pull %s: %w", ref, err)
 	}
 	h.pulled.Store(nodeID+" "+ref, true)
