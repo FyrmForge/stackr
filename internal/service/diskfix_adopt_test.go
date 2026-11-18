@@ -139,3 +139,16 @@ func TestVolumeStorageShowsABoundObjectWithNoFolderRow(t *testing.T) {
 		t.Fatalf("storage = %+v", s)
 	}
 }
+
+// The Stored on card disables Move to disk with the plan's refusal while the node has not read its disk.
+func TestVolumeMoveInfoDisablesWhenTheDiskIsUnread(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	d.addDisk(t)
+	v := d.vol(t, "plain")
+	m, err := d.orch.VolumeMoveInfo(ctx, v.ID)
+	must(t, err)
+	if !m.Offer || !strings.Contains(m.Why, "not read its disk") {
+		t.Fatalf("info = %+v", m)
+	}
+}

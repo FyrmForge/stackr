@@ -717,6 +717,11 @@ func (o *Orchestrator) VolumeMoveInfo(ctx context.Context, volumeID string) (Vol
 		m.Why = "The node disk is not ready."
 	case v.InstanceID != nil && o.noStandbys(ctx, *v.InstanceID) != nil:
 		m.Why = "This instance has standbys. Remove them first."
+	default:
+		// the plan's own refusal: a disk nobody has read cannot be sized against
+		if _, _, err := o.dataDiskOf(ctx, nodeID); errors.As(err, new(errs.Refused)) {
+			m.Why = err.Error()
+		}
 	}
 	return m, nil
 }
