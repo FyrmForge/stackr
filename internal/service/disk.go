@@ -58,6 +58,11 @@ type NodeDiskView struct {
 	DeviceBytes uint64
 	NewSpace    uint64
 	Damaged     string
+	// WasBytes is the device's size when the disk was added or last grown;
+	// Formatted is whether the add already made the filesystem (a retry then
+	// only mounts it).
+	WasBytes  uint64
+	Formatted bool
 }
 
 // FolderProbe is what a path on a node looks like before it is added. A
@@ -201,7 +206,8 @@ func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskVie
 	if err != nil {
 		return NodeDiskView{}, err
 	}
-	v := NodeDiskView{Has: true, ID: d.ID, Kind: d.Kind, Path: d.MountPath, State: d.State, Volumes: len(fs), Stale: true, Device: d.DeviceID}
+	v := NodeDiskView{Has: true, ID: d.ID, Kind: d.Kind, Path: d.MountPath, State: d.State, Volumes: len(fs), Stale: true, Device: d.DeviceID,
+		WasBytes: uint64(max(d.DeviceBytes, 0)), Formatted: d.FSUUID != ""}
 	if d.State == disk.StateAdopting && d.NodeID != nodeID { // before the commit the row is still the old node's
 		v.Path = d.OpMountPath
 	}

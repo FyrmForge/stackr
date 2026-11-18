@@ -528,6 +528,12 @@ func TestXFSPlaceAssignsProjectsAndCapsSurviveAReplace(t *testing.T) { // DL: ca
 		}
 	}
 
+	// above the largest cap: its own refusal, nothing saved
+	huge := int64(1<<40 + 1)
+	if err := x.orch.SetVolumeCap(ctx, a.ID, &huge); err == nil || !strings.Contains(err.Error(), "Give a size up to 1 PB.") {
+		t.Errorf("cap over 1 PB = %v, want the 1 PB refusal", err)
+	}
+
 	// cap_reapplied_on_place: the folder is placed again (a deploy after the Docker object went)
 	must(t, x.wFake.RemoveVolume(ctx, a.Name))
 	before := len(x.fx.quotaCmds())

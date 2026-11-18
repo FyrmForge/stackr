@@ -142,7 +142,10 @@ func (o *Orchestrator) CapEnforced(ctx context.Context, v Volume) (bool, error) 
 // refused and nothing changes. On any other volume the cap is saved and not
 // enforced (CapEnforced).
 func (o *Orchestrator) SetVolumeCap(ctx context.Context, volumeID string, mb *int64) error {
-	if mb != nil && (*mb < 1 || *mb > maxCapMB) {
+	if mb != nil && *mb > maxCapMB {
+		return errs.Invalidf("max_size_mb", "Give a size up to 1 PB.")
+	}
+	if mb != nil && *mb < 1 {
 		return errs.Invalidf("max_size_mb", "Give a size of at least 1 MB, or leave it empty for no cap.")
 	}
 	v, err := o.store.Volumes.Get(ctx, volumeID)
