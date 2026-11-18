@@ -89,10 +89,13 @@ func TestUnsetParams(t *testing.T) {
 	if !slices.Equal(got["gate.password"], []string{"bazarr"}) {
 		t.Fatalf("unset = %v", got)
 	}
-	names, err := w.orch.SetParamsLater(ctx, s, []ParamEntry{{Collection: "gate", Name: "password", Kind: "secret", Value: "pw"}})
+	names, waiting, err := w.orch.SetParamsLater(ctx, s, []ParamEntry{{Collection: "gate", Name: "password", Kind: "secret", Value: "pw"}})
 	must(t, err)
-	if len(names) != 0 || w.orch.RestartPending(tl.ID) {
-		t.Errorf("a stopped tile is marked: %v", names)
+	if !slices.Equal(waiting, []string{"bazarr"}) || !w.orch.RestartPending(tl.ID) {
+		t.Errorf("the tile whose deploy was cancelled is not named and marked: %v", waiting)
+	}
+	if len(names) != 0 {
+		t.Errorf("a stopped tile redeploys: %v", names)
 	}
 	if j = w.wait(t, j.ID); j.State != job.Cancelled {
 		t.Errorf("parked deploy = %s, want cancelled so it does not start", j.State)
@@ -112,7 +115,7 @@ func TestSetParamsLater(t *testing.T) {
 	_, err := w.orch.SetParams(ctx, s, []ParamEntry{{Collection: "c", Name: "mode", Kind: "param", Value: "a"}})
 	must(t, err)
 	tl := w.envTile(t, w.env, "web", "params.c.mode")
-	names, err := w.orch.SetParamsLater(ctx, s, []ParamEntry{{Collection: "c", Name: "mode", Kind: "param", Value: "b"}})
+	names, _, err := w.orch.SetParamsLater(ctx, s, []ParamEntry{{Collection: "c", Name: "mode", Kind: "param", Value: "b"}})
 	must(t, err)
 	if !slices.Equal(names, []string{"web"}) || !w.orch.RestartPending(tl.ID) {
 		t.Fatalf("names = %v pending = %v", names, w.orch.RestartPending(tl.ID))
@@ -134,5 +137,54 @@ func TestSetParamsLater(t *testing.T) {
 		t.Error("the mark stayed after a deploy that succeeded")
 	} else if dj.State != job.Done && !w.orch.RestartPending(tl.ID) {
 		t.Errorf("the mark cleared though the deploy ended %s", dj.State)
+	}
+}
+
+// A parked deploy cycles through queued and running for its re-check, with no
+// waiting_param on its row: the unset value stays listed and a later save
+// still cancels it, at env scope and at org scope (the runner would resume it
+// the moment the value lands).
+func TestParkedRecheckStillWaits(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, ref string }{
+		{"env", "gate.password"},
+		{"org", "org.gate.password"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t)
+			ctx := context.Background()
+			es := ParamScope{Kind: "env", ID: w.env}
+			tl, err := w.orch.CreateTile(ctx, Tile{StackID: w.stack, EnvironmentID: w.env, Name: "bazarr", Kind: "image", ImageRef: "nginx:1", ContainerPort: 80})
+			must(t, err)
+			ref := "${{ params.gate.password }}"
+			s := es
+			if tc.name == "org" {
+				ref, s = "${{ org.params.gate.password }}", ParamScope{Kind: "org", ID: w.org}
+			}
+			_, err = w.st.DB().ExecContext(ctx, `UPDATE tiles SET env_json = ? WHERE id = ?`, `{"P":"`+ref+`"}`, tl.ID)
+			must(t, err)
+			j, err := w.orch.Deploy(ctx, tl.ID)
+			must(t, err)
+			if j = w.waiting(t, j.ID); j.State != job.Waiting {
+				t.Fatalf("deploy = %s %q, want parked", j.State, j.Error)
+			}
+			// the runner has it back in the queue for a look, its row without a param
+			_, err = w.st.DB().ExecContext(ctx, `UPDATE jobs SET state = 'queued', waiting_param = NULL WHERE id = ?`, j.ID)
+			must(t, err)
+			if tc.name == "env" {
+				if got, _ := w.orch.UnsetParams(ctx, es); !slices.Equal(got[tc.ref], []string{"bazarr"}) {
+					t.Errorf("a re-checked wait vanished: %v", got)
+				}
+			}
+			_, waiting, err := w.orch.SetParamsLater(ctx, s, []ParamEntry{{Collection: "gate", Name: "password", Kind: "secret", Value: "pw"}})
+			must(t, err)
+			if !slices.Equal(waiting, []string{"bazarr"}) {
+				t.Errorf("waiting = %v", waiting)
+			}
+			if j = w.wait(t, j.ID); j.State != job.Cancelled {
+				t.Errorf("deploy = %s, want cancelled before the value was written", j.State)
+			}
+		})
 	}
 }

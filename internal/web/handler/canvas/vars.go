@@ -210,10 +210,17 @@ func (h *handler) SetVars(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
 	if form.Get("restart") == "later" {
-		names, err := h.orch.SetParamsLater(ctx, col.ps, render.ParamEntries(form))
+		names, waiting, err := h.orch.SetParamsLater(ctx, col.ps, render.ParamEntries(form))
 		note := "Saved."
 		if len(names) > 0 {
 			note += " " + strings.Join(names, ", ") + " redeploy later."
+		}
+		if len(waiting) > 0 {
+			verb := " wait"
+			if len(waiting) == 1 {
+				verb = " waits"
+			}
+			note += " " + vars.NaturalList(waiting) + verb + " for a deploy."
 		}
 		return h.varsAfter(c, s, note, err)
 	}

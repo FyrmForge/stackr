@@ -124,6 +124,10 @@ func (o *Orchestrator) WaitingOnYou(ctx context.Context, p *Principal) (Waiting,
 // can write the env) or host access (to an admin; to a writer it waits on
 // someone else).
 func (o *Orchestrator) waitingParked(ctx context.Context, p *Principal, w *Waiting, add func(string, WaitItem)) error {
+	pjs, err := o.parkedJobs(ctx)
+	if err != nil {
+		return err
+	}
 	js, err := o.jobRows.List(ctx, job.Waiting)
 	if err != nil {
 		return err
@@ -131,40 +135,48 @@ func (o *Orchestrator) waitingParked(ctx context.Context, p *Principal, w *Waiti
 	type key struct{ env, param string }
 	vals := map[key][]string{} // tile slugs
 	var order []key
+	for _, pj := range pjs {
+		var m map[string]any
+		_ = json.Unmarshal([]byte(pj.Job.Payload), &m)
+		env := o.jobEnv(ctx, m)
+		if env == "" || !o.stillUnset(ctx, pj, env) {
+			continue
+		}
+		k := key{env, pj.Param}
+		if _, ok := vals[k]; !ok {
+			order = append(order, k)
+			vals[k] = nil
+		}
+		ts := parkedTiles(pj.Job)
+		if len(ts) == 0 {
+			ts = []string{""}
+		}
+		for _, id := range ts {
+			slug := "a tile"
+			if t, err := o.tiles.Get(ctx, id); err == nil {
+				slug = t.Slug
+			}
+			if !slices.Contains(vals[k], slug) {
+				vals[k] = append(vals[k], slug)
+			}
+		}
+	}
 	access := map[string]int{} // stack -> jobs
 	for _, j := range js {
 		if j.WaitingParam == nil {
 			continue
 		}
 		var pl struct {
-			TileID     string      `json:"tile_id"`
 			HostAccess *hostAccess `json:"host_access"`
 		}
 		_ = json.Unmarshal([]byte(j.Payload), &pl)
-		if _, approval := hostgrant.Parse(*j.WaitingParam); approval {
-			if pl.HostAccess != nil && !o.stackGone(ctx, pl.HostAccess.Stack) {
-				access[pl.HostAccess.Stack]++
-			}
-			continue
-		}
-		var m map[string]any
-		_ = json.Unmarshal([]byte(j.Payload), &m)
-		env := o.jobEnv(ctx, m)
-		if env == "" {
-			continue
-		}
-		k := key{env, *j.WaitingParam}
-		if _, ok := vals[k]; !ok {
-			order = append(order, k)
-		}
-		slug := "a tile"
-		if t, err := o.tiles.Get(ctx, pl.TileID); err == nil {
-			slug = t.Slug
-		}
-		if !slices.Contains(vals[k], slug) {
-			vals[k] = append(vals[k], slug)
+		if _, approval := hostgrant.Parse(*j.WaitingParam); approval && pl.HostAccess != nil && !o.stackGone(ctx, pl.HostAccess.Stack) {
+			access[pl.HostAccess.Stack]++
 		}
 	}
+	orgVals := map[key][]string{} // org param waits, one item per org and param: {org id, param}
+	var orgOrder []key
+	var orgSt = map[key]Stack{}
 	for _, k := range order {
 		e, err := o.envs.Get(ctx, k.env)
 		if err != nil {
@@ -175,7 +187,22 @@ func (o *Orchestrator) waitingParked(ctx context.Context, p *Principal, w *Waiti
 			continue
 		}
 		og, err := o.orgs.Get(ctx, st.OrgID)
-		if err != nil || authz.Can(p.Access, "env.write", authz.Resource{OrgID: og.ID, StackID: st.ID}) != nil {
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(k.param, "org.") {
+			ok := key{og.ID, k.param}
+			if _, seen := orgVals[ok]; !seen {
+				orgOrder, orgSt[ok] = append(orgOrder, ok), st
+			}
+			for _, sl := range vals[k] {
+				if !slices.Contains(orgVals[ok], sl) {
+					orgVals[ok] = append(orgVals[ok], sl)
+				}
+			}
+			continue
+		}
+		if authz.Can(p.Access, "env.write", authz.Resource{OrgID: og.ID, StackID: st.ID}) != nil {
 			continue
 		}
 		add("Values to set", WaitItem{
@@ -183,6 +210,20 @@ func (o *Orchestrator) waitingParked(ctx context.Context, p *Principal, w *Waiti
 			Sub:   joinWords(vals[k]) + waits(len(vals[k])),
 			Href:  "/" + og.Slug + "/" + st.Slug + "/" + e.Slug + "?drawer=env%3A" + e.ID + "&tab=variables", Act: "Set",
 		})
+	}
+	for _, k := range orgOrder {
+		st := orgSt[k]
+		og, err := o.orgs.Get(ctx, k.env)
+		if err != nil {
+			continue
+		}
+		sub := joinWords(orgVals[k]) + waits(len(orgVals[k]))
+		switch {
+		case authz.Can(p.Access, "org.write", authz.Resource{OrgID: og.ID}) == nil: // set in the org's variables, which takes an owner
+			add("Values to set", WaitItem{Title: og.Name + ", " + k.param, Sub: sub, Href: "/" + og.Slug + "?drawer=org%3A" + og.ID + "&tab=variables", Act: "Set"})
+		case authz.Can(p.Access, "env.write", authz.Resource{OrgID: og.ID, StackID: st.ID}) == nil:
+			w.Others = append(w.Others, WaitItem{Title: og.Name + ", " + k.param, Sub: sub + " for an org owner"})
+		}
 	}
 	for stackID, n := range access {
 		st, err := o.stacks.Get(ctx, stackID)

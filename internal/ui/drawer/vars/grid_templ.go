@@ -1416,11 +1416,11 @@ func pendingLater(p Pending) string {
 }
 
 func waitsLine(tiles []string) string {
-	return naturalList(tiles) + " wait for it."
+	return NaturalList(tiles) + " wait for it."
 }
 
-// naturalList is "a", "a and b", "a, b and c".
-func naturalList(xs []string) string {
+// NaturalList is "a", "a and b", "a, b and c".
+func NaturalList(xs []string) string {
 	switch len(xs) {
 	case 0:
 		return ""

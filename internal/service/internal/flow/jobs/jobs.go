@@ -624,6 +624,15 @@ func (r *Runner) ended(j store.Job) {
 // Get returns one job row.
 func (r *Runner) Get(ctx context.Context, id string) (store.Job, error) { return r.jobs.Get(ctx, id) }
 
+// ParkedParam is what a job that has parked last waited on, "" for one that
+// never parked. It holds while the job is back queued or running for its
+// re-check, when its row has no waiting_param.
+func (r *Runner) ParkedParam(id string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.parked[id]
+}
+
 // Phase is the step a running job's log last named ("Pulling image"), ""
 // when it has named none.
 func (r *Runner) Phase(id string) string {
