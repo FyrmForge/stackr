@@ -42,6 +42,9 @@ type Disk interface {
 	State(ctx context.Context, nodeID string) (DiskState, error)
 	// Folders reports which names have a folder row on the node's disk. A DB read.
 	Folders(ctx context.Context, nodeID string, names ...string) (map[string]bool, error)
+	// Path is the folder a volume of this name is bound to on the node's ready
+	// disk. Pure: no host call, no row written. *MissingError unless the disk is ready.
+	Path(ctx context.Context, nodeID, name string) (string, error)
 	// Place is get-or-create: the folder row, then the folder. *MissingError unless the disk is ready.
 	Place(ctx context.Context, nodeID, name string) (opts map[string]string, err error)
 	// Usage: *MissingError unless the disk is ready.
@@ -140,11 +143,10 @@ func (l *Leaf) resolve(ctx context.Context, nodeID, name string, st DiskState) (
 	}
 	p.obj = Object{Found: found, Device: dev}
 	want := ""
-	if st == DiskReady && dev != "" {
-		if p.opts, err = l.disk.Place(ctx, nodeID, name); err != nil {
+	if st == DiskReady && dev != "" { // a read never places: only EnsureNamed does
+		if want, err = l.disk.Path(ctx, nodeID, name); err != nil {
 			return p, err
 		}
-		want = docker.DeviceOf(p.opts)
 	}
 	p.rt = route(st, p.hasRow, p.obj, want)
 	return p, nil
@@ -220,6 +222,9 @@ func (l *Leaf) RemoveNamed(ctx context.Context, nodeID, name string) error {
 	p, err := l.resolve(ctx, nodeID, name, st)
 	if err != nil {
 		return err
+	}
+	if !p.obj.Found && !p.hasRow {
+		return nil // nothing to remove, whatever the disk state
 	}
 	switch p.rt {
 	case RouteLegacy:

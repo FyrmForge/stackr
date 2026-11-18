@@ -10,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -114,6 +115,15 @@ func (a diskAdapter) ready(ctx context.Context, nodeID string) (store.NodeDisk, 
 		return d, &volume.MissingError{Node: nodeID}
 	}
 	return d, nil
+}
+
+// Path is the folder a volume is bound to, from the row alone: no host call.
+func (a diskAdapter) Path(ctx context.Context, nodeID, name string) (string, error) {
+	d, err := a.ready(ctx, nodeID)
+	if err != nil {
+		return "", err
+	}
+	return docker.DeviceOf(disk.BindOpts(d.MountPath, d.ID, name)), nil
 }
 
 func (a diskAdapter) Place(ctx context.Context, nodeID, name string) (map[string]string, error) {

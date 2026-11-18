@@ -42,6 +42,13 @@ func (d *fakeDisk) Folders(_ context.Context, _ string, names ...string) (map[st
 	return out, nil
 }
 
+func (d *fakeDisk) Path(_ context.Context, node, name string) (string, error) {
+	if d.state[node] != volume.DiskReady {
+		return "", &volume.MissingError{Node: node}
+	}
+	return "/d/" + name, nil
+}
+
 func (d *fakeDisk) Place(_ context.Context, node, name string) (map[string]string, error) {
 	if d.state[node] != volume.DiskReady {
 		return nil, &volume.MissingError{Node: node}
@@ -521,5 +528,30 @@ func TestGhostRouteEveryVerbFailsSafe(t *testing.T) {
 		if r.rowGone(t) || r.has("RemoveVolume") || r.has("TarVolume") || r.has("UntarVolume") {
 			t.Errorf("row %v: ghost touched: %s", hasRow, r.calls())
 		}
+	}
+}
+
+// V1: a read of a bound object on a ready disk never places: no host call, no row.
+func TestReadsOfABoundObjectNeverPlace(t *testing.T) {
+	r := newRig(t, volume.DiskReady)
+	r.bound("/d/" + r.name) // bound at the right folder, no row yet
+	r.d.use[r.name] = volume.Use{Bytes: 3}
+	r.l.Sizes(ctx, []store.Volume{r.v})
+	r.l.SizeBytes(ctx, r.v)
+	r.l.HoldsData(ctx, r.v)
+	if len(r.d.placed) != 0 || r.d.rows[r.name] {
+		t.Errorf("a read placed: %v rows %v", r.d.placed, r.d.rows)
+	}
+}
+
+// V6: removing what is not there is fine on a node whose disk is missing.
+func TestRemoveNamedOfNothingSucceedsOnAMissingDisk(t *testing.T) {
+	r := newRig(t, volume.DiskNotReady) // no Docker object, no folder row
+	if err := r.l.RemoveNamed(ctx, "n1", r.name); err != nil {
+		t.Fatalf("remove of nothing: %v", err)
+	}
+	r.d.rows[r.name] = true // a folder row still refuses
+	if err := r.l.RemoveNamed(ctx, "n1", r.name); !isMissing(err) {
+		t.Fatalf("remove with a row: %v", err)
 	}
 }
