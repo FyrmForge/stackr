@@ -68,7 +68,7 @@ func (o *Orchestrator) TileStatus(ctx context.Context, id string) (TileStatus, e
 			return out, err
 		}
 	}
-	if j, ok, err := o.jobRows.Last(ctx, id); err != nil {
+	if j, ok, err := o.jobRows.LastShown(ctx, id); err != nil {
 		return out, err
 	} else if ok {
 		out.LastJob = &j

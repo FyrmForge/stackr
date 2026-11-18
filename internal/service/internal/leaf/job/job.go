@@ -235,12 +235,21 @@ func (l *Leaf) History(ctx context.Context, tileIDs []string, limit int) ([]stor
 }
 
 // Last is the newest job touching the tile, in any state: what the
-// orchestrator layers over tile.State (DECIDE 8). ok=false: none yet. The
-// node-wide disk jobs lock every tile on the node but are none of the tile's
-// own, so they are skipped.
+// orchestrator layers over tile.State (DECIDE 8). ok=false: none yet.
+func (l *Leaf) Last(ctx context.Context, tileID string) (store.Job, bool, error) {
+	js, err := l.jobs.ListTouching(ctx, []string{tileID}, "", 1)
+	if err != nil || len(js) == 0 {
+		return store.Job{}, false, err
+	}
+	return js[0], true, nil
+}
+
+// LastShown is Last for display: the node-wide disk jobs lock every tile on
+// the node but are none of the tile's own, so they are skipped. Liveness
+// checks use Last, which still sees them.
 // ponytail: looks at the newest 20; a tile under 20 disk jobs in a row reads
 // as having none.
-func (l *Leaf) Last(ctx context.Context, tileID string) (store.Job, bool, error) {
+func (l *Leaf) LastShown(ctx context.Context, tileID string) (store.Job, bool, error) {
 	js, err := l.jobs.ListTouching(ctx, []string{tileID}, "", 20)
 	if err != nil {
 		return store.Job{}, false, err

@@ -595,7 +595,7 @@ type status struct {
 // runs speak (RunWord).
 func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 	var s status
-	j, hasJob, err := f.Jobs.Last(ctx, t.ID)
+	j, hasJob, err := f.Jobs.LastShown(ctx, t.ID)
 	if err != nil {
 		return s, err
 	}

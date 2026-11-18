@@ -17,8 +17,12 @@ func TestDiskJobsAreNotATilesLastJob(t *testing.T) {
 	d.addDisk(t)
 	j, err := d.orch.CheckNodeDisk(ctx, adminP(), "w1")
 	d.run(t, j, err)
-	if got, ok, err := d.orch.jobRows.Last(ctx, d.edgeT.ID); err != nil || (ok && strings.HasPrefix(got.Kind, "disk-")) {
-		t.Errorf("last job of a tile = %s %v, %v", got.Kind, ok, err)
+	if got, ok, err := d.orch.jobRows.LastShown(ctx, d.edgeT.ID); err != nil || (ok && strings.HasPrefix(got.Kind, "disk-")) {
+		t.Errorf("shown last job of a tile = %s %v, %v", got.Kind, ok, err)
+	}
+	// liveness checks still see it
+	if got, ok, err := d.orch.jobRows.Last(ctx, d.edgeT.ID); err != nil || !ok || got.Kind != "disk-check" {
+		t.Errorf("Last = %s %v, %v; want the disk-check job", got.Kind, ok, err)
 	}
 	if st, err := d.orch.TileStatus(ctx, d.edgeT.ID); err != nil || (st.LastJob != nil && strings.HasPrefix(st.LastJob.Kind, "disk-")) {
 		t.Errorf("tile status shows %+v, %v", st.LastJob, err)
