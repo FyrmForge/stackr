@@ -315,7 +315,7 @@ templ Review(v ReviewView) {
 				<p class="font-medium">Cannot promote yet</p>
 				<p class="mt-0.5 text-sm">{ gapsTitle(len(gs)) }</p>
 				for i, g := range gs {
-					<form class="mt-2 flex flex-wrap items-center gap-2 text-sm" novalidate hx-post={ g.Post } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">
+					<form class="mt-2 flex flex-wrap items-center gap-2 text-sm" novalidate hx-history="false" hx-post={ g.Post } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">
 						<span class="font-mono text-rw-text">{ g.Label }</span>
 						<input type="hidden" name="name" value={ g.Field }/>
 						<input class="input !w-48 font-mono" type="password" name="value" id={ "gap-" + strconv.Itoa(i) } autocomplete="new-password" aria-label={ "Value of " + g.Label }/>

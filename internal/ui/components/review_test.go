@@ -69,7 +69,7 @@ func TestReviewMissingSecret(t *testing.T) {
 	p := sampleRows
 	p.Gaps = []GapView{{Kind: "secret", Label: "gate.password", Field: "gate.password", Post: "/fill"}}
 	body := renderReview(t, ReviewView{Plan: p, Button: "Promote to prod", Action: "/go"})
-	for _, want := range []string{"Cannot promote yet", "One secret is missing.", `type="password"`, `hx-post="/fill"`, "Save and re-plan", "disabled", "Set gate.password first."} {
+	for _, want := range []string{"Cannot promote yet", "One secret is missing.", `type="password"`, `autocomplete="new-password"`, `hx-history="false"`, `hx-post="/fill"`, "Save and re-plan", "disabled", "Set gate.password first."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("review lacks %q:\n%s", want, body)
 		}

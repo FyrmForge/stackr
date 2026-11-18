@@ -983,14 +983,14 @@ func Review(v ReviewView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			for i, g := range gs {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "<form class=\"mt-2 flex flex-wrap items-center gap-2 text-sm\" novalidate hx-post=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "<form class=\"mt-2 flex flex-wrap items-center gap-2 text-sm\" novalidate hx-history=\"false\" hx-post=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var41 string
 				templ_7745c5c3_Var41, templ_7745c5c3_Err = templruntime.NewAttributeExpression(g.Post).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/review.templ`, Line: 318, Col: 93}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/review.templ`, Line: 318, Col: 112}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 				if templ_7745c5c3_Err != nil {
@@ -1003,7 +1003,7 @@ func Review(v ReviewView) templ.Component {
 				var templ_7745c5c3_Var42 string
 				templ_7745c5c3_Var42, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + DrawerRoot).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/review.templ`, Line: 318, Col: 124}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/review.templ`, Line: 318, Col: 143}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 				if templ_7745c5c3_Err != nil {
