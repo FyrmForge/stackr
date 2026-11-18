@@ -41,3 +41,15 @@ func (o *Orchestrator) EnvDiskDown(ctx context.Context, envID string) (string, b
 	}
 	return "", false
 }
+
+// nodeAndDisk is the node an env runs on and whether it has a ready disk, for
+// a plan's create rows: a new volume lands on that disk. Both are empty when
+// the node cannot be told.
+func (o *Orchestrator) nodeAndDisk(ctx context.Context, envID string) (string, bool) {
+	n, err := o.nodeOfEnvID(ctx, envID)
+	if err != nil {
+		return "", false
+	}
+	d, has, err := o.nodeDisk(ctx, n.ID)
+	return n.Name, err == nil && has && d.State == disk.StateReady
+}

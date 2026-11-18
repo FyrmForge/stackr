@@ -769,6 +769,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			CheckDNS:       orch.CheckFileRecords,
 			WriteParams:    orch.writeParams,
 			Placements:     orch.stackPlacements,
+			NodeOf:         orch.nodeAndDisk,
 			Forget:         orch.forgetTileClone,
 			SetVolumeCap:   orch.SetVolumeCap,
 			DumpBeforeDrop: orch.dumpBeforeDrop,

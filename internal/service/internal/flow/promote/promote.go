@@ -65,6 +65,10 @@ type Flow struct {
 	WriteParams func(ctx context.Context, s params.Scope, skipEnv string, write func() error) error
 	// Build builds one service tile at a commit and returns the image row id.
 	Build func(ctx context.Context, st store.Stack, t store.Tile, commit string, log io.Writer) (string, error)
+	// NodeOf is the name of the node the env runs on and whether that node
+	// has a ready disk, which a new volume then lands on; for a create row's
+	// details. Nil = the details name neither.
+	NodeOf func(ctx context.Context, envID string) (node string, onDisk bool)
 	// Placements gathers the facts the stack file's pin, ingress and exits
 	// are checked against, for the env being planned. Nil = no checks.
 	Placements func(ctx context.Context, envID string) (PlacementLive, error)

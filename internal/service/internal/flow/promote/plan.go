@@ -459,11 +459,19 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			haveVol[v.Slug] = true
 		}
 	}
+	var nodeName string
+	var onDisk bool
+	if f.NodeOf != nil {
+		nodeName, onDisk = f.NodeOf(ctx, e.ID)
+	}
 	volWord := func(spec string) string {
 		slug, _, _ := strings.Cut(spec, ":")
 		out := slug
 		if !haveVol[slug] {
 			out += ", new"
+			if onDisk {
+				out += ", on the node disk"
+			}
 		}
 		if vc, ok := re.Volumes[slug]; ok && vc.MaxSizeMB != nil && *vc.MaxSizeMB > 0 {
 			out += ", " + capWord(int64(*vc.MaxSizeMB))
@@ -529,7 +537,7 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			continue
 		}
 		if !exists {
-			p.add(Change{Kind: "create", Tile: name, New: row.Kind, Details: createDetails(tc, row, volWord)})
+			p.add(Change{Kind: "create", Tile: name, New: row.Kind, Details: createDetails(tc, row, nodeName, volWord)})
 			w.creates = append(w.creates, row)
 			w.redeploy[name] = true
 			w.unpin[name] = tile.Pulls(row)

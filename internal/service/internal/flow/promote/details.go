@@ -11,8 +11,10 @@ import (
 // will be, from the file's block and the row it makes, one "Label: value"
 // per line. A line with no value is left out.
 //
+// node is the node the env runs on, "" = not known yet.
+//
 // vol, when set, words each volume spec of the block ("pgdata, new, 5120 MB").
-func createDetails(tc TileConf, row store.Tile, vol func(spec string) string) string {
+func createDetails(tc TileConf, row store.Tile, node string, vol func(spec string) string) string {
 	var out []string
 	add := func(label, v string) {
 		if v != "" {
@@ -24,6 +26,7 @@ func createDetails(tc TileConf, row store.Tile, vol func(spec string) string) st
 		add("Major", strconv.Itoa(tc.Major))
 	}
 	add("Image", row.ImageRef)
+	add("Node", node)
 	add("Command", tc.Command)
 	if tc.Replicas > 1 {
 		add("Replicas", strconv.Itoa(tc.Replicas))
