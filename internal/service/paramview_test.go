@@ -67,6 +67,23 @@ func TestParamImpact(t *testing.T) {
 	}
 }
 
+// A secret typed again with the value it already has is no redeploy, as in the save.
+func TestParamImpactSecretSame(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	s := ParamScope{Kind: "env", ID: w.env}
+	_, err := w.orch.SetParams(ctx, s, []ParamEntry{{Collection: "c", Name: "token", Kind: "secret", Value: "one"}})
+	must(t, err)
+	w.envTile(t, w.env, "web", "params.c.token")
+	if got, err := w.orch.ParamImpact(ctx, s, []ParamEntry{{Collection: "c", Name: "token", Kind: "secret", Value: "one"}}); err != nil || len(got) != 0 {
+		t.Errorf("same secret = %v %v", got, err)
+	}
+	if got, err := w.orch.ParamImpact(ctx, s, []ParamEntry{{Collection: "c", Name: "token", Kind: "secret", Value: "two"}}); err != nil || !slices.Equal(got, []string{"web"}) {
+		t.Errorf("new secret = %v %v", got, err)
+	}
+}
+
 // A tile parked on a missing value shows as unset with the tile that waits; a
 // restart-later save of it cancels the parked deploy and marks nothing for a
 // tile that was not running.

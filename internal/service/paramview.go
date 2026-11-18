@@ -37,8 +37,9 @@ func (o *Orchestrator) RevealParam(ctx context.Context, by *Principal, s ParamSc
 }
 
 // ParamImpact is the tiles (by slug) a save of es would redeploy, without
-// writing anything: a changed plain value or a secret given a value counts,
-// an unchanged plain one does not. Secrets are never decrypted to compare.
+// writing anything: a changed value or a secret given a new value counts, an
+// unchanged one does not. A stored secret is decrypted here to compare and
+// never leaves.
 func (o *Orchestrator) ParamImpact(ctx context.Context, s ParamScope, es []ParamEntry) ([]string, error) {
 	have, err := o.params.Values(ctx, s, false)
 	if err != nil {
@@ -49,7 +50,8 @@ func (o *Orchestrator) ParamImpact(ctx context.Context, s ParamScope, es []Param
 		k := e.Collection + "." + e.Name
 		switch b, ok := have[k]; {
 		case e.Kind == params.Secret:
-			if e.Value != "" {
+			// compared here and never returned; the real save skips an unchanged value too
+			if cur, err := o.params.Secret(ctx, s, e.Collection, e.Name); e.Value != "" && (err != nil || cur.Value != e.Value) {
 				keys[k] = true
 			}
 		case !ok || b.V != e.Value:
