@@ -594,6 +594,11 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			continue
 		}
 		if cd.up {
+			// Every good read: put a worker's disk registry right if it differs.
+			if err := o.reconcileDisks(ctx, n, cd.f); err != nil {
+				slog.Warn("nodes: disk registry not pushed", "node", n.Name, "err", err)
+			}
+			o.diskWatch(ctx, n, cd.f)
 			o.diskAlert(ctx, n, cd.f.DiskFree, cd.f.DiskTotal)
 			o.clockAlert(ctx, n, cd.skew, cd.skewOK)
 		}

@@ -541,7 +541,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		recGen:     recGen,
 		hostIfaces: o.ifaces,
 		dnsKick:    &coalesce{},
-		alertMem:   &alertState{restarts: map[string][]restartSample{}, memLowSince: map[string]time.Time{}},
+		alertMem:   &alertState{restarts: map[string][]restartSample{}, memLowSince: map[string]time.Time{}, diskBad: map[string]int{}},
 		cfg:        cfg,
 		db:         db,
 		store:      st,

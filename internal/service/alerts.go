@@ -17,17 +17,21 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // Alerts: the panel posts one JSON body per event to the admin's webhook.
@@ -53,6 +57,8 @@ const (
 	AlertBackupFailed = "backup.failed"
 	AlertCertExpiring = "cert.expiring"
 	AlertDiskLow      = "disk.low"
+	AlertDiskFull     = "disk.full"
+	AlertDiskMissing  = "disk.missing"
 	AlertClockSkew    = "clock.skew"
 	AlertObserveDisk  = "observe.disk"
 	AlertCertFailing  = "cert.failing"
@@ -400,6 +406,95 @@ func (o *Orchestrator) diskAlert(ctx context.Context, n store.Node, free, total 
 	}
 }
 
+const (
+	// diskMissingReads is how many fresh reads in a row must show a ready
+	// disk gone before the row latches missing (Seam 4).
+	diskMissingReads = 3
+	// diskFullPct is the share of a node's disk in use that warns.
+	diskFullPct = 80
+)
+
+func diskFullKey(nodeID string) string    { return "alert.diskfull." + nodeID }
+func diskMissingKey(nodeID string) string { return "alert.diskmissing." + nodeID }
+
+// raise fires one alert per crossing: the settings row says "sent". While on
+// it keeps the problem open; off it clears both.
+func (o *Orchestrator) raise(ctx context.Context, key string, on bool, a Alert) {
+	_, was, err := o.store.Settings.Get(ctx, key)
+	if err != nil {
+		return
+	}
+	if !on {
+		o.clearProblem(ctx, key)
+		if was {
+			_ = o.store.Settings.Delete(ctx, key)
+		}
+		return
+	}
+	o.openProblem(ctx, key, a.Severity, a.Message)
+	if !was && o.store.Settings.Set(ctx, key, "1") == nil {
+		o.alert(a)
+	}
+}
+
+// diskWatch reads a node's disk facts against its disk row, on every fresh
+// read the panel gets (the facts poll; the tick for the controller). A ready
+// disk latches missing after diskMissingReads fresh reads in a row that show
+// it unmounted or stamped for another disk. A helper verify that says
+// disk_missing latches it at once (leaf/disk); this pass then only alerts.
+// Stale, unknown or absent facts latch nothing and break the run. The disk
+// never goes ready here: only Check disk does that. A row lookup that fails
+// skips the whole pass.
+func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Facts) {
+	d, has, err := o.nodeDisk(ctx, n.ID)
+	if err != nil {
+		return
+	}
+	w := o.alertWatch()
+	// count adds a fresh bad read to the run; anything else ends it.
+	count := func(bad bool) int {
+		w.diskMu.Lock()
+		defer w.diskMu.Unlock()
+		if !bad {
+			delete(w.diskBad, n.ID)
+			return 0
+		}
+		w.diskBad[n.ID]++
+		return w.diskBad[n.ID]
+	}
+	freshBad := false
+	defer func() {
+		if !freshBad {
+			count(false)
+		}
+	}()
+	if has && d.State == disk.StateReady {
+		i := slices.IndexFunc(f.Disks, func(x hostdisk.Fact) bool { return x.Path == d.MountPath })
+		if f.DisksRead && !f.DisksStale && i >= 0 {
+			x := f.Disks[i]
+			switch {
+			case !x.Mounted || x.StampID != d.ID:
+				freshBad = true
+				if count(true) >= diskMissingReads {
+					if m, err := o.diskLeaf.MarkMissing(ctx, d); err == nil {
+						d, freshBad = m, false // latched: the run is over
+					}
+				}
+			case x.Total > 0:
+				o.raise(ctx, diskFullKey(n.ID), x.Free*100 <= x.Total*(100-diskFullPct), Alert{
+					Event: AlertDiskFull, Severity: SevWarning, Node: n.Name, Subject: n.Name,
+					Message: fmt.Sprintf("The disk on %s is %d%% full, %s free.", n.Name, 100-x.Free*100/x.Total, gb(x.Free))})
+			}
+		}
+	}
+	if !has || d.State != disk.StateReady {
+		o.raise(ctx, diskFullKey(n.ID), false, Alert{})
+	}
+	o.raise(ctx, diskMissingKey(n.ID), has && d.State == disk.StateMissing, Alert{
+		Event: AlertDiskMissing, Severity: SevCritical, Node: n.Name, Subject: n.Name,
+		Message: "The disk on " + n.Name + " is missing. Tiles that use it do not start."})
+}
+
 // maxSkew is how far a worker's clock may be from the controller's before
 // it gets a warning. Nothing is refused over it.
 const maxSkew = 30 * time.Second
@@ -459,6 +554,9 @@ func (o *Orchestrator) controllerDiskAlert(ctx context.Context) {
 	free, total := o.diskOf(ctx, n.ID)
 	o.diskAlert(ctx, n, free, total)
 	o.observeDiskAlert(ctx, n, free)
+	if f := o.diskFacts(ctx, n); f != nil {
+		o.diskWatch(ctx, n, *f)
+	}
 }
 
 const observeAlertKey = "alert.observe.disk"
@@ -658,6 +756,8 @@ type alertState struct {
 	lastBeat, lastPoll time.Time
 	restarts           map[string][]restartSample // container id -> samples inside crashWindow
 	memLowSince        map[string]time.Time       // node id -> when MemAvailable first read low
+	diskMu             sync.Mutex
+	diskBad            map[string]int // node id -> consecutive fresh reads of its ready disk as gone
 }
 
 type restartSample struct {

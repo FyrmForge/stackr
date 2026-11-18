@@ -254,9 +254,10 @@ func (o *Orchestrator) dataDirDisk() (free, total uint64) {
 
 func gb(b uint64) string { return fmt.Sprintf("%.1f GB", float64(b)/(1<<30)) }
 
-// diskCheck judges a node's Docker disk for a deploy: a refusal under 1 GB
-// free, a warning under 10%, a note when the node does not report its disk.
-// Never a refusal for a disk it cannot read.
+// diskCheck judges a node's disks for a deploy: a refusal under 1 GB free on
+// the Docker disk or, for a node with one, on its disk; a warning under 10%
+// of the Docker disk; a note when the node does not report its disk. Never a
+// refusal for a disk it cannot read.
 func (o *Orchestrator) diskCheck(ctx context.Context, nodeID string) (warn string, err error) {
 	free, total := o.diskOf(ctx, nodeID)
 	name := nodeID
@@ -265,13 +266,21 @@ func (o *Orchestrator) diskCheck(ctx context.Context, nodeID string) (warn strin
 	}
 	switch {
 	case free == 0 && total == 0:
-		return "disk not checked: " + name + " does not report its disk", nil
+		warn = "disk not checked: " + name + " does not report its disk"
 	case free < minFreeDisk:
 		return "", errs.Conflictf("%s has %s free on its Docker disk; deploys need 1 GB. Free space and retry.", name, gb(free))
 	case total > 0 && free*100 < total*lowDiskPct:
-		return fmt.Sprintf("warning: %s has %d%% (%s) free on its Docker disk", name, free*100/total, gb(free)), nil
+		warn = fmt.Sprintf("warning: %s has %d%% (%s) free on its Docker disk", name, free*100/total, gb(free))
 	}
-	return "", nil
+	// A node with a disk keeps its data there: the room is that disk's too. A
+	// disk that is missing or unread is not a room problem; the volume route
+	// refuses it where a disk volume is used.
+	if _, has, _ := o.nodeDisk(ctx, nodeID); has {
+		if dfree, dtotal, err := o.dataDiskOf(ctx, nodeID); err == nil && dtotal > 0 && dfree < minFreeDisk {
+			return "", errs.Conflictf("%s has %s free on its disk; deploys need 1 GB. Free space and retry.", name, gb(dfree))
+		}
+	}
+	return warn, nil
 }
 
 // preflight is the deploy's disk step: it logs the warning and returns the

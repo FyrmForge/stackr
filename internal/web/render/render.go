@@ -125,6 +125,11 @@ func Shell(c echo.Context, title string) components.Shell {
 				}
 			}
 		}
+		if s.NodeDown == "" {
+			if disk, ok := c.Get(diskDownKey).(func(envID string) string); ok {
+				s.NodeDown = disk(sc.Env.ID)
+			}
+		}
 		if s.NodeDown == "" && sc.Org != nil && sc.Stack != nil {
 			if d, ok := c.Get(ingressDownKey).(func(envID string) string); ok {
 				if s.NodeDown = d(sc.Env.ID); s.NodeDown != "" {
@@ -186,6 +191,7 @@ const waitingKey = "host_waiting"
 const problemsKey = "admin_problems"
 const nodeDownKey = "env_node_down"
 const ingressDownKey = "env_ingress_down"
+const diskDownKey = "env_disk_down"
 const upgradingKey = "panel_upgrading"
 
 // NodeDown lets the shell show the offline banner on env and tile pages. It
@@ -211,6 +217,16 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 				}
 				// members get the placement, never the node (D3)
 				return "Placement " + d.Placement + " is offline, " + down.Since() + tail
+			})
+			c.Set(diskDownKey, func(envID string) string {
+				name, ok := orch.EnvDiskDown(c.Request().Context(), envID)
+				if !ok {
+					return ""
+				}
+				if p := middleware.Principal(c); p != nil && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
+					return "The disk on " + name + " is missing. Tiles that use it do not start."
+				}
+				return "The disk of this environment's node is missing. Tiles that use it do not start." // members never get the node (D3)
 			})
 			c.Set(ingressDownKey, func(envID string) string {
 				d, ok := orch.EnvIngressDown(c.Request().Context(), envID)

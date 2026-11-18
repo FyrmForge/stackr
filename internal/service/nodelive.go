@@ -32,6 +32,11 @@ func (o *Orchestrator) controllerFacts(ctx context.Context, n store.Node) *worke
 		f.CPUs, f.MemBytes, f.Docker = h.CPUs, uint64(h.MemBytes), h.Version
 	}
 	f.DiskFree, f.DiskTotal = o.controllerDisk(ctx, n.ID)
+	if o.localWorker != nil { // its own worker holds the disk registry and reads
+		if lf, err := (localMesh{o.localWorker}).Facts(ctx); err == nil {
+			f.Disks, f.DiskRegs, f.DisksRead, f.DisksStale = lf.Disks, lf.DiskRegs, lf.DisksRead, lf.DisksStale
+		}
+	}
 	return &f
 }
 
