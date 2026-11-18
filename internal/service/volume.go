@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -137,6 +138,12 @@ func (o *Orchestrator) CapEnforced(ctx context.Context, v Volume) (bool, error) 
 	return ok, err
 }
 
+// CapPending says whether an xfs volume's saved cap may not be on its folder
+// yet (the host did not confirm it). A memory read.
+func (o *Orchestrator) CapPending(v Volume) bool {
+	return o.diskLeaf.CapPending(v.Name)
+}
+
 // CheckVolumeCap is the refusal a size cap gets before anything is saved: nil
 // (no cap) and 1 MB to 1 PB are fine. The panel's cap field asks it too.
 func CheckVolumeCap(mb *int64) error {
@@ -176,6 +183,11 @@ func (o *Orchestrator) SetVolumeCap(ctx context.Context, volumeID string, mb *in
 		return nil
 	}
 	if err := o.diskLeaf.SetCap(ctx, d, v.Name); err != nil {
+		if disk.Ambiguous(err) {
+			// the host may have taken the new limit: the row keeps it (it is what the
+			// next place puts on the folder) and the panel says it is not confirmed
+			return fmt.Errorf("the cap is saved but the disk did not confirm it, it is applied on the next deploy: %w", err)
+		}
 		v.MaxSizeMB = old
 		if rerr := o.store.Volumes.Update(context.WithoutCancel(ctx), v); rerr != nil {
 			return errors.Join(err, rerr)

@@ -86,9 +86,17 @@ func capNote(enforced bool, st *volume.Storage) string {
 	return "Not enforced in Docker storage."
 }
 
+// capNote is why a cap does nothing, or that it is not confirmed yet.
+func (h *handler) capNote(vol service.Volume, enforced bool, st *volume.Storage) string {
+	if enforced && h.orch.CapPending(vol) {
+		return "Cap not applied yet."
+	}
+	return capNote(enforced, st)
+}
+
 // capFact is the Overview's cap fact.
 func (h *handler) capFact(c echo.Context, vol service.Volume, st *volume.Storage, enforced bool) *volume.CapFact {
-	f := &volume.CapFact{Set: vol.MaxSizeMB != nil, Value: capText(vol.MaxSizeMB), Note: capNote(enforced, st)}
+	f := &volume.CapFact{Set: vol.MaxSizeMB != nil, Value: capText(vol.MaxSizeMB), Note: h.capNote(vol, enforced, st)}
 	if st != nil && st.SizeBytes >= 0 {
 		f.Used, f.Tone = render.Size(st.SizeBytes), "accent"
 		if vol.MaxSizeMB != nil {
@@ -112,7 +120,7 @@ func (h *handler) capFact(c echo.Context, vol service.Volume, st *volume.Storage
 func (h *handler) capCard(c echo.Context, vol service.Volume, st *volume.Storage, enforced bool) *volume.CapCard {
 	req, _ := c.Get(capKey).(capReq)
 	base := render.EnvURL(c) + "/-/volumes/" + vol.ID
-	k := &volume.CapCard{Mode: "read", Value: capText(vol.MaxSizeMB), Can: can(c, scope(c), "tile.write"), Base: base, Note: capNote(enforced, st)}
+	k := &volume.CapCard{Mode: "read", Value: capText(vol.MaxSizeMB), Can: can(c, scope(c), "tile.write"), Base: base, Note: h.capNote(vol, enforced, st)}
 	if !k.Can {
 		return k
 	}

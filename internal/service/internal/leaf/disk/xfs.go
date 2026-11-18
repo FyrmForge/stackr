@@ -337,7 +337,36 @@ func (l *Leaf) SetCap(ctx context.Context, d store.NodeDisk, name string) error 
 		return nil // no folder yet: Place applies the cap
 	}
 	if _, err = l.run(ctx, d, r); err != nil {
+		if Ambiguous(err) {
+			l.capPending.Store(name, struct{}{})
+		}
 		return err
 	}
+	l.capPending.Delete(name)
 	return nil
+}
+
+// Ambiguous says whether a failed host call may still have changed something:
+// only a refusal the helper returns before it changes anything (and a disk
+// that is missing) is definitive. A timeout, a lost answer or an I/O error
+// halfway is not.
+func Ambiguous(err error) bool {
+	var he *hostdisk.Error
+	var miss *MissingError
+	switch {
+	case err == nil:
+		return false
+	case errors.As(err, &miss), errors.Is(err, errs.ErrRefused):
+		return false
+	case errors.As(err, &he):
+		return he.Code == hostdisk.CodeIO
+	}
+	return true
+}
+
+// CapPending says whether the cap of the volume with this Docker name may not
+// be on the host yet. A memory read, never a host call.
+func (l *Leaf) CapPending(name string) bool {
+	_, ok := l.capPending.Load(name)
+	return ok
 }

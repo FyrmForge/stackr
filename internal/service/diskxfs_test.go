@@ -39,6 +39,7 @@ type xfsFake struct {
 	mounts    []string // mount points of sdb
 	system    bool     // an extra mount of sdb elsewhere: it is in use
 	failMount bool
+	failLimit bool              // xfs_quota limit fails (the answer is lost, the limit may be set)
 	used      map[uint32]int64  // KiB by project, what the quota report says
 	hard      map[uint32]int64  // KiB hard limits set by limit commands
 	proj      map[string]uint32 // folder -> project set by project -s commands
@@ -145,6 +146,10 @@ func (f *xfsFake) exec(_ context.Context, name string, args ...string) ([]byte, 
 			return []byte(out.String()), nil
 		}
 		var dir string
+		if f.failLimit && strings.HasPrefix(args[2], "limit") {
+			f.hard[1] = 100 * 1024 // it did go in, the answer was lost
+			return nil, errors.New("xfs_quota: connection lost")
+		}
 		var kb string
 		var p uint32
 		if n, _ := fmt.Sscanf(args[2], "project -s -p %s %d", &dir, &p); n == 2 {
@@ -784,4 +789,55 @@ func TestXFSMoveWithACapBelowTheDataFailsTheDeployAndKeepsTheData(t *testing.T) 
 	// raising the cap puts it right
 	big := int64(2000)
 	must(t, x.orch.SetVolumeCap(ctx, v.ID, &big))
+}
+
+// X5: an I/O failure while the limit goes on may have applied the lower limit, so the row keeps the
+// cap and the panel says it is not applied yet; the next place puts it on. A refusal rolls back.
+func TestXFSCapKeptPendingWhenTheHostAnswerIsLost(t *testing.T) { // DL
+	ctx := context.Background()
+	x := newXFSTest(t)
+	x.addXFS(t)
+	a := x.vol(t, "a")
+	x.ensure(t, a)
+	mb := int64(300)
+	must(t, x.orch.SetVolumeCap(ctx, a.ID, &mb))
+	x.fx.mu.Lock()
+	x.fx.failLimit = true
+	x.fx.mu.Unlock()
+	low := int64(100)
+	err := x.orch.SetVolumeCap(ctx, a.ID, &low)
+	if err == nil || !strings.Contains(err.Error(), "did not confirm") {
+		t.Fatalf("lost answer: %v", err)
+	}
+	got, _ := x.orch.Volume(ctx, a.ID)
+	if got.MaxSizeMB == nil || *got.MaxSizeMB != 100 {
+		t.Errorf("the row was rolled back to %v although the host may have the lower limit", got.MaxSizeMB)
+	}
+	if !x.orch.CapPending(got) {
+		t.Error("the cap is not marked pending")
+	}
+	// the next place puts the cap on again and clears the mark
+	x.fx.mu.Lock()
+	x.fx.failLimit = false
+	x.fx.mu.Unlock()
+	must(t, x.wFake.RemoveVolume(ctx, a.Name))
+	before := len(x.fx.quotaCmds())
+	x.ensure(t, a)
+	if again := x.fx.quotaCmds()[before:]; !slices.Contains(again, "limit -p bhard=102400k 1") {
+		t.Errorf("place did not put the cap back: %v", again)
+	}
+	if x.orch.CapPending(got) {
+		t.Error("still pending after a place")
+	}
+	// a refusal before any change is not ambiguous: it rolls back and marks nothing
+	x.fx.mu.Lock()
+	x.fx.used[1] = 200 * 1024
+	x.fx.mu.Unlock()
+	tiny := int64(50)
+	if err := x.orch.SetVolumeCap(ctx, a.ID, &tiny); !errors.Is(err, errs.ErrRefused) {
+		t.Fatalf("cap below use: %v", err)
+	}
+	if got, _ = x.orch.Volume(ctx, a.ID); *got.MaxSizeMB != 100 || x.orch.CapPending(got) {
+		t.Errorf("after a refusal: cap %v pending %v", *got.MaxSizeMB, x.orch.CapPending(got))
+	}
 }
