@@ -103,7 +103,7 @@ func (o *Orchestrator) WaitingOnYou(ctx context.Context, p *Principal) (Waiting,
 			}
 		}
 	}
-	if err := o.waitingJobs(ctx, p, &w, add); err != nil {
+	if err := o.waitingParked(ctx, p, &w, add); err != nil {
 		return w, err
 	}
 	if p.Access.Admin {
@@ -120,10 +120,10 @@ func (o *Orchestrator) WaitingOnYou(ctx context.Context, p *Principal) (Waiting,
 	return w, nil
 }
 
-// waitingJobs adds what the parked jobs wait for: a value (to a person who
+// waitingParked adds what the parked jobs wait for: a value (to a person who
 // can write the env) or host access (to an admin; to a writer it waits on
 // someone else).
-func (o *Orchestrator) waitingJobs(ctx context.Context, p *Principal, w *Waiting, add func(string, WaitItem)) error {
+func (o *Orchestrator) waitingParked(ctx context.Context, p *Principal, w *Waiting, add func(string, WaitItem)) error {
 	js, err := o.jobRows.List(ctx, job.Waiting)
 	if err != nil {
 		return err
