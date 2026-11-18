@@ -330,6 +330,13 @@ func (o *Orchestrator) runDiskForget(ctx context.Context, r *jobs.Run, p diskFor
 		}
 	}
 
+	// step 3a: a container of another stack, or a stale one, may bind a folder
+	// below the disk directly; its mount lives in its own namespace and would
+	// outlive the host unmount. Checked now, at job time, never on a poll.
+	if err := o.containerOnDisk(ctx, d); err != nil {
+		return err
+	}
+
 	// step 3b: nothing uses the disk any more: an xfs disk comes off the host (unmounted, unit
 	// and mount point removed; the device and the folders on it stay). Idempotent for a retry.
 	if err := o.diskLeaf.UnmountXFS(ctx, d); err != nil {
@@ -548,4 +555,33 @@ func (o *Orchestrator) forgetPointing(ctx context.Context, d store.NodeDisk, nod
 		node = "the forgotten node"
 	}
 	return what + " still point at " + node + ". Recover them first.", nil
+}
+
+// containerOnDisk refuses while any container on the disk's node, running or
+// not, has a mount whose source is the disk path or below it.
+func (o *Orchestrator) containerOnDisk(ctx context.Context, d store.NodeDisk) error {
+	if d.Kind != disk.KindXFS {
+		return nil
+	}
+	nctx := docker.WithNode(ctx, d.NodeID)
+	cs, err := o.docker.List(nctx, nil)
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		det, err := o.docker.Inspect(nctx, c.ID)
+		if errors.Is(err, docker.ErrNotFound) {
+			continue // removed since the list
+		}
+		if err != nil {
+			return err
+		}
+		for _, m := range det.Mounts {
+			src, _, _ := strings.Cut(m, " -> ")
+			if src == d.MountPath || strings.HasPrefix(src, d.MountPath+"/") {
+				return errs.Refusedf("A container still uses this disk: %s. Stop it first.", det.Name)
+			}
+		}
+	}
+	return nil
 }
