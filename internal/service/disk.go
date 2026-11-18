@@ -210,6 +210,11 @@ func (o *Orchestrator) auditDiskLog(ctx context.Context, by *Principal, action, 
 	}
 }
 
+// probeRefusals are the answers a probe shows the person; any other failure
+// (an I/O error) is an error, not a verdict on the folder.
+var probeRefusals = []string{hostdisk.CodeNotMountPoint, hostdisk.CodeRootFS, hostdisk.CodeNotEmpty,
+	hostdisk.CodeForeignStamp, hostdisk.CodeBadName, hostdisk.CodeUnsupported, hostdisk.CodeDiskMissing}
+
 // ProbeNodeFolder reads a path on the node and writes nothing.
 func (o *Orchestrator) ProbeNodeFolder(ctx context.Context, by *Principal, nodeID, path string) (FolderProbe, error) {
 	if err := nodeAdmin(by); err != nil {
@@ -227,7 +232,7 @@ func (o *Orchestrator) ProbeNodeFolder(ctx context.Context, by *Principal, nodeI
 	}
 	f, err := o.diskLeaf.Probe(ctx, nodeID, path)
 	var he *hostdisk.Error
-	if errors.As(err, &he) {
+	if errors.As(err, &he) && slices.Contains(probeRefusals, he.Code) {
 		return FolderProbe{Path: path, Code: he.Code, Message: he.Message}, nil
 	}
 	if err != nil {

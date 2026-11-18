@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,13 @@ func (d *diskTest) watch(t *testing.T, f worker.Facts) {
 	t.Helper()
 	n, err := d.st.Nodes.Get(context.Background(), "w1")
 	must(t, err)
+	f.Disks = slices.Clone(f.Disks)
+	for i := range f.Disks { // each call is a new read unless the test stamps one itself
+		if f.Disks[i].ReadAt.IsZero() {
+			d.reads++
+			f.Disks[i].ReadAt = time.Unix(1e9, 0).Add(time.Duration(d.reads) * time.Second)
+		}
+	}
 	d.orch.diskWatch(context.Background(), n, f)
 }
 
@@ -331,5 +339,33 @@ func TestMissingCountsEachReadOnceByItsReadTime(t *testing.T) {
 	}
 	if st := d.stateOf(t, row); st != disk.StateMissing {
 		t.Errorf("state = %q: %d distinct reads should latch", st, diskMissingReads)
+	}
+}
+
+// R8: a fact without a read time (an older worker) never counts as a new bad read.
+func TestAFactWithoutAReadTimeNeverLatchesMissing(t *testing.T) {
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	n, err := d.st.Nodes.Get(context.Background(), "w1")
+	must(t, err)
+	for i := 0; i < 2*diskMissingReads; i++ {
+		d.orch.diskWatch(context.Background(), n, goneOf(row)) // zero ReadAt
+	}
+	if st := d.stateOf(t, row); st != disk.StateReady {
+		t.Fatalf("state = %q, want ready", st)
+	}
+}
+
+// R9: an I/O failure of a probe is an error, a refusal is an answer.
+func TestProbeNodeFolderIOFailureIsAnErrorNotAVerdict(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	must(t, os.Symlink("lb", filepath.Join(d.env.Root, "la")))
+	must(t, os.Symlink("la", filepath.Join(d.env.Root, "lb")))
+	if p, err := d.orch.ProbeNodeFolder(ctx, adminP(), "w1", "/la"); err == nil {
+		t.Fatalf("an I/O failure came back as a probe: %+v", p)
+	}
+	if p, err := d.orch.ProbeNodeFolder(ctx, adminP(), "w1", "/nope"); err != nil || p.Code != hostdisk.CodeNotMountPoint {
+		t.Fatalf("a refusal is an answer: %+v %v", p, err)
 	}
 }

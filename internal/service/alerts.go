@@ -496,10 +496,11 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 }
 
 // newRead is true when the read stamped at is newer than the last bad read
-// counted for the node. A read without a time (an older worker) always is.
+// counted for the node. A read without a time (an older worker) never is: it
+// cannot be told from the same read seen again.
 func (o *Orchestrator) newRead(nodeID string, at time.Time) bool {
 	if at.IsZero() {
-		return true
+		return false
 	}
 	w := o.alertWatch()
 	w.diskMu.Lock()

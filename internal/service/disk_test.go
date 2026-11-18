@@ -66,6 +66,7 @@ type diskTest struct {
 	env    hostdisk.Env
 	mounts []string
 	put    *putMesh
+	reads  int // the clock of the reads watch hands out
 }
 
 func newDiskTest(t *testing.T, opts ...Option) *diskTest {
