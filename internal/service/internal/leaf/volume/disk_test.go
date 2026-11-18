@@ -555,3 +555,16 @@ func TestRemoveNamedOfNothingSucceedsOnAMissingDisk(t *testing.T) {
 		t.Fatalf("remove with a row: %v", err)
 	}
 }
+
+func TestSizeBytesFreshAsksTheHelperNotTheCache(t *testing.T) {
+	r := newRig(t, volume.DiskReady)
+	r.d.rows[r.name] = true
+	r.bound("/d/" + r.name)
+	r.d.use[r.name] = volume.Use{Bytes: 42}
+	if got := r.l.SizeBytesFresh(ctx, r.v); got != 42 {
+		t.Fatalf("fresh size = %d", got)
+	}
+	if !slices.Equal(r.d.modes, []volume.UseMode{volume.UseFresh}) {
+		t.Errorf("modes = %v", r.d.modes)
+	}
+}

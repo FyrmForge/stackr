@@ -926,3 +926,20 @@ func TestDiskCheckFailsClosedOnARowLookupError(t *testing.T) {
 		t.Fatalf("diskCheck err = %v, want the lookup error", err)
 	}
 }
+
+// V8: a placement plan measures a disk volume now. The cache is cold here, and
+// its unknown (-1) would skip the room check.
+func TestPlacementPlanMeasuresADiskVolumeFresh(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	v := d.vol(t, "data")
+	_, err0 := d.orch.volumes.Ensure(ctx, v)
+	must(t, err0)
+	must(t, os.WriteFile(filepath.Join(d.folder(row, v.Name), "f"), make([]byte, 10), 0o644))
+	l, err := d.orch.pmLine(ctx, d.edge, false)
+	must(t, err)
+	if l.Bytes != 10 {
+		t.Fatalf("plan line bytes = %d, want 10", l.Bytes)
+	}
+}

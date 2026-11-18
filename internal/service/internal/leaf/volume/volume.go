@@ -290,6 +290,16 @@ func detached(mountedBy []string) error {
 // SizeBytes is the volume's uncompressed size; -1 when Docker cannot tell. A
 // disk volume's size comes from the disk's cache.
 func (l *Leaf) SizeBytes(ctx context.Context, v store.Volume) int64 {
+	return l.sizeBytes(ctx, v, UseCached)
+}
+
+// SizeBytesFresh is SizeBytes for a planning decision: a disk volume is
+// measured by a helper run now, never read from the cache.
+func (l *Leaf) SizeBytesFresh(ctx context.Context, v store.Volume) int64 {
+	return l.sizeBytes(ctx, v, UseFresh)
+}
+
+func (l *Leaf) sizeBytes(ctx context.Context, v store.Volume, mode UseMode) int64 {
 	ctx, node, err := l.at(ctx, v)
 	if err != nil {
 		return -1
@@ -304,7 +314,7 @@ func (l *Leaf) SizeBytes(ctx context.Context, v store.Volume) int64 {
 			return -1
 		}
 		if p.rt == RouteDisk {
-			return l.diskSizes(ctx, node, v.Name)[v.Name]
+			return l.diskSizes(ctx, node, mode, v.Name)[v.Name]
 		}
 	}
 	info, err := l.docker.InspectVolume(ctx, v.Name)
@@ -314,10 +324,10 @@ func (l *Leaf) SizeBytes(ctx context.Context, v store.Volume) int64 {
 	return info.SizeBytes
 }
 
-// diskSizes is the cached usage of names, -1 for any the disk cannot tell.
-func (l *Leaf) diskSizes(ctx context.Context, node string, names ...string) map[string]int64 {
+// diskSizes is the usage of names in mode, -1 for any the disk cannot tell.
+func (l *Leaf) diskSizes(ctx context.Context, node string, mode UseMode, names ...string) map[string]int64 {
 	out := map[string]int64{}
-	use, err := l.disk.Usage(ctx, node, UseCached, names...)
+	use, err := l.disk.Usage(ctx, node, mode, names...)
 	for _, n := range names {
 		out[n] = -1
 		if u, ok := use[n]; ok && err == nil && !u.Missing {
@@ -383,7 +393,7 @@ func (l *Leaf) nodeSizes(ctx context.Context, node string, vs []store.Volume, ou
 		for i, v := range disk {
 			names[i] = v.Name
 		}
-		sizes := l.diskSizes(ctx, node, names...)
+		sizes := l.diskSizes(ctx, node, UseCached, names...)
 		for _, v := range disk {
 			out[v.ID] = sizes[v.Name]
 		}

@@ -326,8 +326,8 @@ func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, res
 			}
 			continue
 		}
-		// the leaf measures: a disk volume is never asked of Docker
-		sz := o.volumes.SizeBytes(ctx, v)
+		// the leaf measures, fresh: a plan never decides on the cache's unknown
+		sz := o.volumes.SizeBytesFresh(ctx, v)
 		if sz < 0 {
 			unknown++
 			continue
@@ -429,7 +429,7 @@ func (o *Orchestrator) pmLine(ctx context.Context, e store.Environment, restore 
 		l.Bytes, l.Downtime = -1, "until restored from backups"
 	default:
 		for _, v := range vols {
-			sz := o.volumes.SizeBytes(ctx, v)
+			sz := o.volumes.SizeBytesFresh(ctx, v)
 			if sz < 0 {
 				l.Bytes = -1
 				break
