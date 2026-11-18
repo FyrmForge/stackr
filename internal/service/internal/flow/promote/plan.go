@@ -511,7 +511,7 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			continue
 		}
 		if !exists {
-			p.add(Change{Kind: "create", Tile: name, New: row.Kind})
+			p.add(Change{Kind: "create", Tile: name, New: row.Kind, Details: createDetails(tc, row)})
 			w.creates = append(w.creates, row)
 			w.redeploy[name] = true
 			w.unpin[name] = tile.Pulls(row)

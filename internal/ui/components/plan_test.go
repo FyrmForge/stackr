@@ -142,3 +142,22 @@ func TestPlanTickIsAControl(t *testing.T) {
 		t.Errorf("tick not a control:\n%s", body)
 	}
 }
+
+// A create row opens to what it makes, and the new tile's own settings rows
+// fold under it instead of standing as rows of their own.
+func TestPlanCreateRowDetails(t *testing.T) {
+	v := PlanReviewView{Plan: PlanView{Changes: []ChangeView{
+		{Kind: "create", Tile: "pg", New: "operated", Details: []DetailView{{"Engine", "postgres"}, {"Major", "18"}}},
+		{Kind: "operated", Tile: "pg", Field: "pitr_days", New: "7"},
+		{Kind: "operated", Tile: "web", Field: "allow", New: "+x"},
+	}}}
+	body := renderPlan(t, v)
+	for _, want := range []string{"What it makes", ">Engine<", ">postgres<", "Settings of the new tile", ">pitr_days<"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("create row lacks %q:\n%s", want, body)
+		}
+	}
+	if n := strings.Count(body, "<li class=\"py-2.5"); n != 2 {
+		t.Errorf("rows = %d, want the create (settings inside) and web's own", n)
+	}
+}

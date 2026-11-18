@@ -194,7 +194,7 @@ func (h *handler) syncTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Co
 		}
 	}
 	for _, ch := range p.Changes {
-		cv := comp.ChangeView{Kind: ch.Kind, Tile: ch.Tile, Field: ch.Field, Old: ch.Old, New: ch.New, Note: ch.Note}
+		cv := comp.ChangeView{Details: details(ch.Details), Kind: ch.Kind, Tile: ch.Tile, Field: ch.Field, Old: ch.Old, New: ch.New, Note: ch.Note}
 		if i, ok := idx[ch.Tile]; ok {
 			v.Tiles[i].Changes = append(v.Tiles[i].Changes, cv)
 		} else {

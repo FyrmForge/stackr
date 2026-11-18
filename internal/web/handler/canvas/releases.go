@@ -179,6 +179,7 @@ func planView(p service.PromotePlan) comp.PlanView {
 	}
 	for _, ch := range p.Plan.Changes {
 		pv.Changes = append(pv.Changes, comp.ChangeView{
+			Details:  details(ch.Details),
 			Kind:     ch.Kind,
 			Tile:     ch.Tile,
 			Field:    ch.Field,
@@ -190,6 +191,17 @@ func planView(p service.PromotePlan) comp.PlanView {
 		})
 	}
 	return pv
+}
+
+// details reads a create row's "Label: value" lines.
+func details(s string) []comp.DetailView {
+	var out []comp.DetailView
+	for _, l := range strings.Split(s, "\n") {
+		if k, v, ok := strings.Cut(l, ": "); ok {
+			out = append(out, comp.DetailView{Label: k, Value: v})
+		}
+	}
+	return out
 }
 
 // applyLocks gives each lock row its own button: the file's value, set by
