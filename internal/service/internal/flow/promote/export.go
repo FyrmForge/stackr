@@ -255,7 +255,11 @@ func (f *Flow) exportEnv(ctx context.Context, st store.Stack, e store.Environmen
 		if v.InstanceID != nil || v.OrphanedAt != nil {
 			continue
 		}
-		vm.put(v.Slug, omap{})
+		body := omap{}
+		if v.MaxSizeMB != nil {
+			body.put("max_size_mb", *v.MaxSizeMB)
+		}
+		vm.put(v.Slug, body)
 	}
 	if len(vm) > 0 {
 		env.put("volumes", vm)

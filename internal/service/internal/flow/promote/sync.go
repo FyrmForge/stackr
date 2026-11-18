@@ -754,11 +754,8 @@ func (f *Flow) applySync(ctx context.Context, w *work, log io.Writer, swap func(
 	if err := f.applyParams(ctx, w); err != nil {
 		return err
 	}
-	scope := volume.Scope{Kind: "env", ID: e.ID}
-	for _, n := range slices.Sorted(maps.Keys(w.declare)) {
-		if _, _, err := d.Volumes.Declare(ctx, scope, n, nil); err != nil {
-			return err
-		}
+	if err := f.applyVolumes(ctx, w); err != nil {
+		return err
 	}
 	for _, v := range w.orphan {
 		if _, err := d.Volumes.Orphan(ctx, v); err != nil {

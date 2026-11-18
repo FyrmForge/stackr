@@ -765,6 +765,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			WriteParams:    orch.writeParams,
 			Placements:     orch.stackPlacements,
 			Forget:         orch.forgetTileClone,
+			SetVolumeCap:   orch.SetVolumeCap,
 			DumpBeforeDrop: orch.dumpBeforeDrop,
 			PITRChanged:    orch.pitrApplied,
 			PGSettings:     orch.settingsFromFile,

@@ -84,6 +84,9 @@ type Reservation struct {
 type VolumeConf struct {
 	// Backup is read only to refuse it with a reason; schedules are set from the panel.
 	Backup any `yaml:"backup"`
+	// MaxSizeMB is the volume's size cap in MB. Absent or null leaves the cap
+	// as it is; 0 removes it. Enforced only on an xfs disk, saved either way.
+	MaxSizeMB *int `yaml:"max_size_mb"`
 }
 
 // VolumeNode is a volumes: entry: a body, or false to drop a base volume.
@@ -435,7 +438,6 @@ func strictNode(n *yaml.Node, out any) error {
 
 // removedKeys tells an old file what replaced a key.
 var removedKeys = map[string]string{
-	"max_size_mb":      "drop it; volumes have no size cap yet",
 	"compose":          "use image: or build:",
 	"compose_inline":   "use image: or build:",
 	"compose_path":     "use image: or build:",
@@ -944,6 +946,9 @@ func checkVolume(name string, v VolumeConf) error {
 	}
 	if v.Backup != nil {
 		return fmt.Errorf("volume %s: backup: is not applied from the file; set the schedule on the volume in the panel", name)
+	}
+	if v.MaxSizeMB != nil && (*v.MaxSizeMB < 0 || *v.MaxSizeMB > 1<<30) {
+		return fmt.Errorf("volume %s: max_size_mb is 1 MB to 1 PB, or 0 for no cap", name)
 	}
 	return nil
 }

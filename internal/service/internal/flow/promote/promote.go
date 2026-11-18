@@ -33,6 +33,9 @@ import (
 // inside the caller's job.
 type Flow struct {
 	D *deploy.Flow
+	// SetVolumeCap sets or clears (nil) a volume's size cap through the
+	// service, which puts it on the host. Nil = the file's caps are ignored.
+	SetVolumeCap func(ctx context.Context, volumeID string, mb *int64) error
 	// Tx runs fn in one store transaction: a new instance and its primary row
 	// are written together.
 	Tx func(ctx context.Context, fn func(store.Tx) error) error
@@ -250,11 +253,8 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 	if err := f.applyParams(ctx, w); err != nil {
 		return err
 	}
-	scope := volume.Scope{Kind: "env", ID: e.ID}
-	for _, n := range slices.Sorted(maps.Keys(w.declare)) {
-		if _, _, err := d.Volumes.Declare(ctx, scope, n, nil); err != nil {
-			return err
-		}
+	if err := f.applyVolumes(ctx, w); err != nil {
+		return err
 	}
 	for _, v := range w.orphan {
 		if _, err := d.Volumes.Orphan(ctx, v); err != nil {

@@ -1701,6 +1701,46 @@ func (f *Flow) planLock(ctx context.Context, p *Plan, w *work) error {
 	return nil
 }
 
+// capOf is a stored cap in MB, 0 for none.
+func capOf(mb *int64) int64 {
+	if mb == nil {
+		return 0
+	}
+	return *mb
+}
+
+func capWord(mb int64) string {
+	if mb == 0 {
+		return "no cap"
+	}
+	return fmt.Sprintf("%d MB", mb)
+}
+
+// applyVolumes declares the volumes the plan names and sets the caps the
+// file gives. A cap that already matches is not touched.
+func (f *Flow) applyVolumes(ctx context.Context, w *work) error {
+	scope := volume.Scope{Kind: "env", ID: w.e.ID}
+	for _, n := range slices.Sorted(maps.Keys(w.declare)) {
+		v, _, err := f.D.Volumes.Declare(ctx, scope, n, nil)
+		if err != nil {
+			return err
+		}
+		mb := w.declare[n].MaxSizeMB
+		if mb == nil || f.SetVolumeCap == nil || int64(*mb) == capOf(v.MaxSizeMB) {
+			continue
+		}
+		var set *int64
+		if *mb > 0 {
+			set = new(int64)
+			*set = int64(*mb)
+		}
+		if err := f.SetVolumeCap(ctx, v.ID, set); err != nil {
+			return fmt.Errorf("volume %s: %w", n, err)
+		}
+	}
+	return nil
+}
+
 func (f *Flow) planVolumes(ctx context.Context, p *Plan, w *work) error {
 	scope := volume.Scope{Kind: "env", ID: w.e.ID}
 	live, err := f.D.Volumes.List(ctx, scope)
@@ -1721,6 +1761,8 @@ func (f *Flow) planVolumes(ctx context.Context, p *Plan, w *work) error {
 			p.add(Change{Kind: "volume", New: n})
 		case v.OrphanedAt != nil:
 			p.add(Change{Kind: "volume", New: n, Note: "re-adopts the orphaned volume and its data"})
+		case vc.MaxSizeMB != nil && int64(*vc.MaxSizeMB) != capOf(v.MaxSizeMB):
+			p.add(Change{Kind: "volume cap", Tile: n, Old: capWord(capOf(v.MaxSizeMB)), New: capWord(int64(*vc.MaxSizeMB))})
 		default:
 			continue
 		}
