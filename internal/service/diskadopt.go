@@ -275,6 +275,9 @@ func (o *Orchestrator) adoptBlocks(ctx context.Context, d store.NodeDisk, n stor
 	switch {
 	case err == nil && old.Status == node.StatusOnline:
 		return errs.Refusedf("The disk's node, %s, is still online. A disk can only be adopted once its node is gone.", old.Name)
+	case err == nil && d.Kind == disk.KindXFS:
+		// a block device cannot be attached twice: an offline node is enough
+		// (the stamp's owner is still rewritten)
 	case err == nil:
 		// a folder (NFS, a bind mount) can be mounted by two hosts at once, so offline is not enough
 		return errs.Refusedf("The disk's node, %s, is offline but not forgotten. Forget the node first: it may still be writing to the disk.", old.Name)
@@ -347,14 +350,60 @@ func (o *Orchestrator) liveAdoptJob(ctx context.Context, diskID string) error {
 func (o *Orchestrator) adoptStamp(ctx context.Context, nodeID, path string) (hostdisk.Fact, error) {
 	f, err := o.diskLeaf.Probe(ctx, nodeID, path)
 	var he *hostdisk.Error
-	if errors.As(err, &he) && slices.Contains(probeRefusals, he.Code) {
-		return f, errs.Refusedf("%s", he.Message)
+	if errors.As(err, &he) {
+		// An xfs disk is not mounted on the new node until the adopt runs: the
+		// stamp cannot be read yet, so the device with the disk's filesystem
+		// stands for it.
+		if id, ok := xfsMountID(path); ok && slices.Contains([]string{hostdisk.CodeNotMountPoint, hostdisk.CodeDiskMissing, hostdisk.CodeRootFS}, he.Code) {
+			return o.xfsStamp(ctx, nodeID, id, path)
+		}
+		if slices.Contains(probeRefusals, he.Code) {
+			return f, errs.Refusedf("%s", he.Message)
+		}
 	}
 	return f, err
 }
 
+// xfsMountID is the disk id of a path that is an xfs mount point.
+func xfsMountID(path string) (string, bool) {
+	id, ok := strings.CutPrefix(path, hostdisk.XFSRoot+"/")
+	return id, ok && id != "" && !strings.Contains(id, "/")
+}
+
+// xfsStamp is the stamp of an xfs disk that is not mounted on the node yet:
+// the disk's id when the node lists a device carrying its filesystem, and
+// matches it by the filesystem uuid. A disk this panel does not know, or a
+// path disk, gives an empty stamp.
+func (o *Orchestrator) xfsStamp(ctx context.Context, nodeID, diskID, path string) (hostdisk.Fact, error) {
+	d, err := o.store.NodeDisks.Get(ctx, diskID)
+	if errors.Is(err, errs.ErrNotFound) || err == nil && d.Kind != disk.KindXFS {
+		return hostdisk.Fact{}, nil
+	}
+	if err != nil {
+		return hostdisk.Fact{}, err
+	}
+	has, err := o.diskLeaf.HasDevice(ctx, nodeID, d)
+	if err != nil {
+		return hostdisk.Fact{}, err
+	}
+	if !has {
+		return hostdisk.Fact{}, errs.Refusedf("The disk's device is not on this node. Attach it, then try again.")
+	}
+	return hostdisk.Fact{Path: path, StampID: d.ID, FSType: "xfs"}, nil
+}
+
+// oldNodeName is the name of the node a disk was on: its row's, or the one a
+// forgotten node had.
+func (o *Orchestrator) oldNodeName(ctx context.Context, nodeID string) string {
+	if n, err := o.store.Nodes.Get(ctx, nodeID); err == nil {
+		return n.Name
+	}
+	return o.forgottenName(ctx, nodeID)
+}
+
 // adoptCandidates are the disk rows of forgotten nodes (no node row) that
-// were never adopted.
+// were never adopted, and the xfs disks of nodes that are offline: a block
+// device cannot be attached to two machines, a folder can.
 func (o *Orchestrator) adoptCandidates(ctx context.Context) ([]AdoptCandidate, error) {
 	rows, err := o.store.NodeDisks.List(ctx)
 	if err != nil {
@@ -365,12 +414,14 @@ func (o *Orchestrator) adoptCandidates(ctx context.Context) ([]AdoptCandidate, e
 		if r.State == disk.StateForgetting || r.State == disk.StateAdding || adoptCommitted(r) {
 			continue
 		}
-		if _, err := o.store.Nodes.Get(ctx, r.NodeID); err == nil {
-			continue
+		if n, err := o.store.Nodes.Get(ctx, r.NodeID); err == nil {
+			if r.Kind != disk.KindXFS || n.Status == node.StatusOnline {
+				continue
+			}
 		} else if !errors.Is(err, errs.ErrNotFound) {
 			return nil, err
 		}
-		out = append(out, AdoptCandidate{DiskID: r.ID, Node: o.forgottenName(ctx, r.NodeID), Path: r.MountPath, State: r.State})
+		out = append(out, AdoptCandidate{DiskID: r.ID, Node: o.oldNodeName(ctx, r.NodeID), Path: r.MountPath, State: r.State})
 	}
 	return out, nil
 }
@@ -400,8 +451,10 @@ func (o *Orchestrator) PlanDiskAdopt(ctx context.Context, nodeID, path string) (
 	if err := diskPath(path); err != nil {
 		return p, err
 	}
-	if err := o.folderDiskOK(ctx, n.ID); err != nil {
-		return p, err
+	if _, xfs := xfsMountID(path); !xfs { // an xfs disk is mounted by the helper, the panel sees it through its bind
+		if err := o.folderDiskOK(ctx, n.ID); err != nil {
+			return p, err
+		}
 	}
 	f, err := o.adoptStamp(ctx, n.ID, path)
 	if err != nil {
@@ -419,7 +472,7 @@ func (o *Orchestrator) PlanDiskAdopt(ctx context.Context, nodeID, path string) (
 	if err != nil {
 		return p, err
 	}
-	p.DiskID, p.OldNode = d.ID, o.forgottenName(ctx, d.NodeID)
+	p.DiskID, p.OldNode = d.ID, o.oldNodeName(ctx, d.NodeID)
 	v, err := o.adoptView(ctx, d)
 	if err != nil {
 		return p, err
@@ -526,11 +579,15 @@ func (o *Orchestrator) AdoptDisk(ctx context.Context, by *Principal, nodeID, dis
 	if err != nil {
 		return Job{}, err
 	}
-	if err := o.folderDiskOK(ctx, n.ID); err != nil {
-		return Job{}, err
-	}
 	d, err := o.store.NodeDisks.Get(ctx, diskID)
 	if err != nil {
+		return Job{}, err
+	}
+	if d.Kind == disk.KindXFS {
+		if path != hostdisk.MountPoint(d.ID) {
+			return Job{}, errs.Refusedf("An xfs disk is mounted at %s.", hostdisk.MountPoint(d.ID))
+		}
+	} else if err := o.folderDiskOK(ctx, n.ID); err != nil {
 		return Job{}, err
 	}
 	if d.State != disk.StateAdopting && confirm != d.ID && confirm != n.Name {
@@ -649,6 +706,15 @@ func (o *Orchestrator) runDiskAdopt(ctx context.Context, r *jobs.Run, p diskAdop
 		}
 		if err := o.adoptRefusals(ctx, d, n, p.Path, v); err != nil {
 			return err
+		}
+		// an xfs disk is mounted on the new node first (idempotent, a resume does it again)
+		if d.Kind == disk.KindXFS {
+			if p.Path != hostdisk.MountPoint(d.ID) {
+				return errs.Refusedf("An xfs disk is mounted at %s.", hostdisk.MountPoint(d.ID))
+			}
+			if err := o.diskLeaf.MountXFS(ctx, n.ID, d, p.Path); err != nil {
+				return err
+			}
 		}
 		// step 2: the operation is recorded; from here the new node sees its disk as not ready
 		ids := make([]string, 0, len(v.envs))
