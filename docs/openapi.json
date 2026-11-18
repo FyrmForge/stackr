@@ -1645,6 +1645,25 @@
         ],
         "type": "object"
       },
+      "DiskReg": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "owner"
+        ],
+        "type": "object"
+      },
       "Domain": {
         "properties": {
           "name": {
@@ -2233,6 +2252,62 @@
         },
         "type": "object"
       },
+      "Fact": {
+        "properties": {
+          "empty": {
+            "type": "boolean"
+          },
+          "free": {
+            "type": "integer"
+          },
+          "fs_type": {
+            "type": "string"
+          },
+          "mounted": {
+            "type": "boolean"
+          },
+          "network": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "read_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "root_fs": {
+            "type": "boolean"
+          },
+          "stamp_id": {
+            "type": "string"
+          },
+          "stamp_install": {
+            "type": "string"
+          },
+          "stamp_owner": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "stamp_id",
+          "stamp_owner",
+          "stamp_install",
+          "fs_type",
+          "mounted",
+          "root_fs",
+          "network",
+          "empty",
+          "free",
+          "total",
+          "read_at"
+        ],
+        "type": "object"
+      },
       "Facts": {
         "properties": {
           "arch": {
@@ -2250,8 +2325,26 @@
           "disk_free": {
             "type": "integer"
           },
+          "disk_regs": {
+            "items": {
+              "$ref": "#/components/schemas/DiskReg"
+            },
+            "type": "array"
+          },
           "disk_total": {
             "type": "integer"
+          },
+          "disks": {
+            "items": {
+              "$ref": "#/components/schemas/Fact"
+            },
+            "type": "array"
+          },
+          "disks_read": {
+            "type": "boolean"
+          },
+          "disks_stale": {
+            "type": "boolean"
           },
           "docker": {
             "type": "string"

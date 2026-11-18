@@ -47,16 +47,24 @@ type Request struct {
 }
 
 type Use struct {
-	Bytes   int64
-	Empty   bool
-	Missing bool
+	Bytes   int64 `json:"bytes"`
+	Empty   bool  `json:"empty"`
+	Missing bool  `json:"missing"`
 }
 
 type Fact struct {
-	Path, StampID, StampOwner, StampInstall, FSType string
-	Mounted, RootFS, Network, Empty                 bool
-	Free, Total                                     uint64
-	ReadAt                                          time.Time `json:"read_at"` // set by the worker: when this read happened
+	Path         string    `json:"path"`
+	StampID      string    `json:"stamp_id"`
+	StampOwner   string    `json:"stamp_owner"`
+	StampInstall string    `json:"stamp_install"`
+	FSType       string    `json:"fs_type"`
+	Mounted      bool      `json:"mounted"`
+	RootFS       bool      `json:"root_fs"`
+	Network      bool      `json:"network"`
+	Empty        bool      `json:"empty"`
+	Free         uint64    `json:"free"`
+	Total        uint64    `json:"total"`
+	ReadAt       time.Time `json:"read_at"` // set by the worker: when this read happened
 }
 
 // Error codes are typed; callers never match on the message.
@@ -71,14 +79,17 @@ const (
 	CodeIO            = "io" // a filesystem call failed for a reason that is not a refusal
 )
 
-type Error struct{ Code, Message string }
+type Error struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
 
 type Result struct {
-	Error *Error
-	Disk  *Fact
-	Usage map[string]Use
+	Error *Error         `json:"error,omitempty"`
+	Disk  *Fact          `json:"disk,omitempty"`
+	Usage map[string]Use `json:"usage,omitempty"`
 }
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)

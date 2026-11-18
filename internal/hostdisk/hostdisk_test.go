@@ -364,7 +364,7 @@ func TestParseMountsTouchesNoFilesystem(t *testing.T) {
 
 func TestResultLineEncodeAndDecodeWithStderrNoise(t *testing.T) {
 	want := Result{Error: &Error{CodeNotEmpty, "x"}, Disk: &Fact{Path: "/d", Free: 7}, Usage: map[string]Use{"a": {Bytes: 3}}}
-	out := "level=warn noise\n" + ResultPrefix + `{"Error":null}` + "\nmore noise\n" + EncodeResult(want) + "\ntrailing stderr\n"
+	out := "level=warn noise\n" + ResultPrefix + `{"error":null}` + "\nmore noise\n" + EncodeResult(want) + "\ntrailing stderr\n"
 	got, ok := ParseResult([]byte(out))
 	if !ok || got.Error == nil || got.Error.Code != CodeNotEmpty || got.Disk.Free != 7 || got.Usage["a"].Bytes != 3 {
 		t.Fatalf("%+v %v", got, ok)
