@@ -292,3 +292,7 @@ func list(ctx context.Context, e Env) Result {
 	}
 	return Result{Devices: devs}
 }
+
+// SameDevice is the identity compare of the list and the format: false when
+// the device now is not the one that was listed.
+func SameDevice(a, b Device) bool { return sameDevice(a, b) }

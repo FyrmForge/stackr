@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"path"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,7 +26,10 @@ const (
 	StateMissing = "missing"
 )
 
-const kindPath = "path"
+const (
+	kindPath = "path"
+	KindXFS  = "xfs"
+)
 
 // Host runs one disk command on a node.
 type Host interface {
@@ -42,6 +46,14 @@ type Leaf struct {
 	disks   store.NodeDiskStore
 	folders store.DiskFolderStore
 	host    Host
+	caps    func(ctx context.Context, name string) (int64, error)
+}
+
+// WithCaps sets how the leaf learns a folder's size cap in bytes (0 = none),
+// by the Docker volume name. Only an xfs disk enforces it.
+func (l *Leaf) WithCaps(f func(ctx context.Context, name string) (int64, error)) *Leaf {
+	l.caps = f
+	return l
 }
 
 func New(disks store.NodeDiskStore, folders store.DiskFolderStore, h Host) *Leaf {
@@ -98,7 +110,7 @@ func (l *Leaf) run(ctx context.Context, d store.NodeDisk, r hostdisk.Request) (h
 		}
 		return res, &MissingError{Node: d.NodeID}
 	}
-	return res, res.Error
+	return res, refusal(res)
 }
 
 // live re-reads the row: a latch set by another call must stop this one.
@@ -248,7 +260,9 @@ func (l *Leaf) HasFolders(ctx context.Context, d store.NodeDisk, names ...string
 }
 
 // Place is get-or-create: the folder row, then the folder. A lost race on the
-// row is not an error. A refused folder removes a row this call made.
+// row is not an error. A refused folder removes a row this call made. On an
+// xfs disk a new row takes the next project number of the disk and the folder
+// is put into it with the volume's cap.
 func (l *Leaf) Place(ctx context.Context, d store.NodeDisk, name string) (map[string]string, error) {
 	d, err := l.live(ctx, d)
 	if err != nil {
@@ -256,13 +270,42 @@ func (l *Leaf) Place(ctx context.Context, d store.NodeDisk, name string) (map[st
 	}
 	made := true
 	row := store.DiskFolder{ID: uuid.NewString(), DiskID: d.ID, Name: name, CreatedAt: time.Now().UTC()}
-	if err := l.folders.Create(ctx, row); err != nil {
+	for try := 0; ; try++ {
+		if d.Kind == KindXFS {
+			rows, err := l.folders.ListByDisk(ctx, d.ID)
+			if err != nil {
+				return nil, err
+			}
+			if i := slices.IndexFunc(rows, func(f store.DiskFolder) bool { return f.Name == name }); i >= 0 {
+				made = false
+				break
+			}
+			row.Project = 1
+			for _, f := range rows {
+				row.Project = max(row.Project, f.Project+1)
+			}
+		}
+		err := l.folders.Create(ctx, row)
+		if err == nil {
+			break
+		}
 		if _, ok := errs.IsConflict(err); !ok {
 			return nil, err
 		}
-		made = false
+		if d.Kind != KindXFS {
+			made = false
+			break
+		}
+		// the name or the project number was taken by a concurrent place: read again
+		if try >= 5 {
+			return nil, err
+		}
 	}
-	if _, err := l.run(ctx, d, l.req(d, "folder", name)); err != nil {
+	r, err := l.reqQ(ctx, d, "folder", name)
+	if err == nil {
+		_, err = l.run(ctx, d, r)
+	}
+	if err != nil {
 		if made {
 			_ = l.folders.Delete(context.WithoutCancel(ctx), row.ID)
 		}
@@ -277,7 +320,23 @@ func (l *Leaf) Usage(ctx context.Context, d store.NodeDisk, sizes bool, names ..
 	if err != nil {
 		return nil, err
 	}
-	r := l.req(d, "usage", names...)
+	if d.Kind == KindXFS && sizes {
+		// the sizes come from the projects: a name with no folder row has none
+		rows, err := l.folders.ListByDisk(ctx, d.ID)
+		if err != nil {
+			return nil, err
+		}
+		names = slices.DeleteFunc(slices.Clone(names), func(n string) bool {
+			return !slices.ContainsFunc(rows, func(f store.DiskFolder) bool { return f.Name == n })
+		})
+		if len(names) == 0 {
+			return map[string]hostdisk.Use{}, nil
+		}
+	}
+	r, err := l.reqQ(ctx, d, "usage", names...)
+	if err != nil {
+		return nil, err
+	}
 	r.Sizes = sizes
 	res, err := l.run(ctx, d, r)
 	if err != nil {

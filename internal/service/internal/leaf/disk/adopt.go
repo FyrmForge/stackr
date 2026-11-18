@@ -47,7 +47,7 @@ func (l *Leaf) BeginAdopt(ctx context.Context, diskID, nodeID, mount string, env
 // one. Idempotent. From here the old node's verify fails with foreign_stamp.
 func (l *Leaf) Claim(ctx context.Context, d store.NodeDisk) error {
 	res, err := l.host.Disk(ctx, d.OpNodeID, hostdisk.Request{
-		Op: "claim", Kind: kindPath, DiskID: d.ID, Owner: d.OpNodeID, From: d.OpFromNodeID, Mount: d.OpMountPath,
+		Op: "claim", Kind: kindOf(d), DiskID: d.ID, Owner: d.OpNodeID, From: d.OpFromNodeID, Mount: d.OpMountPath,
 	})
 	if err != nil {
 		return err
