@@ -73,16 +73,20 @@ function pollDirty(root) {
     });
 }
 window.pollDirty = pollDirty;
-document.addEventListener('htmx:beforeRequest', function (evt) {
-    var el = evt.detail.elt, g = el.getAttribute && el.getAttribute('data-poll-guard');
-    if (g === null) return;
+function pollBusy(el) {
+    var g = el.getAttribute('data-poll-guard');
     var drawer = el.closest('#drawer-view'), box = el.parentElement;
-    var busy = document.querySelector('dialog[open]') ||
+    return document.querySelector('dialog[open]') ||
         (g.indexOf('fields') >= 0 && drawer && drawer.querySelector('input:focus,textarea:focus,select:focus')) ||
         (g.indexOf('rows') >= 0 && box && box.querySelector('details[open]')) ||
         (g.indexOf('region') >= 0 && box && box.matches(':focus-within')) ||
         (/(^| )dirty( |$)/.test(g) && pollDirty(box)) ||
         (g.indexOf('dirty-drawer') >= 0 && pollDirty(drawer));
+}
+document.addEventListener('htmx:beforeRequest', function (evt) {
+    var el = evt.detail.elt, g = el.getAttribute && el.getAttribute('data-poll-guard');
+    if (g === null) return;
+    var busy = pollBusy(el);
     if (!busy) {
         // beforeSwap only sees the swap target: mark the request with its poller
         if (evt.detail.xhr) evt.detail.xhr._poller = el;
@@ -100,12 +104,13 @@ function pollRetry(el) {
         }, 3000);
     }
 }
-// A poll already in flight when a dialog opened must not swap on return: the
-// redraw would close the dialog.
+// A poll already in flight when the viewer got busy (dialog opened, field
+// focused or edited) must not swap on return: the redraw would close the
+// dialog or wipe the edit. The whole guard is re-evaluated here.
 document.addEventListener('htmx:beforeSwap', function (evt) {
     // detail.elt is the swap target (htmx 2.0.4); the poller rode on the xhr
     var el = evt.detail.xhr && evt.detail.xhr._poller;
-    if (!el || !document.querySelector('dialog[open]')) return;
+    if (!el || !pollBusy(el)) return;
     evt.detail.shouldSwap = false;
     pollRetry(el);
 });

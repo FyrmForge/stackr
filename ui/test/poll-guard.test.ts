@@ -76,3 +76,25 @@ test("a response that lands while a dialog is open is not swapped", () => {
   open = () => ({});
   assert.equal(run(), false);
 });
+
+test("a response that lands after an edit started is not swapped", () => {
+  const attrs: Record<string, string> = { "data-poll-guard": "region dirty" };
+  const fields = [field({})];
+  const box = { querySelector: () => null, matches: () => false, querySelectorAll: () => fields };
+  const el = { getAttribute: (n: string) => attrs[n] ?? null, closest: () => null, parentElement: box, isConnected: true };
+  const xhr: Record<string, unknown> = {};
+  handlers["htmx:beforeRequest"].forEach((f) => f({ detail: { elt: el, xhr }, preventDefault: () => {} }));
+  const swap = () => {
+    const detail = { elt: {}, xhr, shouldSwap: true };
+    handlers["htmx:beforeSwap"].forEach((f) => f({ detail }));
+    return detail.shouldSwap;
+  };
+  assert.equal(swap(), true);
+  fields[0] = field({ value: "typed" });
+  assert.equal(swap(), false);
+  fields[0] = field({});
+  box.matches = () => true;
+  assert.equal(swap(), false, "focus inside the region");
+  attrs["data-poll-guard"] = "";
+  assert.equal(swap(), true, "regions without the tokens keep their behaviour");
+});
