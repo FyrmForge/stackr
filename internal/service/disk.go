@@ -367,7 +367,7 @@ func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob)
 		return err
 	}
 	if d.State != disk.StateReady {
-		return errors.New("Still missing. Reattach it, then check again.")
+		return errs.Refusedf("Still missing. Reattach it, then check again.")
 	}
 	_, _ = fmt.Fprintf(r.Log, "disk ready: %s\n", d.MountPath)
 	return o.deployDiskTiles(ctx, r, d)
