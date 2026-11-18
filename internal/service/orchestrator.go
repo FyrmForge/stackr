@@ -326,6 +326,7 @@ type Orchestrator struct {
 	upgradeCheckMu  sync.Mutex            // CheckUpgrade runs one at a time
 	upgradeTried    atomic.Int64          // unix nanos of the last check that stored no answer (0 none)
 	upgrading       atomic.Bool           // an upgrade helper runs on the controller (UpgradeHeld)
+	upgradeStep     atomic.Int32          // the running upgrade's step (UpgradePull..), 0 = none
 	vipAsync        sync.WaitGroup        // rerouteVIPsAsync runs in flight; tests wait on it
 	trustAsync      sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
 	vipLocks        sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
@@ -816,6 +817,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Panel:   panel.New(d),
 			Version: cfg.Version,
 			Archive: orch.upgradeArchive,
+			Step:    orch.setUpgradeStep,
 			Spec:    orch.panelSpec,
 
 			Docker:    d,

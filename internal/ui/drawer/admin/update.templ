@@ -1,0 +1,210 @@
+package admin
+
+import (
+	"strconv"
+	"strings"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// workerSummary is "2 of 3 up to date" over the rows: a row counts when it is
+// not behind and no rollout state says otherwise.
+func workerSummary(rows []WorkerRow) string {
+	n := 0
+	for _, r := range rows {
+		if !r.Behind && (r.State == "" || r.State == "done") {
+			n++
+		}
+	}
+	return strconv.Itoa(n) + " of " + strconv.Itoa(len(rows)) + " up to date"
+}
+
+// whatsNew is the release's page; "" for a rig build, which is no release.
+func whatsNew(tag string) string {
+	if tag == "" || strings.Contains(tag, "-dev.") {
+		return ""
+	}
+	return "https://github.com/FyrmForge/stackr/releases/tag/" + tag
+}
+
+// stepsDone: every step is done and the helper is finishing the swap.
+func stepsDone(steps []UpdateStep) bool {
+	for _, s := range steps {
+		if s.State != "done" {
+			return false
+		}
+	}
+	return len(steps) > 0
+}
+
+templ spinner() {
+	<span class="inline-block size-3.5 rounded-full border-2 border-rw-muted border-t-transparent animate-spin shrink-0" aria-hidden="true"></span>
+}
+
+templ stepRow(s UpdateStep) {
+	<li class={ "flex items-center gap-2.5 text-sm", templ.KV("text-rw-muted", s.State == "done"), templ.KV("text-rw-text", s.State == "run"), templ.KV("text-rw-faint", s.State == "wait") }>
+		<span class="flex w-4 justify-center shrink-0" aria-hidden="true">
+			switch s.State {
+				case "done":
+					<svg class="h-3.5 w-3.5 text-rw-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"></path></svg>
+				case "run":
+					@spinner()
+				default:
+					<span class="h-2 w-2 rounded-full border border-rw-faint"></span>
+			}
+		</span>
+		<span>{ s.Label }</span>
+	</li>
+}
+
+templ Update(v UpdateView) {
+	<div id="tab-update" data-live?={ live(v) }>
+		if v.Live != "" {
+			<span hidden hx-get={ v.Live } hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML"></span>
+		}
+		@c.Section("", "", "") {
+			<div class="flex flex-wrap items-center gap-x-4 gap-y-3">
+				<div class="min-w-0">
+					<p class="text-xs text-rw-faint">Running</p>
+					<p class="font-mono text-2xl font-semibold tracking-tight text-rw-text">{ v.Version }</p>
+					<div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+						if live(v) {
+							<span class="text-rw-warn" role="status" data-reconnecting hidden>Reconnecting...</span>
+						}
+						if len(v.Steps) > 0 {
+							@spinner()
+							if stepsDone(v.Steps) {
+								<span class="text-rw-text">Upgraded. Finishing the swap.</span>
+							} else {
+								<span class="text-rw-text">Upgrading to { v.Target }</span>
+							}
+						} else if v.Upgrading {
+							@spinner()
+							if v.Waits != "" {
+								<span class="text-rw-text">Upgrade queued</span>
+							} else {
+								<span class="text-rw-text">Upgrading</span>
+							}
+						} else if v.CheckErr != "" {
+							<span class="text-rw-danger" role="status">Could not check for an update: { v.CheckErr }</span>
+						} else if v.Checked && v.Latest == "" {
+							<span class="text-rw-muted">A dev build cannot upgrade itself.</span>
+						} else if v.LastErr != "" {
+							<svg class="h-3.5 w-3.5 text-rw-danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m9 9 6 6M15 9l-6 6"></path></svg>
+							<span class="text-rw-danger" role="status">{ v.LastErr }</span>
+						} else if v.Checked && v.Newer {
+							<svg class="h-3.5 w-3.5 text-rw-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+							<span class="text-rw-text"><span class="font-mono">{ v.Latest }</span> is available</span>
+							if u := whatsNew(v.Latest); u != "" {
+								<a class="link" href={ templ.SafeURL(u) } target="_blank" rel="noopener noreferrer">What's new</a>
+							}
+						} else if v.Checked {
+							<svg class="h-3.5 w-3.5 text-rw-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>
+							<span class="text-rw-success">Up to date</span>
+						} else {
+							<span class="text-rw-muted">Not checked yet.</span>
+						}
+						if v.Elapsed != "" {
+							<span class="text-xs text-rw-faint tabular-nums">Elapsed { v.Elapsed }</span>
+						}
+					</div>
+					if v.Waits != "" {
+						<p class="mt-0.5 text-xs text-rw-faint" role="status">{ v.Waits }</p>
+					} else if v.LastErr != "" && v.Newer && !v.Upgrading {
+						<p class="mt-0.5 text-xs text-rw-faint">{ v.Latest } is still available.</p>
+					} else if v.Checked && v.Newer && v.LastErr == "" && !v.Upgrading && v.CheckErr == "" {
+						<p class="mt-0.5 text-xs text-rw-faint">Backs up the panel, then restarts on { v.Latest }.</p>
+					}
+				</div>
+				<div class="ml-auto flex items-center gap-2">
+					if v.Run.Action != "" {
+						@c.Confirm(v.Run)
+					} else if !v.Upgrading && !v.Checked && v.CheckErr == "" {
+						@post("Check now", Base+"/update/check")
+					}
+				</div>
+			</div>
+			if len(v.Steps) > 0 {
+				<ul class="mt-5 space-y-2.5 border-t border-rw-border pt-4" aria-label="Upgrade steps">
+					for _, s := range v.Steps {
+						@stepRow(s)
+					}
+				</ul>
+			}
+			if v.Upgrading && len(v.Steps) == 0 && v.Waits == "" {
+				<p class="mt-4 text-sm text-rw-text" role="status">The panel restarts and this tab reloads when it is back.</p>
+			} else if len(v.Steps) > 0 && !stepsDone(v.Steps) {
+				<p class="mt-4 text-sm text-rw-text" role="status">The panel restarts and this tab reloads when it is back.</p>
+			}
+			if v.Failed != nil && !v.Upgrading {
+				<div class="mt-4 text-sm">
+					<p class="text-rw-muted">
+						if v.Failed.ExitCode != 0 {
+							Exit code { strconv.Itoa(v.Failed.ExitCode) }.
+						}
+						{ v.Failed.Reason }
+					</p>
+					if v.Failed.Log != "" {
+						<details class="mt-2">
+							<summary class="cursor-pointer text-xs text-rw-muted hover:text-rw-text">Log of the new panel</summary>
+							<pre class="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-rw-muted">{ v.Failed.Log }</pre>
+						</details>
+					}
+				</div>
+			}
+			if v.Job != nil {
+				<div class="mt-4">
+					@c.JobStatus(*v.Job)
+				</div>
+			}
+			if v.Settings.ID != "" || v.CheckedText != "" {
+				<div class="mt-5 border-t border-rw-border pt-3">
+					if v.Settings.ID != "" {
+						@c.SettingsForm(v.Settings)
+					}
+					if v.CheckedText != "" && !(v.Checked && v.Latest == "" && v.CheckErr == "") {
+						<p class="mt-2 flex flex-wrap items-center gap-x-2 text-xs text-rw-faint">
+							<span>{ v.CheckedText }</span>
+							if !v.Upgrading && (v.Checked || v.CheckErr != "") {
+								<button type="button" class="link" hx-post={ Base + "/update/check" } hx-target={ target() } hx-swap="outerHTML">Check now</button>
+							}
+						</p>
+					}
+				</div>
+			}
+		}
+		if v.Workers != nil {
+			@c.Section("Worker nodes", "instance", "Each worker upgrades one at a time and rolls back if it fails.") {
+				if v.Workers.Stopped != "" {
+					<p class="mb-3 text-sm text-rw-danger" role="status">{ v.Workers.Stopped }</p>
+				}
+				if v.Workers.Pending {
+					<p class="mb-3 text-sm text-rw-muted" role="status">The rollout starts once the panel's image is published.</p>
+				} else if !v.Newer {
+					<p class="mb-2 text-right text-sm text-rw-muted">{ workerSummary(v.Workers.Rows) }</p>
+				}
+				<ul class="divide-y divide-rw-border">
+					for _, r := range v.Workers.Rows {
+						<li class="py-3 text-sm">
+							<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+								<span class="text-rw-text">{ r.Name }</span>
+								if r.Current != "" {
+									<span class="font-mono text-xs text-rw-muted">{ r.Current }</span>
+								}
+								<span class="ml-auto">@c.Chip(workerState(r, v.Newer), workerTone(r))</span>
+							</div>
+							if r.Error != "" {
+								<p class="mt-1 text-xs text-rw-danger">{ r.Error }</p>
+							}
+						</li>
+					}
+				</ul>
+				if v.Workers.Action != "" {
+					<div class="mt-4">
+						@primaryPost(v.Workers.Button, v.Workers.Action)
+					</div>
+				}
+			}
+		}
+	</div>
+}

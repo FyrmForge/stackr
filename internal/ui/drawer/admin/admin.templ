@@ -54,6 +54,26 @@ type UpdateView struct {
 	CheckedText string
 	// Settings is the update_check form; ID "" = not shown.
 	Settings c.SettingsFormView
+	// Steps are the running upgrade's steps in order, each State done, run
+	// or wait; nil = none running. Elapsed is "0:21" since it started.
+	Steps   []UpdateStep
+	Target  string // the release the running upgrade moves to
+	Elapsed string
+	// Failed is why the last upgrade rolled back; nil = nothing kept.
+	Failed *UpdateFailure
+}
+
+// UpdateStep is one step of the upgrade.
+type UpdateStep struct {
+	Label, State string
+}
+
+// UpdateFailure is the new panel's trial that failed: its exit code and the
+// tail of its log, kept when the upgrade rolled back.
+type UpdateFailure struct {
+	Reason   string
+	ExitCode int
+	Log      string
 }
 
 // WorkersView is the worker rollout: one row per worker. Action (POST) is the
@@ -212,92 +232,6 @@ func promoteLabel(admin bool) string {
 		return "Remove admin"
 	}
 	return "Make admin"
-}
-
-templ Update(v UpdateView) {
-	<div id="tab-update" data-live?={ live(v) }>
-		if v.Live != "" {
-			<span hidden hx-get={ v.Live } hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML"></span>
-		}
-		@c.Section("", "", "Backs up the panel, then restarts it on the new release.") {
-			<div class="space-y-3 text-sm">
-				if live(v) {
-					<p class="text-rw-warn" role="status" data-reconnecting hidden>Reconnecting...</p>
-				}
-				<p class="text-rw-text">Running <span class="font-mono">{ v.Version }</span></p>
-				if v.CheckErr != "" {
-					<p class="text-rw-danger" role="status">Could not check for an update: { v.CheckErr }</p>
-				} else if v.Checked && v.Latest == "" {
-					<p class="text-rw-muted">A dev build cannot upgrade itself. Run stackr-install from the release to move this box onto it.</p>
-				} else if v.Checked && v.Newer {
-					<p class="flex items-center gap-2">
-						@c.Chip("update available", "warn")
-						<span class="font-mono text-rw-text">{ v.Latest }</span>
-					</p>
-					if v.Run.Action != "" {
-						@c.Confirm(v.Run)
-					}
-				} else if v.Checked {
-					<p class="text-rw-muted">Up to date: <span class="font-mono">{ v.Latest }</span> is the latest release.</p>
-				}
-				if v.Upgrading && v.Checked && v.Latest != "" && !v.Newer {
-					// the new panel is up; its upgrade helper is still finishing
-					<p class="text-rw-text" role="status">Upgraded. Finishing the swap.</p>
-				} else if v.Upgrading {
-					<p class="text-rw-text" role="status">Upgrading. The panel restarts and this tab reloads when it is back.</p>
-				}
-				if v.Waits != "" {
-					<p class="text-rw-muted" role="status">{ v.Waits }</p>
-				}
-				if v.LastErr != "" && !v.Upgrading {
-					<p class="text-rw-danger" role="status">{ v.LastErr }</p>
-				}
-				if v.Job != nil {
-					@c.JobStatus(*v.Job)
-				}
-				if v.CheckedText != "" && !(v.Checked && v.Latest == "" && v.CheckErr == "") {
-					<p class="text-xs text-rw-faint">{ v.CheckedText }</p>
-				}
-				if !v.Upgrading && !v.Checked {
-					@post("Check for update", Base+"/update/check")
-				} else if !v.Upgrading && (v.Latest != "" || v.CheckErr != "") {
-					@post("Check again", Base+"/update/check")
-				}
-				if v.Settings.ID != "" {
-					@c.SettingsForm(v.Settings)
-				}
-			</div>
-		}
-		if v.Workers != nil {
-			@c.Section("Worker nodes", "instance", "Each worker upgrades one at a time and rolls back if it fails.") {
-				if v.Workers.Stopped != "" {
-					<p class="mb-3 text-sm text-rw-danger" role="status">{ v.Workers.Stopped }</p>
-				}
-				if v.Workers.Pending {
-					<p class="mb-3 text-sm text-rw-muted" role="status">The rollout starts once the panel's image is published.</p>
-				}
-				<ul class="divide-y divide-rw-border mb-3">
-					for _, r := range v.Workers.Rows {
-						<li class="py-2 text-sm">
-							<div class="flex flex-wrap items-center gap-3">
-								<span class="text-rw-text font-medium">{ r.Name }</span>
-								if r.Current != "" {
-									<span class="font-mono text-xs text-rw-muted">{ r.Current }</span>
-								}
-								<span class="ml-auto">@c.Chip(workerState(r, v.Newer), workerTone(r))</span>
-							</div>
-							if r.Error != "" {
-								<p class="mt-1 text-xs text-rw-danger">{ r.Error }</p>
-							}
-						</li>
-					}
-				</ul>
-				if v.Workers.Action != "" {
-					@primaryPost(v.Workers.Button, v.Workers.Action)
-				}
-			}
-		}
-	</div>
 }
 
 // RoutesView is the admin's routes: hosts that go to an address outside

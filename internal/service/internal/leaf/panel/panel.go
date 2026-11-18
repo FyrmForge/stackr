@@ -31,6 +31,7 @@ type Docker interface {
 	StopRemove(ctx context.Context, id string) error
 	List(ctx context.Context, labels map[string]string) ([]docker.Container, error)
 	Inspect(ctx context.Context, id string) (docker.Detail, error)
+	Logs(ctx context.Context, id string, tail int) (string, error)
 	Pull(ctx context.Context, ref, auth string, log io.Writer) error
 	LocalDigest(ctx context.Context, ref string) (string, error)
 	Tag(ctx context.Context, src, dst string) error
@@ -297,6 +298,9 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		err = l.probe(ctx, spec)
 	}
 	if err != nil {
+		if db != "" {
+			l.recordFailure(ctx, id, db, err) // before the container, and its log, go
+		}
 		_ = l.docker.StopRemove(ctx, id)
 		if db != "" {
 			if rerr := restoreDB(db, cp); rerr != nil {
@@ -360,4 +364,43 @@ func (l *Leaf) probe(ctx context.Context, spec docker.ContainerSpec) error {
 // failed reports a real error: a missing -wal or -shm is normal.
 func failed(err error, suf string) bool {
 	return err != nil && (suf == "" || !errors.Is(err, os.ErrNotExist))
+}
+
+// Failure is why the new panel failed its trial. The helper writes it before
+// it removes the container, since the log goes with it; the old panel reads
+// it back at boot (TakeFailure). Only the exit code and the log tail are
+// kept, never the container's env.
+type Failure struct {
+	Reason   string `json:"reason"`
+	ExitCode int    `json:"exit_code"`
+	Log      string `json:"log"`
+}
+
+// failureTail is how many log lines of the new panel are kept.
+const failureTail = 100
+
+// FailureFile is where the helper leaves the Failure, beside the database
+// (the one dir both containers see).
+func FailureFile(db string) string { return db + ".upgrade-failed.json" }
+
+func (l *Leaf) recordFailure(ctx context.Context, id, db string, cause error) {
+	f := Failure{Reason: cause.Error()}
+	if d, err := l.docker.Inspect(ctx, id); err == nil && !d.Running {
+		f.ExitCode = d.ExitCode
+	}
+	f.Log, _ = l.docker.Logs(ctx, id, failureTail)
+	if b, err := json.Marshal(f); err == nil {
+		_ = os.WriteFile(FailureFile(db), b, 0o600)
+	}
+}
+
+// TakeFailure reads and removes the helper's Failure; false = none was left.
+func TakeFailure(db string) (Failure, bool) {
+	var f Failure
+	b, err := os.ReadFile(FailureFile(db))
+	if err != nil || json.Unmarshal(b, &f) != nil {
+		return f, false
+	}
+	_ = os.Remove(FailureFile(db))
+	return f, true
 }

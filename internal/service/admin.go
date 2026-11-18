@@ -636,7 +636,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 	}
 	// The new panel rolls the workers onto its build once it has published
 	// its image (rolloutAfterBoot); a stop from an earlier rollout is over.
-	if err := o.store.Settings.Delete(ctx, keyRolloutStopped); err != nil {
+	if err := errors.Join(o.store.Settings.Delete(ctx, keyRolloutStopped), o.store.Settings.Delete(ctx, keyUpgradeFailure)); err != nil {
 		return Job{}, err
 	}
 	if err := o.setRolloutTarget(ctx, tag); err != nil {
@@ -705,6 +705,7 @@ func (o *Orchestrator) holdUpgrade() {
 func (o *Orchestrator) watchUpgrader(ctx context.Context) {
 	defer func() {
 		o.upgrading.Store(false)
+		o.upgradeStep.Store(0)
 		if o.jobs != nil {
 			o.jobs.Wake()
 		}

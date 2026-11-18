@@ -368,7 +368,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				return err
 			}
 			archive, err := o.upgrade.Upgrade(ctx, p.Tag, r.Log)
-			if err == nil {
+			if err != nil {
+				o.upgradeStep.Store(0)
+			} else {
 				o.holdUpgrade() // the helper runs: hold until it exits
 				// The local destination is <data>/backups; the key is the path under it.
 				_, _ = fmt.Fprintf(r.Log, "pre-upgrade archive %s; the helper swaps the panel now\n"+

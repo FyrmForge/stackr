@@ -449,7 +449,7 @@ func TestAdminUpdateUnderway(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := s.As(t, root, "GET", "/-/admin/update", nil).Body.String()
-	for _, want := range []string{"data-live", `hx-trigger="every 3s"`, "Upgrading.", "Reconnecting..."} {
+	for _, want := range []string{"data-live", `hx-trigger="every 3s"`, "Upgrading to", "Pulling", "Reconnecting..."} {
 		if !strings.Contains(b, want) {
 			t.Errorf("underway: no %q in\n%s", want, b)
 		}

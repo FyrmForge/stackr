@@ -479,6 +479,17 @@ func (h *handler) updateTab(c echo.Context, x extra, job *comp.JobStatusView) (t
 	}
 	v.Waits = waits
 	v.LastErr = h.orch.LastUpgradeError(ctx)
+	if v.LastErr != "" && !v.Upgrading {
+		if f, ok := h.orch.LastUpgradeFailure(ctx); ok {
+			v.Failed = &ui.UpdateFailure{Reason: f.Reason, ExitCode: f.ExitCode, Log: f.Log}
+		}
+	}
+	if p := h.orch.UpgradeProgress(ctx); p.Step > 0 && v.Upgrading {
+		v.Steps, v.Target = upgradeSteps(p), vTag(p.Target)
+		if p.Elapsed > 0 {
+			v.Elapsed = elapsed(p.Elapsed)
+		}
+	}
 	if job != nil {
 		job.Refresh = ui.Href("update")
 	}

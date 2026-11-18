@@ -48,6 +48,7 @@ func (o *Orchestrator) undoFailedUpgrade(ctx context.Context) {
 		}
 		logs, _ := o.docker.Logs(ctx, c.ID, 20)
 		slog.Warn("upgrade: the new panel failed its trial, rolling back", "helper", logs)
+		o.keepUpgradeFailure(ctx, target)
 		// Kept on an error: the helper is the marker the next boot retries from.
 		if err := o.rollBackUpgrade(ctx, target); err != nil {
 			slog.Warn("upgrade rollback: not finished, retried at next boot", "err", err)
