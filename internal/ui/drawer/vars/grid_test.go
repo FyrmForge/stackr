@@ -72,3 +72,11 @@ func TestPendingFooter(t *testing.T) {
 		t.Errorf("a change nobody reads has more than Apply:\n%s", got)
 	}
 }
+
+// A revealed or typed secret is on the page, so the editor stays out of
+// htmx's history snapshot (localStorage).
+func TestEditorSkipsHistory(t *testing.T) {
+	if got := page(t, envGrid()); !strings.Contains(got, `id="vars-editor" class="space-y-4" hx-history="false"`) {
+		t.Errorf("editor root lacks hx-history=false:\n%s", got)
+	}
+}
