@@ -26,3 +26,12 @@ func TestAdoptRefusalText(t *testing.T) {
 		}
 	}
 }
+
+// 14d2: a copy bound to another folder says "link", not "copy".
+func TestAdoptPlanViewBoundCopyIsAWrongLink(t *testing.T) {
+	p := service.DiskAdoptPlan{DiskID: "d", Node: "n", Copies: []service.AdoptCopy{{VolumeID: "v", Slug: "cache", Bound: true}}}
+	d := adoptPlanView("/b", "/data", p, "").Copies[0].Discard
+	if d.Opener != "Remove link" || d.Title != "Remove the wrong link" || d.Button != "Remove link" {
+		t.Errorf("discard = %+v", d)
+	}
+}

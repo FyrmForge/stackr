@@ -86,14 +86,16 @@ func adoptPlanView(base, path string, p service.DiskAdoptPlan, msg string) *ui.A
 	for _, k := range p.Copies {
 		row := ui.AdoptCopyRow{Name: k.Slug, Where: where[k.VolumeID], Note: "copy in Docker storage"}
 		body := "Deletes the copy in Docker storage. The copy on the node disk stays."
+		opener, title, button := "Discard", "Discard Docker storage copy", "Discard copy"
 		if k.Bound {
 			row.Note = "bound to another folder"
-			body = "Deletes the Docker volume bound to another folder. Both folders keep their data."
+			body = "Removes the link only. Both folders keep their data."
+			opener, title, button = "Remove link", "Remove the wrong link", "Remove link"
 		}
 		row.Discard = comp.DiskConfirmView{
-			Opener: "Discard", Link: true, Title: "Discard Docker storage copy",
+			Opener: opener, Link: true, Title: title,
 			Sub:  strings.Join(nonEmpty(k.Slug, where[k.VolumeID], "on "+p.Node), ", "),
-			Word: k.Slug, Button: "Discard copy", Action: base + "/disk/adopt/discard-copy", Target: "#adopt-dlg",
+			Word: k.Slug, Button: button, Action: base + "/disk/adopt/discard-copy", Target: "#adopt-dlg",
 			Vals: ui.DiscardVals(p.DiskID, path, k.VolumeID, k.Slug), Body: ui.TextBody(body),
 		}
 		v.Copies = append(v.Copies, row)
