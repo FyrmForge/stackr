@@ -503,11 +503,31 @@ func (r *Runner) Enqueue(
 	payload string,
 	releaseID *string,
 ) (store.Job, error) {
+	return r.EnqueueExclusive(ctx, kind, lock, payload, releaseID, nil, nil)
+}
+
+// EnqueueExclusive is Enqueue that, under the same mutex, refuses with busy
+// when a live job of the same kind holds any of keys, instead of superseding
+// it: two simultaneous presses cannot both pass a separate "no live job" read.
+func (r *Runner) EnqueueExclusive(
+	ctx context.Context,
+	kind Kind,
+	lock []string,
+	payload string,
+	releaseID *string,
+	keys []string,
+	busy error,
+) (store.Job, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	older, err := r.jobs.List(ctx, job.Queued, job.Waiting, job.Running)
 	if err != nil {
 		return store.Job{}, err
+	}
+	for _, o := range older {
+		if o.Kind == string(kind) && slices.ContainsFunc(keys, func(k string) bool { return slices.Contains(o.LockSet, k) }) {
+			return store.Job{}, busy
+		}
 	}
 	j, err := r.jobs.Create(ctx, string(kind), lock, payload, releaseID, r.logDir)
 	if err != nil {

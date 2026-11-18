@@ -444,6 +444,20 @@ func (o *Orchestrator) enqueue(ctx context.Context, kind jobs.Kind, p any, lock 
 	return j, o.noted(ctx, err, securitylog.JobQueue, "job", j.ID, "kind="+string(kind))
 }
 
+// enqueueExclusive is enqueue that refuses with busy, atomically, when a live
+// job of the kind holds any of keys (a second press never cancels the first).
+func (o *Orchestrator) enqueueExclusive(ctx context.Context, kind jobs.Kind, p any, keys []string, busy error, lock ...string) (Job, error) {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return Job{}, err
+	}
+	j, err := o.jobs.EnqueueExclusive(ctx, kind, lock, string(o.withOrg(ctx, b)), nil, keys, busy)
+	if err != nil && j.ID == "" {
+		return j, err
+	}
+	return j, o.noted(ctx, err, securitylog.JobQueue, "job", j.ID, "kind="+string(kind))
+}
+
 // enqueuePromote locks the env and every tile it runs now.
 func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID string, mayPlace, admin bool, ticked ...string) (Job, error) {
 	if err := o.gateEnv(ctx, envID, true); err != nil {

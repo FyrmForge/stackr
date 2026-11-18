@@ -87,7 +87,11 @@ func (o *Orchestrator) enqueueVolumeMove(ctx context.Context, by *Principal, nod
 	if err := m.load(ctx, true); err != nil {
 		return Job{}, err
 	}
-	return o.enqueue(ctx, kindVolumeToDisk, p, m.lock()...)
+	keys := make([]string, len(m.vs))
+	for i, v := range m.vs {
+		keys[i] = "volume:" + v.ID
+	}
+	return o.enqueueExclusive(ctx, kindVolumeToDisk, p, keys, errs.Conflictf("This volume is already moving to the disk."), m.lock()...)
 }
 
 // moveLive refuses while a live volume-to-disk job holds any of vs: a second

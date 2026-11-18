@@ -473,7 +473,8 @@ func (o *Orchestrator) AdoptDisk(ctx context.Context, by *Principal, nodeID, dis
 	if err != nil {
 		return Job{}, err
 	}
-	return o.enqueue(ctx, kindDiskAdopt, diskAdoptJob{DiskID: d.ID, NodeID: n.ID, Path: path, By: by.User.ID, KeyID: by.KeyID}, lock...)
+	return o.enqueueExclusive(ctx, kindDiskAdopt, diskAdoptJob{DiskID: d.ID, NodeID: n.ID, Path: path, By: by.User.ID, KeyID: by.KeyID},
+		[]string{"disk:" + d.ID}, errs.Conflictf("An adopt of this disk is already running."), lock...)
 }
 
 // DiscardAdoptCopy removes a plain copy that blocks an adopt, before the

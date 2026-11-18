@@ -179,7 +179,8 @@ func (o *Orchestrator) ForgetNodeDisk(ctx context.Context, by *Principal, diskID
 		return Job{}, err
 	}
 	lock = append(append(lock, s.lock...), "disk:"+d.ID)
-	return o.enqueue(ctx, kindDiskForget, diskForgetJob{DiskID: d.ID, By: by.User.ID, KeyID: by.KeyID}, lock...)
+	return o.enqueueExclusive(ctx, kindDiskForget, diskForgetJob{DiskID: d.ID, By: by.User.ID, KeyID: by.KeyID},
+		[]string{"disk:" + d.ID}, errs.Conflictf("A forget of this disk is already running."), lock...)
 }
 
 func confirmWord(name, id string) string {
