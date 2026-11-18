@@ -1208,7 +1208,7 @@ templ diskDialog(d DiskDialog, opener, class string) {
 					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
 				</button>
 			</div>
-			<form id="disk-form" class="group/f" hx-post={ d.Probe } hx-swap="none" hx-indicator="#disk-checking" hx-disabled-elt="#disk-check" hx-sync="this:replace">
+			<form id="disk-form" class="group/f" hx-post={ d.Probe } hx-swap="none" hx-indicator="#disk-checking" hx-disabled-elt="#disk-check" hx-disinherit="hx-indicator hx-disabled-elt" hx-sync="this:replace">
 				<div class="modal-body">
 					<div>
 						<label class="label" for="disk-path">Folder</label>
@@ -1262,7 +1262,6 @@ templ diskPath(d DiskDialog) {
 		}
 		hx-post={ d.State }
 		hx-trigger="input changed delay:200ms"
-		hx-disinherit="hx-indicator hx-disabled-elt"
 		hx-swap="none"
 		hx-include="closest form"
 		if d.Input {
@@ -1290,7 +1289,7 @@ templ diskNet(d DiskDialog, oob bool) {
 					<span>Databases on a network disk risk corruption and slow writes.</span>
 				</p>
 				<label class="mt-2 flex items-center gap-2 text-rw-text">
-					<input type="checkbox" id="disk-ack" name="net_ok" value="1" checked?={ d.NetOK } hx-post={ d.State } hx-trigger="change" hx-disinherit="hx-indicator hx-disabled-elt" hx-swap="none" hx-include="closest form"/>
+					<input type="checkbox" id="disk-ack" name="net_ok" value="1" checked?={ d.NetOK } hx-post={ d.State } hx-trigger="change" hx-swap="none" hx-include="closest form"/>
 					Use it anyway
 				</label>
 			</div>
@@ -1308,7 +1307,6 @@ templ diskUse(d DiskDialog, oob bool) {
 		hx-target={ drawerTarget() }
 		hx-swap="outerHTML"
 		hx-disabled-elt="this"
-		hx-disinherit="hx-indicator"
 		disabled?={ !d.canUse() }
 		if oob {
 			hx-swap-oob="true"
