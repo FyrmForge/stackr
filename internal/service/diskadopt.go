@@ -68,7 +68,10 @@ type AdoptVolume struct {
 
 // AdoptCopy is a plain Docker copy of a volume that has a folder on the
 // disk; it holds data and blocks the adopt until the person removes it.
-type AdoptCopy struct{ VolumeID, Slug string }
+type AdoptCopy struct {
+	VolumeID, Slug string
+	Bound          bool // bound to a folder other than the disk's, not a plain copy
+}
 
 // AdoptCandidate is a disk row of a forgotten node.
 type AdoptCandidate struct{ DiskID, Node, Path, State string }
@@ -183,7 +186,7 @@ func (o *Orchestrator) adoptLock(ctx context.Context, n store.Node, d store.Node
 // adoptCopies are the plain Docker copies on the new node of a volume that
 // has a folder on the disk and a name the adopt claims. An empty copy is not
 // listed: Ensure removes it. A copy whose size is not known counts as data.
-func (o *Orchestrator) adoptCopies(ctx context.Context, nodeID string, v adoptView) ([]AdoptCopy, error) {
+func (o *Orchestrator) adoptCopies(ctx context.Context, nodeID, diskID string, v adoptView) ([]AdoptCopy, error) {
 	on := map[string]bool{}
 	for _, f := range v.folders {
 		on[f.Name] = true
@@ -198,7 +201,15 @@ func (o *Orchestrator) adoptCopies(ctx context.Context, nodeID string, v adoptVi
 		if err != nil {
 			return nil, err
 		}
-		if !found || dev != "" {
+		if !found {
+			continue
+		}
+		if dev != "" {
+			// bound to the disk's folder is what step 6 wants; bound anywhere
+			// else would fail it as a ghost after the commit, forever
+			if !strings.HasSuffix(dev, "/"+diskID+"/"+x.Name) {
+				out = append(out, AdoptCopy{VolumeID: x.ID, Slug: x.Slug, Bound: true})
+			}
 			continue
 		}
 		info, err := o.docker.InspectVolume(nctx, x.Name)
@@ -222,7 +233,12 @@ func (o *Orchestrator) adoptRefusals(ctx context.Context, d store.NodeDisk, n st
 	case disk.StateReady, disk.StateMissing:
 	case disk.StateAdopting:
 		if d.OpNodeID != n.ID || d.OpMountPath != path {
-			return errs.Refusedf("This disk is already being adopted for another node or path. Finish that adopt first.")
+			// an adopt whose target is gone can never commit: another node takes it over
+			if gone, err := o.adoptTargetGone(ctx, d); err != nil {
+				return err
+			} else if !gone {
+				return errs.Refusedf("This disk is already being adopted for another node or path. Finish that adopt first.")
+			}
 		}
 	default:
 		return errs.Refusedf("This disk cannot be adopted while it is %s.", d.State)
@@ -259,14 +275,30 @@ func (o *Orchestrator) adoptRefusals(ctx context.Context, d store.NodeDisk, n st
 	if err := o.noLiveMembers(ctx, live); err != nil {
 		return err
 	}
-	cs, err := o.adoptCopies(ctx, n.ID, v)
+	cs, err := o.adoptCopies(ctx, n.ID, d.ID, v)
 	if err != nil {
 		return err
+	}
+	if len(cs) > 0 && cs[0].Bound {
+		return errs.Refusedf("%s has a Docker volume on this node bound to another folder. Remove that volume first.", cs[0].Slug)
 	}
 	if len(cs) > 0 {
 		return errs.Refusedf("%s has a plain copy on this node. Remove or keep the plain copy first.", cs[0].Slug)
 	}
 	return nil
+}
+
+// adoptTargetGone: the adopt has not committed and the node it was queued for
+// no longer has a row, so only another node can finish it.
+func (o *Orchestrator) adoptTargetGone(ctx context.Context, d store.NodeDisk) (bool, error) {
+	if d.State != disk.StateAdopting || adoptCommitted(d) {
+		return false, nil
+	}
+	_, err := o.store.Nodes.Get(ctx, d.OpNodeID)
+	if errors.Is(err, errs.ErrNotFound) {
+		return true, nil
+	}
+	return false, err
 }
 
 // liveAdoptJob refuses a second press while an adopt of this disk is queued
@@ -366,7 +398,7 @@ func (o *Orchestrator) PlanDiskAdopt(ctx context.Context, nodeID, path string) (
 		return p, err
 	}
 	o.adoptFill(ctx, &p, v)
-	if p.Copies, err = o.adoptCopies(ctx, n.ID, v); err != nil {
+	if p.Copies, err = o.adoptCopies(ctx, n.ID, d.ID, v); err != nil {
 		return p, err
 	}
 	if !adoptCommitted(d) {
@@ -500,7 +532,7 @@ func (o *Orchestrator) DiscardAdoptCopy(ctx context.Context, by *Principal, node
 	if err != nil {
 		return err
 	}
-	cs, err := o.adoptCopies(ctx, n.ID, v)
+	cs, err := o.adoptCopies(ctx, n.ID, d.ID, v)
 	if err != nil {
 		return err
 	}
@@ -535,6 +567,15 @@ func (o *Orchestrator) runDiskAdopt(ctx context.Context, r *jobs.Run, p diskAdop
 	if err != nil {
 		return err
 	}
+	// The lock set was fixed when the press queued the job; what the job reads
+	// now must lie inside it, or an env or volume it would touch was never held.
+	if lv, err := o.adoptView(ctx, d); err != nil {
+		return err
+	} else if lock, err := o.adoptLock(ctx, n, d, lv); err != nil {
+		return err
+	} else if have := r.Job.LockSet; len(have) > 0 && slices.ContainsFunc(lock, func(k string) bool { return !slices.Contains(have, k) }) {
+		return errs.Conflictf("The disk's envs or volumes changed since the adopt was queued. Press Adopt again.")
+	}
 	if !adoptCommitted(d) {
 		v, err := o.adoptView(ctx, d)
 		if err != nil {
@@ -548,7 +589,14 @@ func (o *Orchestrator) runDiskAdopt(ctx context.Context, r *jobs.Run, p diskAdop
 		for _, e := range v.envs {
 			ids = append(ids, e.ID)
 		}
-		if d, err = o.diskLeaf.BeginAdopt(ctx, d.ID, n.ID, p.Path, ids); err != nil {
+		if gone, err := o.adoptTargetGone(ctx, d); err != nil {
+			return err
+		} else if gone && (d.OpNodeID != n.ID || d.OpMountPath != p.Path) {
+			d, err = o.diskLeaf.Retarget(ctx, d, n.ID, p.Path)
+			if err != nil {
+				return err
+			}
+		} else if d, err = o.diskLeaf.BeginAdopt(ctx, d.ID, n.ID, p.Path, ids); err != nil {
 			return err
 		}
 	}
@@ -558,7 +606,7 @@ func (o *Orchestrator) runDiskAdopt(ctx context.Context, r *jobs.Run, p diskAdop
 	if !adoptCommitted(d) {
 		// step 3: the stamp's owner becomes the new node. A refusal wrote nothing, so the
 		// row goes back to not ready; any other failure keeps it adopting for a retry.
-		if err := o.diskLeaf.Claim(ctx, d); err != nil {
+		if err := o.claimDisk(ctx, d); err != nil {
 			var he *hostdisk.Error
 			if errors.As(err, &he) && he.Code != hostdisk.CodeIO {
 				_ = o.diskLeaf.AbortAdopt(context.WithoutCancel(ctx), d)
@@ -599,6 +647,9 @@ func (o *Orchestrator) runDiskAdopt(ctx context.Context, r *jobs.Run, p diskAdop
 	// partial enqueue failure included, keeps the row adopting.
 	var failed []error
 	for _, e := range v.envs {
+		if e.NodeID != n.ID { // not carried over by the commit: nothing to restore here
+			continue
+		}
 		_, notes, err := o.restoreThenDeploy(ctx, e.ID, v.tiles[e.ID])
 		for _, note := range notes {
 			_, _ = fmt.Fprintf(r.Log, "%s: %s\n", e.Slug, note)
@@ -620,15 +671,42 @@ func (o *Orchestrator) runDiskAdopt(ctx context.Context, r *jobs.Run, p diskAdop
 	return nil
 }
 
+// claimDisk is step 3. A stamp owned by an earlier target of this adopt that
+// is gone now (it died after its claim) is taken over from that node.
+func (o *Orchestrator) claimDisk(ctx context.Context, d store.NodeDisk) error {
+	if f, err := o.adoptStamp(ctx, d.OpNodeID, d.OpMountPath); err == nil && f.StampID == d.ID &&
+		f.StampOwner != "" && f.StampOwner != d.OpFromNodeID && f.StampOwner != d.OpNodeID {
+		if _, err := o.store.Nodes.Get(ctx, f.StampOwner); errors.Is(err, errs.ErrNotFound) {
+			return o.diskLeaf.ClaimFrom(ctx, d, f.StampOwner)
+		}
+	}
+	return o.diskLeaf.Claim(ctx, d)
+}
+
 // adoptCommit is step 4: the disk, its folder rows, the envs, the placements
 // and the orphans move to the new node in one transaction. The claim set is
 // read inside it, before the repoint.
 func (o *Orchestrator) adoptCommit(ctx context.Context, d store.NodeDisk, n store.Node, r *jobs.Run) (store.NodeDisk, error) {
 	from := d.OpFromNodeID
-	err := o.store.Tx(ctx, func(tx store.Tx) error {
-		es, err := tx.Environments.ListByNode(ctx, from)
-		if err != nil {
-			return err
+	ids, err := opEnvIDs(d)
+	if err != nil {
+		return d, err
+	}
+	err = o.store.Tx(ctx, func(tx store.Tx) error {
+		// exactly the envs the operation recorded, each still on the old node:
+		// an env made or moved since was never locked and never restored
+		var es []store.Environment
+		for _, id := range ids {
+			e, err := tx.Environments.Get(ctx, id)
+			if errors.Is(err, errs.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if e.NodeID == from {
+				es = append(es, e)
+			}
 		}
 		claimed := map[string]bool{}
 		for _, e := range es {

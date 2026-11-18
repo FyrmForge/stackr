@@ -58,6 +58,28 @@ func (l *Leaf) Claim(ctx context.Context, d store.NodeDisk) error {
 	return nil
 }
 
+// Retarget points an adopt whose transaction has not run at another node and
+// path: its first target is gone, so it can never commit. The old node, the
+// env set and the state stay. The caller has judged that the first target is gone.
+func (l *Leaf) Retarget(ctx context.Context, d store.NodeDisk, nodeID, mount string) (store.NodeDisk, error) {
+	cur, err := l.disks.Get(ctx, d.ID)
+	if err != nil {
+		return cur, err
+	}
+	if cur.State != StateAdopting || cur.NodeID == cur.OpNodeID {
+		return cur, errs.Refusedf("This disk is not in an adopt that can be retargeted.")
+	}
+	cur.OpNodeID, cur.OpMountPath = nodeID, mount
+	return cur, l.disks.Update(ctx, cur)
+}
+
+// ClaimFrom is Claim for a stamp owned by from, which is not the row's old
+// node: the first adopt's target, which died after the claim.
+func (l *Leaf) ClaimFrom(ctx context.Context, d store.NodeDisk, from string) error {
+	d.OpFromNodeID = from
+	return l.Claim(ctx, d)
+}
+
 // Repoint is the disk's part of the adopt transaction, in tx: the row moves
 // to the new node and path (the state stays adopting) and every folder row
 // whose name is not in claimed is deleted; the folders stay on the disk.
