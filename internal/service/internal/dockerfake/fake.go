@@ -82,6 +82,7 @@ type Fake struct {
 	ExitCode      int                  // what Wait answers
 	WaitBlock     bool                 // Wait blocks until its ctx ends
 	WaitFor       time.Duration        // Wait takes this long first (ctx ends it early)
+	PullFor       time.Duration        // Pull takes this long first (ctx ends it early)
 	Usages        []docker.Usage       // what Stats answers, one per call; the last repeats
 	Host          docker.HostInfo      // what HostInfo answers; zero = unknown, no ceiling
 	Addrs         map[string][2]string // network -> what MemberAddr answers (ip, cidr)
@@ -437,7 +438,14 @@ func (f *Fake) UntarVolume(_ context.Context, name string, src io.Reader) error 
 }
 
 // Pull fetches ref: one listed in Gone is there afterwards.
-func (f *Fake) Pull(_ context.Context, ref, _ string, _ io.Writer) error {
+func (f *Fake) Pull(ctx context.Context, ref, _ string, _ io.Writer) error {
+	if f.PullFor > 0 { // a slow registry; the caller's context ends it early
+		select {
+		case <-time.After(f.PullFor):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	err := f.rec("Pull", ref)
 	if err == nil {
 		f.Gone = slices.DeleteFunc(f.Gone, func(g string) bool { return g == ref })

@@ -882,3 +882,36 @@ func TestControllerTickPushesTheLocalWorkersRegistry(t *testing.T) {
 		t.Fatalf("pushes %d -> %d, last %+v", before, d.put.pushes(), d.put.last())
 	}
 }
+
+// V5: a slow first pull is not a dead mount, and a node that lost the image is pulled again once.
+func TestHelperImagePullIsOutsideTheDeadlineAndRetriedOnce(t *testing.T) {
+	t.Run("slow pull", func(t *testing.T) {
+		n, h := helperTest(t)
+		h.short = 50 * time.Millisecond
+		n.wFake.PullFor = 300 * time.Millisecond
+		n.wFake.RunID = "h6"
+		n.wFake.LogsOut = hostdisk.EncodeResult(hostdisk.Result{Disk: &hostdisk.Fact{}})
+		if _, err := h.Disk(context.Background(), "w1", verify()); err != nil {
+			t.Fatalf("a slow pull hit the op deadline: %v", err)
+		}
+	})
+	t.Run("image gone", func(t *testing.T) {
+		n, h := helperTest(t)
+		n.wFake.Err = map[string]error{"Run": docker.ErrNotFound}
+		if _, err := h.Disk(context.Background(), "w1", verify()); !errors.Is(err, docker.ErrNotFound) {
+			t.Fatalf("err = %v", err)
+		}
+		pulls, runs := 0, 0
+		for _, c := range callNames(n.wFake) {
+			switch {
+			case strings.HasPrefix(c, "Pull("):
+				pulls++
+			case strings.HasPrefix(c, "Run("):
+				runs++
+			}
+		}
+		if pulls != 2 || runs != 2 {
+			t.Errorf("pulls %d runs %d, want the image pulled again and one retry: %v", pulls, runs, callNames(n.wFake))
+		}
+	})
+}

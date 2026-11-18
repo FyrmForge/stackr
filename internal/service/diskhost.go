@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -87,12 +88,43 @@ func (h *diskHost) Disk(ctx context.Context, nodeID string, r hostdisk.Request) 
 	if r.Op == "usage" && r.Sizes {
 		wait = h.long
 	}
-	ctx, cancel := context.WithTimeout(ctx, wait)
-	defer cancel()
 	if h.inProcess(ctx, nodeID) {
+		ctx, cancel := context.WithTimeout(ctx, wait)
+		defer cancel()
 		return hostdisk.Run(ctx, hostdisk.Env{Root: "/"}, r), nil
 	}
-	return h.helper(ctx, nodeID, r, wait)
+	// the image is pulled outside the deadline: a first pull is slow and is
+	// not a dead mount. A node that lost the image since gets one retry.
+	for try := 0; ; try++ {
+		ref, err := h.pull(ctx, nodeID)
+		if err != nil {
+			return hostdisk.Result{}, err
+		}
+		octx, cancel := context.WithTimeout(ctx, wait)
+		res, err := h.helper(octx, nodeID, ref, r, wait)
+		cancel()
+		if err != nil && try == 0 && errors.Is(err, docker.ErrNotFound) {
+			h.pulled.Delete(nodeID + " " + ref)
+			continue
+		}
+		return res, err
+	}
+}
+
+// pull makes sure the helper image is on the node and names it.
+func (h *diskHost) pull(ctx context.Context, nodeID string) (string, error) {
+	ref, err := h.image(ctx)
+	if err != nil {
+		return "", err
+	}
+	if _, done := h.pulled.Load(nodeID + " " + ref); done {
+		return ref, nil
+	}
+	if err := h.o.docker.Pull(docker.WithNode(ctx, nodeID), ref, "", io.Discard); err != nil {
+		return "", fmt.Errorf("pull %s: %w", ref, err)
+	}
+	h.pulled.Store(nodeID+" "+ref, true)
+	return ref, nil
 }
 
 // diskHelperSpec is hostHelperSpec under its own name and role label.
@@ -103,20 +135,10 @@ func diskHelperSpec(image, name, deadline, request string) docker.ContainerSpec 
 	return s
 }
 
-func (h *diskHost) helper(ctx context.Context, nodeID string, r hostdisk.Request, wait time.Duration) (hostdisk.Result, error) {
+func (h *diskHost) helper(ctx context.Context, nodeID, ref string, r hostdisk.Request, wait time.Duration) (hostdisk.Result, error) {
 	o := h.o
 	nctx := docker.WithNode(ctx, nodeID)
 	h.sweep(nctx)
-	ref, err := h.image(ctx)
-	if err != nil {
-		return hostdisk.Result{}, err
-	}
-	if _, done := h.pulled.Load(nodeID + " " + ref); !done {
-		if err := o.docker.Pull(nctx, ref, "", io.Discard); err != nil {
-			return hostdisk.Result{}, fmt.Errorf("pull %s: %w", ref, err)
-		}
-		h.pulled.Store(nodeID+" "+ref, true)
-	}
 	var b [3]byte
 	_, _ = rand.Read(b[:])
 	name := diskHelperPrefix + hex.EncodeToString(b[:])
