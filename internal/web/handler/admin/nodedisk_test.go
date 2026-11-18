@@ -82,7 +82,7 @@ func TestNodeDiskSectionOffersAddDisk(t *testing.T) {
 		"Keep volumes on their own disk, apart from the system disk.", "System disk")
 	card := section(t, body)
 	has(t, "section", card, ">Add disk</button>", `id="disk-use"`, `id="disk-path"`, `<label class="label" for="disk-path">Folder</label>`,
-		`aria-live="polite"`, "A mounted, empty folder. Nothing is erased.")
+		`aria-live="polite"`, "A mounted, empty folder. Nothing is erased.", "Checking the folder...", "group-[.htmx-request]/f:flex", "group-has-[#disk-path:placeholder-shown]/f:opacity-50")
 	if strings.Contains(card, `class="panel`) || strings.Contains(card, "rounded-lg border") {
 		t.Errorf("a box inside the Node disk card\n%s", card)
 	}
@@ -117,6 +117,13 @@ func TestNodeDiskDialogRefusalsAndNetworkWarning(t *testing.T) {
 	has(t, "relative", post("probe", url.Values{"path": {"mnt/disk"}}), "Start the path with /.")
 	has(t, "gone", post("probe", url.Values{"path": {"/nowhere"}}), "No such folder.")
 
+	// a read-only mount is refused with its own words
+	s.Disk.Mount(t, "/ro")
+	tbl, err := os.ReadFile(s.Disk.Mountinfo)
+	must(t, err)
+	must(t, os.WriteFile(s.Disk.Mountinfo, []byte(strings.ReplaceAll(string(tbl), " /ro rw - ", " /ro ro - ")), 0o644))
+	has(t, "read-only", post("probe", url.Values{"path": {"/ro"}}), "Read-only. Mount it writable.")
+
 	// an empty mount passes: the result, and Use folder enabled
 	s.Disk.Mount(t, "/data")
 	ok := post("probe", url.Values{"path": {"/data"}})
@@ -127,9 +134,9 @@ func TestNodeDiskDialogRefusalsAndNetworkWarning(t *testing.T) {
 
 	// a network mount: the warning and the box; Use folder waits for the tick
 	s.Disk.Mount(t, "/nas")
-	tbl, err := os.ReadFile(s.Disk.Mountinfo)
+	tbl, err = os.ReadFile(s.Disk.Mountinfo)
 	must(t, err)
-	must(t, os.WriteFile(s.Disk.Mountinfo, []byte(strings.ReplaceAll(string(tbl), "ext4 /dev/sdc", "nfs4 nas:/export")), 0o644))
+	must(t, os.WriteFile(s.Disk.Mountinfo, []byte(strings.ReplaceAll(string(tbl), "ext4 /dev/sdd", "nfs4 nas:/export")), 0o644))
 	net := post("probe", url.Values{"path": {"/nas"}})
 	has(t, "network", net, "Network disk (nfs4).", "Databases on a network disk risk corruption and slow writes.", "Use it anyway", `id="disk-ack"`)
 	if !strings.Contains(net, "disabled") {
@@ -306,6 +313,36 @@ func TestVolumeDrawerReadsSizesFromTheCache(t *testing.T) {
 	if got := len(rec.ops()); got != n {
 		t.Errorf("a read of a missing disk ran the host: %v", rec.ops()[n:])
 	}
+}
+
+// A check that finds the disk still gone fails in the mockup's words, and
+// the job reads disk.check.
+func TestNodeDiskCheckFailsStillMissing(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	id := diskNode(t, s)
+	addedDisk(t, s, root, id, "/data")
+	d, err := s.Store.NodeDisks.GetByNode(t.Context(), id)
+	must(t, err)
+	d.State = "missing"
+	must(t, s.Store.NodeDisks.Update(t.Context(), d))
+	s.Disk.Unmount(t, "/data")
+	rec := s.As(t, root, "POST", "/-/admin/nodes/"+id+"/disk/check", url.Values{})
+	has(t, "check", rec.Body.String(), "disk.check")
+	for range 200 {
+		js, err := s.Orch.Jobs(t.Context(), 0, "failed")
+		must(t, err)
+		for _, j := range js {
+			if j.Kind == "disk-check" {
+				if j.Error != "Still missing. Reattach it, then check again." {
+					t.Fatalf("error = %q", j.Error)
+				}
+				return
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("the check never failed")
 }
 
 func must(t *testing.T, err error) {

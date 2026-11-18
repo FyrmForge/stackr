@@ -1562,7 +1562,10 @@ func (h *handler) storage(c echo.Context, volumeID string) *volume.Storage {
 	if err != nil {
 		return nil
 	}
-	s := &volume.Storage{Disk: st.OnDisk, Docker: st.InDocker, State: st.State, Folder: st.Folder, SizeAt: st.SizeAt}
+	s := &volume.Storage{Disk: st.OnDisk, Docker: st.InDocker, State: st.State, Folder: st.Folder}
+	if !st.SizeAt.IsZero() {
+		s.SizeAt = render.Ago(st.SizeAt)
+	}
 	if st.SizeBytes >= 0 {
 		s.Size = render.Size(st.SizeBytes)
 	}

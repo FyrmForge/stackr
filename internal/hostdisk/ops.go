@@ -115,8 +115,8 @@ func (e Env) open(p, missing string) (*target, *Error) {
 	if err != nil {
 		herr := &Error{CodeBadName, err.Error()} // not absolute
 		var pe *fs.PathError
-		if errors.As(err, &pe) {
-			herr = ioOr(err, missing)
+		if errors.As(err, &pe) { // no such folder: always disk_missing, a probe too
+			herr = ioOr(err, CodeDiskMissing)
 		}
 		herr.Message = p + ": " + herr.Message
 		return nil, herr
@@ -238,6 +238,12 @@ func (t *target) fact(s Stamp, empty bool) *Fact {
 	return f
 }
 
+// readOnly is a mount the table or the kernel says is read-only (ST_RDONLY).
+func (t *target) readOnly() bool {
+	var st syscall.Statfs_t
+	return t.mount.RO || (syscall.Statfs(t.root.Name(), &st) == nil && st.Flags&1 != 0)
+}
+
 func probe(e Env, r Request) Result {
 	t, herr := e.open(r.Mount, CodeNotMountPoint)
 	if herr != nil {
@@ -246,6 +252,9 @@ func probe(e Env, r Request) Result {
 	defer t.close()
 	if herr := t.canonical(); herr != nil {
 		return Result{Error: herr}
+	}
+	if t.readOnly() {
+		return fail(CodeReadOnly, r.Mount+" is mounted read-only")
 	}
 	s, found, err := readStamp(t.root)
 	if err != nil {

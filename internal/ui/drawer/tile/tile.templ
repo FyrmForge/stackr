@@ -657,7 +657,12 @@ templ volumes(rows []VolumeRow) {
 						hx-push-url={ templ.SafeURL("?drawer=" + r.ID + "&tab=backups") }
 						class="link font-mono"
 					>{ r.Name }</a>
-					<span class="ml-auto text-xs text-rw-faint">{ r.State }</span>
+					<span class="ml-auto flex items-center gap-2">
+						if r.OnDisk {
+							@c.Chip("Node disk", "accent")
+						}
+						<span class="text-xs text-rw-faint">{ r.State }</span>
+					</span>
 				</li>
 			}
 		</ul>

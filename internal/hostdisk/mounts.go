@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -18,6 +19,7 @@ type Mount struct {
 	Point  string
 	FSType string
 	Source string
+	RO     bool // mounted read-only
 }
 
 // ParseMounts reads a mountinfo table. It takes bytes only and touches no
@@ -37,7 +39,7 @@ func ParseMounts(table []byte) []Mount {
 		if sep < 0 || len(f) < sep+3 {
 			continue
 		}
-		out = append(out, Mount{Dev: f[2], Root: unescape(f[3]), Point: unescape(f[4]), FSType: f[sep+1], Source: unescape(f[sep+2])})
+		out = append(out, Mount{Dev: f[2], Root: unescape(f[3]), Point: unescape(f[4]), FSType: f[sep+1], Source: unescape(f[sep+2]), RO: slices.Contains(strings.Split(f[5], ","), "ro")})
 	}
 	return out
 }

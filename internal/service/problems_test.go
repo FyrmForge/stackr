@@ -251,3 +251,30 @@ func TestUnsavedRecoveryKeyIsAProblem(t *testing.T) {
 		t.Errorf("problems after saving = %+v", ps)
 	}
 }
+
+// A node disk's problems open the node, not the alerts list.
+func TestDiskProblemsOpenTheNode(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	o := quietWorld(t).orch
+	must(t, o.store.Nodes.Create(ctx, store.Node{ID: "w1", Name: "h3", Slug: "h3", Role: node.Worker, Tags: "[]",
+		Status: node.StatusOnline, CreatedAt: time.Now()}))
+	o.openProblem(ctx, diskMissingKey("w1"), SevCritical, "The disk on h3 is missing.")
+	o.openProblem(ctx, diskFullKey("w1"), SevWarning, "The disk on h3 is 90% full.")
+	ps, err := o.Problems(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, p := range ps {
+		if strings.HasPrefix(p.Key, "disk") {
+			n++
+			if p.Link != "?drawer=node:w1" || p.LinkText != "Open node" {
+				t.Errorf("%s links to %q %q", p.Key, p.Link, p.LinkText)
+			}
+		}
+	}
+	if n != 2 {
+		t.Errorf("disk problems = %d, want 2: %+v", n, ps)
+	}
+}

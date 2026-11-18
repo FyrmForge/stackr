@@ -871,6 +871,11 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		if vol.OrphanedAt != nil {
 			n.Detail = "orphaned"
 		}
+		if f.Volumes.OnDisk(ctx, vol) {
+			n.Detail += " · node disk"
+		} else {
+			n.Detail += " · Docker storage"
+		}
 		v.Nodes = append(v.Nodes, n)
 	}
 

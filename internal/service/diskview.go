@@ -152,3 +152,9 @@ func (o *Orchestrator) diskSizesAt(nodeID string) time.Time {
 	}
 	return time.Time{}
 }
+
+// VolumeOnDisk is whether the volume has a folder on its node's disk, from
+// the rows alone (no Docker, no helper).
+func (o *Orchestrator) VolumeOnDisk(ctx context.Context, v Volume) bool {
+	return o.volumes.OnDisk(ctx, v)
+}

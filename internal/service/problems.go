@@ -220,7 +220,7 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 			return "/" + o.scopePath(ctx, ScopeEnv, t.EnvironmentID) + "?drawer=" + t.ID, "Promote a standby", true
 		}
 		return "/" + o.scopePath(ctx, ScopeEnv, t.EnvironmentID) + "?drawer=" + t.ID + "&tab=database", "Open database", true
-	case "node", "disk", "clock", "mem":
+	case "node", "disk", "diskmissing", "diskfull", "clock", "mem":
 		return onNode(rest)
 	case "certfail": // certfail.<node>.<host>
 		id, _, _ := strings.Cut(rest, ".")

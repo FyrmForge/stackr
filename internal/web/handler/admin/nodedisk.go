@@ -55,6 +55,7 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 		dk.Help = "New volumes on this node are stored here."
 		if p.Total > 0 {
 			dk.Used = diskSize(int64(p.Total-p.Free)) + " of " + diskSize(int64(p.Total))
+			dk.StaleAt = render.Ago(p.ReadAt)
 			dk.Pct = strconv.Itoa(int((p.Total - p.Free) * 100 / p.Total))
 			dk.Low = p.Low
 		}
@@ -142,10 +143,11 @@ func probeText(code, msg string) string {
 	case hostdisk.CodeRootFS:
 		return "This folder is on the system disk. Use a separate disk."
 	case hostdisk.CodeNotMountPoint:
-		if strings.Contains(msg, "no such file") {
-			return "No such folder."
-		}
 		return "Not a mount point. Mount the disk there first."
+	case hostdisk.CodeDiskMissing:
+		return "No such folder."
+	case hostdisk.CodeReadOnly:
+		return "Read-only. Mount it writable."
 	case hostdisk.CodeNotEmpty:
 		return "Not empty. Use an empty folder."
 	case hostdisk.CodeForeignStamp:

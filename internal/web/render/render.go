@@ -472,7 +472,7 @@ func EnvURL(c echo.Context) string {
 // under (an env page, or "" for the admin drawer's panel jobs).
 func JobView(page string, j service.Job) components.JobStatusView {
 	return components.JobStatusView{
-		Kind:      j.Kind,
+		Kind:      strings.Replace(j.Kind, "disk-", "disk.", 1), // disk.add, disk.check
 		State:     j.State,
 		Error:     j.Error,
 		Href:      page + "/-/jobs/" + j.ID,

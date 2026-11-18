@@ -79,7 +79,8 @@ const (
 	CodeForeignStamp  = "foreign_stamp"
 	CodeBadName       = "bad_name"
 	CodeUnsupported   = "unsupported"
-	CodeIO            = "io" // a filesystem call failed for a reason that is not a refusal
+	CodeReadOnly      = "read_only" // probe: the disk is mounted read-only
+	CodeIO            = "io"        // a filesystem call failed for a reason that is not a refusal
 )
 
 type Error struct {

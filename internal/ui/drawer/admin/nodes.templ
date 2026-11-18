@@ -250,7 +250,7 @@ type NodeDisk struct {
 	Check               string // POST: check the disk
 	Checking            bool   // a check is running
 	AddFailed           bool   // adding, and no add job is running
-	Used, Pct           string // "278 GB of 460 GB", "60"
+	Used, Pct, StaleAt  string // "278 GB of 460 GB", "60", "4 min ago"
 	Low, Stale, Network bool
 	Since               string // "2 min ago": missing since; "" = not known
 	Count               int    // volumes on the disk
@@ -1098,6 +1098,9 @@ templ diskSection(d NodeDisk) {
 					<dt class="text-rw-muted">Used</dt>
 					<dd class="text-rw-text">
 						<span class={ templ.KV("text-rw-text", !d.Low && !d.Stale), templ.KV("text-rw-warn", d.Low && !d.Stale), templ.KV("text-rw-muted", d.Stale) }>{ d.Used }</span>
+						if d.Stale && d.StaleAt != "" {
+							<span class="text-xs text-rw-faint ml-1">as of { d.StaleAt }</span>
+						}
 						<div class="mt-1.5 h-1.5 rounded-full bg-rw-border overflow-hidden" aria-hidden="true">
 							<div class={ "h-full rounded-full", templ.KV("bg-rw-accent", !d.Low && !d.Stale), templ.KV("bg-rw-warn", d.Low && !d.Stale), templ.KV("bg-rw-faint", d.Stale) } style={ "width:" + d.Pct + "%" }></div>
 						</div>
@@ -1197,18 +1200,22 @@ templ diskDialog(d DiskDialog, opener, class string) {
 					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
 				</button>
 			</div>
-			<form id="disk-form" hx-post={ d.Probe } hx-swap="none" hx-disabled-elt="#disk-check, #disk-use" hx-sync="this:replace">
+			<form id="disk-form" class="group/f" hx-post={ d.Probe } hx-swap="none" hx-disabled-elt="#disk-check, #disk-use" hx-sync="this:replace">
 				<div class="modal-body">
 					<div>
 						<label class="label" for="disk-path">Folder</label>
 						<div class="flex gap-2">
 							@diskPath(d)
-							<button type="submit" id="disk-check" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed shrink-0">Check</button>
+							<button type="submit" id="disk-check" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed shrink-0 group-has-[#disk-path:placeholder-shown]/f:opacity-50 group-has-[#disk-path:placeholder-shown]/f:pointer-events-none">Check</button>
 						</div>
 						<span class="settings-help" id="disk-hint">A mounted, empty folder. Nothing is erased.</span>
 						<div id="disk-probe" aria-live="polite" class="[&:not(:empty)]:mt-3">
 							@diskResult(d)
 						</div>
+						<p class="hidden group-[.htmx-request]/f:mt-3 group-[.htmx-request]/f:flex items-start gap-2 text-sm text-rw-muted">
+							<span class="inline-block size-3.5 rounded-full border-2 border-rw-muted border-t-transparent animate-spin shrink-0 mt-0.5" aria-hidden="true"></span>
+							<span>Checking the folder...</span>
+						</p>
 					</div>
 					@diskNet(d, false)
 					<input type="hidden" id="disk-checked" name="checked" value={ d.Checked }/>

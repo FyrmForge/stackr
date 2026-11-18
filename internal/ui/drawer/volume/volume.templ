@@ -78,14 +78,14 @@ type OverviewView struct {
 
 // Storage is where the volume lives. Disk and Docker both = two copies.
 // Node and NodeOpen are for a node admin only ("" = not shown). Size "" =
-// unknown; SizeAt zero = no read time (a Docker volume).
+// unknown; SizeAt "" = no read time (a Docker volume).
 type Storage struct {
 	Disk, Docker bool
 	State        string // the disk's: adding | ready | missing
 	Folder, Node string
 	NodeOpen     string
 	Size         string
-	SizeAt       time.Time
+	SizeAt       string // "2 min ago"; "" = no read time
 }
 
 // Mount is a tile that mounts the volume, and where.
@@ -158,11 +158,8 @@ templ Overview(o OverviewView) {
 						<p class="text-sm text-rw-muted">unknown</p>
 					} else {
 						<p class="text-sm text-rw-text">{ s.Size }</p>
-						if !s.SizeAt.IsZero() {
-							<p class="text-xs text-rw-faint">
-								{ "as of " }
-								@c.When(s.SizeAt)
-							</p>
+						if s.SizeAt != "" {
+							<p class="text-xs text-rw-faint">as of { s.SizeAt }</p>
 						}
 					}
 				}

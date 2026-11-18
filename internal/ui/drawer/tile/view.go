@@ -629,7 +629,10 @@ type RunRow struct {
 	Live                            bool   // offer stop
 }
 
-type VolumeRow struct{ ID, Name, State, Drawer string }
+type VolumeRow struct {
+	ID, Name, State, Drawer string
+	OnDisk                  bool // stored on the node disk
+}
 
 // Mounts is the Storage row's volumes field: one row per volume line, as
 // stored or as typed into a refused save; Other the host: and share: lines,

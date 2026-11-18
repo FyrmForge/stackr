@@ -288,6 +288,9 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		return sv, err
 	}
 	sv.Volumes = volumeRows(render.EnvURL(c), vs)
+	for i, x := range vs {
+		sv.Volumes[i].OnDisk = h.orch.VolumeOnDisk(ctx, x)
+	}
 	if sv.Has("volumes") {
 		declared, err := h.orch.MountableVolumes(ctx, t.EnvironmentID)
 		if err != nil {

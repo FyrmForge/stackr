@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -39,6 +40,7 @@ type NodeDiskView struct {
 	State       string // adding | ready | missing
 	Free, Total uint64
 	Network     bool
+	ReadAt      time.Time // when the worker last read the disk; zero = never
 	Stale       bool // the worker's last read of the disk is old, or there is none
 	Volumes     int
 }
@@ -183,7 +185,7 @@ func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskVie
 	if f := o.diskFacts(ctx, n); f != nil && f.DisksRead {
 		if i := slices.IndexFunc(f.Disks, func(x hostdisk.Fact) bool { return x.Path == d.MountPath }); i >= 0 {
 			x := f.Disks[i]
-			v.Free, v.Total, v.Network, v.Stale = x.Free, x.Total, x.Network, f.DisksStale
+			v.Free, v.Total, v.Network, v.Stale, v.ReadAt = x.Free, x.Total, x.Network, f.DisksStale, x.ReadAt
 		}
 	}
 	return v, nil
@@ -213,7 +215,7 @@ func (o *Orchestrator) auditDiskLog(ctx context.Context, by *Principal, action, 
 // probeRefusals are the answers a probe shows the person; any other failure
 // (an I/O error) is an error, not a verdict on the folder.
 var probeRefusals = []string{hostdisk.CodeNotMountPoint, hostdisk.CodeRootFS, hostdisk.CodeNotEmpty,
-	hostdisk.CodeForeignStamp, hostdisk.CodeBadName, hostdisk.CodeUnsupported, hostdisk.CodeDiskMissing}
+	hostdisk.CodeForeignStamp, hostdisk.CodeBadName, hostdisk.CodeUnsupported, hostdisk.CodeDiskMissing, hostdisk.CodeReadOnly}
 
 // ProbeNodeFolder reads a path on the node and writes nothing.
 func (o *Orchestrator) ProbeNodeFolder(ctx context.Context, by *Principal, nodeID, path string) (FolderProbe, error) {
@@ -365,7 +367,7 @@ func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob)
 		return err
 	}
 	if d.State != disk.StateReady {
-		return errors.New("The disk is not ready: " + d.State + ".")
+		return errors.New("Still missing. Reattach it, then check again.")
 	}
 	_, _ = fmt.Fprintf(r.Log, "disk ready: %s\n", d.MountPath)
 	return o.deployDiskTiles(ctx, r, d)

@@ -749,21 +749,8 @@ func tunnelRow(self string, t service.NodeTunnel) ui.TunnelRow {
 	return r
 }
 
-// ago reads "just now", "5 min ago", "3 h ago", "2 days ago"; zero = never.
-func ago(t time.Time) string {
-	d := time.Since(t)
-	switch {
-	case t.IsZero():
-		return "not seen yet"
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		return fmt.Sprintf("%d min ago", int(d/time.Minute))
-	case d < 48*time.Hour:
-		return fmt.Sprintf("%d h ago", int(d/time.Hour))
-	}
-	return fmt.Sprintf("%d days ago", int(d/(24*time.Hour)))
-}
+// ago is render.Ago.
+func ago(t time.Time) string { return render.Ago(t) }
 
 func contains(xs []string, s string) bool {
 	for _, x := range xs {

@@ -239,6 +239,20 @@ func (l *Leaf) RemoveNamed(ctx context.Context, nodeID, name string) error {
 	return p.refuse(nodeID, name)
 }
 
+// OnDisk is whether the volume has a folder on its node's disk. A read: it
+// asks the rows only, never Docker or the host.
+func (l *Leaf) OnDisk(ctx context.Context, v store.Volume) bool {
+	_, node, err := l.at(ctx, v)
+	if err != nil {
+		return false
+	}
+	if st, err := l.state(ctx, node); err != nil || st == DiskNone {
+		return false
+	}
+	rows, err := l.disk.Folders(ctx, node, v.Name)
+	return err == nil && rows[v.Name]
+}
+
 // Where is where a volume lives, for display: its route and node. It never
 // places, creates, measures or removes anything.
 func (l *Leaf) Where(ctx context.Context, v store.Volume) (Route, string, error) {

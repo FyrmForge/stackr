@@ -124,6 +124,16 @@ func TestProbeLostFoundCountsAsEmpty(t *testing.T) {
 	}
 }
 
+func TestProbeMissingFolderIsDiskMissing(t *testing.T) {
+	r := newRig(t, "")
+	wantCode(t, r.run("probe", func(q *Request) { q.Mount = "/nowhere" }), CodeDiskMissing)
+}
+
+func TestProbeReadOnlyMountRefused(t *testing.T) {
+	r := newRig(t, "36 25 8:17 / /disk ro - ext4 /dev/sdb ro\n")
+	wantCode(t, r.run("probe", nil), CodeReadOnly)
+}
+
 func TestProbeNFSAndCIFSWarnNotRefuse(t *testing.T) {
 	for _, fs := range []string{"nfs4", "cifs"} {
 		r := newRig(t, "36 25 8:17 / /disk rw - "+fs+" srv:/x rw\n")
