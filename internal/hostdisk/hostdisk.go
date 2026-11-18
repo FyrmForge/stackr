@@ -25,6 +25,8 @@ type Env struct {
 	// TempMounts is for tests: a folder in a temp dir stands in for a mount
 	// and shares its parent's device, so the same-device refusal is skipped.
 	TempMounts bool
+
+	beforeTakeover func() // test seam: runs between the emptiness check and the takeover
 }
 
 func (e Env) mountinfo() string {

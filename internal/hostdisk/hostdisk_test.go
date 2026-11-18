@@ -352,7 +352,7 @@ func TestMountPathIsCanonicalised(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantCode(t, r.run("probe", func(q *Request) { q.Mount = "/rel/../disk/./" }), "")
-	wantCode(t, r.run("probe", func(q *Request) { q.Mount = "disk" }), CodeNotMountPoint)
+	wantCode(t, r.run("probe", func(q *Request) { q.Mount = "disk" }), CodeBadName)
 }
 
 func TestParseMountsTouchesNoFilesystem(t *testing.T) {
@@ -476,7 +476,7 @@ func (v vanishFS) ReadDir(name string) ([]fs.DirEntry, error) {
 
 func TestSizeWalkSkipsWhatVanishes(t *testing.T) {
 	fsys := vanishFS{fstest.MapFS{"vol/a": {Data: []byte("12345")}, "vol/gone/b": {Data: []byte("x")}}}
-	n, err := walkSize(context.Background(), fsys, "vol")
+	n, err := walkSize(context.Background(), fsys.ReadDir, "vol")
 	if err != nil || n != 5 {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
@@ -657,5 +657,118 @@ func TestUsageStatErrorIsIONotMissing(t *testing.T) {
 	res := r.run("usage", func(q *Request) { q.Names = []string{"nope"} })
 	if wantCode(t, res, ""); !res.Usage["nope"].Missing {
 		t.Fatal("a missing folder is Missing")
+	}
+}
+
+// Q1: a stamp with the same id and owner but another install is foreign.
+func TestAddRefusesAStampOfAnotherInstallEvenWithTheSameID(t *testing.T) {
+	r := added(t)
+	wantCode(t, r.run("add", func(q *Request) { q.Install = "other" }), CodeForeignStamp)
+	wantCode(t, r.run("add", nil), "")
+}
+
+// Q2: the old folder goes first by a plain rmdir. Data written after the
+// emptiness check makes the takeover fail with the old stamp still in place.
+func TestTakeoverRemovesTheOldFolderBeforeTheNewStamp(t *testing.T) { // DL
+	r := added(t)
+	r.env.beforeTakeover = func() { r.write("d1/late", "x") }
+	wantCode(t, r.run("add", func(q *Request) { q.DiskID = "d2" }), CodeIO)
+	if s, _ := ReadStamp(context.Background(), r.env, "/disk"); s.ID != "d1" {
+		t.Fatalf("a new stamp was committed over the old folder: %+v", s)
+	}
+	if !r.exists("d1/late") {
+		t.Fatal("data lost")
+	}
+}
+
+// Q3: a crash between the stamp write and the Mkdir leaves no id folder; the disk is re-addable.
+func TestAddTakesOverAStampWhoseFolderIsMissing(t *testing.T) {
+	r := added(t)
+	if err := os.Remove(filepath.Join(r.disk, "d1")); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, r.run("add", func(q *Request) { q.DiskID = "d2" }), "")
+	if !r.exists("d2") {
+		t.Fatal("no new folder")
+	}
+}
+
+// Q4: no hard links means refuse, never rename over a stamp.
+func TestPutStampNeverFallsBackToRename(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := os.Mkdir(filepath.Join(dir, "tmp"), 0o755); err != nil { // linking a directory is EPERM
+		t.Fatal(err)
+	}
+	err = putStamp(root, "tmp", false)
+	var herr *Error
+	if !errors.As(err, &herr) || herr.Code != CodeUnsupported {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, stampFile)); err == nil {
+		t.Fatal("renamed into place")
+	}
+}
+
+// Q5: a mount made during the validation walk is caught before any delete.
+func TestDropReReadsTheTableAfterTheValidationWalk(t *testing.T) { // DL
+	r := added(t)
+	r.mkdir("d1/vol/sub")
+	r.write("d1/vol/sub/data", "keep")
+	tg, herr := r.env.open("/disk", CodeDiskMissing)
+	if herr != nil {
+		t.Fatal(herr)
+	}
+	defer tg.close()
+	tg.afterCheck = func() { r.table(rootLine + diskLine + "37 36 8:33 / /disk/d1/vol/sub rw - ext4 /dev/sdc rw\n") }
+	if herr := tg.dropOne("d1/vol"); herr == nil {
+		t.Fatal("dropped across a mount made after the walk")
+	}
+	if !r.exists("d1/vol/sub/data") {
+		t.Fatal("deleted")
+	}
+}
+
+// Q6: a name that is not UTF-8 is listed, sized and dropped.
+func TestNonUTF8NamesAreSizedAndDropped(t *testing.T) {
+	r := added(t)
+	r.mkdir("d1/vol/caf\xe9")
+	r.write("d1/vol/caf\xe9/f", "12345")
+	res := r.run("usage", func(q *Request) { q.Names = []string{"vol"}; q.Sizes = true })
+	if wantCode(t, res, ""); res.Usage["vol"].Bytes != 5 {
+		t.Fatalf("usage %+v", res.Usage)
+	}
+	wantCode(t, r.run("drop", func(q *Request) { q.Names = []string{"vol"} }), "")
+	if r.exists("d1/vol") {
+		t.Fatal("not dropped")
+	}
+}
+
+// Q7: a relative path is bad_name, never disk_missing.
+func TestARelativeMountPathIsNotDiskMissing(t *testing.T) {
+	r := added(t)
+	for _, op := range []string{"add", "verify"} {
+		wantCode(t, r.run(op, func(q *Request) { q.Mount = "disk" }), CodeBadName)
+	}
+}
+
+// Q8: an id folder that became a file is disk_missing for a volume folder.
+func TestMkVolumeUnderAFileIsDiskMissing(t *testing.T) {
+	r := added(t)
+	tg, herr := r.env.open("/disk", CodeDiskMissing)
+	if herr != nil {
+		t.Fatal(herr)
+	}
+	defer tg.close()
+	if err := os.Remove(filepath.Join(r.disk, "d1")); err != nil {
+		t.Fatal(err)
+	}
+	r.write("d1", "file")
+	if herr := tg.mkVolume("d1", "vol"); herr == nil || herr.Code != CodeDiskMissing {
+		t.Fatalf("herr = %v", herr)
 	}
 }

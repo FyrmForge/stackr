@@ -90,13 +90,14 @@ func realDir(root *os.Root, name, missing string) *Error {
 // disk goes through root, so a symlink or an unmount after the open can never
 // reach the root filesystem.
 type target struct {
-	root      *os.Root
-	mount     Mount
-	mounts    []Mount // the whole table
-	dev       string  // device of the opened root
-	path      string  // canonical, as the host sees it
-	disk      string  // the path as the caller gave it
-	mountinfo string  // the table path, read again before a drop
+	root       *os.Root
+	mount      Mount
+	mounts     []Mount // the whole table
+	dev        string  // device of the opened root
+	path       string  // canonical, as the host sees it
+	disk       string  // the path as the caller gave it
+	mountinfo  string  // the table path, read again before a drop
+	afterCheck func()  // test seam: runs between the drop's validation and delete walks
 }
 
 func (t *target) close() { _ = t.root.Close() }
@@ -112,7 +113,7 @@ func (e Env) open(p, missing string) (*target, *Error) {
 	ms := ParseMounts(table)
 	canon, err := resolveUnder(e.Root, p)
 	if err != nil {
-		herr := &Error{missing, err.Error()} // not absolute
+		herr := &Error{CodeBadName, err.Error()} // not absolute
 		var pe *fs.PathError
 		if errors.As(err, &pe) {
 			herr = ioOr(err, missing)
@@ -211,8 +212,8 @@ const leftoverTmp = "A leftover .stackr-disk temp file is here. Remove it, then 
 
 // emptyDir: no entries, lost+found aside (Proxmox formats ext4). A leftover
 // stamp temp refuses.
-func emptyDir(fsys fs.FS, dir string) (bool, *Error) {
-	ents, err := fs.ReadDir(fsys, dir)
+func emptyDir(root *os.Root, dir string) (bool, *Error) {
+	ents, err := readDir(root, dir)
 	if err != nil {
 		return false, &Error{CodeIO, err.Error()}
 	}
@@ -253,7 +254,7 @@ func probe(e Env, r Request) Result {
 	empty := false
 	if !found {
 		var herr *Error
-		if empty, herr = emptyDir(t.root.FS(), "."); herr != nil {
+		if empty, herr = emptyDir(t.root, "."); herr != nil {
 			return Result{Error: herr}
 		}
 	}
@@ -284,18 +285,22 @@ func add(e Env, r Request) Result {
 		return Result{Error: stampErr(err, CodeNotEmpty)}
 	case found && s.ID != r.DiskID && s.Owner == r.Owner && s.Install == r.Install && t.onlyEmptyFolder(s.ID):
 		// a deleted or replaced adding row left its id behind: take the disk over
-		old := s.ID
-		s = Stamp{ID: r.DiskID, Install: r.Install, Kind: "path", Owner: r.Owner, Created: time.Now().UTC()}
-		if err := writeStamp(t.root, s, true); err != nil {
-			return fail(CodeIO, "write the stamp: "+err.Error())
+		if e.beforeTakeover != nil {
+			e.beforeTakeover()
 		}
-		if err := t.root.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		// the old folder goes first, by a plain rmdir that fails on anything
+		// written since the check; the new stamp is never committed over it
+		if err := t.root.Remove(s.ID); err != nil && !notThere(err) {
 			return fail(CodeIO, err.Error())
 		}
-	case found && (s.ID != r.DiskID || s.Owner != r.Owner):
+		s = Stamp{ID: r.DiskID, Install: r.Install, Kind: "path", Owner: r.Owner, Created: time.Now().UTC()}
+		if err := writeStamp(t.root, s, true); err != nil {
+			return stampFail(err)
+		}
+	case found && (s.ID != r.DiskID || s.Owner != r.Owner || s.Install != r.Install):
 		return fail(CodeForeignStamp, "the disk carries another stamp")
 	case !found:
-		if empty, herr := emptyDir(t.root.FS(), "."); herr != nil {
+		if empty, herr := emptyDir(t.root, "."); herr != nil {
 			return Result{Error: herr}
 		} else if !empty {
 			return fail(CodeNotEmpty, r.Mount+" is not empty and has no stamp")
@@ -307,7 +312,7 @@ func add(e Env, r Request) Result {
 				return fail(CodeForeignStamp, "the disk carries another stamp")
 			}
 		} else if err != nil {
-			return fail(CodeIO, "write the stamp: "+err.Error())
+			return stampFail(err)
 		}
 	}
 	// a retry after a crash finds the stamp already there; the folder is made
@@ -323,6 +328,15 @@ func add(e Env, r Request) Result {
 
 // canonical refuses a path that is not already resolved, so the stored path,
 // the worker's mount table compare and Docker all spell it one way.
+// stampFail: a refusal putStamp named stays as it is.
+func stampFail(err error) Result {
+	var herr *Error
+	if errors.As(err, &herr) {
+		return Result{Error: herr}
+	}
+	return fail(CodeIO, "write the stamp: "+err.Error())
+}
+
 func (t *target) canonical() *Error {
 	if t.path != filepath.Clean(t.disk) {
 		return &Error{CodeNotMountPoint, "Use the real path: " + t.path + "."}
@@ -331,12 +345,13 @@ func (t *target) canonical() *Error {
 }
 
 // onlyEmptyFolder: the disk holds nothing but the stamp, lost+found and an
-// empty folder called id.
+// empty folder called id. A missing id folder counts as empty (a crash between
+// the stamp write and the Mkdir).
 func (t *target) onlyEmptyFolder(id string) bool {
 	if badName(id) != nil {
 		return false
 	}
-	ents, err := fs.ReadDir(t.root.FS(), ".")
+	ents, err := readDir(t.root, ".")
 	if err != nil {
 		return false
 	}
@@ -345,9 +360,26 @@ func (t *target) onlyEmptyFolder(id string) bool {
 			return false
 		}
 	}
-	sub, err := fs.ReadDir(t.root.FS(), id)
-	fi, lerr := t.root.Lstat(id)
-	return err == nil && len(sub) == 0 && lerr == nil && fi.IsDir()
+	fi, err := t.root.Lstat(id)
+	if notThere(err) {
+		return true
+	}
+	if err != nil || !fi.IsDir() {
+		return false
+	}
+	sub, err := readDir(t.root, id)
+	return err == nil && len(sub) == 0
+}
+
+// readDir lists a folder through the root handle. root.FS() rejects names that
+// are not valid UTF-8, which a volume may hold, so it is never used to list.
+func readDir(root *os.Root, p string) ([]fs.DirEntry, error) {
+	f, err := root.OpenFile(p, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return f.ReadDir(-1)
 }
 
 // writeStamp writes a uniquely named temp file (exclusive), syncs it and puts
@@ -388,9 +420,13 @@ func putStamp(root *os.Root, tmp string, replace bool) error {
 	if err == nil || errors.Is(err, fs.ErrExist) {
 		return err
 	}
-	// ponytail: a filesystem without hard links (FAT) falls back to rename,
-	// which can clobber a concurrent add; the node lock serialises adds anyway
-	return root.Rename(tmp, stampFile)
+	// rename would clobber a concurrent add, so a filesystem without hard
+	// links (FAT) is refused
+	if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.EXDEV) ||
+		errors.Is(err, syscall.ENOSYS) || errors.Is(err, syscall.EMLINK) {
+		return &Error{CodeUnsupported, "This filesystem has no hard links. Use another filesystem."}
+	}
+	return err
 }
 
 func syncDir(root *os.Root) error {
@@ -463,19 +499,25 @@ func folder(e Env, r Request) Result {
 	defer t.close()
 	for _, n := range r.Names {
 		// one level only: a missing <id> folder is an error, never created here
-		dir := r.DiskID + "/" + n
-		if err := t.root.Mkdir(dir, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
-			if errors.Is(err, fs.ErrNotExist) {
-				return fail(CodeDiskMissing, "the disk has no folder for this id")
-			}
-			return fail(CodeIO, err.Error())
-		}
-		// an existing entry must be a real folder, not a file or a symlink
-		if herr := realDir(t.root, dir, CodeIO); herr != nil {
+		if herr := t.mkVolume(r.DiskID, n); herr != nil {
 			return Result{Error: herr}
 		}
 	}
 	return Result{Disk: t.fact(s, false)}
+}
+
+// mkVolume makes <id>/<n> one level deep. A missing or no longer folder id
+// is disk_missing.
+func (t *target) mkVolume(id, n string) *Error {
+	dir := id + "/" + n
+	if err := t.root.Mkdir(dir, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+		if notThere(err) {
+			return &Error{CodeDiskMissing, "the disk has no folder for this id"}
+		}
+		return &Error{CodeIO, err.Error()}
+	}
+	// an existing entry must be a real folder, not a file or a symlink
+	return realDir(t.root, dir, CodeIO)
 }
 
 func usage(ctx context.Context, e Env, r Request) Result {
@@ -487,11 +529,10 @@ func usage(ctx context.Context, e Env, r Request) Result {
 		return Result{Error: herr}
 	}
 	defer t.close()
-	fsys := t.root.FS()
 	out := map[string]Use{}
 	for _, n := range slices.Compact(slices.Sorted(slices.Values(r.Names))) {
 		dir := r.DiskID + "/" + n
-		fi, err := fs.Stat(fsys, dir)
+		fi, err := t.root.Stat(dir)
 		if err != nil && !notThere(err) {
 			return fail(CodeIO, err.Error())
 		}
@@ -500,14 +541,14 @@ func usage(ctx context.Context, e Env, r Request) Result {
 			continue
 		}
 		u := Use{}
-		ents, err := fs.ReadDir(fsys, dir)
+		ents, err := readDir(t.root, dir)
 		if err != nil {
 			return fail(CodeIO, err.Error())
 		}
 		u.Empty = len(ents) == 0
 		if r.Sizes && !u.Empty {
 			var err error
-			u.Bytes, err = walkSize(ctx, fsys, dir)
+			u.Bytes, err = walkSize(ctx, func(p string) ([]fs.DirEntry, error) { return readDir(t.root, p) }, dir)
 			if err != nil {
 				return fail(CodeIO, err.Error())
 			}
@@ -540,6 +581,28 @@ func drop(e Env, r Request) Result {
 // examined. Only a missing entry is skipped. A refusal in the pre-walk
 // deletes nothing; the delete walk checks each entry again before removing it.
 func (t *target) dropOne(dir string) *Error {
+	if herr := t.noMountBelow(dir); herr != nil {
+		return herr
+	}
+	err := t.walk(dir, false)
+	if err == nil {
+		// a mount made during the validation walk is caught here
+		if t.afterCheck != nil {
+			t.afterCheck()
+		}
+		if herr := t.noMountBelow(dir); herr != nil {
+			return herr
+		}
+		err = t.walk(dir, true)
+	}
+	if err != nil {
+		return &Error{CodeIO, err.Error()}
+	}
+	return nil
+}
+
+// noMountBelow reads the mount table now and refuses a mount at or below dir.
+func (t *target) noMountBelow(dir string) *Error {
 	table, err := os.ReadFile(t.mountinfo)
 	if err != nil {
 		return &Error{CodeIO, "read the mount table: " + err.Error()}
@@ -549,13 +612,6 @@ func (t *target) dropOne(dir string) *Error {
 		if m.Point == full || strings.HasPrefix(m.Point, full+"/") {
 			return &Error{CodeIO, "another filesystem is mounted inside " + full}
 		}
-	}
-	err = t.walk(dir, false)
-	if err == nil {
-		err = t.walk(dir, true)
-	}
-	if err != nil {
-		return &Error{CodeIO, err.Error()}
 	}
 	return nil
 }
@@ -574,7 +630,7 @@ func (t *target) walk(p string, remove bool) error {
 		return fmt.Errorf("%s is on another filesystem", p)
 	}
 	if fi.IsDir() {
-		ents, err := fs.ReadDir(t.root.FS(), p)
+		ents, err := readDir(t.root, p)
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
@@ -597,23 +653,27 @@ func (t *target) walk(p string, remove bool) error {
 
 // walkSize sums the file sizes under dir. A file or folder that vanishes
 // during the walk (a live database) counts as nothing.
-func walkSize(ctx context.Context, fsys fs.FS, dir string) (n int64, err error) {
-	err = fs.WalkDir(fsys, dir, func(_ string, d fs.DirEntry, err error) error {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
+func walkSize(ctx context.Context, read func(string) ([]fs.DirEntry, error), dir string) (n int64, err error) {
+	ents, err := read(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	for _, d := range ents {
 		if cerr := ctx.Err(); cerr != nil {
-			return cerr
+			return n, cerr
 		}
-		if !d.IsDir() {
-			if fi, err := d.Info(); err == nil {
-				n += fi.Size()
+		if d.IsDir() {
+			m, err := walkSize(ctx, read, dir+"/"+d.Name())
+			if err != nil {
+				return n, err
 			}
+			n += m
+		} else if fi, err := d.Info(); err == nil {
+			n += fi.Size()
 		}
-		return nil
-	})
-	return n, err
+	}
+	return n, nil
 }
