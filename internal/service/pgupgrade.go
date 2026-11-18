@@ -255,7 +255,7 @@ func (o *Orchestrator) pgupRoom(ctx context.Context, c pgChange) error {
 	if free == 0 {
 		return nil // the node does not report its disk: not judged, as a deploy's check
 	}
-	return pgupRoomError(c.t.Slug, free, o.volumes.SizeBytes(ctx, c.sv))
+	return pgupRoomError(c.t.Slug, free, o.volumes.SizeBytesFresh(ctx, c.sv))
 }
 
 // pgupLocks is the lock set of the change: the instance and what is bound to
@@ -465,7 +465,7 @@ func (u *pgupRun) check(ctx context.Context, to int) error {
 	if err := o.pgupRoom(ctx, pgChange{t: u.t, m: u.m, sv: u.sv, from: u.m.Major, to: to}); err != nil {
 		return err
 	}
-	res, filled := PGCheck{To: to, At: time.Now().UTC(), NeedBytes: mflow.PGUpgradeNeed(max(o.volumes.SizeBytes(ctx, u.sv), 0))}, false
+	res, filled := PGCheck{To: to, At: time.Now().UTC(), NeedBytes: mflow.PGUpgradeNeed(max(o.volumes.SizeBytesFresh(ctx, u.sv), 0))}, false
 	defer func() {
 		if filled {
 			b, _ := json.Marshal(res)

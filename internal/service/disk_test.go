@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"os"
 	"path/filepath"
 	"slices"
@@ -941,5 +942,24 @@ func TestPlacementPlanMeasuresADiskVolumeFresh(t *testing.T) {
 	must(t, err)
 	if l.Bytes != 10 {
 		t.Fatalf("plan line bytes = %d, want 10", l.Bytes)
+	}
+}
+
+// V8: the pg-upgrade and restore room checks measure a disk volume now. The
+// cache is cold here, and its unknown (-1) would pass any amount of free space.
+func TestRoomChecksMeasureADiskVolumeFresh(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	v := d.vol(t, "data")
+	_, err := d.orch.volumes.Ensure(ctx, v)
+	must(t, err)
+	must(t, os.WriteFile(filepath.Join(d.folder(row, v.Name), "f"), make([]byte, 10), 0o644))
+	d.facts(t, worker.Facts{DisksRead: true, Disks: []hostdisk.Fact{{Path: "/disk", Free: 5, Total: 100}}})
+	if err := d.orch.pgupRoom(ctx, pgChange{sv: v}); err == nil {
+		t.Errorf("pg-upgrade room with 5 free for 10 bytes: %v", err)
+	}
+	if err := d.orch.restoreRoom(ctx, pitrSource{vol: v}, backup.Plan{}); err == nil {
+		t.Error("restore room with 5 free for 10 bytes passed")
 	}
 }

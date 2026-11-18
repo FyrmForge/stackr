@@ -170,7 +170,7 @@ func (o *Orchestrator) restoreRoom(ctx context.Context, src pitrSource, plan bac
 	if free == 0 {
 		return nil // the node does not report its disk: not judged, as a deploy's check
 	}
-	base := max(o.volumes.SizeBytes(ctx, src.vol), plan.Base.SizeBytes)
+	base := max(o.volumes.SizeBytesFresh(ctx, src.vol), plan.Base.SizeBytes)
 	return roomError(src.tile.Slug, free, base, plan.Segments)
 }
 
