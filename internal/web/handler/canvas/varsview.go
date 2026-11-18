@@ -16,13 +16,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
-// varsReply answers one editor state into #vars-editor. It may carry a
-// secret, so it is never cached.
-func (h *handler) varsReply(c echo.Context, s service.Scope, mods ...func(*vars.Grid)) error {
-	return h.varsReplyMsg(c, s, "", mods...)
-}
-
-// varsReplyMsg is varsReply with a refusal shown above the editor.
+// varsReplyMsg answers one editor state into #vars-editor, with a refusal
+// shown above it. It may carry a secret, so it is never cached.
 func (h *handler) varsReplyMsg(c echo.Context, s service.Scope, msg string, mods ...func(*vars.Grid)) error {
 	body, err := h.vars(c, s, msg, "", mods...)
 	if err != nil {
