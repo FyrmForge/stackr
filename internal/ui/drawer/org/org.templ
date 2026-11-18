@@ -25,6 +25,7 @@ type SettingsView struct {
 	Cascade  c.SettingsFormView
 	Defaults string        // the cascade row's summary
 	Stacks   int           // a delete is refused while any remain
+	Last     bool          // the only org on the server: a delete is refused
 	Delete   c.ConfirmView // shown when Rename is set
 	Tiers    TiersView
 	Open     string // the row open on load (?open=)
@@ -239,6 +240,8 @@ templ defaultsBody(v c.SettingsFormView) {
 templ deleteBody(v SettingsView) {
 	if v.Stacks > 0 {
 		@c.DangerZone("This organization still holds "+stacks(v.Stacks)+". Move or delete them before it can be deleted.", "/"+v.Slug, "")
+	} else if v.Last {
+		@c.DangerZone("The last organization cannot be deleted.", "/"+v.Slug, "")
 	} else {
 		@c.DangerZone("Deleting this organization removes its members, keys, connectors and variables.", "/"+v.Slug, "Backups already in a destination are kept.") {
 			@c.Confirm(v.Delete)

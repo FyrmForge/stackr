@@ -152,6 +152,11 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return nil, err
 	}
 	v.Stacks = len(sts)
+	all, err := h.orch.AllOrgs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	v.Last = len(all) <= 1
 	v.Rename = f.Base + "/rename"
 	v.Delete = dialog.DeleteOrg(og.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
 	return orgui.Settings(v), nil
