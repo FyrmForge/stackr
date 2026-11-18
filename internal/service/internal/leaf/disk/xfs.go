@@ -116,10 +116,28 @@ func (l *Leaf) reqQ(ctx context.Context, d store.NodeDisk, op string, names ...s
 					return r, err
 				}
 			}
+			// ponytail: in memory, so the first deploy after a panel restart sets the project once more.
+			if cp, ok := l.applied.Load(f.ID); ok && cp.(int64) == q.Cap && f.Project > 0 && op == "folder" {
+				q.Applied = true
+			}
 			r.Quotas[n] = q
 		}
 	}
 	return r, nil
+}
+
+// noteApplied remembers the cap each folder in r now has, so the next folder
+// call with the same cap skips setting the project again.
+func (l *Leaf) noteApplied(ctx context.Context, d store.NodeDisk, r hostdisk.Request) {
+	rows, err := l.folders.ListByDisk(ctx, d.ID)
+	if err != nil {
+		return
+	}
+	for _, f := range rows {
+		if q, ok := r.Quotas[f.Name]; ok {
+			l.applied.Store(f.ID, q.Cap)
+		}
+	}
 }
 
 // Devices lists the node's whole disks with why each can or cannot be used.
@@ -336,6 +354,9 @@ func (l *Leaf) SetCap(ctx context.Context, d store.NodeDisk, name string) error 
 	if _, ok := r.Quotas[name]; !ok {
 		return nil // no folder yet: Place applies the cap
 	}
-	_, err = l.run(ctx, d, r)
-	return err
+	if _, err = l.run(ctx, d, r); err != nil {
+		return err
+	}
+	l.noteApplied(ctx, d, r)
+	return nil
 }

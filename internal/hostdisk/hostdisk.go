@@ -67,6 +67,9 @@ type Request struct {
 type Quota struct {
 	Project uint32 `json:"project"`
 	Cap     int64  `json:"cap,omitempty"`
+	// Applied: the project was already set on this folder, so folder skips
+	// "project -s" and only writes the cap. An older helper ignores it.
+	Applied bool `json:"applied,omitempty"`
 }
 
 type Use struct {

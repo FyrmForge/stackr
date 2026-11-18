@@ -120,6 +120,9 @@ func (o *Orchestrator) enqueueVolumeMove(ctx context.Context, by *Principal, nod
 				return Job{}, err
 			}
 		}
+		if has && d.Kind == disk.KindXFS && v.MaxSizeMB != nil && o.volumes.SizesFresh(ctx, []Volume{v})[v.ID] > capBytes(v.MaxSizeMB) {
+			return Job{}, errs.Refusedf("The volume holds more than its cap. Raise the cap first.")
+		}
 		p.Volumes = append(p.Volumes, volumeMoveItem{VolumeID: v.ID, Target: target, OldName: v.Name})
 	}
 	m := &volumeMove{o: o, p: p}

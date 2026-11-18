@@ -258,7 +258,7 @@ func TestXFSAddDeviceFormatsMountsAndStampsInThreeRuns(t *testing.T) { // DL: no
 	if _, err := os.Stat(filepath.Join(x.env.Root, row.MountPath, ".stackr-disk")); err != nil {
 		t.Errorf("no stamp: %v", err)
 	}
-	if got := x.put.last(); len(got) != 1 || got[0] != (worker.DiskReg{ID: row.ID, Path: row.MountPath, Owner: "w1"}) {
+	if got := x.put.last(); len(got) != 1 || got[0] != (worker.DiskReg{ID: row.ID, Path: row.MountPath, Owner: "w1", Device: row.DeviceID}) {
 		t.Errorf("registry pushed = %+v", got)
 	}
 	mk := x.fx.ran("mkfs.xfs")
@@ -533,8 +533,17 @@ func TestXFSPlaceAssignsProjectsAndCapsSurviveAReplace(t *testing.T) { // DL: ca
 	before := len(x.fx.quotaCmds())
 	x.ensure(t, a)
 	again := x.fx.quotaCmds()[before:]
-	if !slices.Contains(again, "limit -p bhard=307200k 1") || !slices.Contains(again, quotaProject(dir+"/"+a.Name, 1)) {
-		t.Errorf("re-place did not put the project and the cap back: %v", again)
+	if !slices.Contains(again, "limit -p bhard=307200k 1") || slices.Contains(again, quotaProject(dir+"/"+a.Name, 1)) {
+		t.Errorf("re-place with the cap unchanged should put the cap back and skip the project: %v", again)
+	}
+	// a cap change since the last apply sets the project again
+	big := int64(400)
+	must(t, x.orch.SetVolumeCap(ctx, a.ID, &big))
+	must(t, x.wFake.RemoveVolume(ctx, a.Name))
+	before = len(x.fx.quotaCmds())
+	x.ensure(t, a)
+	if again = x.fx.quotaCmds()[before:]; !slices.Contains(again, "limit -p bhard=409600k 1") {
+		t.Errorf("a changed cap was not applied: %v", again)
 	}
 	if x.folders(t, row)[a.Name] != 1 {
 		t.Errorf("project changed on a re-place: %v", x.folders(t, row))

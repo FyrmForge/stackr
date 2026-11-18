@@ -439,6 +439,9 @@ func xfsFolder(ctx context.Context, e Env, r Request) Result {
 	}
 	dir := joinRoot(e.Root, r.Mount) + "/" + r.DiskID
 	for _, n := range r.Names {
+		if r.Quotas[n].Applied {
+			continue
+		}
 		if _, err := e.quota(ctx, r.Mount, fmt.Sprintf("project -s -p %s/%s %d", dir, n, r.Quotas[n].Project)); err != nil {
 			return fail(CodeIO, err.Error())
 		}

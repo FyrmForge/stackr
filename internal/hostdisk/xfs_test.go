@@ -646,6 +646,43 @@ func TestFolderSetsTheProjectAndTheCap(t *testing.T) {
 	}
 }
 
+func TestFolderSkipsTheProjectWhenItIsAlreadyApplied(t *testing.T) {
+	x := mountedX(t)
+	quotas(x, reportFixture)
+	res := x.run("folder", func(q *Request) {
+		q.Names = []string{"vol"}
+		q.Quotas = map[string]Quota{"vol": {Project: 41, Cap: 5 << 20, Applied: true}}
+	})
+	wantCode(t, res, "")
+	want := []string{"report -p -b -N", "limit -p bhard=5120k 41"}
+	if strings.Join(cmds(x), "|") != strings.Join(want, "|") {
+		t.Fatalf("%v", cmds(x))
+	}
+}
+
+func TestReadDeviceSizeAndUUIDFromSysfs(t *testing.T) {
+	root := t.TempDir()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, d := range []string{"dev/disk/by-id", "dev/disk/by-uuid", "sys/class/block/sdb"} {
+		must(os.MkdirAll(filepath.Join(root, d), 0o755))
+	}
+	must(os.Symlink("../../sdb", filepath.Join(root, "dev/disk/by-id/ata-X")))
+	must(os.Symlink("../../sdb", filepath.Join(root, "dev/disk/by-uuid/u-1")))
+	must(os.WriteFile(filepath.Join(root, "sys/class/block/sdb/size"), []byte("4096\n"), 0o644))
+	size, uuid, err := ReadDevice(root, "/dev/disk/by-id/ata-X")
+	if err != nil || size != 4096*512 || uuid != "u-1" {
+		t.Fatalf("%d %q %v", size, uuid, err)
+	}
+	if _, _, err := ReadDevice(root, "/dev/disk/by-id/none"); err == nil {
+		t.Fatal("a missing device read")
+	}
+}
+
 func TestCapReappliedOnPlaceAndClearedWithZero(t *testing.T) {
 	x := mountedX(t)
 	quotas(x, "")
@@ -732,7 +769,7 @@ func TestWireRoundTripKeepsTheXFSFields(t *testing.T) {
 	d := Device{Path: "/dev/sdb", ID: "/dev/disk/by-id/x", Bytes: 5, FSUUID: "u", Signature: "table"}
 	in := Request{Op: "format", Kind: "xfs", Device: d.ID, DeviceBytes: 9, Expect: &d, Force: true, Quotas: map[string]Quota{"v": {Project: 2, Cap: 3}}}
 	out, err := DecodeRequest(EncodeRequest(in))
-	if err != nil || out.Expect == nil || !sameDevice(*out.Expect, d) || !out.Force || out.DeviceBytes != 9 || out.Quotas["v"] != (Quota{2, 3}) {
+	if err != nil || out.Expect == nil || !sameDevice(*out.Expect, d) || !out.Force || out.DeviceBytes != 9 || out.Quotas["v"] != (Quota{Project: 2, Cap: 3}) {
 		t.Fatalf("%+v %v", out, err)
 	}
 	r, ok := ParseResult([]byte(EncodeResult(Result{Devices: []Device{d}, Disk: &Fact{Device: "x", DeviceBytes: 1, FSUUID: "u"}})))
