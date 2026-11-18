@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -17,7 +18,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -370,5 +374,166 @@ func TestPlacementDiskCheckRefusesAMissingTargetDisk(t *testing.T) {
 	c := d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, false, []store.Volume{d.vol(t, "data")}, d.orch.pmNodeNames(ctx))
 	if c.OK || !strings.Contains(c.Detail, "disk is missing") {
 		t.Errorf("check = %+v", c)
+	}
+}
+
+// diskDataEnv is the edge env (on w1) with a volume that holds a file on the
+// ready disk, and its Docker object.
+func diskDataEnv(t *testing.T) (*diskTest, store.NodeDisk, store.Volume, string) {
+	t.Helper()
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	v := d.vol(t, "data")
+	d.ensure(t, v)
+	file := filepath.Join(d.folder(row, v.Name), "PG_VERSION")
+	must(t, os.WriteFile(file, []byte("17"), 0o644))
+	return d, row, v, file
+}
+
+// DL: a volume that holds data on the disk is never restored over.
+func TestRestoreThenDeployDoesNotRestoreOverDiskData(t *testing.T) {
+	ctx := context.Background()
+	d, _, v, file := diskDataEnv(t)
+	_, notes, err := d.orch.restoreThenDeploy(ctx, d.edge.ID, nil)
+	must(t, err)
+	if !strings.Contains(strings.Join(notes, "\n"), v.Slug+" holds data") {
+		t.Errorf("notes = %v, want %s left alone", notes, v.Slug)
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Errorf("the data is gone: %v", err)
+	}
+	if sawCall(d.wFake, "UntarVolume(") || sawCall(d.wFake, "RemoveVolume(") {
+		t.Errorf("a restore ran: %v", callNames(d.wFake))
+	}
+}
+
+// DL: on a latched disk the volume is not "empty" (its object may be gone too):
+// nothing is restored and nothing is made.
+func TestRestoreThenDeployOnLatchedDiskReturnsMissingAndRestoresNothing(t *testing.T) {
+	ctx := context.Background()
+	d, row, v, file := diskDataEnv(t)
+	setState(t, d, row, disk.StateMissing)
+	must(t, d.wFake.RemoveVolume(ctx, v.Name)) // the object is gone as well
+	creates := volumeCreates(d.wFake)
+	_, notes, err := d.orch.restoreThenDeploy(ctx, d.edge.ID, nil)
+	if err != nil && !isMissing(err) {
+		t.Fatalf("restoreThenDeploy = %v", err)
+	}
+	if err == nil && !strings.Contains(strings.Join(notes, "\n"), v.Slug+" holds data") {
+		t.Errorf("notes = %v, want %s left alone", notes, v.Slug)
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Errorf("the data is gone: %v", err)
+	}
+	if sawCall(d.wFake, "UntarVolume(") || volumeCreates(d.wFake) != creates {
+		t.Errorf("something was restored or made: %v", callNames(d.wFake))
+	}
+}
+
+// DL: the promoted primary's container mounts the standby's data volume by
+// name. After a crash that removed the old container, with the volume object
+// gone, the folder is rebound first; on a missing disk no container is made or
+// started on a plain empty volume.
+func TestPromotedPrimaryAfterACrashRebindsTheFolderAndNeverStartsOnAnEmptyVolume(t *testing.T) {
+	ctx := context.Background()
+	var made int // volume creates before the step under test
+	crash := func(t *testing.T, state string) (*failRig, *diskTest, store.NodeDisk, InstanceMember, error) {
+		d := newDiskTest(t)
+		row := d.addDisk(t)
+		r := newFailRigOn(t, d.twoNodes, false)
+		prim, rep := r.members()
+		if state != "" {
+			setState(t, d, row, state)
+		}
+		s := r.sims["w1"]
+		s.mu.Lock() // the standby container is already gone
+		s.cs = nil
+		s.mu.Unlock()
+		must(t, d.wFake.RemoveVolume(ctx, rep.Volume))
+		made = volumeCreates(d.wFake)
+		f := failover{Target: rep.ID, Old: prim.ID, OldNode: d.ctl.ID}
+		return r, d, row, rep, d.orch.foRecreate(ctx, r.tile(), r.inst, &f)
+	}
+	r, d, row, rep, err := crash(t, "")
+	must(t, err)
+	d.bound(t, d.wFake, row, rep.Volume)
+	if !r.saw("w1 start stackr-member") {
+		t.Error("the promoted primary was not started")
+	}
+	r, d, _, _, err = crash(t, disk.StateMissing)
+	if !isMissing(err) {
+		t.Errorf("foRecreate on a missing disk = %v", err)
+	}
+	if r.saw("w1 create") || r.saw("w1 start") || volumeCreates(d.wFake) != made {
+		t.Errorf("a container or plain volume was made: %v %v", r.events, callNames(d.wFake))
+	}
+}
+
+// foRecreate ensures the data mount of PromotedSpec, not only the archive.
+func TestFoRecreateEnsuresThePromotedVolumeBeforeCreatingTheContainer(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	r := newFailRigOn(t, d.twoNodes, false)
+	prim, rep := r.members()
+	must(t, d.wFake.RemoveVolume(ctx, rep.Volume))
+	f := failover{Target: rep.ID, Old: prim.ID, OldNode: d.ctl.ID}
+	must(t, d.orch.foRecreate(ctx, r.tile(), r.inst, &f))
+	var spec docker.ContainerSpec
+	for _, s := range r.specs {
+		if s.Labels[tile.LabelTile] != "" && s.Labels[LabelMember] == rep.ID {
+			spec = s
+		}
+	}
+	if len(spec.Volumes) == 0 || !strings.HasPrefix(spec.Volumes[0], rep.Volume+":") {
+		t.Fatalf("promoted spec volumes = %v, want the data volume first", spec.Volumes)
+	}
+	d.bound(t, d.wFake, row, rep.Volume)
+}
+
+// A move onto a node with a disk makes the target volume on the disk.
+func TestEnvMoveTargetOnDisk(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	admin := &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}
+	v, _, err := d.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: d.dev.ID}, "data", nil)
+	must(t, err)
+	d.ctlFake.TarOut = []byte("tar")
+	d.wFake.RunID = "new"
+	d.wFake.Details = map[string]docker.Detail{"new": {Running: true, Networks: map[string]string{d.dev.Network: "10.209.0.2"}}}
+	j, err := d.startMove(admin, d.dev.ID, "w1", false)
+	must(t, err)
+	if j = d.wait(t, j); j.State != job.Done {
+		t.Fatalf("move = %s %q\nw: %v", j.State, j.Error, callNames(d.wFake))
+	}
+	d.bound(t, d.wFake, row, v.Name)
+	if ok, dev, _ := d.ctlFake.VolumeDevice(ctx, v.Name); !ok || dev != "" {
+		t.Errorf("the source volume = %q (found %v), want plain", dev, ok)
+	}
+}
+
+// The plan's disk check reads the target's own disk, and sizes from the leaf.
+func TestPMDiskReadsNodeDiskAndLeafSizes(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	d.addDisk(t)
+	v, _, err := d.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: d.dev.ID}, "data", nil)
+	must(t, err)
+	d.ctlFake.Volumes = []docker.VolumeInfo{{Name: v.Name, SizeBytes: 5 << 30}}
+	facts := func(diskFree uint64) {
+		d.facts(t, worker.Facts{DisksRead: true, DiskFree: 1 << 40, DiskTotal: 1 << 41,
+			Disks: []hostdisk.Fact{{Path: "/disk", Mounted: true, Free: diskFree, Total: 1 << 40}}})
+	}
+	check := func() planfile.Check {
+		return d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, false, []store.Volume{v}, d.orch.pmNodeNames(ctx))
+	}
+	facts(1 << 30) // Docker's disk is huge, the node's disk is not
+	if c := check(); c.OK {
+		t.Errorf("a 1 GB disk took 5 GB: %+v", c)
+	}
+	facts(1 << 39)
+	if c := check(); !c.OK || strings.Contains(c.Detail, "unknown") {
+		t.Errorf("a roomy disk refused: %+v", c)
 	}
 }
