@@ -1,0 +1,154 @@
+package service
+
+import (
+	"cmp"
+	"context"
+	"encoding/json"
+	"path"
+	"slices"
+	"time"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+)
+
+// What the panel shows of a node's disk besides NodeDiskView. Reads only:
+// sizes come from the cache, never from a helper run.
+
+// DiskVolume is one volume on a node's disk, as the node drawer lists it.
+type DiskVolume struct {
+	ID, Slug  string
+	Where     string // "shop / prod"
+	Open      string // the env path its drawer opens under ("" = none)
+	SizeBytes int64  // -1 = unknown
+}
+
+// NodeDiskPanel is the node drawer's Node disk section.
+type NodeDiskPanel struct {
+	NodeDiskView
+	// Refusal is why a folder cannot be added on this node, "" = it can.
+	Refusal      string
+	Low          bool      // the disk is as full as the disk.full alert warns at
+	MissingSince time.Time // zero = not known
+	Volumes      []DiskVolume
+}
+
+// NodeDiskPanel reads the node's disk, its volumes (largest first) and, with
+// no disk, whether a folder may be added here.
+func (o *Orchestrator) NodeDiskPanel(ctx context.Context, nodeID string) (NodeDiskPanel, error) {
+	v, err := o.NodeDisk(ctx, nodeID)
+	if err != nil {
+		return NodeDiskPanel{}, err
+	}
+	p := NodeDiskPanel{NodeDiskView: v}
+	if !v.Has {
+		if err := o.folderDiskOK(ctx, nodeID); err != nil {
+			p.Refusal = err.Error()
+		}
+		return p, nil
+	}
+	d, _, err := o.nodeDisk(ctx, nodeID)
+	if err != nil {
+		return p, err
+	}
+	p.Low = v.Total > 0 && v.Free*100 <= v.Total*(100-diskFullPct)
+	if v.State == disk.StateMissing {
+		p.MissingSince = o.diskMissingSince(ctx, nodeID)
+	}
+	fs, err := o.diskLeaf.Folders(ctx, d)
+	if err != nil {
+		return p, err
+	}
+	on := map[string]bool{}
+	for _, f := range fs {
+		on[f.Name] = true
+	}
+	live, err := o.store.Volumes.ListLive(ctx)
+	if err != nil {
+		return p, err
+	}
+	live = slices.DeleteFunc(live, func(x Volume) bool { return !on[x.Name] })
+	sizes := o.volumes.Sizes(ctx, live)
+	for _, x := range live {
+		r := DiskVolume{ID: x.ID, Slug: x.Slug, SizeBytes: sizes[x.ID], Where: x.ScopeKind}
+		if x.ScopeKind == ScopeEnv {
+			if e, err := o.envs.Get(ctx, x.ScopeID); err == nil {
+				r.Where = e.Name
+				if st, err := o.stacks.Get(ctx, e.StackID); err == nil {
+					r.Where = st.Name + " / " + e.Name
+				}
+				r.Open = "/" + o.scopePath(ctx, ScopeEnv, e.ID)
+			}
+		}
+		p.Volumes = append(p.Volumes, r)
+	}
+	slices.SortFunc(p.Volumes, func(a, b DiskVolume) int {
+		return cmp.Or(cmp.Compare(b.SizeBytes, a.SizeBytes), cmp.Compare(a.Slug, b.Slug))
+	})
+	return p, nil
+}
+
+// diskMissingSince is when the disk's missing problem opened; zero if unknown.
+func (o *Orchestrator) diskMissingSince(ctx context.Context, nodeID string) time.Time {
+	s, ok, err := o.store.Settings.Get(ctx, problemKey(diskMissingKey(nodeID)))
+	if err != nil || !ok {
+		return time.Time{}
+	}
+	var r problemRow
+	if json.Unmarshal([]byte(s), &r) != nil {
+		return time.Time{}
+	}
+	return r.Since
+}
+
+// VolumeStorage is where one volume lives, for its drawer.
+type VolumeStorage struct {
+	OnDisk, InDocker bool   // both = two copies
+	State            string // the disk's: adding | ready | missing
+	Folder           string // the folder on the node ("" = none)
+	Node, NodeID     string
+	SizeBytes        int64     // -1 = unknown
+	SizeAt           time.Time // when the disk's sizes were read; zero = not known
+}
+
+// VolumeStorage reads where a volume lives. It never places or measures
+// anything, and a size is the disk's cached one.
+func (o *Orchestrator) VolumeStorage(ctx context.Context, volumeID string) (VolumeStorage, error) {
+	v, err := o.volumes.Get(ctx, volumeID)
+	if err != nil {
+		return VolumeStorage{}, err
+	}
+	rt, nodeID, err := o.volumes.Where(ctx, v)
+	if err != nil {
+		return VolumeStorage{}, err
+	}
+	s := VolumeStorage{NodeID: nodeID, InDocker: true, SizeBytes: o.volumes.SizeBytes(ctx, v)}
+	if n, err := o.store.Nodes.Get(ctx, nodeID); err == nil {
+		s.Node = n.Name
+	}
+	if rt == volume.RouteLegacy {
+		return s, nil
+	}
+	d, has, err := o.nodeDisk(ctx, nodeID)
+	if err != nil || !has {
+		return s, err
+	}
+	s.OnDisk, s.State = true, d.State
+	s.InDocker = rt == volume.RouteGhost
+	s.Folder = path.Join(d.MountPath, d.ID, v.Name)
+	if rt == volume.RouteDisk {
+		s.SizeAt = o.diskSizesAt(nodeID)
+	}
+	return s, nil
+}
+
+// diskSizesAt is when the node's disk sizes were last read.
+func (o *Orchestrator) diskSizesAt(nodeID string) time.Time {
+	c := &o.diskSize
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e := c.by[nodeID]; e != nil {
+		return e.at
+	}
+	return time.Time{}
+}

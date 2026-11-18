@@ -121,6 +121,7 @@ type NodeRow struct {
 	Envs                     int
 	Disk                     string // "34 GB free", "" = not reported
 	Cores, Mem               string // "4 cores", "8 GB"
+	DiskState                string // the node disk's: adding | missing; "" = none or fine
 }
 
 // LostEnvRow is an env of a forgotten node. It comes back by repointing its
@@ -193,6 +194,10 @@ type NodeView struct {
 	Backup  string
 	Backups []BackupGroupRow
 	Job     *c.JobStatusView
+	// Disk is the Node disk section; Live the GET the overview's poller
+	// refetches.
+	NodeDisk NodeDisk
+	Live string
 	Tunnels                        []TunnelRow
 	// Metrics: the node's live graphs; MemTotal and DiskTotal the newest
 	// sizes, for the chart titles ("" when unknown)
@@ -231,6 +236,47 @@ type BackupGroupRow struct {
 }
 
 type BackupVolumeRow struct{ Volume, Where, Method, Status, Size, Error string }
+
+// NodeDisk is the node drawer's Node disk section and its warnings strip.
+// Add "" = no button; Why says why, under a disabled one.
+type NodeDisk struct {
+	Has                 bool
+	State               string // adding | ready | missing
+	Path                string
+	Help                string // the line under the title
+	Add                 string // opens the dialog; "" = none to offer
+	Why                 string // under the disabled button: "The node is offline."
+	Dialog              DiskDialog
+	Check               string // POST: check the disk
+	Checking            bool   // a check is running
+	AddFailed           bool   // adding, and no add job is running
+	Used, Pct           string // "278 GB of 460 GB", "60"
+	Low, Stale, Network bool
+	Since               string // "2 min ago": missing since; "" = not known
+	Count               int    // volumes on the disk
+	Rows, More          []DiskVolRow
+}
+
+// DiskVolRow is a volume on the disk. Open "" = no drawer to open.
+type DiskVolRow struct{ Name, Where, Size, Open string }
+
+// DiskDialog is the Add disk dialog and what an answer puts into it. Probe
+// is the Check POST (the helper runs), State the POST that clears a stale
+// answer when the path or the network box changes (no helper), Add the POST
+// of Use folder. Msg is the result line, Tone "ok" or "err"; Checked the path
+// Msg is about.
+type DiskDialog struct {
+	Probe, State, Add string
+	Path, Checked     string
+	Msg, Tone         string
+	Network, NetOK    bool
+	Invalid           bool
+	Input             bool // an answer carries the path input too (aria-invalid)
+}
+
+func (d DiskDialog) canUse() bool {
+	return d.Checked != "" && d.Tone == "ok" && (!d.Network || d.NetOK)
+}
 
 type NodeEnvRow struct {
 	Path, Pin string
@@ -395,6 +441,12 @@ templ NodeItem(r NodeRow) {
 		}
 		if len(r.Tags) == 0 {
 			<span class="text-xs text-rw-faint">no tags</span>
+		}
+		switch r.DiskState {
+			case "missing":
+				@c.Chip("Disk missing", "danger")
+			case "adding":
+				@c.Chip("Adding disk", "warn")
 		}
 		</div>
 		<span class="shrink-0 whitespace-nowrap">@c.Chip(StatusWord(r.Status), statusTone(r.Status))</span>
@@ -807,6 +859,8 @@ templ NodeBody(tab string, v NodeView) {
 					}
 				}
 			default:
+				<div id="node-live">
+				@c.LiveTab(v.Live, "node-live")
 				if v.CertExpired || len(v.Warnings) > 0 {
 					<div class="node-warnings panel px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-3" role="alert">
 						<ul class="space-y-1">
@@ -821,6 +875,7 @@ templ NodeBody(tab string, v NodeView) {
 						}
 					</div>
 				}
+				@diskStrip(v.NodeDisk)
 				@c.Section("Node", "", "") {
 					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
 						<dt class="text-rw-muted">Status</dt>
@@ -855,6 +910,7 @@ templ NodeBody(tab string, v NodeView) {
 						}
 					</dl>
 				}
+				@diskSection(v.NodeDisk)
 				@c.Section("Addresses", "", "") {
 					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
 						@addrRow("Public", ifaces(v.Ifaces, "public"))
@@ -884,7 +940,7 @@ templ NodeBody(tab string, v NodeView) {
 							<dd class="text-rw-text">{ plural(v.Cores, "core") }</dd>
 							<dt class="text-rw-muted">Memory</dt>
 							<dd class="text-rw-text">{ v.Mem }</dd>
-							<dt class="text-rw-muted">Disk</dt>
+							<dt class="text-rw-muted">System disk</dt>
 							<dd class="text-rw-text">{ v.Disk }</dd>
 							<dt class="text-rw-muted">Kernel</dt>
 							<dd class="font-mono text-xs text-rw-text">{ v.Kernel }</dd>
@@ -968,8 +1024,300 @@ templ NodeBody(tab string, v NodeView) {
 						</ul>
 					}
 				}
+				</div>
 		}
 	</div>
+}
+
+// diskStrip is the node's disk warning: missing, or an add that did not
+// finish. A persistent state, so status and not alert.
+templ diskStrip(d NodeDisk) {
+	if d.State == "missing" || d.AddFailed {
+		<div class="node-warnings panel px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-3" role="status">
+			<ul class="space-y-1 flex-1 min-w-[16rem]">
+				if d.State == "missing" {
+					<li class="text-rw-danger font-medium">The disk is missing.</li>
+					<li class="text-rw-danger">
+						if d.Check != "" {
+							Tiles that use it do not start. Reattach it, then press Check disk.
+						} else {
+							Tiles that use it do not start. A node admin can check it.
+						}
+					</li>
+				} else {
+					<li class="text-rw-warn font-medium">Adding did not finish.</li>
+				}
+			</ul>
+			<div class="ml-auto flex items-center gap-2">
+				if d.Checking {
+					<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>Checking...</button>
+				} else if d.Check != "" && d.AddFailed {
+					@c.PostButton("Check disk", d.Check)
+				} else if d.Check != "" {
+					@c.PrimaryPost("Check disk", d.Check)
+				}
+				if d.AddFailed && d.Add != "" {
+					@diskDialog(d.Dialog, "Try again", "btn btn-primary btn-sm")
+				}
+			</div>
+		</div>
+	}
+}
+
+// diskSection is Node disk, right after Node. The button sits under the
+// help line, like Keys and Rejoin on the Security tab. Facts sit flat in the
+// card, split by spacing, never in a box of their own.
+templ diskSection(d NodeDisk) {
+	@c.Section("Node disk", "", d.Help) {
+		if !d.Has {
+			if d.Add != "" {
+				@diskDialog(d.Dialog, "Add disk", "btn btn-primary btn-sm")
+			} else if d.Why != "" {
+				<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>Add disk</button>
+				<p class="mt-3 text-sm text-rw-muted">{ d.Why }</p>
+			}
+		} else {
+			<dl class="grid grid-cols-[8rem_minmax(0,1fr)] max-[480px]:grid-cols-1 gap-x-4 gap-y-3 max-[480px]:gap-y-0 text-sm [&>dd]:[overflow-wrap:anywhere] max-[480px]:[&>dt]:mt-3 max-[480px]:[&>dt:first-child]:mt-0 max-[480px]:[&>dd]:mt-0.5">
+				<dt class="text-rw-muted">State</dt>
+				<dd class="flex flex-wrap items-center gap-1.5">
+					switch d.State {
+						case "ready":
+							@c.Chip("Ready", "success")
+						case "missing":
+							@c.Chip("Disk missing", "danger")
+						default:
+							@c.Chip("Adding", "warn")
+					}
+					if d.Network {
+						@c.Chip("Network", "warn")
+					}
+				</dd>
+				<dt class="text-rw-muted">Folder</dt>
+				<dd class="font-mono text-xs text-rw-text">{ d.Path }</dd>
+				if d.Used != "" {
+					<dt class="text-rw-muted">Used</dt>
+					<dd class="text-rw-text">
+						<span class={ templ.KV("text-rw-text", !d.Low && !d.Stale), templ.KV("text-rw-warn", d.Low && !d.Stale), templ.KV("text-rw-muted", d.Stale) }>{ d.Used }</span>
+						<div class="mt-1.5 h-1.5 rounded-full bg-rw-border overflow-hidden" aria-hidden="true">
+							<div class={ "h-full rounded-full", templ.KV("bg-rw-accent", !d.Low && !d.Stale), templ.KV("bg-rw-warn", d.Low && !d.Stale), templ.KV("bg-rw-faint", d.Stale) } style={ "width:" + d.Pct + "%" }></div>
+						</div>
+					</dd>
+					if d.Stale {
+						<dt class="sr-only">What to do</dt>
+						<dd class="col-start-2 max-[480px]:col-start-1 -mt-1.5 max-[480px]:mt-1 text-xs text-rw-warn">No fresh reading from the node.</dd>
+					} else if d.Low {
+						<dt class="sr-only">What to do</dt>
+						<dd class="col-start-2 max-[480px]:col-start-1 -mt-1.5 max-[480px]:mt-1 text-xs text-rw-warn">Low on space. Free some up or add capacity.</dd>
+					}
+				}
+				if d.Since != "" {
+					<dt class="text-rw-muted">Missing since</dt>
+					<dd class="text-rw-text">{ d.Since }</dd>
+				}
+			</dl>
+			if d.Network {
+				<p class="mt-3 flex items-start gap-2 text-sm text-rw-warn">
+					@diskIcon("warn")
+					<span>Databases on a network disk risk corruption and slow writes.</span>
+				</p>
+			}
+			if d.State == "missing" {
+				<p class="mt-3 text-sm text-rw-muted">Disk gone for good? Its volumes are lost. Forget the node under Security.</p>
+			}
+			if d.State != "adding" {
+				@diskVolumes(d)
+			}
+		}
+	}
+}
+
+templ diskVolumes(d NodeDisk) {
+	if d.Count == 0 {
+		<h3 class="label mt-5 mb-1.5">Volumes on this disk</h3>
+		<p class="text-sm text-rw-faint">No volumes on it yet.</p>
+	} else {
+		<h3 class="label mt-5 mb-0">
+			Volumes on this disk · { fmt.Sprint(d.Count) }
+			if len(d.More) > 0 {
+				, largest first
+			}
+		</h3>
+		<ul class="divide-y divide-rw-border">
+			for _, r := range d.Rows {
+				@diskVolRow(r)
+			}
+		</ul>
+		if len(d.More) > 0 {
+			<details class="mt-3 text-sm">
+				<summary class="cursor-pointer text-rw-muted hover:text-rw-text">Show all { fmt.Sprint(d.Count) }</summary>
+				<ul class="divide-y divide-rw-border">
+					for _, r := range d.More {
+						@diskVolRow(r)
+					}
+				</ul>
+			</details>
+		}
+	}
+}
+
+templ diskVolRow(r DiskVolRow) {
+	<li class="py-3 text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
+		if r.Open != "" {
+			<button type="button" hx-get={ r.Open } hx-target="#drawer-body" hx-push-url="false" class="text-rw-text hover:underline">{ r.Name }</button>
+		} else {
+			<span class="text-rw-text">{ r.Name }</span>
+		}
+		<span class="text-xs text-rw-faint">{ r.Where }</span>
+		<span class="ml-auto text-xs text-rw-muted tabular-nums">{ r.Size }</span>
+	</li>
+}
+
+templ diskIcon(tone string) {
+	if tone == "ok" {
+		<svg class="h-4 w-4 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><path d="m9 11 3 3L22 4"></path></svg>
+	} else {
+		<svg class="h-4 w-4 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+	}
+}
+
+// diskDialog is the Add disk dialog: confirm-dialog opens and closes it, and
+// nothing in it is data-confirm (that would re-enable Use folder every time
+// it opens). Check posts to the node and answers into the live region (see
+// DiskState); Use folder posts the add.
+templ diskDialog(d DiskDialog, opener, class string) {
+	<confirm-dialog>
+		<button type="button" class={ class, "disabled:opacity-50 disabled:cursor-not-allowed" } data-open disabled>{ opener }</button>
+		<dialog class="modal-panel text-rw-text" aria-labelledby="disk-title">
+			<div class="modal-head">
+				<div class="min-w-0">
+					<h2 class="modal-title" id="disk-title">Add disk</h2>
+					<p class="text-sm text-rw-muted mt-0.5">New volumes on this node go in this folder. Existing volumes stay where they are.</p>
+				</div>
+				<button type="button" class="ml-auto text-rw-faint hover:text-rw-text transition-colors" data-cancel aria-label="Close">
+					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+				</button>
+			</div>
+			<form id="disk-form" hx-post={ d.Probe } hx-swap="none" hx-disabled-elt="#disk-check, #disk-use" hx-sync="this:replace">
+				<div class="modal-body">
+					<div>
+						<label class="label" for="disk-path">Folder</label>
+						<div class="flex gap-2">
+							@diskPath(d)
+							<button type="submit" id="disk-check" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed shrink-0">Check</button>
+						</div>
+						<span class="settings-help" id="disk-hint">A mounted, empty folder. Nothing is erased.</span>
+						<div id="disk-probe" aria-live="polite" class="[&:not(:empty)]:mt-3">
+							@diskResult(d)
+						</div>
+					</div>
+					@diskNet(d, false)
+					<input type="hidden" id="disk-checked" name="checked" value={ d.Checked }/>
+					<input type="hidden" id="disk-netflag" name="net" value={ netFlag(d) }/>
+				</div>
+				<div class="modal-foot">
+					<button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+					@diskUse(d, false)
+				</div>
+			</form>
+		</dialog>
+	</confirm-dialog>
+}
+
+func netFlag(d DiskDialog) string {
+	if d.Network {
+		return "1"
+	}
+	return ""
+}
+
+templ diskPath(d DiskDialog) {
+	<input
+		id="disk-path"
+		name="path"
+		type="text"
+		value={ d.Path }
+		placeholder="/mnt/disk"
+		required
+		autocomplete="off"
+		spellcheck="false"
+		aria-describedby="disk-result disk-hint"
+		class={ "input font-mono", templ.KV("!border-rw-danger", d.Invalid) }
+		if d.Invalid {
+			aria-invalid="true"
+		}
+		hx-post={ d.State }
+		hx-trigger="input changed delay:200ms"
+		hx-swap="none"
+		hx-include="closest form"
+		if d.Input {
+			hx-swap-oob="true"
+		}
+	/>
+}
+
+templ diskResult(d DiskDialog) {
+	if d.Msg != "" {
+		<p id="disk-result" class={ "flex items-start gap-2 text-sm", templ.KV("text-rw-success", d.Tone == "ok"), templ.KV("text-rw-danger", d.Tone != "ok") }>
+			@diskIcon(d.Tone)
+			<span>{ d.Msg }</span>
+		</p>
+	}
+}
+
+// diskNet is the network disk warning and its box. oob: it is an answer.
+templ diskNet(d DiskDialog, oob bool) {
+	<div id="disk-net" class="empty:hidden" if oob { hx-swap-oob="true" }>
+		if d.Network && d.Tone == "ok" {
+			<div class="rounded-lg bg-rw-warn/10 px-3 py-2.5 text-sm text-rw-warn">
+				<p class="flex items-start gap-2">
+					@diskIcon("warn")
+					<span>Databases on a network disk risk corruption and slow writes.</span>
+				</p>
+				<label class="mt-2 flex items-center gap-2 text-rw-text">
+					<input type="checkbox" id="disk-ack" name="net_ok" value="1" checked?={ d.NetOK } hx-post={ d.State } hx-trigger="change" hx-swap="none" hx-include="closest form"/>
+					Use it anyway
+				</label>
+			</div>
+		}
+	</div>
+}
+
+templ diskUse(d DiskDialog, oob bool) {
+	<button
+		type="button"
+		id="disk-use"
+		class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+		hx-post={ d.Add }
+		hx-include="closest form"
+		hx-target={ drawerTarget() }
+		hx-swap="outerHTML"
+		hx-disabled-elt="this"
+		disabled?={ !d.canUse() }
+		if oob {
+			hx-swap-oob="true"
+		}
+	>Use folder</button>
+}
+
+// DiskState is what a dialog request answers: the result line, the network
+// box, the hidden fields and Use folder, all out of band so the live region
+// and the focused field stay put. Edit true: only a stale answer is cleared.
+templ DiskState(d DiskDialog) {
+	<div hx-swap-oob="innerHTML:#disk-probe">
+		@diskResult(d)
+	</div>
+	@diskNet(d, true)
+	<input type="hidden" id="disk-checked" name="checked" value={ d.Checked } hx-swap-oob="true"/>
+	<input type="hidden" id="disk-netflag" name="net" value={ netFlag(d) } hx-swap-oob="true"/>
+	@diskUse(d, true)
+	if d.Input {
+		@diskPath(d)
+	}
+}
+
+// DiskUse is the answer to a ticked network box: only Use folder moves.
+templ DiskUse(d DiskDialog) {
+	@diskUse(d, true)
 }
 
 func backupTone(s string) string {

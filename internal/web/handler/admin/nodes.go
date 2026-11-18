@@ -145,6 +145,12 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		err := h.orch.RotateNodeKeys(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 		return h.nodeAnswer(c, "security", "Rotating keys. The security log shows when it is done.", err)
 	}, m)
+	g.POST(nodesBase+"/:node/disk/probe", h.diskProbe, m)
+	g.POST(nodesBase+"/:node/disk/state", h.diskState, m)
+	g.POST(nodesBase+"/:node/disk/add", h.diskAdd, m)
+	g.POST(nodesBase+"/:node/disk/check", h.nodeJob("overview", "Disk check queued.", func(c echo.Context) (service.Job, error) {
+		return h.orch.CheckNodeDisk(c.Request().Context(), middleware.Principal(c), c.Param("node"))
+	}), m)
 	g.POST(nodesBase+"/:node/remove", h.nodeJob("security", "Node removal queued.", func(c echo.Context) (service.Job, error) {
 		return h.orch.RemoveNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 	}), m)
@@ -316,10 +322,18 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 		}
 	}
 	for _, n := range ns {
-		v.Rows = append(v.Rows, ui.NodeRow{
+		dk, err := h.orch.NodeDisk(ctx, n.ID)
+		if err != nil {
+			return nil, err
+		}
+		r := ui.NodeRow{
 			Name: n.Name, Role: n.Role, Status: n.Status, Tags: n.Tags, Envs: n.Envs,
 			Open: nodesBase + "/" + n.ID, Push: "?drawer=node:" + n.ID, Hint: ui.NodeHint(n.Status, n.Stalled),
-		})
+		}
+		if dk.State != "ready" { // a ready disk shows nothing
+			r.DiskState = dk.State
+		}
+		v.Rows = append(v.Rows, r)
 	}
 	for _, l := range lost {
 		v.Lost = append(v.Lost, ui.LostEnvRow{Path: l.Path, Node: l.Node, Placement: l.Placement, Volumes: l.Volumes})
@@ -592,6 +606,10 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	}
 	if d.Status == "online" {
 		v.Backup = base + "/backup"
+	}
+	v.Live = base + "?tab=overview"
+	if v.NodeDisk, err = h.nodeDisk(c, d, base, live); err != nil {
+		return v, err
 	}
 	gs, err := h.orch.NodeBackups(ctx, d.ID)
 	if err != nil {

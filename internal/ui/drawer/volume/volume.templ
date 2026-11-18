@@ -73,6 +73,19 @@ type OverviewView struct {
 	Docker            string
 	Created, Orphaned time.Time // Orphaned: since when; zero = in use
 	Mounts            []Mount
+	Storage           *Storage // nil = where it lives is not known
+}
+
+// Storage is where the volume lives. Disk and Docker both = two copies.
+// Node and NodeOpen are for a node admin only ("" = not shown). Size "" =
+// unknown; SizeAt zero = no read time (a Docker volume).
+type Storage struct {
+	Disk, Docker bool
+	State        string // the disk's: adding | ready | missing
+	Folder, Node string
+	NodeOpen     string
+	Size         string
+	SizeAt       time.Time
 }
 
 // Mount is a tile that mounts the volume, and where.
@@ -81,6 +94,28 @@ type Mount struct{ Tile, Path string }
 // Overview is v0's stat cards.
 templ Overview(o OverviewView) {
 	<div id="tab-overview">
+		if s := o.Storage; s != nil && s.Disk && s.Docker {
+			<div class="banner banner-danger flex items-start gap-2 mb-3" role="status">
+				@alertIcon()
+				<div>
+					<p class="font-medium">Two copies of this volume.</p>
+					<p class="text-sm mt-0.5">One on the node disk, one in Docker storage. Deploys, backups and delete are refused.</p>
+				</div>
+			</div>
+		} else if s != nil && s.Disk && s.State == "missing" {
+			<div class="banner banner-danger flex items-start gap-2 mb-3" role="status">
+				@alertIcon()
+				<div>
+					<p class="font-medium">Its disk is missing.</p>
+					<p class="text-sm mt-0.5">
+						Tiles that use it do not start.
+						if s.NodeOpen != "" {
+							<a href={ templ.SafeURL(s.NodeOpen) } class="underline">Open { s.Node }</a>
+						}
+					</p>
+				</div>
+			</div>
+		}
 		<div class="grid gap-3 sm:grid-cols-2">
 			@stat("Attached to") {
 				if len(o.Mounts) == 0 {
@@ -91,12 +126,54 @@ templ Overview(o OverviewView) {
 					<p class="text-xs text-rw-faint font-mono">{ m.Path }</p>
 				}
 			}
-			@stat("Docker volume") {
-				<p class="text-sm text-rw-text font-mono break-all">{ o.Docker }</p>
+			if s := o.Storage; s != nil {
+				@stat("Stored on") {
+					<div class="flex flex-wrap items-center gap-1.5">
+						if s.Disk {
+							@c.Chip("Node disk", "accent")
+						}
+						if s.Docker {
+							@c.Chip("Docker storage", "")
+						}
+						if s.Disk && !s.Docker {
+							switch s.State {
+								case "ready":
+									@c.Chip("Ready", "success")
+								case "missing":
+									@c.Chip("Disk missing", "danger")
+								default:
+									@c.Chip("Adding", "warn")
+							}
+						}
+					</div>
+					if s.Folder != "" && !s.Docker {
+						<p class="mt-2 text-xs text-rw-text font-mono break-all">{ s.Folder }</p>
+					}
+					if s.Node != "" {
+						<p class="mt-1 text-xs text-rw-faint">{ s.Node }</p>
+					}
+				}
+				@stat("Size") {
+					if s.Size == "" {
+						<p class="text-sm text-rw-muted">unknown</p>
+					} else {
+						<p class="text-sm text-rw-text">{ s.Size }</p>
+						if !s.SizeAt.IsZero() {
+							<p class="text-xs text-rw-faint">
+								{ "as of " }
+								@c.When(s.SizeAt)
+							</p>
+						}
+					}
+				}
 			}
 			@stat("Created") {
 				<p class="text-sm text-rw-text">@c.When(o.Created)</p>
 			}
+			<div class="panel p-4 sm:col-span-2">
+				<p class="text-xs text-rw-muted mb-1.5">Docker volume</p>
+				<p class="text-sm text-rw-text font-mono break-all">{ o.Docker }</p>
+			</div>
 		</div>
 		<p class="mt-3 text-xs text-rw-muted">Data persists across redeploys and tile deletion.</p>
 		if !o.Orphaned.IsZero() {
@@ -108,6 +185,10 @@ templ Overview(o OverviewView) {
 			</p>
 		}
 	</div>
+}
+
+templ alertIcon() {
+	<svg class="h-4 w-4 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
 }
 
 templ stat(label string) {

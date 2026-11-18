@@ -5,6 +5,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // DiskState is the node's disk as the volume leaf sees it. DiskNone is no
@@ -236,4 +237,19 @@ func (l *Leaf) RemoveNamed(ctx context.Context, nodeID, name string) error {
 		return l.disk.Drop(ctx, nodeID, name)
 	}
 	return p.refuse(nodeID, name)
+}
+
+// Where is where a volume lives, for display: its route and node. It never
+// places, creates, measures or removes anything.
+func (l *Leaf) Where(ctx context.Context, v store.Volume) (Route, string, error) {
+	ctx, node, err := l.at(ctx, v)
+	if err != nil {
+		return RouteLegacy, "", err
+	}
+	st, err := l.state(ctx, node)
+	if err != nil || st == DiskNone {
+		return RouteLegacy, node, err
+	}
+	p, err := l.resolve(ctx, node, v.Name, st)
+	return p.rt, node, err
 }

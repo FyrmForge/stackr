@@ -31,10 +31,11 @@ func New(t *testing.T) *Site {
 	return NewWith(t, nil)
 }
 
-// NewWith is New over service options (servicetest.Git's, say).
-func NewWith(t *testing.T, opts []service.Option) *Site {
+// NewWith is New over service options (servicetest.Git's, say) and config
+// edits.
+func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config)) *Site {
 	t.Helper()
-	env := servicetest.NewWith(t, opts)
+	env := servicetest.NewWith(t, opts, edit...)
 	// the site past the server wizard, as on any install with an org
 	if err := env.Orch.FinishServerSetup(context.Background(), nil); err != nil {
 		t.Fatal(err)

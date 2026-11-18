@@ -1548,9 +1548,30 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
+		o.Storage = h.storage(c, vol.ID)
 		body = volume.Overview(o)
 	}
 	return respond.HTML(c, status, volume.Drawer(v, body))
+}
+
+// storage is where the volume lives, from the disk's cache (a read never
+// runs a helper). nil when it cannot be told: the drawer then says nothing.
+// The node's name and link are a node admin's (members never get the node).
+func (h *handler) storage(c echo.Context, volumeID string) *volume.Storage {
+	st, err := h.orch.VolumeStorage(c.Request().Context(), volumeID)
+	if err != nil {
+		return nil
+	}
+	s := &volume.Storage{Disk: st.OnDisk, Docker: st.InDocker, State: st.State, Folder: st.Folder, SizeAt: st.SizeAt}
+	if st.SizeBytes >= 0 {
+		s.Size = render.Size(st.SizeBytes)
+	}
+	if p := middleware.Principal(c); p != nil && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
+		s.Node, s.NodeOpen = st.Node, "/-/admin/nodes?drawer=node:"+st.NodeID
+	} else {
+		s.Folder = "" // a path on the host is the admin's too
+	}
+	return s
 }
 
 // polls is how many times History re-reads after an action queued a
