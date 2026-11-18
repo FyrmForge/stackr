@@ -1077,7 +1077,20 @@ func (a *app) jobs() *cobra.Command {
 				return err
 			}
 			m, _ := v.(map[string]any)
-			_, err = fmt.Fprint(a.out, m["log"])
+			text := str(m["log"])
+			if _, err = fmt.Fprint(a.out, text); err != nil {
+				return err
+			}
+			// the log can stop short of the reason: end it with the job's error
+			j, _, err := onJob(GET, args[0], "")
+			if jm, _ := j.(map[string]any); err == nil && jm["state"] == "failed" {
+				if e := strings.TrimSpace(str(jm["error"])); e != "" && !strings.Contains(text, e) {
+					if text != "" && !strings.HasSuffix(text, "\n") {
+						_, _ = fmt.Fprintln(a.out)
+					}
+					_, err = fmt.Fprintln(a.out, "error: "+e)
+				}
+			}
 			return err
 		},
 	)
@@ -1442,4 +1455,10 @@ func (a *app) settingsCmd(op, short string, lv level) *cobra.Command {
 	c.Flags().StringArrayVar(&set, "set", nil, "knob=value (stkr knobs lists them)")
 	c.Flags().StringArrayVar(&clear, "clear", nil, "give a knob back to the level above")
 	return c
+}
+
+// str is v as a string, "" when it is not one.
+func str(v any) string {
+	s, _ := v.(string)
+	return s
 }
