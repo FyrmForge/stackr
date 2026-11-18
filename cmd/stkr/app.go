@@ -424,7 +424,7 @@ func (a *app) show(v any, cols ...string) error {
 		for _, c := range cols {
 			rows = append(rows, []string{c, a.cell(c, v[c])})
 		}
-		a.table(nil, rows)
+		a.render(nil, rows, false)
 	case nil:
 	default:
 		_, _ = fmt.Fprintln(a.out, cell(v))
@@ -502,11 +502,21 @@ func cell(v any) string {
 	return fmt.Sprint(v)
 }
 
+// termWidth is the terminal's width, 0 when stdout is not one. A var so
+// tests can fake a narrow terminal.
+var termWidth = func() int {
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return 0
+	}
+	return w
+}
+
 // fit cuts each cell to its share of the terminal width, with an ellipsis.
 // A column keeps at least 8 columns; piped output is never cut.
 func (a *app) fit(header []string, rows [][]string) {
-	w, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || w <= 0 || len(rows) == 0 {
+	w := termWidth()
+	if w <= 0 || len(rows) == 0 {
 		return
 	}
 	n := len(rows[0])
@@ -543,7 +553,10 @@ func (a *app) fit(header []string, rows [][]string) {
 // table: a header on a terminal, bare tab-separated rows when piped (so
 // cut -f2 works), "(none)" on stderr when empty so stdout stays empty.
 // ponytail: tabwriter columns, no borders; lipgloss if anyone misses them.
-func (a *app) table(header []string, rows [][]string) {
+func (a *app) table(header []string, rows [][]string) { a.render(header, rows, true) }
+
+// render is table; cut false never shaves a cell (a single record's values wrap).
+func (a *app) render(header []string, rows [][]string, cut bool) {
 	if len(rows) == 0 {
 		_, _ = fmt.Fprintln(a.errw, "(none)")
 		return
@@ -554,7 +567,9 @@ func (a *app) table(header []string, rows [][]string) {
 		}
 		return
 	}
-	a.fit(header, rows)
+	if cut {
+		a.fit(header, rows)
+	}
 	w := tabwriter.NewWriter(a.out, 0, 4, 2, ' ', 0)
 	if header != nil {
 		h := make([]string, len(header))

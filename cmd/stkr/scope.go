@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -208,9 +209,17 @@ func (a *app) orgJob(c *cobra.Command, method, path string, body any, what strin
 	return a.job(c, base, method, path, body, what)
 }
 
+// noMatch is find's error when nothing matches.
+type noMatch string
+
+func (e noMatch) Error() string { return string(e) }
+
+var errAmbiguous = errors.New("ambiguous")
+
 // find is the row of a list whose field matches want. Fields are tried in
 // order (id before name), and a field that matches more than one row is
-// refused rather than guessed.
+// refused rather than guessed. When none matches exactly and "id" is a
+// field, a prefix of an id (4+ characters) matches too, if only one does.
 func (a *app) find(path, what, want string, fields ...string) (map[string]any, error) {
 	v, err := a.call(http.MethodGet, path, nil)
 	if err != nil {
@@ -232,7 +241,22 @@ func (a *app) find(path, what, want string, fields ...string) (map[string]any, e
 		}
 		return nil, fmt.Errorf("%d %ss match %q; pass the id", len(hit), what, want)
 	}
-	return nil, fmt.Errorf("no %s %q", what, want)
+	if len(want) >= 4 && slices.Contains(fields, "id") {
+		var hit []map[string]any
+		for _, x := range xs {
+			if m, _ := x.(map[string]any); strings.HasPrefix(cell(m["id"]), want) {
+				hit = append(hit, m)
+			}
+		}
+		switch len(hit) {
+		case 0:
+		case 1:
+			return hit[0], nil
+		default:
+			return nil, fmt.Errorf("%w: %q matches %d %ss; pass more of the id", errAmbiguous, want, len(hit), what)
+		}
+	}
+	return nil, noMatch(fmt.Sprintf("no %s %q", what, want))
 }
 
 // release resolves a release number or id in the stack.

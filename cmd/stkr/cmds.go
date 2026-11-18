@@ -1056,12 +1056,46 @@ func (a *app) jobs() *cobra.Command {
 		}
 		return nil, "", err
 	}
+	// jobID is a full job id for an id prefix (4+ characters), found over the
+	// job list the API returns: the org's, else the admin's. Anything that
+	// does not resolve goes on as typed, so the server words the 404.
+	// ponytail: a job older than the list's newest page needs the full id.
+	jobID := func(ref string) (string, error) {
+		if len(ref) >= 36 {
+			return ref, nil
+		}
+		paths := []string{"/admin"}
+		if !admin {
+			p, err := a.orgPath()
+			if err != nil {
+				return ref, nil
+			}
+			paths = []string{p, "/admin"}
+		}
+		for _, p := range paths {
+			m, err := a.find(p+"/jobs?limit=0", "job", ref, "id")
+			var nm noMatch
+			switch {
+			case err == nil:
+				return str(m["id"]), nil
+			case errors.As(err, &nm):
+			case errors.Is(err, errAmbiguous):
+				return "", err
+			}
+		}
+		return ref, nil
+	}
 	log := leaf(
 		"log <id>",
 		"job.log,job.events,admin.job-log,admin.job-events",
 		"Print a job's log; --follow waits for its end",
 		exact(1),
 		func(c *cobra.Command, args []string) error {
+			id, err := jobID(args[0])
+			if err != nil {
+				return err
+			}
+			args = []string{id}
 			if follow {
 				_, b, err := onJob(GET, args[0], "")
 				if err != nil {
@@ -1077,7 +1111,19 @@ func (a *app) jobs() *cobra.Command {
 				return err
 			}
 			m, _ := v.(map[string]any)
-			_, err = fmt.Fprint(a.out, m["log"])
+			text := str(m["log"])
+			if _, err = fmt.Fprint(a.out, text); err != nil {
+				return err
+			}
+			// the log can stop short of the reason: end it with the job's error
+			if jm, _ := m["job"].(map[string]any); jm["state"] == "failed" {
+				if e := strings.TrimSpace(str(jm["error"])); e != "" && !strings.Contains(text, e) {
+					if text != "" && !strings.HasSuffix(text, "\n") {
+						_, _ = fmt.Fprintln(a.out)
+					}
+					_, err = fmt.Fprintln(a.out, "error: "+e)
+				}
+			}
 			return err
 		},
 	)
@@ -1110,6 +1156,15 @@ func (a *app) jobs() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if xs, _ := v.([]any); !a.json { // 8 characters are enough to pass back to any job verb
+				for _, x := range xs {
+					if m, _ := x.(map[string]any); m != nil {
+						if id := str(m["id"]); len(id) > 8 {
+							m["id"] = id[:8]
+						}
+					}
+				}
+			}
 			return a.show(v, jobCols...)
 		})
 	ls.Flags().StringSliceVar(&states, "state", nil, "only these states (queued, running, waiting, done, failed, ...)")
@@ -1119,7 +1174,11 @@ func (a *app) jobs() *cobra.Command {
 	c := noun("job", "Jobs: deploys, promotes, backups, everything queued",
 		ls,
 		leaf("get <id>", "job.get,admin.job-get", "Show a job", exact(1), func(_ *cobra.Command, args []string) error {
-			v, _, err := onJob(GET, args[0], "")
+			id, err := jobID(args[0])
+			if err != nil {
+				return err
+			}
+			v, _, err := onJob(GET, id, "")
 			if err != nil {
 				return err
 			}
@@ -1128,10 +1187,14 @@ func (a *app) jobs() *cobra.Command {
 		log,
 		leaf("cancel <id>", "job.cancel,admin.job-cancel", "Cancel a queued or running job", exact(1),
 			func(_ *cobra.Command, args []string) error {
-				if err := a.confirm("Cancel job " + args[0] + "? Work it already did stays done."); err != nil {
+				id, err := jobID(args[0])
+				if err != nil {
 					return err
 				}
-				_, _, err := onJob(POST, args[0], "/cancel")
+				if err := a.confirm("Cancel job " + id + "? Work it already did stays done."); err != nil {
+					return err
+				}
+				_, _, err = onJob(POST, id, "/cancel")
 				return err
 			}),
 	)
@@ -1442,4 +1505,10 @@ func (a *app) settingsCmd(op, short string, lv level) *cobra.Command {
 	c.Flags().StringArrayVar(&set, "set", nil, "knob=value (stkr knobs lists them)")
 	c.Flags().StringArrayVar(&clear, "clear", nil, "give a knob back to the level above")
 	return c
+}
+
+// str is v as a string, "" when it is not one.
+func str(v any) string {
+	s, _ := v.(string)
+	return s
 }
