@@ -38,16 +38,16 @@ func TestServerSettings(t *testing.T) {
 			t.Errorf("the Settings tab lists %s", k)
 		}
 	}
-	if err := orch.SetServerSettings(ctx, all); err != nil {
-		t.Fatal(err)
+	if n, err := orch.SetServerSettings(ctx, all); err != nil || n != 0 {
+		t.Fatal(n, err)
 	}
 	if d, _ := orch.SettingDefaults(ctx); d.JSON() != "{}" {
 		t.Errorf("an untouched form wrote the server rung: %s", d.JSON())
 	}
 	all["workers"], all["mem_limit_mb"] = "4", "512"
 	all["protect_user"], all["protect_password"] = "u", "hunter2"
-	if err := orch.SetServerSettings(ctx, all); err != nil {
-		t.Fatal(err)
+	if n, err := orch.SetServerSettings(ctx, all); err != nil || n != 4 {
+		t.Fatal(n, err)
 	}
 	got := byKey(t, orch)
 	if got["workers"].Value != "4" || got["mem_limit_mb"].Value != "512" || got["mem_limit_mb"].DecidedBy != "server" {
@@ -57,14 +57,14 @@ func TestServerSettings(t *testing.T) {
 		t.Errorf("secret echoed: %+v", s)
 	}
 	all["protect_password"] = ""
-	if err := orch.SetServerSettings(ctx, all); err != nil {
-		t.Fatal(err)
+	if n, err := orch.SetServerSettings(ctx, all); err != nil || n != 0 {
+		t.Fatal(n, err)
 	}
 	if d, _ := orch.SettingDefaults(ctx); d.ProtectPassword == nil || *d.ProtectPassword != "hunter2" {
 		t.Errorf("an empty secret field cleared it: %+v", d.ProtectPassword)
 	}
 	all["workers"] = "x"
-	if err := orch.SetServerSettings(ctx, all); err == nil {
+	if _, err := orch.SetServerSettings(ctx, all); err == nil {
 		t.Error("a bad value was taken")
 	}
 }
