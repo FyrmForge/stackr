@@ -182,6 +182,13 @@ func TestVerifyUnmountedIsDiskMissing(t *testing.T) { // DL
 	wantCode(t, r.run("verify", nil), CodeDiskMissing)
 }
 
+func TestReadOnlyReattachNeitherVerifiesNorAdds(t *testing.T) { // DL
+	r := added(t)
+	r.table("36 25 8:17 / /disk ro - ext4 /dev/sdb ro\n")
+	wantCode(t, r.run("verify", nil), CodeReadOnly)
+	wantCode(t, r.run("add", nil), CodeReadOnly)
+}
+
 func TestVerifyWrongStampIsDiskMissing(t *testing.T) { // DL
 	r := added(t)
 	wantCode(t, r.run("verify", func(q *Request) { q.DiskID = "d2" }), CodeDiskMissing)

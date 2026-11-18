@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 )
@@ -68,9 +69,20 @@ func (o *Orchestrator) NodeDiskPanel(ctx context.Context, nodeID string) (NodeDi
 		return p, err
 	}
 	live = slices.DeleteFunc(live, func(x Volume) bool { return !on[x.Name] })
-	sizes := o.volumes.Sizes(ctx, live)
+	// Sizes only from the cache of a ready disk: no resolve, no Docker.
+	var use map[string]hostdisk.Use
+	if d.State == disk.StateReady {
+		names := make([]string, len(live))
+		for i, x := range live {
+			names[i] = x.Name
+		}
+		use = o.cachedSizes(d, names)
+	}
 	for _, x := range live {
-		r := DiskVolume{ID: x.ID, Slug: x.Slug, SizeBytes: sizes[x.ID], Where: x.ScopeKind}
+		r := DiskVolume{ID: x.ID, Slug: x.Slug, SizeBytes: -1, Where: x.ScopeKind}
+		if u, ok := use[x.Name]; ok && !u.Missing {
+			r.SizeBytes = u.Bytes
+		}
 		if x.ScopeKind == ScopeEnv {
 			if e, err := o.envs.Get(ctx, x.ScopeID); err == nil {
 				r.Where = e.Name
@@ -122,7 +134,8 @@ func (o *Orchestrator) VolumeStorage(ctx context.Context, volumeID string) (Volu
 	if err != nil {
 		return VolumeStorage{}, err
 	}
-	s := VolumeStorage{NodeID: nodeID, InDocker: true, SizeBytes: o.volumes.SizeBytes(ctx, v)}
+	// -1: a poll never asks Docker for a size; a disk volume's is set below.
+	s := VolumeStorage{NodeID: nodeID, InDocker: true, SizeBytes: -1}
 	if n, err := o.store.Nodes.Get(ctx, nodeID); err == nil {
 		s.Node = n.Name
 	}
@@ -134,9 +147,12 @@ func (o *Orchestrator) VolumeStorage(ctx context.Context, volumeID string) (Volu
 		return s, err
 	}
 	s.OnDisk, s.State = true, d.State
-	s.InDocker = rt == volume.RouteGhost
+	s.InDocker = false
 	s.Folder = path.Join(d.MountPath, d.ID, v.Name)
-	if rt == volume.RouteDisk {
+	if d.State == disk.StateReady {
+		if u, ok := o.cachedSizes(d, []string{v.Name})[v.Name]; ok && !u.Missing {
+			s.SizeBytes = u.Bytes
+		}
 		s.SizeAt = o.diskSizesAt(nodeID)
 	}
 	return s, nil

@@ -39,7 +39,13 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 	online := d.Status == "online"
 	if !p.Has {
 		dk.Help = "Keep volumes on their own disk, apart from the system disk."
+		adding, err := h.jobActive(c, d.ID, "disk-add")
+		if err != nil {
+			return dk, err
+		}
 		switch {
+		case adding:
+			dk.Why = "Adding the disk."
 		case p.Refusal != "":
 			dk.Help = p.Refusal
 		case !online:
@@ -143,6 +149,9 @@ func probeText(code, msg string) string {
 	case hostdisk.CodeRootFS:
 		return "This folder is on the system disk. Use a separate disk."
 	case hostdisk.CodeNotMountPoint:
+		if strings.HasPrefix(msg, "Use the real path") {
+			return msg // canonical's: the folder is a symlink, the message names the real path
+		}
 		return "Not a mount point. Mount the disk there first."
 	case hostdisk.CodeDiskMissing:
 		return "No such folder."
@@ -164,6 +173,7 @@ func (h *handler) diskProbe(c echo.Context) error {
 	ctx := c.Request().Context()
 	d := diskDialog(c)
 	d.Input, d.Tone, d.Invalid = true, "err", true
+	d.Checked, d.Network, d.NetOK = "", false, false // a failed probe passes nothing
 	switch {
 	case d.Path == "":
 		d.Msg = "Give a full path to a mounted folder, like /mnt/data."
@@ -173,7 +183,10 @@ func (h *handler) diskProbe(c echo.Context) error {
 		p, err := h.orch.ProbeNodeFolder(ctx, middleware.Principal(c), c.Param("node"), d.Path)
 		var down *service.NodeDownError
 		onField, top, refused := render.OnField(err, "path")
+		var he *hostdisk.Error
 		switch {
+		case err != nil && !errors.As(err, &down) && errors.As(err, &he) && he.Code == hostdisk.CodeIO:
+			d.Msg = he.Message
 		case err != nil && (errors.As(err, &down) || !refused):
 			name := c.Param("node")
 			if n, nerr := h.orch.NodeDetail(ctx, name); nerr == nil {
@@ -189,7 +202,7 @@ func (h *handler) diskProbe(c echo.Context) error {
 			if p.Network {
 				d.Msg += " Network disk (" + p.FSType + ")."
 			}
-			d.Checked, d.Network, d.NetOK = d.Path, p.Network, false
+			d.Checked, d.Network = d.Path, p.Network
 		}
 	}
 	return respond.HTML(c, http.StatusOK, ui.DiskState(d))

@@ -860,7 +860,9 @@ templ NodeBody(tab string, v NodeView) {
 				}
 			default:
 				<div id="node-live">
-				@c.LiveTab(v.Live, "node-live")
+				// No "dirty" guard: the Add disk path is the only field here, an open dialog
+				// already pauses the poll, and a path left typed after Cancel must not stall it.
+				<span hidden data-live-tab data-poll-guard="region rows fields" hx-get={ v.Live } hx-trigger="every 3s" hx-select="#node-live" hx-target="#node-live" hx-swap="outerHTML"></span>
 				if v.CertExpired || len(v.Warnings) > 0 {
 					<div class="node-warnings panel px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-3" role="alert">
 						<ul class="space-y-1">
@@ -1041,7 +1043,7 @@ templ diskStrip(d NodeDisk) {
 						if d.Check != "" {
 							Tiles that use it do not start. Reattach it, then press Check disk.
 						} else {
-							Tiles that use it do not start. A node admin can check it.
+							Tiles that use it do not start. The node is offline. Check it once it is back.
 						}
 					</li>
 				} else {

@@ -153,13 +153,15 @@ templ Overview(o OverviewView) {
 						<p class="mt-1 text-xs text-rw-faint">{ s.Node }</p>
 					}
 				}
-				@stat("Size") {
-					if s.Size == "" {
-						<p class="text-sm text-rw-muted">unknown</p>
-					} else {
-						<p class="text-sm text-rw-text">{ s.Size }</p>
-						if s.SizeAt != "" {
-							<p class="text-xs text-rw-faint">as of { s.SizeAt }</p>
+				if s.Size != "" || s.Disk {
+					@stat("Size") {
+						if s.Size == "" {
+							<p class="text-sm text-rw-muted">unknown</p>
+						} else {
+							<p class="text-sm text-rw-text">{ s.Size }</p>
+							if s.SizeAt != "" {
+								<p class="text-xs text-rw-faint">as of { s.SizeAt }</p>
+							}
 						}
 					}
 				}

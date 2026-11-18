@@ -253,17 +253,16 @@ func (l *Leaf) OnDisk(ctx context.Context, v store.Volume) bool {
 	return err == nil && rows[v.Name]
 }
 
-// Where is where a volume lives, for display: its route and node. It never
-// places, creates, measures or removes anything.
+// Where is where a volume lives, for display: RouteDisk when its node's disk
+// has a folder row for it, else RouteLegacy, and the node. Rows only: no Docker
+// call, so it cannot tell a ghost (two copies); deploy and backup gates do.
 func (l *Leaf) Where(ctx context.Context, v store.Volume) (Route, string, error) {
-	ctx, node, err := l.at(ctx, v)
+	_, node, err := l.at(ctx, v)
 	if err != nil {
 		return RouteLegacy, "", err
 	}
-	st, err := l.state(ctx, node)
-	if err != nil || st == DiskNone {
-		return RouteLegacy, node, err
+	if !l.OnDisk(ctx, v) {
+		return RouteLegacy, node, nil
 	}
-	p, err := l.resolve(ctx, node, v.Name, st)
-	return p.rt, node, err
+	return RouteDisk, node, nil
 }

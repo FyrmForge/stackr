@@ -288,6 +288,9 @@ func add(e Env, r Request) Result {
 	if herr := t.canonical(); herr != nil {
 		return Result{Error: herr}
 	}
+	if t.readOnly() {
+		return fail(CodeReadOnly, r.Mount+" is mounted read-only")
+	}
 	s, found, err := readStamp(t.root)
 	switch {
 	case err != nil:
@@ -488,6 +491,9 @@ func verify(e Env, r Request) Result {
 		return Result{Error: herr}
 	}
 	defer t.close()
+	if t.readOnly() {
+		return fail(CodeReadOnly, r.Mount+" is mounted read-only")
+	}
 	return Result{Disk: t.fact(s, false)}
 }
 

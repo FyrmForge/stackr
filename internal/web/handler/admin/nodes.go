@@ -554,14 +554,14 @@ func (h *handler) nodeAnswer(c echo.Context, tab, note string, actErr error) err
 		f.Error, status = msg, http.StatusUnprocessableEntity
 		c.Set(refusedKey, true)
 	}
-	v, err := h.nodeView(c, d, base)
+	v, err := h.nodeView(c, d, base, tab)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	return respond.HTML(c, status, comp.Drawer(f, ui.NodeBody(tab, v)))
 }
 
-func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (ui.NodeView, error) {
+func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base, tab string) (ui.NodeView, error) {
 	v := ui.NodeView{
 		ID: d.ID, Name: d.Name, Role: d.Role, Status: d.Status, Hint: ui.NodeHint(d.Status, d.Stalled), Controller: d.Controller, Tags: d.Tags,
 		Range: d.Range, WGAddress: d.WGAddress, AllTags: service.NodeTags, TagsAction: base + "/tags",
@@ -608,8 +608,10 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		v.Backup = base + "/backup"
 	}
 	v.Live = base + "?tab=overview"
-	if v.NodeDisk, err = h.nodeDisk(c, d, base, live); err != nil {
-		return v, err
+	if tab == nodeTabs[0] { // only the overview shows the disk
+		if v.NodeDisk, err = h.nodeDisk(c, d, base, live); err != nil {
+			return v, err
+		}
 	}
 	gs, err := h.orch.NodeBackups(ctx, d.ID)
 	if err != nil {
