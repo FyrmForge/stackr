@@ -259,6 +259,8 @@ type Orchestrator struct {
 	recGen     int
 	// recoverSeen are the nonces of recent recovery calls (RecoverNode).
 	recoverSeen recoverNonces
+	// restartPending are the tiles a restart-later param save reaches (paramview.go).
+	restartPending sync.Map
 	db          *sqlx.DB
 	store       *store.Store
 	sessions    *auth.SessionManager

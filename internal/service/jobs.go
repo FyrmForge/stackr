@@ -445,6 +445,9 @@ func (o *Orchestrator) enqueue(ctx context.Context, kind jobs.Kind, p any, lock 
 		return Job{}, err
 	}
 	j, err := o.jobs.Enqueue(ctx, kind, lock, string(o.withOrg(ctx, b)), nil)
+	if err == nil {
+		o.clearRestartPending(string(kind), p)
+	}
 	return j, o.noted(ctx, err, securitylog.JobQueue, "job", j.ID, "kind="+string(kind))
 }
 
