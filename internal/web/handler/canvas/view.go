@@ -60,6 +60,8 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 			Static: n.Static,
 			Color:  n.Color,
 			Deck:   n.Deck,
+
+			Pending: n.RestartPending,
 		}
 		switch n.Kind {
 		case "org":
@@ -200,6 +202,7 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 	cv.Access.Waiting = access.Waits(g.Pending, n.Slug)
 	// a sync ghost is a tile the env does not have yet: no drawer to open
 	cv.Sync, cv.Ghost = n.Sync, strings.HasPrefix(n.ID, "sync:")
+	cv.RestartPending = n.RestartPending
 	if url, tab := envDrawer(base, n.Kind, n.ID, n.Slug); url != "" && !cv.Ghost {
 		cv.Drawer, cv.Tab = url+"?tab="+tab, tab
 	}

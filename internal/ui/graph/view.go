@@ -86,6 +86,7 @@ type Node struct {
 	System, Static bool
 	Color          string // env hue, "" = none
 	Deck           int    // drill-down cards: 0 to 2 layers under the card
+	Pending        bool   // a saved change waits for the tile's next restart: the card says so, so the canvas redraws when it moves
 	Href           string // drill-down page; "" = none
 	Drawer         string // drawer GET, with ?drawer=&tab=; "" = none
 	Push           string // the URL the drawer pushes: ?drawer=<id>&tab=<tab>

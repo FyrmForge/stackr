@@ -32,6 +32,8 @@ type CardView struct {
 	Access     Access
 	NewVersion bool // image watch saw a newer digest or tag
 
+	RestartPending bool // a saved change waits for the tile's next restart
+
 	Sync  string // env sync review: new | edited | removed; "" = none
 	Ghost bool   // a tile the sync would add: dashed, no drawer, nothing running
 

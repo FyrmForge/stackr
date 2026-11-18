@@ -58,6 +58,9 @@ type Flow struct {
 	// ExtUpdates is how many extension packages of an operated instance have
 	// an update (the daily check); nil = none asked.
 	ExtUpdates func(ctx context.Context, m store.OperatedInstance) int
+	// RestartPending says a saved change waits for the tile's next restart;
+	// nil = none.
+	RestartPending func(tileID string) bool
 }
 
 // Node kinds besides the tile kinds (service, image, operated, cron,
@@ -132,18 +135,19 @@ type Node struct {
 	Subs   []Sub
 
 	// Tile facts (session C's footers and chips).
-	Replicas   int
-	Running    int
-	Domains    []string
-	Volumes    []string
-	Host       bool // privileged or devices
-	LastRun    *store.Run
-	NextRun    *time.Time // unpaused cron only
-	NewVersion bool       // image watch saw a newer digest
-	ExtUpdates int        // operated postgres: packages with an update; 0 = none
-	Waiting    string     // the param a parked job waits for
-	Under      string     // building/queued over a running tile: the word beneath, "running"
-	Since      time.Time  // that job's start (queued: its creation); zero = no such job
+	Replicas       int
+	Running        int
+	Domains        []string
+	Volumes        []string
+	Host           bool // privileged or devices
+	LastRun        *store.Run
+	NextRun        *time.Time // unpaused cron only
+	NewVersion     bool       // image watch saw a newer digest
+	RestartPending bool       // a saved change waits for the next restart
+	ExtUpdates     int        // operated postgres: packages with an update; 0 = none
+	Waiting        string     // the param a parked job waits for
+	Under          string     // building/queued over a running tile: the word beneath, "running"
+	Since          time.Time  // that job's start (queued: its creation); zero = no such job
 	// Vars card counts; never a value.
 	Params, Secrets int
 	Consumers       int // slice: the tiles that ref it, name it in slice_access or hold a cred on it
@@ -1016,6 +1020,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 	n := card(t.ID, t.Kind, t.Name)
 	n.Slug, n.Replicas = t.Slug, max(t.Replicas, 1)
 	n.Host = t.Privileged || strings.TrimSpace(t.Devices) != ""
+	n.RestartPending = f.RestartPending != nil && f.RestartPending(t.ID)
 	switch {
 	case t.Kind == tile.Cron:
 		n.Detail = t.Schedule

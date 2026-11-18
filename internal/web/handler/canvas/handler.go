@@ -383,7 +383,7 @@ func (h *handler) Poll(c echo.Context) producer {
 func Sig(v ui.View) string {
 	var parts []string
 	for _, n := range v.Nodes {
-		parts = append(parts, "n "+n.ID+" "+n.Name+" "+n.Detail+" "+n.Color)
+		parts = append(parts, "n "+n.ID+" "+n.Name+" "+n.Detail+" "+n.Color+" "+strconv.FormatBool(n.Pending))
 	}
 	for _, e := range v.Edges {
 		parts = append(parts, "e "+e.Kind+" "+e.From+" "+e.To)

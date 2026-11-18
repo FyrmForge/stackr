@@ -869,6 +869,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Target:     orch.deploy.Target,
 			Slice:      orch.engines.SliceWord,
 			ExtUpdates: orch.pgExtUpdateCount,
+			RestartPending: orch.RestartPending,
 		}
 	})
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {
