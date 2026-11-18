@@ -105,7 +105,7 @@ A plan never deletes anything on its own. A removal row applies only when you ti
 
 ## stackr-compose.yml
 
-Written by hand or with `stkr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stkr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `healthcheck`, `limits`, `depends_on`, and so on). `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel.
+Written by hand or with `stkr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stkr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `healthcheck`, `limits`, `depends_on`, and so on). `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel. `volumes.<name>.max_size_mb` is the volume's size cap in MB: absent leaves the cap as it is, `0` removes it. See [Size caps](nodes.md#size-caps).
 
 ## Operated and slice tiles
 

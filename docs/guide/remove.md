@@ -38,7 +38,7 @@ It stops the worker service and removes stackr's containers, networks, firewall 
 sudo stackr-install uninstall --purge
 ```
 
-`--purge` also deletes the volumes, the images stackr built or pulled, the binaries and the state. Other images stay. `/etc/docker/daemon.json` stays, with the log cap the installer set. It asks you to type the node's name. `--yes` skips the first question but not that one. `--dry-run` shows what would change.
+`--purge` also deletes the volumes (Docker volumes only: the folders of a [node disk](nodes.md#node-disk) stay, and so does the data in them), the images stackr built or pulled, the binaries and the state. Other images stay. `/etc/docker/daemon.json` stays, with the log cap the installer set. It asks you to type the node's name. `--yes` skips the first question but not that one. `--dry-run` shows what would change.
 
 ## Remove the panel
 
@@ -50,4 +50,4 @@ On the controller, as root:
 sudo stackr-install uninstall --purge
 ```
 
-It asks you to type the panel's host name. Then it removes the panel and every app on the box with their volumes, the images stackr built or pulled, the docker login for the panel's registry, the firewall rules, `stackr0` and the mesh, `/var/lib/stackr`, and `stkr`, `stackr` (the old wrapper name) and `stackr-install` in `/usr/local/bin`. `/etc/docker/daemon.json` stays. Without `--purge` it refuses on the controller.
+It asks you to type the panel's host name. Then it removes the panel and every app on the box with their Docker volumes (node disk folders stay), the images stackr built or pulled, the docker login for the panel's registry, the firewall rules, `stackr0` and the mesh, `/var/lib/stackr`, and `stkr`, `stackr` (the old wrapper name) and `stackr-install` in `/usr/local/bin`. `/etc/docker/daemon.json` stays. Without `--purge` it refuses on the controller.
