@@ -22,7 +22,14 @@ import (
 // paths it pushes to the worker. A poll never runs a helper.
 
 // sizeTTL is how old a cached usage may be before a read starts a refresh.
-const sizeTTL = time.Minute
+// A read asking for a folder the last walk did not see (a volume placed
+// since) refreshes sooner, after sizeNewTTL.
+// ponytail: a folder no walk can size re-walks every 5s while someone looks;
+// remember failed names if that ever costs.
+const (
+	sizeTTL    = time.Minute
+	sizeNewTTL = 5 * time.Second
+)
 
 type sizeEntry struct {
 	at   time.Time
@@ -51,7 +58,13 @@ func (o *Orchestrator) cachedSizes(d store.NodeDisk, names []string) map[string]
 		e = &sizeEntry{}
 		c.by[d.NodeID] = e
 	}
-	if !e.busy && time.Since(e.at) > sizeTTL {
+	missing := false
+	for _, n := range names {
+		if _, ok := e.use[n]; !ok {
+			missing = true
+		}
+	}
+	if age := time.Since(e.at); !e.busy && (age > sizeTTL || missing && age > sizeNewTTL) {
 		e.busy = true
 		o.track(func() { o.walkSizes(d, e) })
 	}

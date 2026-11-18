@@ -289,11 +289,12 @@ func TestVolumeDrawerReadsSizesFromTheCache(t *testing.T) {
 		}
 	}
 	var warm string
-	for range 200 { // the walk fills the cache; the drawer then has the size
+	// the walk fills the cache; the drawer then has the size. A slow CI box
+	// needs more than a few seconds, so wait on a deadline, not a count.
+	for end := time.Now().Add(30 * time.Second); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
 		if warm = get(); strings.Contains(warm, "5.0 MB") {
 			break
 		}
-		time.Sleep(25 * time.Millisecond)
 	}
 	has(t, "warm", warm, "5.0 MB", "as of", "/data/"+d.ID+"/pgdata")
 	n := len(rec.ops())
