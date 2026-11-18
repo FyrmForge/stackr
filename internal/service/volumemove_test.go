@@ -473,21 +473,6 @@ func TestMoveSecondClickWhenRowNameIsTheTargetAndAFolderRowExistsSkipsTheCopyAnd
 }
 
 // DL
-func TestMoveResumeRefusedWhenNoFolderRowExistsOnThisNodesDisk(t *testing.T) {
-	r := newMoveRig(t)
-	v := r.get(t, r.v.ID)
-	v.Name = moveTarget(v.ID) // named for the disk, but the disk has nothing for it
-	must(t, r.st.Volumes.Update(context.Background(), v))
-	_, err := r.orch.MoveVolumeToDisk(context.Background(), adminP(), v.ID)
-	if err == nil || !strings.Contains(err.Error(), "no folder") {
-		t.Errorf("err = %v, want refused for the missing folder row", err)
-	}
-	if sawCall(r.wFake, "UntarVolume(") {
-		t.Error("a copy ran")
-	}
-}
-
-// DL
 func TestMoveRefusedWhenAnotherRowOrMemberNamesTheTarget(t *testing.T) {
 	ctx := context.Background()
 	r := newMoveRig(t)
@@ -550,7 +535,8 @@ func TestMoveGhostOfTheTargetIsRefusedAndKeepsTheOldVolume(t *testing.T) {
 // move that discards the partial target first.
 func TestMoveSecondClickNeverUntarsOverTheLiveNewVolume(t *testing.T) {
 	r := newMoveRig(t)
-	r.crash(t, "swap", r.v) // swap is the last step; the row is committed
+	r.crash(t, "swap", r.v)  // swap is the last step; the row is committed
+	r.wFake.Containers = nil // the crash left the tile's container removed
 	before := len(callNames(r.wFake))
 	r.finish(t, r.v)
 	for _, c := range callNames(r.wFake)[before:] {

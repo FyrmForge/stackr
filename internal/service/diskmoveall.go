@@ -173,7 +173,7 @@ func (o *Orchestrator) moveEnvName(ctx context.Context, v Volume) string {
 // row names the target, the disk has its folder row, and a tile that should be
 // up has no container.
 func (o *Orchestrator) halfMoved(ctx context.Context, v Volume) (bool, error) {
-	if v.Name != moveTarget(v.ID) || !o.volumes.OnDisk(ctx, v) {
+	if !isMoveName(v.ID, v.Name) || !o.volumes.OnDisk(ctx, v) {
 		return false, nil
 	}
 	ts, err := o.moveTiles(ctx, []Volume{v})
@@ -208,6 +208,12 @@ func (o *Orchestrator) moveSkip(ctx context.Context, v Volume, size int64, free 
 		if err := o.noStandbys(ctx, *v.InstanceID); err != nil {
 			if errors.As(err, new(errs.Conflict)) {
 				return "Remove the standbys first.", nil
+			}
+			return "", err
+		}
+		if err := o.notRelocated(ctx, *v.InstanceID); err != nil {
+			if errors.As(err, new(errs.Refused)) {
+				return "Its primary runs on another node after a failover.", nil
 			}
 			return "", err
 		}

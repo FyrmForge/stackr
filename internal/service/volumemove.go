@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +36,34 @@ const auditVolumeToDisk = "volume.to_disk"
 
 // moveTarget is the disk-backed name of a volume. Fixed, never generated per click.
 func moveTarget(volumeID string) string { return "stackr-vol-" + volumeID + "-disk" }
+
+// moveTargetOf is the name a volume moves to: the fixed target, or, for a
+// plain volume that already carries a target name but has no folder (after a
+// Forget, or an env moved to a diskless node), the other of the two, so it is
+// a fresh move and not a resume. A name with a folder row is a finished swap
+// and stays.
+func (o *Orchestrator) moveTargetOf(ctx context.Context, d store.NodeDisk, v Volume) (string, error) {
+	base := moveTarget(v.ID)
+	if v.Name != base && v.Name != base+"2" {
+		return base, nil
+	}
+	has, err := o.diskLeaf.HasFolders(ctx, d, v.Name)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case has[v.Name]:
+		return v.Name, nil
+	case v.Name == base:
+		return base + "2", nil
+	}
+	return base, nil
+}
+
+// isMoveName is whether name is one of the two names a volume moves to.
+func isMoveName(volumeID, name string) bool {
+	return name == moveTarget(volumeID) || name == moveTarget(volumeID)+"2"
+}
 
 // todiskKey serialises the volume-to-disk jobs of one node, so each group's
 // tiles are down only during its own copy (2N holds it for every group).
@@ -78,10 +107,20 @@ func (o *Orchestrator) enqueueVolumeMove(ctx context.Context, by *Principal, nod
 	if err := o.moveLive(ctx, vs); err != nil {
 		return Job{}, err
 	}
+	d, has, err := o.nodeDisk(ctx, nodeID)
+	if err != nil {
+		return Job{}, err
+	}
 	uid, kid := actorOf(by)
 	p := volumeMoveJob{NodeID: nodeID, By: uid, KeyID: kid}
 	for _, v := range vs {
-		p.Volumes = append(p.Volumes, volumeMoveItem{VolumeID: v.ID, Target: moveTarget(v.ID), OldName: v.Name})
+		target := moveTarget(v.ID) // load refuses a node with no ready disk
+		if has {
+			if target, err = o.moveTargetOf(ctx, d, v); err != nil {
+				return Job{}, err
+			}
+		}
+		p.Volumes = append(p.Volumes, volumeMoveItem{VolumeID: v.ID, Target: target, OldName: v.Name})
 	}
 	m := &volumeMove{o: o, p: p}
 	if err := m.load(ctx, true); err != nil {
@@ -192,7 +231,9 @@ func (m *volumeMove) load(ctx context.Context, queued bool) error {
 		if err != nil {
 			return err
 		}
-		if it.Target != moveTarget(v.ID) {
+		if want, err := o.moveTargetOf(ctx, d, v); err != nil {
+			return err
+		} else if it.Target != want {
 			return errs.Refusedf("The move names the wrong disk volume.")
 		}
 		if v.ScopeKind != "env" || v.OrphanedAt != nil {
@@ -211,6 +252,9 @@ func (m *volumeMove) load(ctx context.Context, queued bool) error {
 			}
 			if v.InstanceID != nil {
 				if err := o.noStandbys(ctx, *v.InstanceID); err != nil {
+					return err
+				}
+				if err := o.notRelocated(ctx, *v.InstanceID); err != nil {
 					return err
 				}
 			}
@@ -268,12 +312,53 @@ func (o *Orchestrator) moveResumes(ctx context.Context, d store.NodeDisk, v Volu
 		if !has[target] {
 			return false, errs.Refusedf("The volume is named for the disk but has no folder there.")
 		}
+		// a finished swap with the tiles up is not a resume: every press would redeploy
+		if half, err := o.halfMoved(ctx, v); err != nil {
+			return false, err
+		} else if !half {
+			return false, errs.Refusedf("Already on the disk.")
+		}
+		// The deploy must not start on a folder that is gone, or empty while the
+		// old copy still holds data: a missing target is never recreated here.
+		use, err := o.diskLeaf.Usage(ctx, d, true, target)
+		if err != nil {
+			return false, err
+		}
+		u := use[target]
+		if u.Missing {
+			return false, errs.Refusedf("The disk copy of %s is missing. The old copy is kept with the orphans: restore the folder or the old copy first.", v.Slug)
+		}
+		if u.Empty {
+			orphans, err := o.store.Volumes.ListOrphaned(ctx)
+			if err != nil {
+				return false, err
+			}
+			for _, x := range orphans {
+				if x.ScopeID == v.ScopeID && x.NodeID == d.NodeID && strings.HasPrefix(x.Slug, v.Slug+"-") && o.volumes.HoldsData(ctx, x) {
+					return false, errs.Refusedf("The disk copy of %s is empty but the old copy holds data. It is kept with the orphans: restore it first.", v.Slug)
+				}
+			}
+		}
 		return true, nil
 	}
 	if o.volumes.OnDisk(ctx, v) {
 		return false, errs.Refusedf("The volume is already on the disk.")
 	}
 	return false, nil
+}
+
+// notRelocated refuses an instance whose primary runs off its env's node
+// after a failover: its data is not on this node, and a move would remove
+// the volume and then be refused its deploy.
+func (o *Orchestrator) notRelocated(ctx context.Context, instanceID string) error {
+	it, err := o.instanceTile(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+	if _, ok := o.relocated(ctx, it.ID); ok {
+		return errs.Refusedf("%s runs its primary on another node after a failover. Move it back first.", it.Name)
+	}
+	return nil
 }
 
 // room refuses unless the fresh volumes, plus a tenth, fit on the disk.
@@ -419,8 +504,14 @@ func (m *volumeMove) copyOne(ctx context.Context, i int) error {
 	if err := m.step("copy"); err != nil {
 		return err
 	}
-	if o.volumes.HoldsData(ctx, v) && !o.volumes.HoldsData(ctx, dst) {
-		return errs.Conflictf("The copy of %s is empty.", v.Slug)
+	// HoldsData fails safe (unknown counts as data), which is wrong for a
+	// check: the copy must be proven present, so ask the disk and fail on any error.
+	use, err := o.diskLeaf.Usage(ctx, m.d, true, target)
+	if err != nil {
+		return fmt.Errorf("checking the copy of %s: %w", v.Slug, err)
+	}
+	if u := use[target]; u.Missing || (u.Empty && o.volumes.HoldsData(ctx, v)) {
+		return errs.Conflictf("The copy of %s is missing or empty.", v.Slug)
 	}
 	return m.step("check")
 }
@@ -445,17 +536,13 @@ func pipeVolume(ctx context.Context, o *Orchestrator, src, dst Volume) error {
 
 // swap is step 9, one transaction for the volumes copied: the row names the
 // target, the old name goes onto an orphaned row the orphan job removes
-// (the swapData pattern), and a member row that named the old volume follows.
+// (the swapData pattern). A relocated primary never moves, so no member row follows.
 func (m *volumeMove) swap(ctx context.Context, idx []int) error {
 	if len(idx) == 0 {
 		return nil
 	}
-	ms, err := m.o.members.All(ctx)
-	if err != nil {
-		return err
-	}
 	now := time.Now().UTC()
-	err = m.o.store.Tx(ctx, func(tx store.Tx) error {
+	err := m.o.store.Tx(ctx, func(tx store.Tx) error {
 		for _, i := range idx {
 			it := m.p.Volumes[i]
 			cur, err := tx.Volumes.Get(ctx, it.VolumeID)
@@ -475,14 +562,6 @@ func (m *volumeMove) swap(ctx context.Context, idx []int) error {
 			cur.Name = it.Target
 			if err := tx.Volumes.Update(ctx, cur); err != nil {
 				return err
-			}
-			for _, mb := range ms {
-				if mb.Volume == it.OldName {
-					mb.Volume = it.Target
-					if err := tx.OperatedMembers.Update(ctx, mb); err != nil {
-						return err
-					}
-				}
 			}
 		}
 		return nil
