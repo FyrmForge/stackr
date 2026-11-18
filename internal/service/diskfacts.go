@@ -179,7 +179,7 @@ func (o *Orchestrator) diskRegs(ctx context.Context, nodeID string) ([]worker.Di
 	if err != nil || !has {
 		return nil, err
 	}
-	return []worker.DiskReg{{ID: d.ID, Path: d.MountPath, Owner: d.NodeID}}, nil
+	return []worker.DiskReg{{ID: d.ID, Path: d.MountPath, Owner: d.NodeID, Device: d.DeviceID}}, nil
 }
 
 // diskNode is the way to a node's worker for a registry push.
@@ -243,7 +243,7 @@ func (o *Orchestrator) reconcileDisks(ctx context.Context, n store.Node, f worke
 }
 
 func sameRegs(a, b []worker.DiskReg) bool {
-	key := func(r worker.DiskReg) string { return r.ID + "\x00" + r.Path + "\x00" + r.Owner }
+	key := func(r worker.DiskReg) string { return r.ID + "\x00" + r.Path + "\x00" + r.Owner + "\x00" + r.Device }
 	ka, kb := make([]string, len(a)), make([]string, len(b))
 	for i, r := range a {
 		ka[i] = key(r)
@@ -254,6 +254,28 @@ func sameRegs(a, b []worker.DiskReg) bool {
 	slices.Sort(ka)
 	slices.Sort(kb)
 	return strings.Join(ka, "\n") == strings.Join(kb, "\n")
+}
+
+// diskDamaged: an xfs disk whose device is smaller than its filesystem or
+// carries another filesystem, by the worker's last facts. No facts, no claim.
+func (o *Orchestrator) diskDamaged(ctx context.Context, d store.NodeDisk) bool {
+	if d.Kind != disk.KindXFS || d.State != disk.StateReady {
+		return false
+	}
+	n, err := o.store.Nodes.Get(ctx, d.NodeID)
+	if err != nil {
+		return false
+	}
+	f := o.diskFacts(ctx, n)
+	if f == nil {
+		return false
+	}
+	i := slices.IndexFunc(f.Disks, func(x hostdisk.Fact) bool { return x.Path == d.MountPath })
+	if i < 0 {
+		return false
+	}
+	_, _, dm := deviceFacts(d, f.Disks[i])
+	return dm != ""
 }
 
 // deviceFacts compares what the worker last saw of an xfs disk's device with

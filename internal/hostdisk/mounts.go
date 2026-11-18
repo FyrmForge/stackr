@@ -131,3 +131,30 @@ func resolveUnder(root, p string) (string, error) {
 	}
 	return "/" + strings.Join(cur, "/"), nil
 }
+
+// ReadDevice is the size and filesystem uuid of the block device a Device.ID
+// (a /dev/disk/by-id link or a kernel path) names, from sysfs and the by-uuid
+// links under root. It runs no command. The uuid is "" when no link points at
+// the device.
+func ReadDevice(root, id string) (size int64, fsuuid string, err error) {
+	kname := filepath.Base(id)
+	if dst, err := os.Readlink(joinRoot(root, id)); err == nil { // a by-id link names the kernel node
+		kname = filepath.Base(dst)
+	}
+	b, err := os.ReadFile(joinRoot(root, "/sys/class/block/"+kname+"/size"))
+	if err != nil {
+		return 0, "", err
+	}
+	sectors, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil {
+		return 0, "", err
+	}
+	dir := joinRoot(root, "/dev/disk/by-uuid")
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if dst, err := os.Readlink(filepath.Join(dir, e.Name())); err == nil && filepath.Base(dst) == kname {
+			return sectors * 512, e.Name(), nil
+		}
+	}
+	return sectors * 512, "", nil
+}

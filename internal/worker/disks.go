@@ -31,6 +31,9 @@ type DiskReg struct {
 	ID    string `json:"id"`
 	Path  string `json:"path"`
 	Owner string `json:"owner"`
+	// Device is the Device.ID behind an xfs disk; "" for a path disk and from
+	// an older panel, which then gets no device facts.
+	Device string `json:"device,omitempty"`
 }
 
 type disksFile struct {
@@ -48,6 +51,8 @@ type diskEntry struct {
 	stamp   hostdisk.Stamp
 	free    uint64
 	total   uint64
+	devSize int64 // xfs: the device size and filesystem uuid, read with the rest
+	fsuuid  string
 }
 
 // diskState is the registry and the refresh cache. Facts only reads it.
@@ -189,7 +194,7 @@ func (s *Server) refreshDisk(ctx context.Context, e *diskEntry) {
 		return
 	}
 	e.running, e.started = true, time.Now()
-	path := e.reg.Path
+	path, dev := e.reg.Path, e.reg.Device
 	s.dmu.Unlock()
 	go func() {
 		rctx, cancel := context.WithTimeout(ctx, s.diskTimeout)
@@ -202,6 +207,11 @@ func (s *Server) refreshDisk(ctx context.Context, e *diskEntry) {
 			return
 		}
 		e.stamp, e.free, e.total, e.at = st, free, total, time.Now()
+		if dev != "" { // sysfs reads, only here and never on a request
+			if sz, u, derr := hostdisk.ReadDevice(s.cfg.HostRoot, dev); derr == nil {
+				e.devSize, e.fsuuid = sz, u
+			}
+		}
 	}()
 }
 
@@ -232,7 +242,8 @@ func (s *Server) diskFacts(f *Facts) {
 	for _, r := range regs {
 		e := ents[r.Path]
 		d := hostdisk.Fact{Path: r.Path, StampID: e.stamp.ID, StampOwner: e.stamp.Owner,
-			StampInstall: e.stamp.Install, Free: e.free, Total: e.total, ReadAt: e.at}
+			StampInstall: e.stamp.Install, Free: e.free, Total: e.total, ReadAt: e.at,
+			Device: r.Device, DeviceBytes: e.devSize, FSUUID: e.fsuuid}
 		for _, m := range ms { // the last entry for the point wins
 			if m.Point == r.Path {
 				d.Mounted, d.FSType, d.RootFS = true, m.FSType, m.Dev == rootDev

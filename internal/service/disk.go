@@ -154,6 +154,9 @@ func (a diskAdapter) Place(ctx context.Context, nodeID, name string) (map[string
 	if err != nil {
 		return nil, err
 	}
+	if a.o.diskDamaged(ctx, d) { // every deploy places its folder: this stops them all
+		return nil, &volume.MissingError{Node: nodeID, Msg: "The disk's device changed. Check the disk."}
+	}
 	opts, err := a.o.diskLeaf.Place(ctx, d, name)
 	return opts, missing(err)
 }

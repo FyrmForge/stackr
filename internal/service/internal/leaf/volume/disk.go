@@ -56,9 +56,17 @@ type Disk interface {
 
 // MissingError is a volume action refused because the node's disk is not
 // ready. Nothing was created, measured or removed.
-type MissingError struct{ Node string }
+type MissingError struct {
+	Node string
+	Msg  string // what to tell the user instead of the default
+}
 
-func (e *MissingError) Error() string { return "Its disk is missing." }
+func (e *MissingError) Error() string {
+	if e.Msg != "" {
+		return e.Msg
+	}
+	return "Its disk is missing."
+}
 func (e *MissingError) Unwrap() error { return errs.ErrBusy }
 
 // GhostError is a Docker volume that shadows the folder it should be bound
