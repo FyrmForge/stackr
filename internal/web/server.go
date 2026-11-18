@@ -28,6 +28,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/handler/scope"
 	"github.com/FyrmForge/stackr/internal/web/handler/setup"
 	"github.com/FyrmForge/stackr/internal/web/handler/tile"
+	"github.com/FyrmForge/stackr/internal/web/handler/waiting"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -158,6 +159,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	cli := cliauth.NewHandler(deps.Orch)
 	site.GET("/cli/authorize", cli.Page, page, authed)
 	site.POST("/cli/authorize", cli.Approve, authed)
+
+	site.GET("/-/waiting", waiting.NewHandler(deps.Orch).Page, page, authed)
 
 	acct := account.NewHandler(deps.Orch)
 	site.GET("/account", acct.Page, page, authed)

@@ -73,7 +73,9 @@ func page(c echo.Context, status int, s components.Shell, body, actions, drawer 
 // Banners answers a page's header-banner poll: just #banners, read from the
 // same Shell the page was drawn with (the route sits under the page's scope).
 func Banners(c echo.Context) error {
-	return respond.HTML(c, http.StatusOK, components.Banners(Shell(c, "")))
+	s := Shell(c, "")
+	s.PollBanners = true
+	return respond.HTML(c, http.StatusOK, components.Banners(s))
 }
 
 // Bare is a page with no rail and no top bar, the setup wizard's (v0's
@@ -96,7 +98,10 @@ func Shell(c echo.Context, title string) components.Shell {
 	if p := middleware.Principal(c); p != nil {
 		s.User = p.User.Email
 		s.Theme, s.TimeZone = p.User.Theme, p.User.TimeZone
-		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Account", "/account", path))
+		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Waiting", "/-/waiting", path), link("Account", "/account", path))
+		if n, ok := c.Get(waitingYouKey).(func() int); ok {
+			s.WaitingYou = n()
+		}
 		s.Admin = p.Access.Admin
 		s.AdminOn = s.Admin && strings.HasPrefix(path, "/-/admin/")
 		if s.Admin { // the Cluster map is the admin's
@@ -191,6 +196,7 @@ func Shell(c echo.Context, title string) components.Shell {
 }
 
 const waitingKey = "host_waiting"
+const waitingYouKey = "waiting_on_you"
 const problemsKey = "admin_problems"
 const nodeDownKey = "env_node_down"
 const ingressDownKey = "env_ingress_down"
@@ -272,6 +278,14 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 func Waiting(orch *service.Orchestrator) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			if p := middleware.Principal(c); p != nil {
+				// ponytail: every drawn page and banners poll runs the whole query;
+				// cache per request/second if a big install feels it
+				c.Set(waitingYouKey, func() int {
+					w, _ := orch.WaitingOnYou(c.Request().Context(), p)
+					return w.Count()
+				})
+			}
 			if p := middleware.Principal(c); p != nil && p.Access.Admin {
 				c.Set(waitingKey, func() int {
 					n, _ := orch.HostGrantsWaiting(c.Request().Context())

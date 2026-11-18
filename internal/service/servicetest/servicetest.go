@@ -459,6 +459,18 @@ func (e *Env) PushJob(t *testing.T, stackID, state, errMsg string, at time.Time)
 	return id
 }
 
+// WaitingJob records a deploy parked on param (payload is its JSON) that
+// nothing picks up, and returns its id.
+func (e *Env) WaitingJob(t *testing.T, param, payload string) string {
+	t.Helper()
+	id := uuid.NewString()
+	must(t, e.Store.Jobs.Create(context.Background(), store.Job{
+		ID: id, Kind: "deploy", State: "waiting", WaitingParam: &param, LockSet: store.StringList{},
+		Payload: payload, CreatedAt: time.Now(),
+	}))
+	return id
+}
+
 // JobWith records a job of kind in state holding payload (JSON) that nothing
 // picks up, and returns its id.
 func (e *Env) JobWith(t *testing.T, kind, state, payload string) string {

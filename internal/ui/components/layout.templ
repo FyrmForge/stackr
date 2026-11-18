@@ -100,6 +100,28 @@ templ rail(s Shell, oob bool) {
 					<path d="M10 6.5h4M7.5 10l2.5 4M16.5 10 14 14"></path>
 				}
 			}
+			if l, ok := s.nav("/-/waiting"); ok {
+				<a
+					href="/-/waiting"
+					hx-get="/-/waiting"
+					hx-target="#main"
+					hx-push-url="true"
+					title="Waiting on you"
+					aria-label="Waiting on you"
+					class={ "relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
+						templ.KV("bg-rw-accent/15 text-rw-accentHi", l.Active),
+						templ.KV("text-rw-muted hover:text-rw-text hover:bg-rw-raised", !l.Active) }
+					if l.Active {
+						aria-current="page"
+					}
+				>
+					@WaitingBadge(s.WaitingYou, false)
+					<svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M22 12h-6l-2 3h-4l-2-3H2"></path>
+						<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+					</svg>
+				</a>
+			}
 			if s.Admin {
 				<a
 					href="/-/admin/overview"
@@ -228,7 +250,11 @@ templ topBar(s Shell, oob bool) {
 templ Banners(s Shell) {
 	<div id="banners">
 		if s.BannersURL != "" {
-			@LiveTab(s.BannersURL, "banners")
+			// the poll also swaps the rail's waiting count, out of band
+			<span hidden data-live-tab data-poll-guard="region rows fields dirty" hx-get={ s.BannersURL } hx-trigger="every 3s" hx-select="#banners" hx-select-oob="#rail-you" hx-target="#banners" hx-swap="outerHTML"></span>
+		}
+		if s.PollBanners && s.User != "" {
+			@WaitingBadge(s.WaitingYou, true)
 		}
 		if len(s.Problems) > 0 {
 			@problems(s)

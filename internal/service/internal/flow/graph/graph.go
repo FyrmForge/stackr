@@ -456,6 +456,13 @@ func (f *Flow) ladder(ctx context.Context, stackID string) ([]store.Environment,
 	return es, rs, nil
 }
 
+// Rungs is the stack's envs in ladder order with the release each runs and
+// whether the rung below runs a newer one.
+func (f *Flow) Rungs(ctx context.Context, stackID string) ([]Rung, error) {
+	_, rs, err := f.ladder(ctx, stackID)
+	return rs, err
+}
+
 // rest is the envs off the ladder (PR envs, ...), after it.
 func rest(all, ladder []store.Environment) []store.Environment {
 	on := map[string]bool{}
