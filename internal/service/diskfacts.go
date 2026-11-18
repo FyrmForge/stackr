@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -146,7 +146,7 @@ func (o *Orchestrator) dataDiskOf(ctx context.Context, nodeID string) (free, tot
 			}
 		}
 	}
-	return 0, 0, errors.New("The node has not read its disk yet.")
+	return 0, 0, errs.Refusedf("The node has not read its disk yet.")
 }
 
 // diskRegs are the disk paths a node's worker is to report: one per row.

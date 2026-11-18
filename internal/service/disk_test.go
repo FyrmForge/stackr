@@ -721,7 +721,7 @@ func TestDataDiskOf(t *testing.T) {
 		t.Errorf("no row = %d, %d, %v; want the Docker disk (none reported here)", f, tot, err)
 	}
 	row := d.addDisk(t)
-	if _, _, err := d.orch.dataDiskOf(ctx, "w1"); err == nil {
+	if _, _, err := d.orch.dataDiskOf(ctx, "w1"); !errors.Is(err, errs.ErrRefused) { // a user-facing refusal, not a bare error
 		t.Error("a disk nobody read has no numbers")
 	}
 	d.facts(t, worker.Facts{DisksRead: true, Disks: []hostdisk.Fact{{Path: "/disk", Free: 7, Total: 10}, {Path: "/x", Free: 1, Total: 2}}})
