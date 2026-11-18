@@ -474,8 +474,8 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 			x := f.Disks[i]
 			switch {
 			case !x.Mounted || x.StampID != d.ID:
-				freshBad = true
-				if count(true) >= diskMissingReads {
+				freshBad = true // the same read seen twice neither counts nor breaks the run
+				if o.newRead(n.ID, x.ReadAt) && count(true) >= diskMissingReads {
 					if m, err := o.diskLeaf.MarkMissing(ctx, d); err == nil {
 						d, freshBad = m, false // latched: the run is over
 					}
@@ -493,6 +493,22 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 	o.raise(ctx, diskMissingKey(n.ID), has && d.State == disk.StateMissing, Alert{
 		Event: AlertDiskMissing, Severity: SevCritical, Node: n.Name, Subject: n.Name,
 		Message: "The disk on " + n.Name + " is missing. Tiles that use it do not start."})
+}
+
+// newRead is true when the read stamped at is newer than the last bad read
+// counted for the node. A read without a time (an older worker) always is.
+func (o *Orchestrator) newRead(nodeID string, at time.Time) bool {
+	if at.IsZero() {
+		return true
+	}
+	w := o.alertWatch()
+	w.diskMu.Lock()
+	defer w.diskMu.Unlock()
+	if !at.After(w.diskAt[nodeID]) {
+		return false
+	}
+	w.diskAt[nodeID] = at
+	return true
 }
 
 // maxSkew is how far a worker's clock may be from the controller's before
@@ -757,7 +773,8 @@ type alertState struct {
 	restarts           map[string][]restartSample // container id -> samples inside crashWindow
 	memLowSince        map[string]time.Time       // node id -> when MemAvailable first read low
 	diskMu             sync.Mutex
-	diskBad            map[string]int // node id -> consecutive fresh reads of its ready disk as gone
+	diskBad            map[string]int       // node id -> consecutive fresh reads of its ready disk as gone
+	diskAt             map[string]time.Time // node id -> ReadAt of the last bad read counted
 }
 
 type restartSample struct {

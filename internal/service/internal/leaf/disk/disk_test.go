@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -55,6 +56,11 @@ func (r *rig) Disk(ctx context.Context, _ string, req hostdisk.Request) (hostdis
 
 func (r *rig) table(s string) {
 	r.t.Helper()
+	dev, err := hostdisk.DevString(r.dir)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	s = strings.ReplaceAll(s, " 8:17 ", " "+dev+" ") // the fake device becomes the real one
 	if err := os.WriteFile(r.env.Mountinfo, []byte(s), 0o644); err != nil {
 		r.t.Fatal(err)
 	}

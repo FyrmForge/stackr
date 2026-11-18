@@ -84,7 +84,9 @@ func (d *diskTest) table(t *testing.T) {
 	t.Helper()
 	tbl := "25 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
 	for i, p := range d.mounts {
-		tbl += fmt.Sprintf("%d 25 8:%d / %s rw - ext4 /dev/sd%c rw\n", 36+i, 17+i, p, 'b'+i)
+		dev, err := hostdisk.DevString(filepath.Join(d.env.Root, p)) // the opened root must be this device
+		must(t, err)
+		tbl += fmt.Sprintf("%d 25 %s / %s rw - ext4 /dev/sd%c rw\n", 36+i, dev, p, 'b'+i)
 	}
 	must(t, os.WriteFile(d.env.Mountinfo, []byte(tbl), 0o644))
 }

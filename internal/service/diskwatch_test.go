@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -306,5 +307,29 @@ func TestFactsPollReconcilesTheEchoedRegistryOnEverySuccessAndRepushesOnMismatch
 	must(t, o.refreshNodeClients(ctx))
 	if put.pushes() != before {
 		t.Error("pushed although the worker echoes the registry")
+	}
+}
+
+// H9: the same read seen again (a poll faster than the worker's refresh) is
+// one read, not three.
+func TestMissingCountsEachReadOnceByItsReadTime(t *testing.T) {
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	at := time.Now()
+	same := goneOf(row)
+	same.Disks[0].ReadAt = at
+	for range 2 * diskMissingReads {
+		d.watch(t, same)
+	}
+	if st := d.stateOf(t, row); st != disk.StateReady {
+		t.Fatalf("state = %q: one read polled many times must not latch", st)
+	}
+	for i := 1; i < diskMissingReads; i++ { // the first read is already counted
+		f := goneOf(row)
+		f.Disks[0].ReadAt = at.Add(time.Duration(i) * time.Second)
+		d.watch(t, f)
+	}
+	if st := d.stateOf(t, row); st != disk.StateMissing {
+		t.Errorf("state = %q: %d distinct reads should latch", st, diskMissingReads)
 	}
 }

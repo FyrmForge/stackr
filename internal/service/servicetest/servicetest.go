@@ -68,7 +68,9 @@ func (r *DiskRig) write(t *testing.T) {
 	t.Helper()
 	tbl := rootMount
 	for i, p := range r.mounts {
-		tbl += fmt.Sprintf("%d 25 8:%d / %s rw - ext4 /dev/sd%c rw\n", 36+i, 17+i, p, 'b'+i)
+		dev, err := hostdisk.DevString(filepath.Join(r.Root, p)) // the opened root must be this device
+		must(t, err)
+		tbl += fmt.Sprintf("%d 25 %s / %s rw - ext4 /dev/sd%c rw\n", 36+i, dev, p, 'b'+i)
 	}
 	must(t, os.WriteFile(r.Mountinfo, []byte(tbl), 0o644))
 }
