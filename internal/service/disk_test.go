@@ -905,6 +905,15 @@ func TestHelperImagePullIsOutsideTheDeadlineAndRetriedOnce(t *testing.T) {
 			t.Fatalf("a slow pull hit the op deadline: %v", err)
 		}
 	})
+	t.Run("hung pull", func(t *testing.T) { // R12: the pull has its own deadline
+		n, h := helperTest(t)
+		h.pullWait = 50 * time.Millisecond
+		n.wFake.PullFor = time.Hour
+		start := time.Now()
+		if _, err := h.Disk(context.Background(), "w1", verify()); err == nil || time.Since(start) > 10*time.Second {
+			t.Fatalf("a hung pull ran %v and returned %v", time.Since(start), err)
+		}
+	})
 	t.Run("image gone", func(t *testing.T) {
 		n, h := helperTest(t)
 		n.wFake.Err = map[string]error{"Run": docker.ErrNotFound}
@@ -947,7 +956,7 @@ func TestPlacementPlanMeasuresADiskVolumeFresh(t *testing.T) {
 	_, err0 := d.orch.volumes.Ensure(ctx, v)
 	must(t, err0)
 	must(t, os.WriteFile(filepath.Join(d.folder(row, v.Name), "f"), make([]byte, 10), 0o644))
-	l, err := d.orch.pmLine(ctx, d.edge, false)
+	l, err := d.orch.pmLine(ctx, d.edge, false, nil)
 	must(t, err)
 	if l.Bytes != 10 {
 		t.Fatalf("plan line bytes = %d, want 10", l.Bytes)
@@ -970,5 +979,33 @@ func TestRoomChecksMeasureADiskVolumeFresh(t *testing.T) {
 	}
 	if err := d.orch.restoreRoom(ctx, pitrSource{vol: v}, backup.Plan{}); err == nil {
 		t.Error("restore room with 5 free for 10 bytes passed")
+	}
+}
+
+// R11: a placement plan measures its volumes once, fresh: one helper run for
+// the node, not one per volume per reader.
+func TestPlacementPlanMeasuresOncePerNode(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	ch := &countHost{n: map[string]int{}, Host: InProcessDisk(d.env)}
+	d.addDisk(t)
+	d.orch.diskLeaf = disk.New(d.st.NodeDisks, d.st.DiskFolders, ch)
+	row, _, _ := d.orch.nodeDisk(ctx, "w1")
+	for _, slug := range []string{"data", "more"} {
+		v := d.vol(t, slug)
+		d.ensure(t, v)
+		must(t, os.WriteFile(filepath.Join(d.folder(row, v.Name), "f"), make([]byte, 10), 0o644))
+	}
+	pl := store.Placement{ID: "pl1", Name: "pl", NodeID: "w1", OpenToAll: true, CreatedAt: time.Now().UTC()}
+	must(t, d.st.Placements.Create(ctx, pl))
+	must(t, d.st.Environments.SetPlacement(ctx, d.edge.ID, pl.ID))
+	before := ch.count("usage")
+	plan, err := d.orch.PlanPlacementMove(ctx, "pl", d.ctl.Name)
+	must(t, err)
+	if len(plan.Envs) != 1 || plan.Envs[0].Bytes != 20 {
+		t.Fatalf("plan envs = %+v, want 20 bytes", plan.Envs)
+	}
+	if got := ch.count("usage") - before; got != 1 {
+		t.Errorf("%d usage runs for the plan, want 1", got)
 	}
 }

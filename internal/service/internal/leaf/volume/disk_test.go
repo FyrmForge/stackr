@@ -542,6 +542,10 @@ func TestReadsOfABoundObjectNeverPlace(t *testing.T) {
 	if len(r.d.placed) != 0 || r.d.rows[r.name] {
 		t.Errorf("a read placed: %v rows %v", r.d.placed, r.d.rows)
 	}
+	// Sizes and SizeBytes read the cache, HoldsData only a readdir: no read asks for a fresh walk
+	if want := []volume.UseMode{volume.UseCached, volume.UseCached, volume.UseEmpty}; !slices.Equal(r.d.modes, want) {
+		t.Errorf("modes = %v, want %v", r.d.modes, want)
+	}
 }
 
 // V6: removing what is not there is fine on a node whose disk is missing.
@@ -566,5 +570,17 @@ func TestSizeBytesFreshAsksTheHelperNotTheCache(t *testing.T) {
 	}
 	if !slices.Equal(r.d.modes, []volume.UseMode{volume.UseFresh}) {
 		t.Errorf("modes = %v", r.d.modes)
+	}
+}
+
+// R11: SizesFresh is one fresh usage call per node, however many volumes.
+func TestSizesFreshIsOneFreshCallPerNode(t *testing.T) {
+	r := newRig(t, volume.DiskReady)
+	r.d.rows[r.name] = true
+	r.bound("/d/" + r.name)
+	r.d.use[r.name] = volume.Use{Bytes: 42}
+	got := r.l.SizesFresh(ctx, []store.Volume{r.v})
+	if got[r.v.ID] != 42 || !slices.Equal(r.d.modes, []volume.UseMode{volume.UseFresh}) {
+		t.Fatalf("sizes %v modes %v", got, r.d.modes)
 	}
 }

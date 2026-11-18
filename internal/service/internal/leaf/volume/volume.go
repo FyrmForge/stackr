@@ -344,6 +344,16 @@ func (l *Leaf) diskSizes(ctx context.Context, node string, mode UseMode, names .
 // ponytail: still one disk-usage scan per call; load it lazily if a big
 // volume makes the caller's page slow.
 func (l *Leaf) Sizes(ctx context.Context, vs []store.Volume) map[string]int64 {
+	return l.sizes(ctx, vs, UseCached)
+}
+
+// SizesFresh is Sizes for a planning decision: a node's disk volumes are
+// measured by one helper run now, never read from the cache.
+func (l *Leaf) SizesFresh(ctx context.Context, vs []store.Volume) map[string]int64 {
+	return l.sizes(ctx, vs, UseFresh)
+}
+
+func (l *Leaf) sizes(ctx context.Context, vs []store.Volume, mode UseMode) map[string]int64 {
 	out := map[string]int64{}
 	byNode := map[string][]store.Volume{}
 	var order []string
@@ -359,12 +369,12 @@ func (l *Leaf) Sizes(ctx context.Context, vs []store.Volume) map[string]int64 {
 		byNode[node] = append(byNode[node], v)
 	}
 	for _, node := range order {
-		l.nodeSizes(ctx, node, byNode[node], out)
+		l.nodeSizes(ctx, node, byNode[node], mode, out)
 	}
 	return out
 }
 
-func (l *Leaf) nodeSizes(ctx context.Context, node string, vs []store.Volume, out map[string]int64) {
+func (l *Leaf) nodeSizes(ctx context.Context, node string, vs []store.Volume, mode UseMode, out map[string]int64) {
 	ctx, _, err := l.at(ctx, vs[0])
 	if err != nil {
 		return
@@ -393,7 +403,7 @@ func (l *Leaf) nodeSizes(ctx context.Context, node string, vs []store.Volume, ou
 		for i, v := range disk {
 			names[i] = v.Name
 		}
-		sizes := l.diskSizes(ctx, node, UseCached, names...)
+		sizes := l.diskSizes(ctx, node, mode, names...)
 		for _, v := range disk {
 			out[v.ID] = sizes[v.Name]
 		}

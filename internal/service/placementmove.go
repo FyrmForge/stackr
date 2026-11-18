@@ -128,7 +128,7 @@ func (o *Orchestrator) envForgotten(ctx context.Context, envID string) bool {
 // moveChecks are the CI-style checks of moving the envs from one node to
 // another. fromNode "" is no node yet; a forgotten fromNode is a restore.
 func (o *Orchestrator) moveChecks(ctx context.Context, envIDs []string, fromNode, toNode string) ([]planfile.Check, error) {
-	return o.pmChecks(ctx, envIDs, fromNode, toNode, Needs{}, o.pmNodeNames(ctx))
+	return o.pmChecks(ctx, envIDs, fromNode, toNode, Needs{}, o.pmNodeNames(ctx), nil)
 }
 
 // pmVolumes are the env's volumes, orphans excluded, read from the rows
@@ -161,7 +161,7 @@ func (o *Orchestrator) pmEnvNeeds(ctx context.Context, envIDs []string, extra Ne
 	return needs, vols, tiles, nil
 }
 
-func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to string, extra Needs, nm pmNames) ([]planfile.Check, error) {
+func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to string, extra Needs, nm pmNames, sizes map[string]int64) ([]planfile.Check, error) {
 	toNode, err := o.store.Nodes.Get(ctx, to)
 	if err != nil {
 		return nil, err
@@ -230,7 +230,7 @@ func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to s
 	}
 
 	// disk
-	out = append(out, o.pmDisk(ctx, from, to, from == "", forgotten, vols, nm))
+	out = append(out, o.pmDisk(ctx, from, to, from == "", forgotten, vols, nm, sizes))
 
 	// memory
 	ok, detail := pmMemory(toName, toFacts, tiles)
@@ -297,7 +297,7 @@ func (o *Orchestrator) pmStandbys(ctx context.Context, envIDs []string, to, toNa
 // start empty, which fails the check overridably (MovePlacement's
 // startEmpty). A size or a disk that cannot be read is a detail, never a
 // failure.
-func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, restore bool, vols []store.Volume, nm pmNames) planfile.Check {
+func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, restore bool, vols []store.Volume, nm pmNames, sizes map[string]int64) planfile.Check {
 	c := planfile.Check{Name: "disk", OK: true}
 	switch {
 	case len(vols) == 0:
@@ -326,8 +326,7 @@ func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, res
 			}
 			continue
 		}
-		// the leaf measures, fresh: a plan never decides on the cache's unknown
-		sz := o.volumes.SizeBytesFresh(ctx, v)
+		sz := o.pmSize(ctx, v, sizes)
 		if sz < 0 {
 			unknown++
 			continue
@@ -407,8 +406,37 @@ func (o *Orchestrator) pmEnvPath(ctx context.Context, e store.Environment) (stri
 	return og.Slug + "/" + st.Slug + "/" + e.Slug, nil
 }
 
+// pmSizes measures the volumes of the envs once, fresh: one helper run per
+// node for the whole plan, handed to pmLine and pmDisk. A restore reads sizes
+// from backups and measures nothing. A failure leaves the volume out and the
+// reader measures it alone.
+func (o *Orchestrator) pmSizes(ctx context.Context, es []store.Environment, restore bool) map[string]int64 {
+	if restore {
+		return nil
+	}
+	var vs []store.Volume
+	for _, e := range es {
+		if e.NodeID == "" {
+			continue
+		}
+		if v, err := o.pmVolumes(ctx, e.ID); err == nil {
+			vs = append(vs, v...)
+		}
+	}
+	return o.volumes.SizesFresh(ctx, vs)
+}
+
+// pmSize is the volume's size from sizes, else measured fresh: a plan never
+// decides on the cache's unknown.
+func (o *Orchestrator) pmSize(ctx context.Context, v store.Volume, sizes map[string]int64) int64 {
+	if sz, ok := sizes[v.ID]; ok {
+		return sz
+	}
+	return o.volumes.SizeBytesFresh(ctx, v)
+}
+
 // pmLine is one env's row of a plan; sizes are read on the env's node.
-func (o *Orchestrator) pmLine(ctx context.Context, e store.Environment, restore bool) (MoveEnvLine, error) {
+func (o *Orchestrator) pmLine(ctx context.Context, e store.Environment, restore bool, sizes map[string]int64) (MoveEnvLine, error) {
 	path, err := o.pmEnvPath(ctx, e)
 	if err != nil {
 		return MoveEnvLine{}, err
@@ -429,7 +457,7 @@ func (o *Orchestrator) pmLine(ctx context.Context, e store.Environment, restore 
 		l.Bytes, l.Downtime = -1, "until restored from backups"
 	default:
 		for _, v := range vols {
-			sz := o.volumes.SizeBytesFresh(ctx, v)
+			sz := o.pmSize(ctx, v, sizes)
 			if sz < 0 {
 				l.Bytes = -1
 				break
@@ -528,9 +556,11 @@ func (o *Orchestrator) PlanPlacementMove(ctx context.Context, placement, toNode 
 	if p.NodeID != "" {
 		plan.From = nm.label(p.NodeID)
 	}
+	movers := pmMovers(es, to.ID)
+	sizes := o.pmSizes(ctx, movers, forgotten)
 	var ids []string
-	for _, e := range pmMovers(es, to.ID) {
-		l, err := o.pmLine(ctx, e, forgotten && e.NodeID == p.NodeID)
+	for _, e := range movers {
+		l, err := o.pmLine(ctx, e, forgotten && e.NodeID == p.NodeID, sizes)
 		if err != nil {
 			return plan, err
 		}
@@ -541,7 +571,7 @@ func (o *Orchestrator) PlanPlacementMove(ctx context.Context, placement, toNode 
 	if err != nil {
 		return plan, err
 	}
-	if plan.Checks, err = o.pmChecks(ctx, ids, p.NodeID, to.ID, extra, nm); err != nil {
+	if plan.Checks, err = o.pmChecks(ctx, ids, p.NodeID, to.ID, extra, nm, sizes); err != nil {
 		return plan, err
 	}
 	plan.OK = pmOK(plan.Checks)
@@ -985,7 +1015,7 @@ func (o *Orchestrator) RetryPlacementMove(ctx context.Context, by *Principal, pl
 	if err != nil {
 		return Job{}, err
 	}
-	cs, err := o.pmChecks(ctx, ids, pm.FromNode, pm.ToNode, extra, o.pmNodeNames(ctx))
+	cs, err := o.pmChecks(ctx, ids, pm.FromNode, pm.ToNode, extra, o.pmNodeNames(ctx), nil)
 	if err != nil {
 		return Job{}, err
 	}
@@ -1092,13 +1122,14 @@ func (o *Orchestrator) PlanEnvPin(ctx context.Context, envID, placement string) 
 	if plan.Restore, err = o.pmForgotten(ctx, e.NodeID); err != nil {
 		return plan, err
 	}
-	l, err := o.pmLine(ctx, e, plan.Restore)
+	sizes := o.pmSizes(ctx, []store.Environment{e}, plan.Restore)
+	l, err := o.pmLine(ctx, e, plan.Restore, sizes)
 	if err != nil {
 		return plan, err
 	}
 	plan.Envs = []MoveEnvLine{l}
 	nm := pmPlacementNames(e.NodeID, fromName, p.NodeID, p.Name)
-	if plan.Checks, err = o.pmChecks(ctx, []string{e.ID}, e.NodeID, p.NodeID, Needs{}, nm); err != nil {
+	if plan.Checks, err = o.pmChecks(ctx, []string{e.ID}, e.NodeID, p.NodeID, Needs{}, nm, sizes); err != nil {
 		return plan, err
 	}
 	plan.OK = pmOK(plan.Checks)

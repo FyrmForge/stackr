@@ -373,7 +373,7 @@ func TestPlacementDiskCheckRefusesAMissingTargetDisk(t *testing.T) {
 	d := newDiskTest(t)
 	row := d.addDisk(t)
 	setState(t, d, row, disk.StateMissing)
-	c := d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, false, []store.Volume{d.vol(t, "data")}, d.orch.pmNodeNames(ctx))
+	c := d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, false, []store.Volume{d.vol(t, "data")}, d.orch.pmNodeNames(ctx), nil)
 	if c.OK || !strings.Contains(c.Detail, "disk is missing") {
 		t.Errorf("check = %+v", c)
 	}
@@ -528,7 +528,7 @@ func TestPMDiskReadsNodeDiskAndLeafSizes(t *testing.T) {
 			Disks: []hostdisk.Fact{{Path: "/disk", Mounted: true, Free: diskFree, Total: 1 << 40}}})
 	}
 	check := func() planfile.Check {
-		return d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, false, []store.Volume{v}, d.orch.pmNodeNames(ctx))
+		return d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, false, []store.Volume{v}, d.orch.pmNodeNames(ctx), nil)
 	}
 	facts(1 << 30) // Docker's disk is huge, the node's disk is not
 	if c := check(); c.OK {
