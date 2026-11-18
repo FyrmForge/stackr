@@ -1,8 +1,12 @@
 package components
 
 import (
+	"context"
+	"io"
 	"strings"
 	"testing"
+
+	"github.com/a-h/templ"
 
 	"github.com/FyrmForge/stackr/internal/ui/uitest"
 )
@@ -47,5 +51,18 @@ func TestSettingsLinkSameSideAtEveryLevel(t *testing.T) {
 		if !ok || !strings.Contains(right, ">Settings</button>") || strings.Count(out, ">Settings</button>") != 1 {
 			t.Errorf("%d crumbs: Settings not once on the right\n%s", n, out)
 		}
+	}
+}
+
+// Settings is the last thing in the bar, after the action buttons, so it sits
+// at the same x whatever the buttons' width.
+func TestSettingsLinkComesAfterTheActions(t *testing.T) {
+	acts := templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
+		_, err := io.WriteString(w, `<a>Create environment</a>`)
+		return err
+	})
+	out := render(t, topBar(Shell{Crumbs: []Link{{Label: "c", Href: "/c"}}, Settings: "/s", Actions: acts}, false))
+	if a, s := strings.Index(out, "Create environment"), strings.Index(out, ">Settings</button>"); a < 0 || s < a {
+		t.Errorf("Settings is not after the actions\n%s", out)
 	}
 }
