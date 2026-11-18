@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -93,4 +95,32 @@ func TestAdoptRefusedWhenBoundUnderAnotherMountWithTheSameTail(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	w.unchanged(t)
+}
+
+// A copy is not the only thing in the way: the old node is back. The plan does
+// not offer the discard and the discard verb refuses, so nothing is deleted for nothing.
+func TestAdoptDiscardOfferedOnlyWhenTheCopyIsTheOnlyRefusal(t *testing.T) {
+	ctx := context.Background()
+	w := newAdoptWorld(t)
+	w.wFake.Edit(func() {
+		w.wFake.Volumes = append(w.wFake.Volumes, docker.VolumeInfo{Name: w.data.Name, SizeBytes: 9})
+	})
+	p, err := w.orch.PlanDiskAdopt(ctx, "w1", "/disk")
+	must(t, err)
+	if !p.CopiesOnly {
+		t.Fatalf("copies are the only refusal: %+v", p)
+	}
+	must(t, w.st.Nodes.Create(ctx, store.Node{ID: "old", Name: "oldbox", Slug: "old", Role: node.Worker, Tags: "[]", RangeCIDR: "10.211.0.0/16",
+		Status: node.StatusOnline, CreatedAt: time.Now()}))
+	p, err = w.orch.PlanDiskAdopt(ctx, "w1", "/disk")
+	must(t, err)
+	if p.CopiesOnly || !strings.Contains(p.Refusal, "online") {
+		t.Fatalf("plan = %+v", p)
+	}
+	if err := w.orch.DiscardAdoptCopy(ctx, adminP(), "w1", "/disk", w.row.ID, w.data.ID, w.data.Slug); !errors.Is(err, errs.ErrRefused) {
+		t.Fatalf("discard = %v, want refused", err)
+	}
+	if !slices.ContainsFunc(w.wFake.Volumes, func(v docker.VolumeInfo) bool { return v.Name == w.data.Name }) {
+		t.Error("the copy was removed")
+	}
 }

@@ -49,6 +49,8 @@ type DiskAdoptPlan struct {
 	AdoptedBy string        // the node another adopt of this disk is for, when that is why it refuses
 
 	Refusal string
+	// CopiesOnly: the copies are the only thing that refuses, so discarding them lets the adopt run.
+	CopiesOnly bool
 
 	// Candidates are the disk rows of forgotten nodes that were never adopted.
 	Candidates []AdoptCandidate
@@ -244,6 +246,14 @@ func (o *Orchestrator) adoptCopies(ctx context.Context, nodeID, mount, diskID st
 // adoptRefusals are the checks that write nothing. They run on every press
 // while the row's node is still the old one.
 func (o *Orchestrator) adoptRefusals(ctx context.Context, d store.NodeDisk, n store.Node, path string, v adoptView) error {
+	if err := o.adoptBlocks(ctx, d, n, path, v); err != nil {
+		return err
+	}
+	return o.adoptCopyBlock(ctx, d, n, path, v)
+}
+
+// adoptBlocks are the refusals that are not about plain copies on the node.
+func (o *Orchestrator) adoptBlocks(ctx context.Context, d store.NodeDisk, n store.Node, path string, v adoptView) error {
 	switch d.State {
 	case disk.StateReady, disk.StateMissing:
 	case disk.StateAdopting:
@@ -287,9 +297,11 @@ func (o *Orchestrator) adoptRefusals(ctx context.Context, d store.NodeDisk, n st
 	for _, e := range v.envs {
 		live = append(live, slices.DeleteFunc(slices.Clone(v.vols[e.ID]), func(x store.Volume) bool { return x.OrphanedAt != nil })...)
 	}
-	if err := o.noLiveMembers(ctx, live); err != nil {
-		return err
-	}
+	return o.noLiveMembers(ctx, live)
+}
+
+// adoptCopyBlock refuses while a volume has a copy on the node in Docker storage.
+func (o *Orchestrator) adoptCopyBlock(ctx context.Context, d store.NodeDisk, n store.Node, path string, v adoptView) error {
 	cs, err := o.adoptCopies(ctx, n.ID, path, d.ID, v)
 	if err != nil {
 		return err
@@ -417,7 +429,12 @@ func (o *Orchestrator) PlanDiskAdopt(ctx context.Context, nodeID, path string) (
 		return p, err
 	}
 	if !adoptCommitted(d) {
-		if err := o.adoptRefusals(ctx, d, n, path, v); err != nil {
+		err := o.adoptBlocks(ctx, d, n, path, v)
+		if err == nil {
+			err = o.adoptCopyBlock(ctx, d, n, path, v)
+			p.CopiesOnly = err != nil && len(p.Copies) > 0
+		}
+		if err != nil {
 			if !answer(err) {
 				return p, err
 			}
@@ -577,6 +594,9 @@ func (o *Orchestrator) DiscardAdoptCopy(ctx context.Context, by *Principal, node
 	if err != nil {
 		return err
 	}
+	if err := o.adoptBlocks(ctx, d, n, path, v); err != nil {
+		return err
+	}
 	cs, err := o.adoptCopies(ctx, n.ID, path, d.ID, v)
 	if err != nil {
 		return err
@@ -595,6 +615,7 @@ func (o *Orchestrator) DiscardAdoptCopy(ctx context.Context, by *Principal, node
 	if err := o.docker.RemoveVolume(docker.WithNode(ctx, n.ID), x.Name); err != nil {
 		return err
 	}
+	o.volumes.ForgetGhost(n.ID, x.Name)
 	o.auditDiskLog(ctx, by, auditDiskDiscardCopy, n.ID, x.Name)
 	return nil
 }

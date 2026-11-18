@@ -169,6 +169,9 @@ func (l *Leaf) GhostSeen(nodeID, name string) (device string, ok bool) {
 	return d.(string), true
 }
 
+// ForgetGhost drops the remembered ghost of name on nodeID, after its object is removed.
+func (l *Leaf) ForgetGhost(nodeID, name string) { l.ghosts.Delete(nodeID + "\x00" + name) }
+
 // refuse is the error a Missing or Ghost route answers every verb with.
 func (p placement) refuse(nodeID, name string) error {
 	switch p.rt {

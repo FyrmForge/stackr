@@ -47,7 +47,7 @@ func (h *handler) adoptDialog(c echo.Context, path, msg string) (ui.AdoptDialog,
 	if err != nil {
 		return a, nil
 	}
-	if p.DiskID == "" || (p.Refusal != "" && len(p.Copies) == 0) {
+	if p.DiskID == "" || (p.Refusal != "" && !p.CopiesOnly) {
 		if p.Refusal != "" {
 			a.Msg = cmp.Or(msg, adoptRefusalText(p))
 		}
