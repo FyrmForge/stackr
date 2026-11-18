@@ -7,6 +7,7 @@ import (
 	"github.com/a-h/templ"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/uitest"
 )
 
 // The phase 2 dialogs, drawn from constructed views: the states the handler
@@ -32,9 +33,7 @@ func wants(t *testing.T, where, out string, ws ...string) {
 
 func noPanel(t *testing.T, where, out string) {
 	t.Helper()
-	if strings.Contains(out, `class="panel`) || strings.Contains(out, "rounded-lg border") {
-		t.Errorf("%s: a bordered box in a card\n%s", where, out)
-	}
+	uitest.NoPanelInCard(t, "<section>"+out+"</section>")
 }
 
 // 12h: a refusal known on open replaces the typed field and leaves Close only.

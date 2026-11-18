@@ -13,6 +13,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/ui/uitest"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -49,9 +50,7 @@ func settle(t *testing.T, s *webtest.Site) {
 
 func noBox(t *testing.T, where, card string) {
 	t.Helper()
-	if strings.Contains(card, `class="panel`) || strings.Contains(card, "rounded-lg border") {
-		t.Errorf("%s: a bordered box inside the card\n%s", where, card)
-	}
+	uitest.NoPanelInCard(t, "<section>"+card+"</section>")
 }
 
 // missingDisk is a ready disk at /data that has gone missing, with the volume

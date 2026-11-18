@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/ui/uitest"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -99,9 +100,7 @@ func storedOn(t *testing.T, body string) string {
 
 func noBoxIn(t *testing.T, where, card string) {
 	t.Helper()
-	if strings.Contains(card, `class="panel`) || strings.Contains(card, "rounded-lg border") || strings.Contains(card, `class="banner`) {
-		t.Errorf("%s: a bordered box inside the card\n%s", where, card)
-	}
+	uitest.NoPanelInCard(t, "<section>"+card+"</section>")
 }
 
 // 15a, 15f, 15g: the button sits in Stored on of a volume in Docker storage;
