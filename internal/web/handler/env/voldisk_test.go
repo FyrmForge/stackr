@@ -120,7 +120,11 @@ func TestVolumeMoveButtonStates(t *testing.T) {
 	}
 	body := get()
 	card := storedOn(t, body)
-	hasAll(t, "15a", card, "Docker storage", ">Move to disk</button>", `hx-post="/acme/shop/dev/-/volumes/`+vid+`/move/plan"`, `id="vol-move-dlg"`, `hx-target="#vol-move-dlg"`)
+	// this rig reports no disk facts, so the room cannot be read: the button is off with the plan's reason
+	hasAll(t, "15a", card, "Docker storage", " disabled>Move to disk</button>", "The node has not read its disk yet.")
+	if strings.Contains(card, "hx-post") {
+		t.Errorf("a disabled Move to disk posts\n%s", card)
+	}
 	noBoxIn(t, "15a", card)
 	if strings.Contains(body, "Finish move") {
 		t.Error("Finish move on a volume that never moved")
