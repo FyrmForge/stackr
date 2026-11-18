@@ -3,6 +3,7 @@ package canvas
 import (
 	"cmp"
 	"context"
+	neturl "net/url"
 	"slices"
 	"strings"
 
@@ -57,6 +58,23 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 // envSettings is the Settings tab: one accordion row per group, each closed
 // row summing up its values. ?open= (or a saved form's open) names the row
 // open on load.
+// canvasLink is the env's canvas for the drawer's "open the canvas" link, ""
+// when the drawer is already on it.
+func canvasLink(c echo.Context, canvas string) string {
+	path := c.Request().URL.Path
+	if cur := c.Request().Header.Get("HX-Current-URL"); cur != "" {
+		u, err := neturl.Parse(cur)
+		if err != nil {
+			return canvas
+		}
+		path = u.Path
+	}
+	if strings.TrimSuffix(path, "/") == canvas {
+		return ""
+	}
+	return canvas
+}
+
 func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write bool) (templ.Component, error) {
 	ctx, e := c.Request().Context(), cd.s.Env
 	ts, err := h.orch.Tiles(ctx, e.ID)
@@ -91,7 +109,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 	v := envui.SettingsView{
 		Name:      e.Name,
 		Tiles:     len(ts),
-		Canvas:    urlOf(cd.s),
+		Canvas:    canvasLink(c, urlOf(cd.s)),
 		Path:      cd.s.Org.Slug + " / " + cd.s.Stack.Slug + " / " + e.Slug,
 		From:      e.FromKind,
 		Branch:    e.FromBranch,
