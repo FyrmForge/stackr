@@ -191,6 +191,23 @@ func (r Repo) IsDir(ctx context.Context, commit, path string) (bool, error) {
 	return strings.HasPrefix(string(out), "040000 tree "), nil
 }
 
+// ObjectID is the git object id of path at commit: a file's blob id, a
+// folder's tree id (one compare covers everything below it). "" with no error
+// when the commit has no such path; an error when the clone lacks the commit.
+func (r Repo) ObjectID(ctx context.Context, commit, path string) (string, error) {
+	if err := refOK(commit); err != nil {
+		return "", err
+	}
+	if !r.Has(ctx, commit) {
+		return "", fmt.Errorf("git: commit %s is not in the clone", commit)
+	}
+	out, err := r.git(ctx, "rev-parse", "--verify", "--quiet", commit+":"+filepath.ToSlash(filepath.Clean(path)))
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // Has reports whether the clone holds commit.
 func (r Repo) Has(ctx context.Context, commit string) bool {
 	if refOK(commit) != nil {

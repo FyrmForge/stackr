@@ -47,6 +47,10 @@ type Flow struct {
 	// Config reads the stack file (and a fetcher for its includes) at a
 	// commit of the stack's config repo.
 	Config func(ctx context.Context, st store.Stack, commit string, log io.Writer) ([]byte, Fetcher, error)
+	// FileID is the git object id of a path of the stack's config repo at a
+	// commit ("" = no such path); an error when the commit cannot be read.
+	// Nil = file changes are not compared.
+	FileID func(ctx context.Context, st store.Stack, commit, path string) (string, error)
 	// DNS01 reports whether a wildcard host can get its certificate: it
 	// is under a managed DNS domain.
 	DNS01 func(ctx context.Context, host string) bool

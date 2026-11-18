@@ -32,6 +32,7 @@ func (f *Flow) planFiles(ctx context.Context, p *Plan, w *work) error {
 			}
 		}
 	}
+	f.planFileChanges(ctx, p, w, pins[release.ConfigSlug].CommitSHA)
 	return nil
 }
 
@@ -49,5 +50,42 @@ func listOf(fetch Fetcher) Lister {
 			return nil, nil
 		}
 		return []string{p}, nil
+	}
+}
+
+// planFileChanges: a files: source whose git object id differs between the
+// config commit the env runs and the release's one is a change, and its tile
+// redeploys (the file volume is only rebuilt by a deploy). A commit the clone
+// lacks counts as changed. A tile the plan creates deploys anyway.
+func (f *Flow) planFileChanges(ctx context.Context, p *Plan, w *work, to string) {
+	if f.FileID == nil || w.e.ReleaseID == nil || to == "" {
+		return
+	}
+	cur, err := f.D.Releases.Pins(ctx, *w.e.ReleaseID)
+	from := cur[release.ConfigSlug].CommitSHA
+	if err != nil || from == "" || from == to {
+		return
+	}
+	made := map[string]bool{}
+	for _, t := range w.creates {
+		made[t.Slug] = true
+	}
+	for _, name := range slices.Sorted(maps.Keys(w.re.Tiles)) {
+		if made[name] {
+			continue
+		}
+		for _, l := range w.re.Tiles[name].Files {
+			src, _, err := tile.ParseFileMount(l)
+			if err != nil {
+				continue
+			}
+			a, errA := f.FileID(ctx, w.st, from, src)
+			b, errB := f.FileID(ctx, w.st, to, src)
+			if errA == nil && errB == nil && a == b {
+				continue
+			}
+			p.add(Change{Kind: "image", Tile: name, Note: "file changed: " + src})
+			w.redeploy[name] = true
+		}
 	}
 }

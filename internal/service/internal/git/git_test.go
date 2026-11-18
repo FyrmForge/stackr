@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -337,5 +338,37 @@ func TestCheckoutRefusesOutsideRoot(t *testing.T) {
 	noRoot := Repo{Dir: filepath.Join(root, "t1"), URL: bare}
 	if _, err := noRoot.Checkout(context.Background(), "", &strings.Builder{}); err == nil {
 		t.Error("clone with no root allowed")
+	}
+}
+
+// ObjectID: same content under two commits is one id, an edit moves it, a
+// folder has a tree id, no such path is "" and a commit the clone lacks fails.
+func TestObjectID(t *testing.T) {
+	bare, first, second := fixture(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	r := Repo{Dir: filepath.Join(root, "clone"), Root: root, URL: bare, Branch: "main"}
+	if _, err := r.Checkout(ctx, "", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	id := func(c, p string) string {
+		t.Helper()
+		v, err := r.ObjectID(ctx, c, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if id(first, "app") == "" || id(first, "app") != id(second, "app") {
+		t.Error("untouched folder changed id")
+	}
+	if id(first, "stackr-compose.yml") == id(second, "stackr-compose.yml") {
+		t.Error("edited file kept its id")
+	}
+	if id(first, "docs") != "" || id(second, "docs") == "" {
+		t.Error("a path that is not there must be empty")
+	}
+	if _, err := r.ObjectID(ctx, "0123456789012345678901234567890123456789", "app"); err == nil {
+		t.Error("missing commit gave no error")
 	}
 }
