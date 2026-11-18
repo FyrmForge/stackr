@@ -166,6 +166,15 @@ table credentials
   index (auto) unique=1 origin=pk partial=0 (id)
   index (auto) unique=1 origin=u partial=0 (org_id,name)
   sql CREATE TABLE credentials ( id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE, name TEXT NOT NULL, url TEXT NOT NULL, username TEXT NOT NULL, password TEXT NOT NULL, -- encrypted created_at DATETIME NOT NULL, UNIQUE (org_id, name) )
+table disk_folders
+  col id TEXT notnull=0 default=- pk=1
+  col disk_id TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk disk_id -> node_disks(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (disk_id,name)
+  sql CREATE TABLE disk_folders ( id TEXT PRIMARY KEY, disk_id TEXT NOT NULL REFERENCES node_disks (id) ON DELETE CASCADE, name TEXT NOT NULL, created_at DATETIME NOT NULL, UNIQUE (disk_id, name) )
 table dns_domains
   col id TEXT notnull=0 default=- pk=1
   col connector_id TEXT notnull=1 default=- pk=0
@@ -407,6 +416,20 @@ table node_certs
   index (auto) unique=1 origin=pk partial=0 (serial)
   index node_certs_node unique=0 origin=c partial=0 (node_id)
   sql CREATE TABLE node_certs ( serial TEXT PRIMARY KEY, node_id TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('controller', 'worker')), not_after DATETIME NOT NULL, revoked_at DATETIME, created_at DATETIME NOT NULL , issuer TEXT NOT NULL DEFAULT '')
+table node_disks
+  col id TEXT notnull=0 default=- pk=1
+  col node_id TEXT notnull=1 default=- pk=0
+  col kind TEXT notnull=1 default=- pk=0
+  col mount_path TEXT notnull=1 default=- pk=0
+  col state TEXT notnull=1 default=- pk=0
+  col op_node_id TEXT notnull=1 default='' pk=0
+  col op_from_node_id TEXT notnull=1 default='' pk=0
+  col op_mount_path TEXT notnull=1 default='' pk=0
+  col op_env_ids TEXT notnull=1 default='' pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (node_id)
+  sql CREATE TABLE node_disks ( id TEXT PRIMARY KEY, node_id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, mount_path TEXT NOT NULL, state TEXT NOT NULL, op_node_id TEXT NOT NULL DEFAULT '', op_from_node_id TEXT NOT NULL DEFAULT '', op_mount_path TEXT NOT NULL DEFAULT '', op_env_ids TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL )
 table nodes
   col id TEXT notnull=0 default=- pk=1
   col name TEXT notnull=1 default=- pk=0

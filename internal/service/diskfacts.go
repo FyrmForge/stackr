@@ -109,11 +109,7 @@ func (o *Orchestrator) diskWorker(n store.Node) bool {
 // the mesh does not read it.
 func (o *Orchestrator) diskFacts(ctx context.Context, n store.Node) *worker.Facts {
 	if n.Role == node.Controller && o.localWorker != nil {
-		f, err := localMesh{o.localWorker}.Facts(ctx)
-		if err != nil {
-			return nil
-		}
-		return &f
+		return o.controllerFacts(ctx, n) // short cache, no Docker or pings per poll
 	}
 	return o.reportedFacts(ctx, n)
 }

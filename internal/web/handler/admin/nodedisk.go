@@ -87,7 +87,7 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 		}
 	}
 	for i, r := range p.Volumes {
-		row := ui.DiskVolRow{Name: r.Slug, Where: r.Where, Size: "unknown"}
+		row := ui.DiskVolRow{Name: r.Slug, Where: r.Where, Size: "unknown", Orphaned: r.Orphaned}
 		if r.Open != "" {
 			row.Open = r.Open + "/-/volumes/" + r.ID
 		}

@@ -94,15 +94,7 @@ type Mount struct{ Tile, Path string }
 // Overview is v0's stat cards.
 templ Overview(o OverviewView) {
 	<div id="tab-overview">
-		if s := o.Storage; s != nil && s.Disk && s.Docker {
-			<div class="banner banner-danger flex items-start gap-2 mb-3" role="status">
-				@alertIcon()
-				<div>
-					<p class="font-medium">Two copies of this volume.</p>
-					<p class="text-sm mt-0.5">One on the node disk, one in Docker storage. Deploys, backups and delete are refused.</p>
-				</div>
-			</div>
-		} else if s != nil && s.Disk && s.State == "missing" {
+		if s := o.Storage; s != nil && s.Disk && s.State == "missing" {
 			<div class="banner banner-danger flex items-start gap-2 mb-3" role="status">
 				@alertIcon()
 				<div>

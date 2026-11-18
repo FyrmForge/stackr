@@ -278,9 +278,10 @@ type Orchestrator struct {
 	images      *image.Leaf
 	params      *params.Leaf
 	volumes     *volume.Leaf
-	diskLeaf    *disk.Leaf // node_disks and disk_folders (disk.go)
-	dh          *diskHost  // the helper runner, the default disk.Host
-	diskSize    diskSizes  // the usage cache (diskfacts.go)
+	diskLeaf    *disk.Leaf    // node_disks and disk_folders (disk.go)
+	dh          *diskHost     // the helper runner, the default disk.Host
+	diskSize    diskSizes     // the usage cache (diskfacts.go)
+	ctlFacts    ctlFactsCache // the controller's built facts (nodelive.go)
 	// diskNodeOf finds a node's worker for a registry push; tests swap it.
 	diskNodeOf func(store.Node) (MeshNode, bool)
 	domains    *domain.Leaf

@@ -190,15 +190,42 @@ func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskVie
 		}
 	}
 	// A controller with no worker has no facts. When the panel sees the mount
-	// itself (not an installed panel), one statfs is the same answer.
-	if v.Total == 0 && o.dh.inProcess(ctx, nodeID) {
-		var st syscall.Statfs_t
-		if syscall.Statfs(d.MountPath, &st) == nil && st.Blocks > 0 {
-			v.Free, v.Total = st.Bavail*uint64(st.Bsize), st.Blocks*uint64(st.Bsize)
+	// itself (not an installed panel) and it is still a mount, one statfs is
+	// the same answer. An unmounted path would show the root filesystem.
+	if v.Total == 0 && d.State == disk.StateReady && o.dh.inProcess(ctx, nodeID) {
+		if free, total, ok := mountStatfs(d.MountPath); ok {
+			v.Free, v.Total = free, total
 			v.Stale, v.ReadAt = false, time.Now()
 		}
 	}
 	return v, nil
+}
+
+// mountStatfs is the free and total bytes of p when p is a mount point. It
+// gives up after a second so a dead network mount cannot hold a poll.
+// ponytail: a hung call leaks one goroutine until the mount answers.
+func mountStatfs(p string) (free, total uint64, ok bool) {
+	type res struct {
+		free, total uint64
+		ok          bool
+	}
+	ch := make(chan res, 1)
+	go func() {
+		dev, err := hostdisk.DevString(p)
+		parent, err2 := hostdisk.DevString(filepath.Dir(p))
+		var st syscall.Statfs_t
+		if err != nil || err2 != nil || dev == parent || syscall.Statfs(p, &st) != nil || st.Blocks == 0 {
+			ch <- res{}
+			return
+		}
+		ch <- res{st.Bavail * uint64(st.Bsize), st.Blocks * uint64(st.Bsize), true}
+	}()
+	select {
+	case r := <-ch:
+		return r.free, r.total, r.ok
+	case <-time.After(time.Second):
+		return 0, 0, false
+	}
 }
 
 // diskNodeUp is the node a disk verb may work on: an online one.

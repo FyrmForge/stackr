@@ -161,3 +161,20 @@ func TestProbeSilentNodeSaysDidNotAnswerOtherErrorsSurface(t *testing.T) {
 		t.Errorf("plain error: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// The drawer polls every few seconds: the controller's facts come from a
+// short cache, so a second poll does not ask Docker about the host again.
+func TestNodeDrawerPollReadsCachedFacts(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	id := diskNode(t, s)
+	addedDisk(t, s, root, id, "/data")
+	s.As(t, root, "GET", "/-/admin/nodes/"+id, nil)
+	n := len(s.Docker.Calls())
+	s.As(t, root, "GET", "/-/admin/nodes/"+id, nil)
+	for _, c := range s.Docker.Calls()[n:] {
+		if c.Method == "HostInfo" || c.Method == "Info" {
+			t.Errorf("the second poll asked Docker: %s", c)
+		}
+	}
+}

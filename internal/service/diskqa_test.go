@@ -34,7 +34,11 @@ func TestDiskJobsAreNotATilesLastJob(t *testing.T) {
 func TestNodeDiskControllerReadsUseInProcess(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
-	must(t, n.orch.store.NodeDisks.Create(ctx, store.NodeDisk{ID: "dc", NodeID: n.ctl.ID, Kind: "path", MountPath: t.TempDir(), State: disk.StateReady}))
+	mnt := "/dev/shm" // a real mount point; a plain folder is not one
+	if _, _, ok := mountStatfs(mnt); !ok {
+		t.Skip("no mounted tmpfs at /dev/shm")
+	}
+	must(t, n.orch.store.NodeDisks.Create(ctx, store.NodeDisk{ID: "dc", NodeID: n.ctl.ID, Kind: "path", MountPath: mnt, State: disk.StateReady}))
 	if v, err := n.orch.NodeDisk(ctx, n.ctl.ID); err != nil || v.Total == 0 || v.Free == 0 || v.Stale {
 		t.Errorf("NodeDisk = %+v, %v", v, err)
 	}

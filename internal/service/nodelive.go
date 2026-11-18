@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
@@ -27,6 +28,36 @@ func (o *Orchestrator) controllerFacts(ctx context.Context, n store.Node) *worke
 			return &f
 		}
 	}
+	// A drawer polls this every few seconds and building it asks Docker and
+	// pings peers, so a short-lived copy answers.
+	// ponytail: one 15s cache, no single-flight; two polls in the same instant both build.
+	c := &o.ctlFacts
+	c.mu.Lock()
+	if c.f != nil && c.id == n.ID && time.Since(c.at) < ctlFactsTTL {
+		f := *c.f
+		c.mu.Unlock()
+		return &f
+	}
+	c.mu.Unlock()
+	f := o.buildControllerFacts(ctx, n)
+	cp := *f
+	c.mu.Lock()
+	c.f, c.id, c.at = &cp, n.ID, time.Now()
+	c.mu.Unlock()
+	return f
+}
+
+// ctlFactsTTL is how long the controller's built facts are reused.
+const ctlFactsTTL = 15 * time.Second
+
+type ctlFactsCache struct {
+	mu sync.Mutex
+	id string
+	at time.Time
+	f  *worker.Facts
+}
+
+func (o *Orchestrator) buildControllerFacts(ctx context.Context, n store.Node) *worker.Facts {
 	f := worker.Facts{Interfaces: o.hostIfaces(), Arch: runtime.GOARCH, Version: o.cfg.Version}
 	if h, err := o.docker.HostInfo(docker.WithNode(ctx, n.ID)); err == nil {
 		f.CPUs, f.MemBytes, f.Docker = h.CPUs, uint64(h.MemBytes), h.Version

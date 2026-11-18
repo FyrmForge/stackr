@@ -365,7 +365,7 @@ func TestProbeNodeFolderIOFailureIsAnErrorNotAVerdict(t *testing.T) {
 	if p, err := d.orch.ProbeNodeFolder(ctx, adminP(), "w1", "/la"); err == nil {
 		t.Fatalf("an I/O failure came back as a probe: %+v", p)
 	}
-	if p, err := d.orch.ProbeNodeFolder(ctx, adminP(), "w1", "/nope"); err != nil || p.Code != hostdisk.CodeNotMountPoint {
+	if p, err := d.orch.ProbeNodeFolder(ctx, adminP(), "w1", "/nope"); err != nil || p.Code != hostdisk.CodeDiskMissing {
 		t.Fatalf("a refusal is an answer: %+v %v", p, err)
 	}
 }

@@ -22,6 +22,7 @@ type DiskVolume struct {
 	Where     string // "shop / prod"
 	Open      string // the env path its drawer opens under ("" = none)
 	SizeBytes int64  // -1 = unknown
+	Orphaned  bool   // its owner is gone; the retention clock runs
 }
 
 // NodeDiskPanel is the node drawer's Node disk section.
@@ -68,6 +69,11 @@ func (o *Orchestrator) NodeDiskPanel(ctx context.Context, nodeID string) (NodeDi
 	if err != nil {
 		return p, err
 	}
+	orph, err := o.store.Volumes.ListOrphaned(ctx)
+	if err != nil {
+		return p, err
+	}
+	live = append(live, orph...)
 	live = slices.DeleteFunc(live, func(x Volume) bool { return !on[x.Name] })
 	// Sizes only from the cache of a ready disk: no resolve, no Docker.
 	var use map[string]hostdisk.Use
@@ -79,7 +85,7 @@ func (o *Orchestrator) NodeDiskPanel(ctx context.Context, nodeID string) (NodeDi
 		use = o.cachedSizes(d, names)
 	}
 	for _, x := range live {
-		r := DiskVolume{ID: x.ID, Slug: x.Slug, SizeBytes: -1, Where: x.ScopeKind}
+		r := DiskVolume{ID: x.ID, Slug: x.Slug, SizeBytes: -1, Where: x.ScopeKind, Orphaned: x.OrphanedAt != nil}
 		if u, ok := use[x.Name]; ok && !u.Missing {
 			r.SizeBytes = u.Bytes
 		}
@@ -115,7 +121,7 @@ func (o *Orchestrator) diskMissingSince(ctx context.Context, nodeID string) time
 
 // VolumeStorage is where one volume lives, for its drawer.
 type VolumeStorage struct {
-	OnDisk, InDocker bool   // both = two copies
+	OnDisk, InDocker bool
 	State            string // the disk's: adding | ready | missing
 	Folder           string // the folder on the node ("" = none)
 	Node, NodeID     string

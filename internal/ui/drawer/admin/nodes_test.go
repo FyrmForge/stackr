@@ -234,3 +234,20 @@ func TestNodeOverviewSectionsAreFlat(t *testing.T) {
 		t.Errorf("no Machine section\n%s", out)
 	}
 }
+
+// The Security tab's Cluster root section holds its rejoin command flat: no
+// bordered box inside the card.
+func TestTrustSectionIsFlat(t *testing.T) {
+	var b strings.Builder
+	err := trustSection(TrustView{NotRejoined: []NotRejoinedRow{{Name: "w1", Command: "curl x | sh", TwoStep: "step"}}}).Render(t.Context(), &b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, out, _ := strings.Cut(b.String(), ">") // past the card's own tag
+	if !strings.Contains(out, "curl x | sh") {
+		t.Fatalf("no command\n%s", out)
+	}
+	if strings.Contains(out, `class="panel`) || strings.Contains(out, `" panel `) || strings.Contains(out, `"panel `) {
+		t.Errorf("a box inside a section card\n%s", out)
+	}
+}
