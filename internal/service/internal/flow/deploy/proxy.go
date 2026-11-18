@@ -132,13 +132,15 @@ func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Setting
 	if p := settings.Resolve(levels...); p.Protect {
 		r.Protect = &domain.BasicAuth{User: p.ProtectUser, Password: p.ProtectPassword}
 	}
-	// Domain refs see params only (never a secret, never a tile output).
-	snap, err := f.ParamSnapshot(ctx, e, st, false)
+	// r.Expand reads a gate login only, so it sees secrets: the password is
+	// hashed before it reaches the proxy config. Host names are checked
+	// elsewhere, under the strict InDomain rule.
+	snap, err := f.ParamSnapshot(ctx, e, st, true)
 	if err != nil {
 		return r, err
 	}
 	rr := params.NewResolver(snap)
-	r.Expand = func(s string) (string, error) { return rr.Expand(params.InDomain, s) }
+	r.Expand = func(s string) (string, error) { return rr.Expand(params.InGate, s) }
 	return r, nil
 }
 
