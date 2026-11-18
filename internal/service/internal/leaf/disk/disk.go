@@ -117,23 +117,29 @@ func (l *Leaf) Probe(ctx context.Context, nodeID, mount string) (hostdisk.Fact, 
 }
 
 // AddPath writes the row in adding, has the host stamp the disk, then sets
-// ready. A retry resumes an adding row of this node at the same path. A
-// refusal removes a row this call made; a crash keeps it.
+// ready. A retry resumes an adding row of this node at the same path; an
+// adding row at another path is a half-made add and is replaced. A refusal
+// removes the adding row, a crash keeps it. A ready or missing row, or one
+// with folders, is never touched: "This node already has a disk."
 func (l *Leaf) AddPath(ctx context.Context, nodeID, mount, installID string) (store.NodeDisk, error) {
 	d, ok, err := l.OfNode(ctx, nodeID)
 	if err != nil {
 		return d, err
 	}
-	fresh := false
 	switch {
-	case ok && (d.State != StateAdding || d.MountPath != mount):
+	case ok && d.State != StateAdding:
 		return d, errs.Conflictf("This node already has a disk.")
-	case !ok:
+	case ok && d.MountPath != mount:
+		if err := l.dropAdding(ctx, d); err != nil {
+			return d, err
+		}
+		ok = false
+	}
+	if !ok {
 		d = store.NodeDisk{ID: uuid.NewString(), NodeID: nodeID, Kind: kindPath, MountPath: mount, State: StateAdding, CreatedAt: time.Now().UTC()}
 		if err := l.disks.Create(ctx, d); err != nil {
 			return d, err
 		}
-		fresh = true
 	}
 	r := l.req(d, "add")
 	r.Install = installID
@@ -142,13 +148,24 @@ func (l *Leaf) AddPath(ctx context.Context, nodeID, mount, installID string) (st
 		return d, err // a crash leaves the row for a retry
 	}
 	if res.Error != nil {
-		if fresh {
-			_ = l.disks.Delete(context.WithoutCancel(ctx), d.ID)
-		}
+		_ = l.dropAdding(context.WithoutCancel(ctx), d)
 		return d, res.Error
 	}
 	d.State = StateReady
 	return d, l.disks.Update(ctx, d)
+}
+
+// dropAdding deletes an adding row that has no folder rows. Anything else is
+// left alone and refused.
+func (l *Leaf) dropAdding(ctx context.Context, d store.NodeDisk) error {
+	fs, err := l.folders.ListByDisk(ctx, d.ID)
+	if err != nil {
+		return err
+	}
+	if d.State != StateAdding || len(fs) > 0 {
+		return errs.Conflictf("This node already has a disk.")
+	}
+	return l.disks.Delete(ctx, d.ID)
 }
 
 // Verify runs the host verify and sets ready, or missing on disk_missing.

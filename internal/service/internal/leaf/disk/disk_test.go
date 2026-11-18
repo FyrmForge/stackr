@@ -362,3 +362,50 @@ func TestVerifySetsReady(t *testing.T) {
 		t.Fatalf("mark missing adopting = %+v, %v", got, err)
 	}
 }
+
+// V4: a half-made add does not block the node for good.
+func TestAddingRowAtAnotherPathIsReplacedByANewAdd(t *testing.T) {
+	r := newRig(t)
+	crash := disk.New(r.st.NodeDisks, r.st.DiskFolders, crashHost{})
+	if _, err := crash.AddPath(ctx, "n1", "/old", "i1"); err == nil {
+		t.Fatal("expected the crash")
+	}
+	old, _, _ := r.l.OfNode(ctx, "n1")
+	got, err := r.l.AddPath(ctx, "n1", "/disk", "i1")
+	if err != nil || got.MountPath != "/disk" || got.ID == old.ID || got.State != disk.StateReady {
+		t.Fatalf("add = %+v, %v", got, err)
+	}
+	if _, err := r.st.NodeDisks.Get(ctx, old.ID); err == nil {
+		t.Fatal("the old adding row is still there")
+	}
+}
+
+func TestRefusedRetryDeletesTheAddingRowButNeverAReadyOne(t *testing.T) {
+	r := newRig(t)
+	crash := disk.New(r.st.NodeDisks, r.st.DiskFolders, crashHost{})
+	if _, err := crash.AddPath(ctx, "n1", "/disk", "i1"); err == nil {
+		t.Fatal("expected the crash")
+	}
+	if err := os.WriteFile(filepath.Join(r.dir, "x"), []byte("data"), 0o644); err != nil { // no longer empty
+		t.Fatal(err)
+	}
+	if _, err := r.l.AddPath(ctx, "n1", "/disk", "i1"); code(err) != hostdisk.CodeNotEmpty {
+		t.Fatalf("add = %v, want not_empty", err)
+	}
+	if _, ok, _ := r.l.OfNode(ctx, "n1"); ok {
+		t.Fatal("a refused retry left the adding row")
+	}
+	// a ready row with the same refusal path stays
+	if err := os.Remove(filepath.Join(r.dir, "x")); err != nil {
+		t.Fatal(err)
+	}
+	row := r.ready()
+	if _, err := r.l.AddPath(ctx, "n1", "/other", "i1"); !isConflict(err) {
+		t.Fatalf("add over a ready row = %v", err)
+	}
+	if r.state(row.ID) != disk.StateReady {
+		t.Fatal("the ready row changed")
+	}
+}
+
+func isConflict(err error) bool { _, ok := errs.IsConflict(err); return ok }

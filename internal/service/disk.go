@@ -281,7 +281,7 @@ func (o *Orchestrator) AddNodeFolder(ctx context.Context, by *Principal, nodeID,
 	if err != nil {
 		return Job{}, err
 	}
-	if has && (d.State != disk.StateAdding || d.MountPath != path) {
+	if has && d.State != disk.StateAdding { // an adding row, at any path, is replaced by this add
 		return Job{}, errs.Conflictf("This node already has a disk.")
 	}
 	// A worker too old to say what it holds would never be told which folder
