@@ -124,3 +124,18 @@ func TestAdoptDiscardOfferedOnlyWhenTheCopyIsTheOnlyRefusal(t *testing.T) {
 		t.Error("the copy was removed")
 	}
 }
+
+// An object bound to the wrong folder with no folder row is still a ghost for the drawer.
+func TestVolumeStorageShowsABoundObjectWithNoFolderRow(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	d.addDisk(t)
+	v := d.vol(t, "data")
+	must(t, d.wFake.CreateVolume(ctx, v.Name, "local", map[string]string{"type": "none", "o": "bind", "device": "/elsewhere/data"}, nil))
+	_, _ = d.orch.volumes.Ensure(ctx, v) // the gate decides and remembers the ghost
+	s, err := d.orch.VolumeStorage(ctx, v.ID)
+	must(t, err)
+	if s.Ghost != "bound" || s.Device != "/elsewhere/data" {
+		t.Fatalf("storage = %+v", s)
+	}
+}

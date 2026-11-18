@@ -161,7 +161,9 @@ func (o *Orchestrator) VolumeStorage(ctx context.Context, volumeID string) (Volu
 	if n, err := o.store.Nodes.Get(ctx, nodeID); err == nil {
 		s.Node = n.Name
 	}
-	if rt == volume.RouteLegacy {
+	// a bound object with no folder row is routed legacy but still a ghost
+	dev, seen := o.volumes.GhostSeen(nodeID, v.Name)
+	if rt == volume.RouteLegacy && !seen {
 		return s, nil
 	}
 	d, has, err := o.nodeDisk(ctx, nodeID)
@@ -171,7 +173,7 @@ func (o *Orchestrator) VolumeStorage(ctx context.Context, volumeID string) (Volu
 	s.OnDisk, s.State = true, d.State
 	s.InDocker = false
 	s.Folder = path.Join(d.MountPath, d.ID, v.Name)
-	if dev, ok := o.volumes.GhostSeen(nodeID, v.Name); ok && d.State == disk.StateReady {
+	if seen && d.State == disk.StateReady {
 		s.Ghost, s.Device, s.InDocker = "bound", dev, false
 		if dev == "" {
 			s.Ghost, s.InDocker = "copy", true
