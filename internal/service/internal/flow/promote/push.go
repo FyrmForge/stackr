@@ -68,14 +68,6 @@ func (f *Flow) Push(
 	repo := NormalizeRepo(ev.Repo)
 	isConfig := st.ConfigRepo != "" && NormalizeRepo(st.ConfigRepo) == repo
 	var pins []release.Pin
-	if isConfig {
-		pins = append(pins, release.Pin{
-			Slug:      release.ConfigSlug,
-			Repo:      st.ConfigRepo,
-			Branch:    ev.Branch,
-			CommitSHA: ev.Commit,
-		})
-	}
 	rows, err := f.candidates(ctx, st, from, ev, isConfig, log)
 	if err != nil {
 		return store.Release{}, nil, err
@@ -94,6 +86,21 @@ func (f *Flow) Push(
 		if built, err = d.Releases.Pins(ctx, base); err != nil {
 			return store.Release{}, nil, err
 		}
+	}
+	// A config push moves the config pin only when the stack's own files
+	// changed since the base release; a push that touched other stacks'
+	// files makes no release here.
+	pinned := isConfig && f.configMoved(ctx, st, built[release.ConfigSlug].CommitSHA, ev.Commit, log)
+	if isConfig && !pinned {
+		logf(log, "%s: the push changed none of the stack's files; no config pin\n", st.Slug)
+	}
+	if pinned {
+		pins = append(pins, release.Pin{
+			Slug:      release.ConfigSlug,
+			Repo:      st.ConfigRepo,
+			Branch:    ev.Branch,
+			CommitSHA: ev.Commit,
+		})
 	}
 	onlyConfig := isConfig && configOnly(ev.Changed, st.ConfigPath)
 	for _, t := range rows {
@@ -128,7 +135,7 @@ func (f *Flow) Push(
 	if err != nil {
 		return store.Release{}, nil, err
 	}
-	if isConfig { // the shown sha is the config pin's, so is its message
+	if pinned { // the shown sha is the config pin's, so is its message
 		if r, err = d.Releases.SetMessage(ctx, r, ev.Message); err != nil {
 			return store.Release{}, nil, err
 		}
@@ -256,4 +263,52 @@ func deref(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// configMoved reports whether a config push from the base release's commit to
+// to changed anything the stack reads: its own file, a file it includes, or a
+// files: source of any tile. Compared by git object id, not by the webhook's
+// changed list. When it cannot tell (no base commit, a commit the clone lacks,
+// a file that does not parse, a git error) it says yes: a release too many is
+// harmless, a missing one is invisible.
+func (f *Flow) configMoved(ctx context.Context, st store.Stack, from, to string, log io.Writer) bool {
+	if f.FileID == nil || f.Config == nil || from == "" {
+		return true
+	}
+	differs := func(path string) bool {
+		a, errA := f.FileID(ctx, st, from, path)
+		b, errB := f.FileID(ctx, st, to, path)
+		return errA != nil || errB != nil || a != b
+	}
+	if differs(or(st.ConfigPath, DefaultPath)) {
+		return true
+	}
+	// The stack file is the same at both commits, so its include list is too.
+	data, fetch, err := f.Config(ctx, st, to, log)
+	if err != nil {
+		return true
+	}
+	file, err := Parse(data)
+	if err != nil || slices.ContainsFunc(file.Include, differs) {
+		return true
+	}
+	o, err := f.D.Orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return true
+	}
+	r, err := Load(data, fetch, o.Slug)
+	if err != nil {
+		return true
+	}
+	for _, e := range r.Envs {
+		for _, t := range e.Tiles {
+			for _, l := range t.Files {
+				src, _, err := tile.ParseFileMount(l)
+				if err != nil || differs(src) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
