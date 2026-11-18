@@ -88,6 +88,7 @@ type Server struct {
 	readDisk    func(ctx context.Context, path string) (hostdisk.Stamp, uint64, uint64, error)
 	diskEvery   time.Duration
 	diskTimeout time.Duration
+	diskTemp    bool    // tests: the host root is a temp dir
 	own         ownCert // the node cert, swapped on renewal
 	// renewNow makes the next cert check renew even when not due, once.
 	renewNow atomic.Bool

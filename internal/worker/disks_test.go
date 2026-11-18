@@ -165,8 +165,8 @@ func TestDisksPutValidatesThenPersistsThenSwapsUnderTheLock(t *testing.T) {
 	done := make(chan error)
 	go func() { done <- s.PutDisks([]DiskReg{regA}) }()
 	select {
-	case <-done:
-		t.Fatal("put ran without the server lock")
+	case err := <-done:
+		t.Fatalf("put ran without the server lock: %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
 	s.mu.Unlock()
@@ -316,6 +316,7 @@ func TestDisksReadOnlyARealAnswerCountsAsARead(t *testing.T) {
 	}
 	s := New(Config{StateDir: t.TempDir(), HostRoot: root, DockerSock: "/nonexistent"})
 	t.Cleanup(s.Stop)
+	s.diskTemp = true
 	read := func() error { _, _, _, err := s.readDiskDefault(context.Background(), "/mnt/data"); return err }
 	if err := read(); err != nil { // mounted, no stamp: a read with an empty stamp
 		t.Fatalf("no stamp: %v", err)
@@ -370,5 +371,28 @@ func TestDisksFactsCarryTheReadTime(t *testing.T) {
 	eventually(t, "first read", func() bool { return !facts(s).Disks[0].ReadAt.IsZero() })
 	if at := facts(s).Disks[0].ReadAt; at.Before(before) {
 		t.Fatalf("read at %v before the read started %v", at, before)
+	}
+}
+
+// R6: a failed statfs is an error (the entry goes stale), never a fresh read
+// with zero sizes.
+func TestReadDiskDefaultStatfsFailureIsAnError(t *testing.T) {
+	s := diskServer(t, rootLine+"2 1 8:16 / /stackr-r6-tgt rw - ext4 /dev/sdb1 rw\n", nil)
+	s.diskTemp = true
+	root := s.cfg.HostRoot
+	for _, d := range []string{"stackr-r6-tgt", "mnt"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "stackr-r6-tgt/.stackr-disk"), []byte(`{"id":"d1","owner":"n1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// the stamp read resolves the link under the host root; statfs follows it on the real machine, where it is not there
+	if err := os.Symlink("/stackr-r6-tgt", filepath.Join(root, "mnt/data")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := s.readDiskDefault(context.Background(), "/mnt/data"); err == nil {
+		t.Fatal("a failed statfs was a read with zero sizes")
 	}
 }

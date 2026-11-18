@@ -59,13 +59,15 @@ type diskState struct {
 
 func (s *Server) disksPath() string { return filepath.Join(s.cfg.StateDir, DisksFile) }
 
-func (s *Server) diskEnv() hostdisk.Env { return hostdisk.Env{Root: s.cfg.HostRoot} }
+func (s *Server) diskEnv() hostdisk.Env {
+	return hostdisk.Env{Root: s.cfg.HostRoot, TempMounts: s.diskTemp}
+}
 
 // readDiskDefault is the stamp and free space of one path. Both are plain
 // syscalls that can block on a dead mount: only the refresher calls it.
 // Only a real answer is a read: a stamp, no stamp on a mounted path, or the
 // path not being the disk at all (disk_missing). Anything else (an I/O error,
-// a broken stamp) is an error, so the path goes stale and latches nothing.
+// a broken stamp, no free space figure) is an error, so the path goes stale and latches nothing.
 func (s *Server) readDiskDefault(ctx context.Context, path string) (hostdisk.Stamp, uint64, uint64, error) {
 	st, err := hostdisk.ReadStamp(ctx, s.diskEnv(), path)
 	var he *hostdisk.Error
@@ -77,8 +79,8 @@ func (s *Server) readDiskDefault(ctx context.Context, path string) (hostdisk.Sta
 		return st, 0, 0, err
 	}
 	var sf syscall.Statfs_t
-	if syscall.Statfs(filepath.Join(s.cfg.HostRoot, path), &sf) != nil {
-		return st, 0, 0, nil
+	if err := syscall.Statfs(filepath.Join(s.cfg.HostRoot, path), &sf); err != nil {
+		return st, 0, 0, err // no sizes is no read: the entry goes stale
 	}
 	return st, uint64(sf.Bavail) * uint64(sf.Bsize), uint64(sf.Blocks) * uint64(sf.Bsize), nil
 }
