@@ -2,6 +2,10 @@ package admin_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -132,5 +136,28 @@ func TestNodeDiskQueuedAddShowsAdding(t *testing.T) {
 	has(t, "queued", card, "Adding the disk.")
 	if strings.Contains(card, `id="disk-use"`) {
 		t.Errorf("Add disk is offered while an add is queued\n%s", card)
+	}
+}
+
+// errHost fails every call with err, as a transport or a plain failure.
+type errHost struct{ err error }
+
+func (h errHost) Disk(context.Context, string, hostdisk.Request) (hostdisk.Result, error) {
+	return hostdisk.Result{}, h.err
+}
+
+func TestProbeSilentNodeSaysDidNotAnswerOtherErrorsSurface(t *testing.T) {
+	post := func(err error) *httptest.ResponseRecorder {
+		s := webtest.NewWith(t, []service.Option{service.WithDiskHost(errHost{err})})
+		root := s.Session(t, s.User(t, "root@x.test", true))
+		return s.As(t, root, "POST", "/-/admin/nodes/"+diskNode(t, s)+"/disk/probe", url.Values{"path": {"/data"}})
+	}
+	rec := post(fmt.Errorf("probe: %w", context.DeadlineExceeded))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "did not answer. Try again.") {
+		t.Errorf("transport failure: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = post(errors.New("database is locked"))
+	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "did not answer") {
+		t.Errorf("plain error: %d %s", rec.Code, rec.Body.String())
 	}
 }

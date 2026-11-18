@@ -255,13 +255,25 @@ func (l *Leaf) OnDisk(ctx context.Context, v store.Volume) bool {
 
 // Where is where a volume lives, for display: RouteDisk when its node's disk
 // has a folder row for it, else RouteLegacy, and the node. Rows only: no Docker
-// call, so it cannot tell a ghost (two copies); deploy and backup gates do.
+// call, so it cannot tell a ghost (two copies); deploy and backup gates do. A
+// failed row read is an error, never a guess.
 func (l *Leaf) Where(ctx context.Context, v store.Volume) (Route, string, error) {
 	_, node, err := l.at(ctx, v)
 	if err != nil {
 		return RouteLegacy, "", err
 	}
-	if !l.OnDisk(ctx, v) {
+	st, err := l.state(ctx, node)
+	if err != nil {
+		return RouteLegacy, node, err
+	}
+	if st == DiskNone {
+		return RouteLegacy, node, nil
+	}
+	rows, err := l.disk.Folders(ctx, node, v.Name)
+	if err != nil {
+		return RouteLegacy, node, err
+	}
+	if !rows[v.Name] {
 		return RouteLegacy, node, nil
 	}
 	return RouteDisk, node, nil

@@ -20,6 +20,7 @@ import (
 type fakeDisk struct {
 	state    map[string]volume.DiskState
 	stateErr error
+	foldErr  error
 	rows     map[string]bool
 	use      map[string]volume.Use
 	usageErr error
@@ -39,7 +40,7 @@ func (d *fakeDisk) Folders(_ context.Context, _ string, names ...string) (map[st
 	for _, n := range names {
 		out[n] = d.rows[n]
 	}
-	return out, nil
+	return out, d.foldErr
 }
 
 func (d *fakeDisk) Path(_ context.Context, node, name string) (string, error) {
@@ -582,5 +583,18 @@ func TestSizesFreshIsOneFreshCallPerNode(t *testing.T) {
 	got := r.l.SizesFresh(ctx, []store.Volume{r.v})
 	if got[r.v.ID] != 42 || !slices.Equal(r.d.modes, []volume.UseMode{volume.UseFresh}) {
 		t.Fatalf("sizes %v modes %v", got, r.d.modes)
+	}
+}
+
+func TestWhereReturnsRowReadErrors(t *testing.T) {
+	boom := errors.New("db down")
+	r := newRig(t, volume.DiskReady)
+	r.d.foldErr = boom
+	if _, _, err := r.l.Where(ctx, r.v); !errors.Is(err, boom) {
+		t.Errorf("folder read error = %v, want %v", err, boom)
+	}
+	r.d.foldErr, r.d.stateErr = nil, boom
+	if _, _, err := r.l.Where(ctx, r.v); !errors.Is(err, boom) {
+		t.Errorf("state read error = %v, want %v", err, boom)
 	}
 }

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -187,14 +188,16 @@ func (h *handler) diskProbe(c echo.Context) error {
 		switch {
 		case err != nil && !errors.As(err, &down) && errors.As(err, &he) && he.Code == hostdisk.CodeIO:
 			d.Msg = he.Message
-		case err != nil && (errors.As(err, &down) || !refused):
+		case err != nil && (errors.As(err, &down) || service.DockerUnreachable(err) || errors.Is(err, context.DeadlineExceeded)):
 			name := c.Param("node")
 			if n, nerr := h.orch.NodeDetail(ctx, name); nerr == nil {
 				name = n.Name
 			}
 			d.Msg = name + " did not answer. Try again."
-		case err != nil:
+		case err != nil && refused:
 			d.Msg = cmp.Or(onField, top)
+		case err != nil:
+			return middleware.HTTPError(err) // not the node's silence: show the real cause
 		case p.Code != "":
 			d.Msg = probeText(p.Code, p.Message)
 		default:
