@@ -105,7 +105,7 @@ A plan never deletes anything on its own. A removal row applies only when you ti
 
 ## stackr-compose.yml
 
-Written by hand or with `stkr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stkr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `healthcheck`, `limits`, `depends_on`, and so on). `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel. `volumes.<name>.max_size_mb` is the volume's size cap in MB: absent leaves the cap as it is, `0` removes it. See [Size caps](nodes.md#size-caps).
+Written by hand or with `stkr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stkr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `healthcheck`, `limits`, `depends_on`, and so on). A tile's `build` takes `context` (a repo folder) and `dockerfile`. With no `dockerfile:`, stackr uses `Dockerfile` in the context folder, then `Dockerfile` at the repo root; if neither exists the build error names both paths. An explicit `dockerfile:` is always relative to the repo root. `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel. `volumes.<name>.max_size_mb` is the volume's size cap in MB: absent leaves the cap as it is, `0` removes it. See [Size caps](nodes.md#size-caps).
 
 ## Operated and slice tiles
 
@@ -195,6 +195,33 @@ Any tile other than operated and slice may set its access per slice tile of the 
       image: ghcr.io/acme/api:1
       slice_access:
         - {from: pg-db, access: read}
+```
+
+## Tile outputs
+
+A tile with a `port` publishes outputs other tiles can read with `${{ tile.<slug>.<output> }}`. Do not hard-code `http://sonarr:8989`.
+
+| Output | Value | Exists when |
+| --- | --- | --- |
+| `host` | the tile's network alias (its slug) | the tile has a port |
+| `port` | the port | the tile has a port |
+| `url` | `http://host:port`, or `https://` | the protocol is http or https (not tcp) |
+| `public_url` | `https://domain` or `http://domain` | the tile has a domain that is not a redirect |
+| `public_domain` | the domain | same as `public_url` |
+
+An output that does not exist fails the plan or deploy, naming the valid ones. A ref may be used in `env`, in `command` and in files marked `:template`. It reaches tiles of the same environment only. Operated tiles publish no outputs of their own: read a slice cut from them, see [What apps read](operated.md#what-apps-read).
+
+```yaml
+base:
+  tiles:
+    sonarr:
+      image: lscr.io/linuxserver/sonarr:4
+      port: 8989
+    prowlarr:
+      image: lscr.io/linuxserver/prowlarr:2
+      port: 9696
+      env:
+        SONARR_URL: ${{ tile.sonarr.url }}
 ```
 
 ## What a file cannot say

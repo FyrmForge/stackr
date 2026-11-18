@@ -522,11 +522,7 @@ func (o *Orchestrator) buildInto(
 	if err != nil {
 		return "", err
 	}
-	dockerfile := t.DockerfilePath
-	if dockerfile == "" {
-		dockerfile = "Dockerfile"
-	}
-	df, err := r.Under(dockerfile)
+	df, err := dockerfileIn(r, t.BuildContext, t.DockerfilePath)
 	if err != nil {
 		return "", err
 	}
@@ -554,6 +550,26 @@ func (o *Orchestrator) buildInto(
 	return buildFallback(o.builderNode(ctx, ctl), ctl,
 		func(n string) (string, error) { return o.buildOn(ctx, n, st.OrgID, repo, ref, bctx, df, args, log) },
 		func(n string) bool { return o.nodeAnswers(ctx, n) }, log)
+}
+
+// dockerfileIn is the Dockerfile a build uses. An explicit path stays
+// repo-relative. With none, the context folder's Dockerfile wins, then the
+// repo root's; neither existing is an error naming both.
+func dockerfileIn(r git.Repo, buildContext, explicit string) (string, error) {
+	if explicit != "" {
+		return r.Under(explicit)
+	}
+	inCtx := filepath.ToSlash(filepath.Join(buildContext, "Dockerfile"))
+	for _, p := range []string{inCtx, "Dockerfile"} {
+		df, err := r.Under(p)
+		if err != nil {
+			return "", err
+		}
+		if _, err := os.Stat(df); err == nil {
+			return df, nil
+		}
+	}
+	return "", fmt.Errorf("no Dockerfile found: tried %s and Dockerfile at the repo root", inCtx)
 }
 
 // tileCheckout names a tile's build clone. Never the tile's id: a push
