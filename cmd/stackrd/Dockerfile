@@ -19,7 +19,9 @@ LABEL stackr.image=stackrd
 # iproute2 because busybox ip refuses routing tables above 255 (exit links).
 # ponytail: alpine's iptables is the nft backend; a host whose docker still
 # writes legacy iptables needs iptables-legacy here instead.
-RUN apk --no-cache add ca-certificates iptables git docker-cli docker-cli-buildx conntrack-tools iproute2
+# xfsprogs + xfsprogs-extra (mkfs.xfs, xfs_growfs, xfs_quota) and util-linux (lsblk, wipefs,
+# nsenter) for xfs node disks; the host helper runs them (internal/hostdisk).
+RUN apk --no-cache add ca-certificates iptables git docker-cli docker-cli-buildx conntrack-tools iproute2 xfsprogs xfsprogs-extra util-linux
 # Pull the base's security fixes (libcrypto) that landed after the alpine tag.
 RUN apk upgrade --no-cache
 COPY --from=builder /stackrd /stackrd

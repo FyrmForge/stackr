@@ -273,7 +273,11 @@ func probe(e Env, r Request) Result {
 	return Result{Disk: t.fact(s, empty)}
 }
 
-func add(e Env, r Request) Result {
+func add(e Env, r Request) Result { return addStamp(e, r, "path", nil) }
+
+// addStamp is add for any kind: kindName goes into the stamp, check (if set)
+// refuses a mount that is not what the kind needs.
+func addStamp(e Env, r Request, kindName string, check func(*target) *Error) Result {
 	if herr := badName(r.DiskID); herr != nil {
 		return Result{Error: herr}
 	}
@@ -287,6 +291,11 @@ func add(e Env, r Request) Result {
 	defer t.close()
 	if herr := t.canonical(); herr != nil {
 		return Result{Error: herr}
+	}
+	if check != nil {
+		if herr := check(t); herr != nil {
+			return Result{Error: herr}
+		}
 	}
 	if t.readOnly() {
 		return fail(CodeReadOnly, r.Mount+" is mounted read-only")
@@ -305,7 +314,7 @@ func add(e Env, r Request) Result {
 		if err := t.root.Remove(s.ID); err != nil && !notThere(err) {
 			return fail(CodeIO, err.Error())
 		}
-		s = Stamp{ID: r.DiskID, Install: r.Install, Kind: "path", Owner: r.Owner, Created: time.Now().UTC()}
+		s = Stamp{ID: r.DiskID, Install: r.Install, Kind: kindName, Owner: r.Owner, Created: time.Now().UTC()}
 		if err := writeStamp(t.root, s, true); err != nil {
 			return stampFail(err)
 		}
@@ -317,7 +326,7 @@ func add(e Env, r Request) Result {
 		} else if !empty {
 			return fail(CodeNotEmpty, r.Mount+" is not empty and has no stamp")
 		}
-		s = Stamp{ID: r.DiskID, Install: r.Install, Kind: "path", Owner: r.Owner, Created: time.Now().UTC()}
+		s = Stamp{ID: r.DiskID, Install: r.Install, Kind: kindName, Owner: r.Owner, Created: time.Now().UTC()}
 		if e.beforeStamp != nil {
 			e.beforeStamp()
 		}
