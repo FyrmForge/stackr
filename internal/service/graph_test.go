@@ -671,3 +671,23 @@ func TestCanvasFirstDropKeepsStatusLayout(t *testing.T) {
 		}
 	}
 }
+
+// A failed push does not hide a worse roll-up word on the stack card.
+func TestCanvasStackPushFailKeepsWorse(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	fin := time.Now()
+	if err := w.e.Store.Jobs.Create(context.Background(), store.Job{
+		ID: uuid.NewString(), Kind: "push", State: "failed", Error: "denied", Payload: "{}",
+		LockSet: store.StringList{"push:" + w.shop, "push:" + w.shop + ":acme/shop@main"}, CreatedAt: fin, FinishedAt: &fin,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := w.e.Orch.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasOrg, ID: w.acme}, service.ShowAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := nodes(v)["stack:"+w.shop]; st.Status != "failed" {
+		t.Errorf("stack status = %q, want failed kept over pushfailed", st.Status)
+	}
+}

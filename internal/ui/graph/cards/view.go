@@ -62,6 +62,7 @@ type FooterView struct {
 	Since      time.Time // that job's start; zero = none, the line reads as the word alone
 	Phase      string    // that job's step ("Pulling image"); "" = the word
 	Fail       string    // the last deploy's error while it failed; "" = none
+	FailHref   string    // a stack card: the failed push's job log; "" = none
 	StoppedAt  string    // a tile the failed promote never reached: the tile it stopped at
 	StopHref   string    // that promote's job log
 	Wait       int       // env card: the release waiting to be promoted here; 0 = none

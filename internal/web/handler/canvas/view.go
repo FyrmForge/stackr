@@ -65,6 +65,9 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 
 			Pending: n.RestartPending,
 		}
+		if n.FailJob != "" {
+			u.FailHref = l.base + "/-/jobs/" + n.FailJob
+		}
 		switch n.Kind {
 		case "org":
 			u.Href = "/" + n.Slug
@@ -85,7 +88,7 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 		if l.scope.Kind == service.CanvasEnv {
 			envCard(&u, n, l.base, g)
 		} else if len(n.Domains) > 0 {
-			u.Footer = cards.Footer(n.ID, exposed(n, l.scope.Kind))
+			u.Footer = cards.Footer(n.ID, exposed(n, l.scope.Kind, u.FailHref))
 		}
 		v.Nodes = append(v.Nodes, u)
 	}
@@ -133,13 +136,14 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 // exposed is a drill-down card's footer with its domains: an env card on
 // the stack canvas names its first, a stack card on the org canvas counts
 // them (v0: the hosts belong to the level below).
-func exposed(n service.GraphNode, level string) cards.FooterView {
+func exposed(n service.GraphNode, level, failHref string) cards.FooterView {
 	f := cards.FooterView{
-		Kind:   n.Kind,
-		Status: n.Status,
-		Fail:   n.Fail,
-		Wait:   n.Wait,
-		Nav:    true,
+		Kind:     n.Kind,
+		Status:   n.Status,
+		Fail:     n.Fail,
+		Wait:     n.Wait,
+		Nav:      true,
+		FailHref: failHref,
 	}
 	if level == service.CanvasOrg {
 		f.Domains = len(n.Domains)

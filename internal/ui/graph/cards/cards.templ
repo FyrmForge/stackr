@@ -91,7 +91,14 @@ templ Footer(id string, f FooterView) {
 		hx-swap="outerHTML"
 	>
 		if short, full := FailLine(f.Fail); short != "" {
-			<p class="node-fail absolute bottom-full mb-px inset-x-0 truncate text-[11px] leading-none text-rw-danger" title={ full }>{ short }</p>
+			if f.FailHref != "" {
+				<p class="node-fail absolute bottom-full mb-px inset-x-0 flex gap-1.5 text-[11px] leading-none text-rw-danger">
+					<span class="min-w-0 flex-1 truncate" title={ full }>{ short }</span>
+					<a href={ templ.SafeURL(f.FailHref) } hx-get={ f.FailHref } hx-target="#main" hx-push-url="true" hx-trigger="click consume" class="shrink-0 underline">Job log</a>
+				</p>
+			} else {
+				<p class="node-fail absolute bottom-full mb-px inset-x-0 truncate text-[11px] leading-none text-rw-danger" title={ full }>{ short }</p>
+			}
 		}
 		if f.StoppedAt != "" {
 			<p class="node-fail absolute bottom-full mb-px inset-x-0 truncate text-[11px] leading-none text-rw-faint">

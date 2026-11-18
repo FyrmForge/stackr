@@ -872,9 +872,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			ExtUpdates:     orch.pgExtUpdateCount,
 			RestartPending: orch.RestartPending,
 			Phase:          orch.jobPhase,
-			PushFail: func(ctx context.Context, stackID string) (string, bool) {
+			PushFail: func(ctx context.Context, stackID string) (string, string, bool) {
 				f, ok := orch.PushFailure(ctx, stackID)
-				return f.Error, ok
+				return f.JobID, f.Error, ok
 			},
 			Stop: orch.RolloutStop,
 		}

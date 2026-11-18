@@ -174,3 +174,11 @@ func TestExposureOnDrillCards(t *testing.T) {
 		t.Errorf("tile exposure lost its link: %s", tile)
 	}
 }
+
+// A stack card's push failure links to its job log from the footer.
+func TestFooterFailJobLog(t *testing.T) {
+	out := render(t, Footer("stack:1", FooterView{Kind: "stack", Status: "pushfailed", Fail: "denied", FailHref: "/acme/-/jobs/j1"}))
+	if !strings.Contains(out, `href="/acme/-/jobs/j1"`) || !strings.Contains(out, "Job log") {
+		t.Errorf("footer = %s", out)
+	}
+}

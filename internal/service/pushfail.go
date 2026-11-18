@@ -1,31 +1,18 @@
 package service
 
-import (
-	"context"
-
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
-)
+import "context"
 
 // PushFailure is a stack's last push that failed: the job to open and what
 // it said.
 type PushFailure struct{ JobID, Error string }
 
-// PushFailure is the stack's newest push when it failed, until a push
-// after it does not. A push a newer one superseded, a cancelled or skipped
-// one says nothing; a queued or running one is a retry under way.
+// PushFailure is the stack's newest failed push that no later done push of
+// the same repo and branch follows. Queued, running, cancelled and
+// superseded pushes say nothing: only a push that lands clears it.
 func (o *Orchestrator) PushFailure(ctx context.Context, stackID string) (PushFailure, bool) {
-	js, err := o.store.Jobs.ListTouching(ctx, []string{"push:" + stackID}, string(kindPush), 10) // newest first
-	if err != nil {
+	j, ok, err := o.store.Jobs.NewestFailedUnhealed(ctx, string(kindPush), "push:"+stackID+":%")
+	if err != nil || !ok {
 		return PushFailure{}, false
 	}
-	for _, j := range js {
-		switch j.State {
-		case job.Superseded, job.Cancelled, job.Skipped:
-			continue
-		case job.Failed:
-			return PushFailure{JobID: j.ID, Error: j.Error}, true
-		}
-		return PushFailure{}, false
-	}
-	return PushFailure{}, false
+	return PushFailure{JobID: j.ID, Error: j.Error}, true
 }

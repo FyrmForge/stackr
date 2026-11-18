@@ -226,11 +226,11 @@ func TestEnvFreshLoadOpensTileDrawer(t *testing.T) {
 // the first; both are links themselves, so the host is text.
 func TestDrillCardExposure(t *testing.T) {
 	n := service.GraphNode{ID: "x", Kind: "stack", Status: "running", Domains: []string{"a.dev", "b.dev"}}
-	if f := canvas.Exposed(n, service.CanvasOrg); f.Domains != 2 || f.Domain != "" || !f.Nav || f.Status != "running" {
+	if f := canvas.Exposed(n, service.CanvasOrg, ""); f.Domains != 2 || f.Domain != "" || !f.Nav || f.Status != "running" {
 		t.Errorf("org level = %+v, want a count of 2, no host", f)
 	}
 	n.Kind = "env"
-	if f := canvas.Exposed(n, service.CanvasStack); f.Domain != "a.dev" || f.More != 1 || f.Domains != 0 || !f.Nav {
+	if f := canvas.Exposed(n, service.CanvasStack, ""); f.Domain != "a.dev" || f.More != 1 || f.Domains != 0 || !f.Nav {
 		t.Errorf("stack level = %+v, want a.dev +1", f)
 	}
 }

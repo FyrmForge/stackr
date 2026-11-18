@@ -65,7 +65,7 @@ type Flow struct {
 	// "" = no word beyond the job's own. nil = none asked.
 	Phase func(ctx context.Context, j store.Job) string
 	// PushFail is the error of a stack's last push when it failed; nil = none asked.
-	PushFail func(ctx context.Context, stackID string) (string, bool)
+	PushFail func(ctx context.Context, stackID string) (jobID, msg string, failed bool)
 	// Stop is the env's last promote when it failed at a tile; nil = none asked.
 	Stop func(ctx context.Context, envID string) (Stopped, bool)
 }
@@ -157,6 +157,7 @@ type Node struct {
 	Since          time.Time  // that job's start (queued: its creation); zero = no such job
 	Phase          string     // the live job's step, "" = the word alone
 	Fail           string     // the failed deploy's error, whole; "" = none
+	FailJob        string     // stack card: the failed push's job; "" = none
 	Stop, StopJob  string     // a tile the failed promote never reached: the tile it stopped at, and that job
 	Wait           int        // env card: the release the rung below runs and this one does not; 0 = none
 	// Vars card counts; never a value.
@@ -367,8 +368,11 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 				return err
 			}
 			if f.PushFail != nil {
-				if msg, ok := f.PushFail(ctx, st.ID); ok {
-					n.Status, n.Fail = "pushfailed", msg
+				if id, msg, ok := f.PushFail(ctx, st.ID); ok {
+					// a worse roll-up (crashed, building, offline...) keeps its word
+					if rank[n.Status] < rank["failed"] {
+						n.Status, n.Fail, n.FailJob = "pushfailed", msg, id
+					}
 				}
 			}
 		}

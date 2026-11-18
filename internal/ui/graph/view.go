@@ -77,6 +77,7 @@ type Node struct {
 	Slug                   string // the drill-down path segment; a connector's id
 	Status                 string // one word, "" = nothing to show
 	Fail                   string // the error under a failed status, "" = none
+	FailHref               string // the failed push's job log: the error line links to it, the card is then no anchor
 	Wait                   int    // env card: a release waits to be promoted here; 0 = none
 	X, Y, W, H             int    // the card's own box; sub-tiles hang below it
 	// Members makes the card a container (the Cluster map's network box):
@@ -147,7 +148,7 @@ func (n Node) Foot() templ.Component {
 	if n.Footer != nil {
 		return n.Footer
 	}
-	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status, Fail: n.Fail, Wait: n.Wait})
+	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status, Fail: n.Fail, FailHref: n.FailHref, Wait: n.Wait})
 }
 
 // Toggle is the page URL with one show param flipped.
