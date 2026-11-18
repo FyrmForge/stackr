@@ -150,7 +150,23 @@ func (l *Leaf) resolve(ctx context.Context, nodeID, name string, st DiskState) (
 		}
 	}
 	p.rt = route(st, p.hasRow, p.obj, want)
+	if p.rt == RouteGhost {
+		l.ghosts.Store(nodeID+"\x00"+name, p.obj.Device)
+	} else {
+		l.ghosts.Delete(nodeID + "\x00" + name)
+	}
 	return p, nil
+}
+
+// GhostSeen is whether the last decision about name on nodeID found a ghost
+// and, for an object bound elsewhere, the device it points at ("" = a plain
+// copy). In memory only: a restart forgets it until the next gate decides.
+func (l *Leaf) GhostSeen(nodeID, name string) (device string, ok bool) {
+	d, ok := l.ghosts.Load(nodeID + "\x00" + name)
+	if !ok {
+		return "", false
+	}
+	return d.(string), true
 }
 
 // refuse is the error a Missing or Ghost route answers every verb with.

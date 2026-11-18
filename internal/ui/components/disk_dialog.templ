@@ -1,0 +1,145 @@
+package components
+
+// The dialogs of the node disk screens (forget, adopt, move, discard), shared
+// by the node drawer and the volume drawer. Rows are flat inside the dialog:
+// never a bordered box in a bordered card.
+
+// DiskConfirmView is a typed (Word) or plain confirm. Unlike ConfirmView it
+// carries a second line under the title (Sub) and may be Info only: Action ""
+// = a Close button and nothing to confirm.
+type DiskConfirmView struct {
+	Opener string // the opener's text; "" with Open = no opener
+	Link   bool   // the opener is a link-style button, not a btn
+	Quiet  bool   // btn-ghost opener
+	Title  string
+	Sub    string
+	Word   string // type this to enable the confirm button
+	Button string // the confirm button's text
+	Action string // hx-post on "confirmed"
+	Target string // what the answer replaces (outerHTML)
+	Vals   string // hx-vals JSON posted with the action
+	Primary bool  // the confirm is not destructive
+	Open   bool   // open on arrival
+	Body   templ.Component
+}
+
+// DiskConfirm wraps <confirm-dialog> like Confirm, with Sub.
+templ DiskConfirm(v DiskConfirmView) {
+	<div
+		if v.Action != "" {
+			hx-post={ v.Action }
+			hx-trigger="confirmed"
+			hx-target={ v.Target }
+			hx-swap="outerHTML"
+		}
+		if v.Vals != "" {
+			hx-vals={ v.Vals }
+		}
+		class="inline-block"
+	>
+		<confirm-dialog word={ v.Word } open?={ v.Open }>
+			if v.Opener != "" {
+				if v.Link {
+					<button type="button" class="link disabled:opacity-50 disabled:cursor-not-allowed" data-open disabled>{ v.Opener }</button>
+				} else {
+					<button type="button" class={ "btn btn-sm disabled:opacity-50 disabled:cursor-not-allowed", templ.KV("btn-ghost", v.Quiet), templ.KV("btn-primary", !v.Quiet && v.Primary), templ.KV("btn-danger", !v.Quiet && !v.Primary) } data-open disabled>{ v.Opener }</button>
+				}
+			}
+			<dialog class="modal-panel text-rw-text">
+				@dlgHead(v.Title, v.Sub)
+				<div class="modal-body">
+					if v.Body != nil {
+						@v.Body
+					}
+					if v.Word != "" {
+						<div>
+							<label class="label">Type <span class="font-mono text-rw-text">{ v.Word }</span> to confirm</label>
+							<input type="text" class="input font-mono" data-word autocomplete="off" aria-label={ "Type " + v.Word + " to confirm" }/>
+						</div>
+					}
+				</div>
+				<div class="modal-foot">
+					if v.Action == "" {
+						<button type="button" class="btn btn-ghost btn-sm" data-cancel>Close</button>
+					} else {
+						<button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+						<button type="button" class={ "btn btn-sm disabled:opacity-50 disabled:cursor-not-allowed", templ.KV("btn-primary", v.Primary), templ.KV("btn-danger", !v.Primary) } data-confirm>{ v.Button }</button>
+					}
+				</div>
+			</dialog>
+		</confirm-dialog>
+	</div>
+}
+
+templ dlgHead(title, sub string) {
+	<div class="modal-head">
+		<div class="min-w-0">
+			<h2 class="modal-title">{ title }</h2>
+			if sub != "" {
+				<p class="text-sm text-rw-muted mt-0.5">{ sub }</p>
+			}
+		</div>
+		<button type="button" class="ml-auto text-rw-faint hover:text-rw-text transition-colors" data-cancel aria-label="Close">
+			<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<line x1="18" y1="6" x2="6" y2="18"></line>
+				<line x1="6" y1="6" x2="18" y2="18"></line>
+			</svg>
+		</button>
+	</div>
+}
+
+// DlgShell is a dialog that opens on arrival: what a plan POST answers. The
+// children are the body, foot the buttons. The caller wraps it in the element
+// the answer replaces.
+templ DlgShell(title, sub string, foot templ.Component) {
+	<confirm-dialog open>
+		<dialog class="modal-panel text-rw-text">
+			@dlgHead(title, sub)
+			<div class="modal-body">
+				{ children... }
+			</div>
+			<div class="modal-foot">
+				@foot
+			</div>
+		</dialog>
+	</confirm-dialog>
+}
+
+// DlgHeading is the small title of a list in a dialog; first = no top margin.
+templ DlgHeading(text string, first bool) {
+	<h3 class={ "label mb-1", templ.KV("mt-5", !first) }>{ text }</h3>
+}
+
+// DlgRow is one flat row of a dialog list: a name, where it is, and a note on
+// the right. Tone "warn" or "danger" colours the note.
+templ DlgRow(name, where, note, tone string) {
+	<li class="py-2.5 text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
+		<span class="text-rw-text">{ name }</span>
+		if where != "" {
+			<span class="text-xs text-rw-faint">{ where }</span>
+		}
+		<span class={ "ml-auto text-xs text-right", templ.KV("text-rw-muted", tone == ""), templ.KV("text-rw-warn", tone == "warn"), templ.KV("text-rw-danger", tone == "danger") }>
+			{ note }
+			{ children... }
+		</span>
+	</li>
+}
+
+// DlgAlert is a refusal line inside a dialog.
+templ DlgAlert(msg string) {
+	<p class="flex items-start gap-2 text-sm text-rw-danger" role="alert">
+		<svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m9 9 6 6M15 9l-6 6"></path></svg>
+		<span>{ msg }</span>
+	</p>
+}
+
+// DlgFacts is the Needs / Free on disk pair of the move dialogs. Low colours
+// the free figure.
+templ DlgFacts(need, free string, low bool, class string) {
+	<dl class={ "dl text-sm", class }>
+		<dt class="text-rw-muted">Needs</dt>
+		<dd class="text-rw-text">{ need }</dd>
+		<dt class="text-rw-muted">Free on disk</dt>
+		<dd class={ templ.KV("text-rw-text", !low), templ.KV("text-rw-danger", low) }>{ free }</dd>
+	</dl>
+}

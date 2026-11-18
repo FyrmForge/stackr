@@ -28,6 +28,7 @@ const (
 // diskForgetJob is the disk-forget payload.
 type diskForgetJob struct {
 	DiskID string `json:"disk_id"`
+	NodeID string `json:"node_id,omitempty"` // the disk's node: the node drawer finds the job by it
 	By     string `json:"by,omitempty"`
 	KeyID  string `json:"key_id,omitempty"`
 }
@@ -190,7 +191,7 @@ func (o *Orchestrator) ForgetNodeDisk(ctx context.Context, by *Principal, diskID
 		return Job{}, err
 	}
 	lock = append(append(lock, s.lock...), "disk:"+d.ID)
-	return o.enqueueExclusive(ctx, kindDiskForget, diskForgetJob{DiskID: d.ID, By: by.User.ID, KeyID: by.KeyID},
+	return o.enqueueExclusive(ctx, kindDiskForget, diskForgetJob{DiskID: d.ID, NodeID: n.ID, By: by.User.ID, KeyID: by.KeyID},
 		[]string{"disk:" + d.ID}, errs.Conflictf("A forget of this disk is already running."), lock...)
 }
 
@@ -406,4 +407,140 @@ func (o *Orchestrator) discardGhost(ctx context.Context, by *Principal, volumeID
 	}
 	o.auditDiskLog(ctx, by, action, g.Node, g.Name)
 	return nil
+}
+
+// ForgetPlan is what the Forget dialog shows. Read from rows only, so the
+// drawer may build it on every poll. Gone: the disk's node is forgotten and
+// only the record goes. Refusal is what Forget would refuse with right now.
+type ForgetPlan struct {
+	DiskID, Node string // Node is the name the disk's node has or had, "" when not known
+	Gone         bool
+	Volumes      []AdoptVolume // with their newest backup, when there is one
+	Refusal      string
+}
+
+// PlanDiskForget reads what forgetting the disk would do.
+func (o *Orchestrator) PlanDiskForget(ctx context.Context, diskID string) (ForgetPlan, error) {
+	d, err := o.store.NodeDisks.Get(ctx, diskID)
+	if err != nil {
+		return ForgetPlan{}, err
+	}
+	p := ForgetPlan{DiskID: d.ID}
+	n, err := o.store.Nodes.Get(ctx, d.NodeID)
+	p.Gone = errors.Is(err, errs.ErrNotFound)
+	if err != nil && !p.Gone {
+		return p, err
+	}
+	p.Node = n.Name
+	if p.Gone {
+		p.Node = o.forgottenName(ctx, d.NodeID)
+	}
+	if err := disk.MayForget(d, p.Gone); err != nil {
+		p.Refusal = err.Error()
+		return p, nil
+	}
+	if p.Gone {
+		p.Refusal, err = o.forgetPointing(ctx, d, p.Node)
+		return p, err
+	}
+	s, err := o.forgetSet(ctx, d)
+	if err != nil {
+		return p, err
+	}
+	on := map[string]bool{}
+	for _, f := range s.folders {
+		on[f.Name] = true
+	}
+	for _, e := range s.envs {
+		for _, v := range s.vols[e.ID] {
+			if !on[v.Name] || v.OrphanedAt != nil {
+				continue
+			}
+			lbl := o.moveEnvName(ctx, v)
+			av := AdoptVolume{ID: v.ID, Slug: v.Slug, Env: lbl, Where: lbl}
+			if b, err := o.newestBackup(ctx, v.ID); err == nil && b != nil {
+				av.HasBackup, av.Backup = true, b.CreatedAt
+			}
+			p.Volumes = append(p.Volumes, av)
+		}
+	}
+	if d.State != disk.StateForgetting {
+		if err := o.forgetRefusals(ctx, d, s); err != nil {
+			if !answer(err) {
+				return p, err
+			}
+			p.Refusal = o.forgetStandbyText(ctx, d, s, err.Error())
+		}
+	}
+	return p, nil
+}
+
+// forgetStandbyText words the standby refusal with the instance it is about:
+// "Promote or remove the standby of shop / prod postgres first." Any other
+// refusal is returned as it is.
+func (o *Orchestrator) forgetStandbyText(ctx context.Context, d store.NodeDisk, s forgetSet, msg string) string {
+	if msg != "Promote or remove the standby first." {
+		return msg
+	}
+	on := map[string]bool{}
+	for _, f := range s.folders {
+		on[f.Name] = true
+	}
+	for _, e := range s.envs {
+		for _, v := range s.vols[e.ID] {
+			if v.InstanceID == nil || !on[v.Name] {
+				continue
+			}
+			if r, ok, err := o.members.LiveReplica(ctx, *v.InstanceID); err == nil && ok && r.NodeID != d.NodeID {
+				if it, err := o.instanceTile(ctx, *v.InstanceID); err == nil {
+					return "Promote or remove the standby of " + o.moveEnvName(ctx, v) + " " + it.Name + " first."
+				}
+			}
+		}
+	}
+	return msg
+}
+
+// forgetPointing is why a record of a forgotten node's disk cannot go yet:
+// the envs (volumes, standbys) that still point at the node. "" = none do.
+func (o *Orchestrator) forgetPointing(ctx context.Context, d store.NodeDisk, node string) (string, error) {
+	es, err := o.store.Environments.ListByNode(ctx, d.NodeID)
+	if err != nil {
+		return "", err
+	}
+	vs, err := o.store.Volumes.ListByNode(ctx, d.NodeID)
+	if err != nil {
+		return "", err
+	}
+	ms, err := o.members.All(ctx)
+	if err != nil {
+		return "", err
+	}
+	nm := len(slices.DeleteFunc(slices.Clone(ms), func(m store.OperatedMember) bool { return m.NodeID != d.NodeID }))
+	if len(es)+len(vs)+nm == 0 {
+		return "", nil
+	}
+	var names []string
+	for _, e := range es {
+		n := e.Name
+		if st, err := o.stacks.Get(ctx, e.StackID); err == nil {
+			n = st.Name + " / " + e.Name
+		}
+		names = append(names, n)
+	}
+	what := ""
+	switch {
+	case len(names) > 2:
+		what = fmt.Sprintf("%s and %d more", strings.Join(names[:2], ", "), len(names)-2)
+	case len(names) > 0:
+		what = strings.Join(names, ", ")
+	case len(vs) > 0:
+		what = fmt.Sprintf("%d volumes", len(vs))
+	default:
+		what = fmt.Sprintf("%d standbys", nm)
+	}
+	if node == "" {
+		node = "the forgotten node"
+	}
+	return what + " still point at " + node + ". Recover them first.", nil
 }

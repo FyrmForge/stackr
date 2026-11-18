@@ -33,6 +33,10 @@ type NodeDiskPanel struct {
 	Low          bool      // the disk is as full as the disk.full alert warns at
 	MissingSince time.Time // zero = not known
 	Volumes      []DiskVolume
+	// InDocker counts the node's env volumes still in Docker storage, on a
+	// ready disk; MoveLive is whether a volume-to-disk job holds the node.
+	InDocker int
+	MoveLive bool
 }
 
 // NodeDiskPanel reads the node's disk, its volumes (largest first) and, with
@@ -52,6 +56,14 @@ func (o *Orchestrator) NodeDiskPanel(ctx context.Context, nodeID string) (NodeDi
 	d, _, err := o.nodeDisk(ctx, nodeID)
 	if err != nil {
 		return p, err
+	}
+	if v.State == disk.StateReady {
+		if p.MoveLive, err = o.todiskLive(ctx, nodeID); err != nil {
+			return p, err
+		}
+		if p.InDocker, err = o.inDockerCount(ctx, nodeID); err != nil {
+			return p, err
+		}
 	}
 	p.Low = v.Total > 0 && v.Free*100 <= v.Total*(100-diskFullPct)
 	if v.State == disk.StateMissing {
@@ -127,6 +139,10 @@ type VolumeStorage struct {
 	Node, NodeID     string
 	SizeBytes        int64     // -1 = unknown
 	SizeAt           time.Time // when the disk's sizes were read; zero = not known
+	// Ghost is what the last gate decision found beside the folder: "copy" (a
+	// plain Docker copy), "bound" (an object bound to Device, not the folder)
+	// or "". Memory only, no Docker; Folder is the folder it should be.
+	Ghost, Device string
 }
 
 // VolumeStorage reads where a volume lives. It never places or measures
@@ -155,6 +171,12 @@ func (o *Orchestrator) VolumeStorage(ctx context.Context, volumeID string) (Volu
 	s.OnDisk, s.State = true, d.State
 	s.InDocker = false
 	s.Folder = path.Join(d.MountPath, d.ID, v.Name)
+	if dev, ok := o.volumes.GhostSeen(nodeID, v.Name); ok && d.State == disk.StateReady {
+		s.Ghost, s.Device, s.InDocker = "bound", dev, false
+		if dev == "" {
+			s.Ghost, s.InDocker = "copy", true
+		}
+	}
 	if d.State == disk.StateReady {
 		if u, ok := o.cachedSizes(d, []string{v.Name})[v.Name]; ok && !u.Missing {
 			s.SizeBytes = u.Bytes
@@ -179,4 +201,20 @@ func (o *Orchestrator) diskSizesAt(nodeID string) time.Time {
 // the rows alone (no Docker, no helper).
 func (o *Orchestrator) VolumeOnDisk(ctx context.Context, v Volume) bool {
 	return o.volumes.OnDisk(ctx, v)
+}
+
+// inDockerCount is how many live env volumes of the node have no folder on
+// its disk. Rows only.
+func (o *Orchestrator) inDockerCount(ctx context.Context, nodeID string) (int, error) {
+	live, err := o.store.Volumes.ListLive(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, v := range live {
+		if v.ScopeKind == ScopeEnv && o.volumeNode(ctx, v.ID) == nodeID && !o.volumes.OnDisk(ctx, v) {
+			n++
+		}
+	}
+	return n, nil
 }

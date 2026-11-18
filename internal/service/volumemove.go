@@ -681,3 +681,139 @@ func (m *volumeMove) abort(ctx context.Context, cause error, copied []int, faile
 	}
 	return errors.Join(errList...)
 }
+
+// VolumeMoveInfo is what a volume drawer's Stored on card offers. Rows only,
+// so the drawer may ask it on every poll.
+type VolumeMoveInfo struct {
+	Offer   bool   // a Move to disk (or Finish move) button is drawn
+	Why     string // the button is disabled and this says why; "" with Running = disabled, no hint
+	Finish  bool   // an earlier move swapped the volume and was cut off: the button finishes it
+	Running bool   // a volume-to-disk job holds the volume
+}
+
+// VolumeMoveInfo reads what the volume's card offers.
+func (o *Orchestrator) VolumeMoveInfo(ctx context.Context, volumeID string) (VolumeMoveInfo, error) {
+	var m VolumeMoveInfo
+	v, err := o.volumes.Get(ctx, volumeID)
+	if err != nil || v.ScopeKind != ScopeEnv {
+		return m, err
+	}
+	nodeID := o.volumeNode(ctx, v.ID)
+	d, has, err := o.nodeDisk(ctx, nodeID)
+	if err != nil || !has {
+		return m, err
+	}
+	m.Running = o.moveLive(ctx, []Volume{v}) != nil
+	if o.volumes.OnDisk(ctx, v) {
+		if isMoveName(v.ID, v.Name) {
+			m.Finish, err = o.lastMoveFailed(ctx, v.ID)
+			m.Offer = m.Finish
+		}
+		return m, err
+	}
+	m.Offer = true
+	switch {
+	case d.State != disk.StateReady:
+		m.Why = "The node disk is not ready."
+	case v.InstanceID != nil && o.noStandbys(ctx, *v.InstanceID) != nil:
+		m.Why = "This instance has standbys. Remove them first."
+	}
+	return m, nil
+}
+
+// lastMoveFailed is whether the newest volume-to-disk job that held the
+// volume failed.
+func (o *Orchestrator) lastMoveFailed(ctx context.Context, volumeID string) (bool, error) {
+	js, err := o.jobRows.Recent(ctx, 200)
+	if err != nil {
+		return false, err
+	}
+	for _, j := range js { // newest first
+		var p volumeMoveJob
+		if j.Kind != string(kindVolumeToDisk) || json.Unmarshal([]byte(j.Payload), &p) != nil {
+			continue
+		}
+		if slices.ContainsFunc(p.Volumes, func(it volumeMoveItem) bool { return it.VolumeID == volumeID }) {
+			return j.State == job.Failed, nil
+		}
+	}
+	return false, nil
+}
+
+// VolumeMovePlan is what the Move to disk dialog shows. SizeBytes is -1 when
+// Docker cannot tell; Need is the data and a tenth over.
+type VolumeMovePlan struct {
+	Slug, Env string
+	Tiles     []string // the tiles that stop while it copies
+	SizeBytes int64
+	Need      int64
+	Free      uint64
+	Fits      bool
+	Finish    bool // only the deploy is left: nothing copies
+}
+
+// PlanVolumeMove measures the volume and the disk. It writes nothing; it asks
+// Docker, so it answers an explicit press only, never a poll.
+func (o *Orchestrator) PlanVolumeMove(ctx context.Context, by *Principal, volumeID string) (VolumeMovePlan, error) {
+	v, err := o.volumes.Get(ctx, volumeID)
+	if err != nil {
+		return VolumeMovePlan{}, err
+	}
+	p := VolumeMovePlan{Slug: v.Slug, Env: o.moveEnvName(ctx, v), SizeBytes: -1}
+	nodeID := o.volumeNode(ctx, v.ID)
+	if _, err := o.diskNodeUp(ctx, nodeID); err != nil {
+		return p, err
+	}
+	d, has, err := o.nodeDisk(ctx, nodeID)
+	if err != nil {
+		return p, err
+	}
+	if !has || d.State != disk.StateReady {
+		return p, errs.Refusedf("This node's disk is not ready.")
+	}
+	ts, err := o.moveTiles(ctx, []Volume{v})
+	if err != nil {
+		return p, err
+	}
+	for _, t := range ts {
+		p.Tiles = append(p.Tiles, t.Name)
+	}
+	if p.Free, _, err = o.dataDiskOf(ctx, nodeID); err != nil {
+		return p, err
+	}
+	if o.volumes.OnDisk(ctx, v) { // a cut-off move: the copy is done
+		p.Finish, p.Fits = true, true
+		return p, nil
+	}
+	p.SizeBytes = o.volumes.SizesFresh(ctx, []Volume{v})[v.ID]
+	p.Need = max(p.SizeBytes, 0) + max(p.SizeBytes, 0)/10
+	p.Fits = uint64(p.Need) <= p.Free
+	return p, nil
+}
+
+// OldCopyHeld is whether an orphaned_at stamp is the hold of a move's old
+// copy: the panel then shows no date.
+func OldCopyHeld(at time.Time) bool { return at.Equal(moveHold) }
+
+// VolumeMoveJob is the newest volume-to-disk job that holds the volume: a
+// live one, or one that ended in the last ten minutes. Rows only.
+func (o *Orchestrator) VolumeMoveJob(ctx context.Context, volumeID string) (Job, bool, error) {
+	js, err := o.Jobs(ctx, 200)
+	if err != nil {
+		return Job{}, false, err
+	}
+	for _, j := range js { // newest first
+		var p volumeMoveJob
+		if j.Kind != string(kindVolumeToDisk) || json.Unmarshal([]byte(j.Payload), &p) != nil {
+			continue
+		}
+		if !slices.ContainsFunc(p.Volumes, func(it volumeMoveItem) bool { return it.VolumeID == volumeID }) {
+			continue
+		}
+		if j.FinishedAt != nil && time.Since(*j.FinishedAt) > 10*time.Minute {
+			return Job{}, false, nil
+		}
+		return j, true, nil
+	}
+	return Job{}, false, nil
+}

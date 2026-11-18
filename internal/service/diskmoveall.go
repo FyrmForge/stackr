@@ -170,7 +170,12 @@ func (o *Orchestrator) todiskLive(ctx context.Context, nodeID string) (bool, err
 }
 
 func (o *Orchestrator) moveEnvName(ctx context.Context, v Volume) string {
-	e, err := o.envs.Get(ctx, v.ScopeID)
+	return o.envLabel(ctx, v.ScopeID)
+}
+
+// envLabel is "stack / env" for an env id.
+func (o *Orchestrator) envLabel(ctx context.Context, envID string) string {
+	e, err := o.envs.Get(ctx, envID)
 	if err != nil {
 		return ""
 	}

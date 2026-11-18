@@ -12,6 +12,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,6 +49,10 @@ type Leaf struct {
 	// an adopted orphan). The service uses it to give the volume its default
 	// backup schedule; a failure there never fails the declare.
 	Created func(ctx context.Context, v store.Volume)
+
+	// ghosts remembers what the last route decision found per node and name,
+	// so a drawer can say "two copies" without asking Docker (see GhostSeen).
+	ghosts *sync.Map
 }
 
 // WithNode sets how the leaf finds the node a scope's volumes live on.
@@ -90,7 +95,9 @@ func (l *Leaf) orController(ctx context.Context) (context.Context, error) {
 	return docker.WithNode(ctx, id), nil
 }
 
-func New(volumes store.VolumeStore, d Docker) *Leaf { return &Leaf{volumes: volumes, docker: d} }
+func New(volumes store.VolumeStore, d Docker) *Leaf {
+	return &Leaf{volumes: volumes, docker: d, ghosts: new(sync.Map)}
+}
 
 func (l *Leaf) Get(ctx context.Context, id string) (store.Volume, error) {
 	return l.volumes.Get(ctx, id)

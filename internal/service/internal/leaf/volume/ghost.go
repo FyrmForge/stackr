@@ -60,7 +60,11 @@ func (l *Leaf) DiscardGhost(ctx context.Context, v store.Volume, bound bool, che
 			return g, err
 		}
 	}
-	return g, l.docker.RemoveVolume(cctx, g.Name)
+	if err := l.docker.RemoveVolume(cctx, g.Name); err != nil {
+		return g, err
+	}
+	l.ghosts.Delete(node + "\x00" + g.Name)
+	return g, nil
 }
 
 // RemoveBoundTo removes the Docker object name on nodeID when it is bound to

@@ -37,6 +37,7 @@ const (
 // NodeDiskView is a node's disk as the panel shows it.
 type NodeDiskView struct {
 	Has         bool
+	ID          string // the disk row's id
 	Kind, Path  string
 	State       string // adding | ready | missing
 	Free, Total uint64
@@ -180,7 +181,10 @@ func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskVie
 	if err != nil {
 		return NodeDiskView{}, err
 	}
-	v := NodeDiskView{Has: true, Kind: d.Kind, Path: d.MountPath, State: d.State, Volumes: len(fs), Stale: true}
+	v := NodeDiskView{Has: true, ID: d.ID, Kind: d.Kind, Path: d.MountPath, State: d.State, Volumes: len(fs), Stale: true}
+	if d.State == disk.StateAdopting && d.NodeID != nodeID { // before the commit the row is still the old node's
+		v.Path = d.OpMountPath
+	}
 	n, err := o.store.Nodes.Get(ctx, nodeID)
 	if err != nil {
 		return v, err

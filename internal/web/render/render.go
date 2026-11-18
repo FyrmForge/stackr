@@ -468,11 +468,20 @@ func EnvURL(c echo.Context) string {
 	return "/" + s.Org.Slug + "/" + s.Stack.Slug + "/" + s.Env.Slug
 }
 
+// jobKindLabel is a job kind as the status line says it: disk.add,
+// disk.check, disk.forget, disk.adopt, volume.to_disk.
+func jobKindLabel(k string) string {
+	if k == "volume-to-disk" {
+		return "volume.to_disk"
+	}
+	return strings.Replace(k, "disk-", "disk.", 1)
+}
+
 // JobView is a job's status line; page is the path its job stream hangs
 // under (an env page, or "" for the admin drawer's panel jobs).
 func JobView(page string, j service.Job) components.JobStatusView {
 	return components.JobStatusView{
-		Kind:      strings.Replace(j.Kind, "disk-", "disk.", 1), // disk.add, disk.check
+		Kind:      jobKindLabel(j.Kind),
 		State:     j.State,
 		Error:     j.Error,
 		Href:      page + "/-/jobs/" + j.ID,
@@ -572,6 +581,24 @@ func JobLogPage(c echo.Context, orch *service.Orchestrator, page string) error {
 		return respond.HTML(c, http.StatusOK, components.JobLogMore(v))
 	}
 	return Page(c, http.StatusOK, "Job log", components.JobLog(v))
+}
+
+// DiskSize is a size as the node disk screens say it: 86 MB, 4.2 GB, 278 GB,
+// 1.8 TB.
+func DiskSize(b int64) string {
+	switch {
+	case b >= 1<<40:
+		return fmt.Sprintf("%.1f TB", float64(b)/(1<<40))
+	case b >= 10<<30:
+		return fmt.Sprintf("%.0f GB", float64(b)/(1<<30))
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.0f MB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%d KB", b>>10)
+	}
+	return fmt.Sprintf("%d B", b)
 }
 
 // Size is a byte count for people.

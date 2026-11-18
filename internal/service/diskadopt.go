@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -44,6 +45,8 @@ type DiskAdoptPlan struct {
 	Elsewhere []AdoptVolume // their volumes that are not on the disk: restored from backup, or empty
 	Unclaimed []string      // folders no volume or env of the old node claims: kept, never deleted
 	Copies    []AdoptCopy   // plain copies already on the node that block the adopt
+	Hosts     []AdoptHost   // standbys, or a relocated primary, the old node hosts: they block the adopt
+	AdoptedBy string        // the node another adopt of this disk is for, when that is why it refuses
 
 	Refusal string
 
@@ -55,13 +58,18 @@ type DiskAdoptPlan struct {
 }
 
 // AdoptEnv is an env that moves.
-type AdoptEnv struct{ ID, Slug string }
+type AdoptEnv struct {
+	ID, Slug string
+	Label    string // "shop / prod"
+	Tiles    int
+}
 
 // AdoptVolume is a volume of an adopted env. For a volume that is not on the
 // disk, Backup is the date of the newest backup it comes back from; HasBackup
 // false means it starts empty.
 type AdoptVolume struct {
 	ID, Slug, Env string
+	Where         string // "shop / prod"; "" for an orphan
 	HasBackup     bool
 	Backup        time.Time
 }
@@ -71,6 +79,13 @@ type AdoptVolume struct {
 type AdoptCopy struct {
 	VolumeID, Slug string
 	Bound          bool // bound to a folder other than the disk's, not a plain copy
+}
+
+// AdoptHost is an operated instance member that lives on the old node: its
+// env ("shop / prod") and its instance tile.
+type AdoptHost struct {
+	Env, Tile string
+	Primary   bool
 }
 
 // AdoptCandidate is a disk row of a forgotten node.
@@ -407,9 +422,37 @@ func (o *Orchestrator) PlanDiskAdopt(ctx context.Context, nodeID, path string) (
 				return p, err
 			}
 			p.Refusal = err.Error()
+			if p.Refusal == "Remove the standbys first." {
+				p.Hosts = o.adoptHosts(ctx, d)
+			}
+			if d.State == disk.StateAdopting && d.OpNodeID != n.ID {
+				if on, err := o.store.Nodes.Get(ctx, d.OpNodeID); err == nil {
+					p.AdoptedBy = on.Name
+				}
+			}
 		}
 	}
 	return p, nil
+}
+
+// adoptHosts are the members on the disk's old node, each named by its instance.
+func (o *Orchestrator) adoptHosts(ctx context.Context, d store.NodeDisk) []AdoptHost {
+	ms, err := o.members.All(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []AdoptHost
+	for _, m := range ms {
+		if m.NodeID != d.NodeID {
+			continue
+		}
+		it, err := o.instanceTile(ctx, m.InstanceID)
+		if err != nil {
+			continue
+		}
+		out = append(out, AdoptHost{Env: o.envLabel(ctx, it.EnvironmentID), Tile: it.Name, Primary: m.Role == opmember.Primary})
+	}
+	return out
 }
 
 // answer: a refusal the plan shows as its Refusal rather than fails with.
@@ -425,9 +468,10 @@ func (o *Orchestrator) adoptFill(ctx context.Context, p *DiskAdoptPlan, v adoptV
 		on[f.Name] = true
 	}
 	for _, e := range v.envs {
-		p.Envs = append(p.Envs, AdoptEnv{ID: e.ID, Slug: e.Slug})
+		label := o.envLabel(ctx, e.ID)
+		p.Envs = append(p.Envs, AdoptEnv{ID: e.ID, Slug: e.Slug, Label: label, Tiles: len(v.tiles[e.ID])})
 		for _, x := range v.vols[e.ID] {
-			av := AdoptVolume{ID: x.ID, Slug: x.Slug, Env: e.Slug}
+			av := AdoptVolume{ID: x.ID, Slug: x.Slug, Env: e.Slug, Where: label}
 			switch {
 			case on[x.Name]:
 				p.OnDisk = append(p.OnDisk, av)
