@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -164,14 +165,28 @@ func (l *Leaf) gated(ctx context.Context, t store.Tile, id string, log io.Writer
 // removed, and puts its last line in front of err: most often the app
 // saying why, so it comes first where a narrow column cuts.
 func (l *Leaf) lastWords(ctx context.Context, id string, err error, log io.Writer) error {
-	out, lerr := l.docker.Logs(ctx, id, 20)
+	out, lerr := l.docker.Logs(ctx, id, 200)
 	out = strings.TrimSpace(out)
 	if lerr != nil || out == "" {
 		return err
 	}
 	_, _ = io.WriteString(log, "its last output:\n"+out+"\n")
-	last := out[strings.LastIndexByte(out, '\n')+1:]
-	return fmt.Errorf("%s (%w)", last[:min(len(last), 200)], err)
+	reason := reasonLine(out)
+	return fmt.Errorf("%s (%w)", reason[:min(len(reason), 200)], err)
+}
+
+var errLevel = regexp.MustCompile(`(?i)\b(error|fatal|panic)\b`)
+
+// reasonLine is the first line of out carrying an error level (the word, or a
+// level field, which the word match covers), else the last line.
+// ponytail: a line merely mentioning "error" can win; a real level parser if it bites.
+func reasonLine(out string) string {
+	for _, ln := range strings.Split(out, "\n") {
+		if errLevel.MatchString(ln) {
+			return ln
+		}
+	}
+	return out[strings.LastIndexByte(out, '\n')+1:]
 }
 
 // RunOnce runs one run-to-completion container: no health gate, no restart,
