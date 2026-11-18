@@ -270,10 +270,6 @@ func TestPhase2StubsRefuseAndAreRegistered(t *testing.T) {
 	refused("PlanDiskAdopt", err)
 	_, err = o.AdoptDisk(ctx, by, "w1", "d", "/x", "")
 	refused("AdoptDisk", err)
-	_, err = o.PlanMoveAllToDisk(ctx, by, "w1")
-	refused("PlanMoveAllToDisk", err)
-	_, err = o.MoveAllToDisk(ctx, by, "w1")
-	refused("MoveAllToDisk", err)
 }
 
 func TestNewJobKindsAreInDataCaps(t *testing.T) {

@@ -6,8 +6,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 )
 
-// Move all to disk in the node drawer. Work package 2N fills these in; until
-// then the verbs refuse and the drawer shows why.
+// Move all to disk in the node drawer. The plan dialog (nodedisk_moveall.templ)
+// is not built yet, so the plan route shows only a refusal; the jobs show in
+// the drawer through the live job slots.
 
 // POST …/nodes/:node/disk/move-all/plan: what Move all would do.
 func (h *handler) diskMoveAllPlan(c echo.Context) error {
