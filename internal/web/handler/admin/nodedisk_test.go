@@ -82,7 +82,7 @@ func TestNodeDiskSectionOffersAddDisk(t *testing.T) {
 		"Keep volumes on their own disk, apart from the system disk.", "System disk")
 	card := section(t, body)
 	has(t, "section", card, ">Add disk</button>", `id="disk-use"`, `id="disk-path"`, `<label class="label" for="disk-path">Folder</label>`,
-		`aria-live="polite"`, "A mounted, empty folder. Nothing is erased.", "Checking the folder...", "group-[.htmx-request]/f:flex", "group-has-[#disk-path:placeholder-shown]/f:opacity-50")
+		`aria-live="polite"`, "A mounted, empty folder. Nothing is erased.", "Checking the folder...", `hx-indicator="#disk-checking"`, `id="disk-checking"`, "group-has-[#disk-path:placeholder-shown]/f:opacity-50")
 	if strings.Contains(card, `class="panel`) || strings.Contains(card, "rounded-lg border") {
 		t.Errorf("a box inside the Node disk card\n%s", card)
 	}

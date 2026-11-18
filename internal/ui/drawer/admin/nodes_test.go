@@ -217,3 +217,20 @@ func TestUpdateLastErr(t *testing.T) {
 		t.Errorf("failure line shown during a new upgrade\n%s", out)
 	}
 }
+
+// A section of the node drawer holds its rows flat: no bordered box inside
+// the card (Node, Addresses, Machine, Tunnels, Backups).
+func TestNodeOverviewSectionsAreFlat(t *testing.T) {
+	out := renderNode(t, "overview", NodeView{Status: "online", Version: "1.0", Role: "worker", HasFacts: true, Cores: 2, Backup: "/b",
+		Tunnels: []TunnelRow{{Name: "t1", Open: "/t"}}, Backups: []BackupGroupRow{{Label: "g", Status: "done"}}})
+	for _, card := range strings.Split(out, "<section")[1:] {
+		_, card, _ = strings.Cut(card, ">") // past the card's own tag
+		card, _, _ = strings.Cut(card, "</section>")
+		if strings.Contains(card, `class="panel`) || strings.Contains(card, ` panel `) {
+			t.Errorf("a box inside a section card\n%s", card)
+		}
+	}
+	if !strings.Contains(out, ">Machine</h2>") || !strings.Contains(out, "System disk") {
+		t.Errorf("no Machine section\n%s", out)
+	}
+}

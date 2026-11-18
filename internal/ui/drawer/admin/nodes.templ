@@ -473,9 +473,9 @@ templ Nodes(v NodesView) {
 		}
 		if len(v.Lost) > 0 {
 			@c.Section("Lost envs", "instance", "Their node was forgotten. Repoint the placement they belong to and they come back from backups.") {
-				<ul class="space-y-3">
+				<ul class="divide-y divide-rw-border">
 					for _, l := range v.Lost {
-						<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+						<li class="py-3 text-sm flex flex-wrap items-center gap-2">
 							<span class="text-rw-text">{ l.Path }</span>
 							@c.Chip(l.Node+" was forgotten", "warn")
 							<span class="text-xs text-rw-muted">placement { l.Placement }</span>
@@ -490,9 +490,9 @@ templ Nodes(v NodesView) {
 		}
 		if len(v.Pending) > 0 {
 			@c.Section("Waiting to join", "instance", "Machines that ran a join command. Add the ones you expect, reject the rest.") {
-				<ul class="space-y-3">
+				<ul class="divide-y divide-rw-border">
 					for _, p := range v.Pending {
-						<li class="panel px-4 py-3 text-sm space-y-2">
+						<li class="py-3 text-sm space-y-2">
 							<div class="flex flex-wrap items-center gap-2">
 								<span class="text-rw-text font-medium">{ p.Name }</span>
 								for _, t := range p.Tags {
@@ -548,7 +548,7 @@ templ Nodes(v NodesView) {
 
 templ trustSection(t TrustView) {
 	@c.Section("Cluster root", "instance", "Signs every node certificate.") {
-		<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1 mb-3">
+		<dl class="grid grid-cols-[8rem_minmax(0,1fr)] max-[480px]:grid-cols-1 gap-x-4 gap-y-3 max-[480px]:gap-y-0 text-sm [&>dd]:[overflow-wrap:anywhere] max-[480px]:[&>dt]:mt-3 max-[480px]:[&>dt:first-child]:mt-0 max-[480px]:[&>dd]:mt-0.5 mb-3">
 			<dt class="text-rw-muted">Root</dt>
 			<dd class="font-mono text-xs text-rw-text break-all">{ t.Fingerprint }</dd>
 			<dt class="text-rw-muted">Created</dt>
@@ -585,9 +585,9 @@ templ trustSection(t TrustView) {
 		if len(t.NotRejoined) > 0 {
 			<h3 class="mt-4 mb-2 text-sm font-semibold text-rw-text">Not rejoined</h3>
 			<p class="mb-2 text-xs text-rw-muted">Run each command on its machine as root. A command works once.</p>
-			<ul class="space-y-2">
+			<ul class="divide-y divide-rw-border">
 				for _, r := range t.NotRejoined {
-					<li class="panel px-4 py-3 text-sm space-y-2">
+					<li class="py-3 text-sm space-y-2">
 						<div class="flex flex-wrap items-center gap-2">
 							<span class="text-rw-text">{ r.Name }</span>
 							@c.Chip("Not rejoined", "warn")
@@ -729,9 +729,9 @@ templ NodeBody(tab string, v NodeView) {
 		@c.JobSlotFor(v.Job, "", "node="+v.ID)
 		if len(v.DownDomains) > 0 {
 			@c.Section("Domains on this node", "", "This ingress is down, so these stop answering. Move each env's ingress to another node.") {
-				<ul class="space-y-2 mb-4">
+				<ul class="divide-y divide-rw-border mb-4">
 					for _, d := range v.DownDomains {
-						<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+						<li class="py-3 text-sm flex flex-wrap items-center gap-2">
 							<span class="text-rw-text">{ d.Host }</span>
 							<span class="text-xs text-rw-faint">{ d.Env }</span>
 							<a href={ templ.SafeURL(d.Move) } class="btn btn-ghost btn-sm ml-auto">Move ingress</a>
@@ -752,9 +752,9 @@ templ NodeBody(tab string, v NodeView) {
 					if len(v.Envs) == 0 {
 						<p class="text-sm text-rw-faint">No envs on this node.</p>
 					} else {
-						<ul class="space-y-2">
+						<ul class="divide-y divide-rw-border">
 							for _, e := range v.Envs {
-								<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+								<li class="py-3 text-sm flex flex-wrap items-center gap-2">
 									<span class="text-rw-text">{ e.Path }</span>
 									<span class="text-xs text-rw-faint">{ e.Pin }</span>
 									<span class="ml-auto text-xs text-rw-muted">{ plural(e.Tiles, "tile") }</span>
@@ -824,7 +824,7 @@ templ NodeBody(tab string, v NodeView) {
 						<p class="text-sm text-rw-faint">No certificate issued.</p>
 					}
 					for _, ce := range v.Certs {
-						<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1 mb-2">
+						<dl class="grid grid-cols-[8rem_minmax(0,1fr)] max-[480px]:grid-cols-1 gap-x-4 gap-y-3 max-[480px]:gap-y-0 text-sm [&>dd]:[overflow-wrap:anywhere] max-[480px]:[&>dt]:mt-3 max-[480px]:[&>dt:first-child]:mt-0 max-[480px]:[&>dd]:mt-0.5 mb-2">
 							<dt class="text-rw-muted">Serial</dt>
 							<dd class="font-mono text-xs text-rw-text">{ ce.Serial }</dd>
 							<dt class="text-rw-muted">Issued</dt>
@@ -879,7 +879,7 @@ templ NodeBody(tab string, v NodeView) {
 				}
 				@diskStrip(v.NodeDisk)
 				@c.Section("Node", "", "") {
-					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
+					<dl class="grid grid-cols-[8rem_minmax(0,1fr)] max-[480px]:grid-cols-1 gap-x-4 gap-y-3 max-[480px]:gap-y-0 text-sm [&>dd]:[overflow-wrap:anywhere] max-[480px]:[&>dt]:mt-3 max-[480px]:[&>dt:first-child]:mt-0 max-[480px]:[&>dd]:mt-0.5">
 						<dt class="text-rw-muted">Status</dt>
 						<dd class="text-rw-text flex items-center gap-2">
 							<span class={ "inline-block size-2 rounded-full", statusDot(v.Status) } aria-hidden="true"></span>
@@ -914,7 +914,7 @@ templ NodeBody(tab string, v NodeView) {
 				}
 				@diskSection(v.NodeDisk)
 				@c.Section("Addresses", "", "") {
-					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
+					<dl class="grid grid-cols-[8rem_minmax(0,1fr)] max-[480px]:grid-cols-1 gap-x-4 gap-y-3 max-[480px]:gap-y-0 text-sm [&>dd]:[overflow-wrap:anywhere] max-[480px]:[&>dt]:mt-3 max-[480px]:[&>dt:first-child]:mt-0 max-[480px]:[&>dd]:mt-0.5">
 						@addrRow("Public", ifaces(v.Ifaces, "public"))
 						@addrRow("LAN", ifaces(v.Ifaces, "lan"))
 						if v.WGAddress != "" {
@@ -929,7 +929,7 @@ templ NodeBody(tab string, v NodeView) {
 				}
 				@c.Section("Machine", "", "") {
 					if v.HasFacts {
-						<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
+						<dl class="grid grid-cols-[8rem_minmax(0,1fr)] max-[480px]:grid-cols-1 gap-x-4 gap-y-3 max-[480px]:gap-y-0 text-sm [&>dd]:[overflow-wrap:anywhere] max-[480px]:[&>dt]:mt-3 max-[480px]:[&>dt:first-child]:mt-0 max-[480px]:[&>dd]:mt-0.5">
 							<dt class="text-rw-muted">Arch</dt>
 							<dd>
 								if v.Arch != "" {
@@ -959,10 +959,10 @@ templ NodeBody(tab string, v NodeView) {
 					if len(v.Tunnels) == 0 {
 						<p class="text-sm text-rw-faint">No tunnels.</p>
 					} else {
-						<ul class="space-y-2">
+						<ul class="divide-y divide-rw-border">
 							for _, t := range v.Tunnels {
 								<li>
-									<button type="button" hx-get={ t.Open } hx-target="#drawer-body" hx-push-url="false" class="panel w-full px-4 py-2 text-sm flex flex-wrap items-center gap-3 text-left hover:bg-rw-raised">
+									<button type="button" hx-get={ t.Open } hx-target="#drawer-body" hx-push-url="false" class="w-full py-2 text-sm flex flex-wrap items-center gap-3 text-left hover:bg-rw-raised">
 										<span class="text-rw-text font-medium">{ t.Name }</span>
 										if t.Ping != "" {
 											<span class="font-mono text-xs text-rw-muted">{ t.Ping }</span>
@@ -982,9 +982,9 @@ templ NodeBody(tab string, v NodeView) {
 						if len(v.Backups) == 0 {
 							<p class="text-sm text-rw-faint">No node backups yet.</p>
 						}
-						<ul class="space-y-2">
+						<ul class="divide-y divide-rw-border">
 							for _, g := range v.Backups {
-								<li class="panel px-4 py-3 text-sm space-y-1">
+								<li class="py-3 text-sm space-y-1">
 									<div class="flex flex-wrap items-center gap-2">
 										<span class="text-rw-text">{ g.Label }</span>
 										@c.Chip(g.Status, backupTone(g.Status))
@@ -1202,7 +1202,7 @@ templ diskDialog(d DiskDialog, opener, class string) {
 					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
 				</button>
 			</div>
-			<form id="disk-form" class="group/f" hx-post={ d.Probe } hx-swap="none" hx-disabled-elt="#disk-check, #disk-use" hx-sync="this:replace">
+			<form id="disk-form" class="group/f" hx-post={ d.Probe } hx-swap="none" hx-indicator="#disk-checking" hx-disabled-elt="#disk-check, #disk-use" hx-sync="this:replace">
 				<div class="modal-body">
 					<div>
 						<label class="label" for="disk-path">Folder</label>
@@ -1214,7 +1214,7 @@ templ diskDialog(d DiskDialog, opener, class string) {
 						<div id="disk-probe" aria-live="polite" class="[&:not(:empty)]:mt-3">
 							@diskResult(d)
 						</div>
-						<p class="hidden group-[.htmx-request]/f:mt-3 group-[.htmx-request]/f:flex items-start gap-2 text-sm text-rw-muted">
+						<p id="disk-checking" class="htmx-indicator max-h-0 overflow-hidden [&.htmx-request]:max-h-10 [&.htmx-request]:mt-3 flex items-start gap-2 text-sm text-rw-muted">
 							<span class="inline-block size-3.5 rounded-full border-2 border-rw-muted border-t-transparent animate-spin shrink-0 mt-0.5" aria-hidden="true"></span>
 							<span>Checking the folder...</span>
 						</p>
@@ -1382,9 +1382,9 @@ templ ifaceSection(title, help string, rows []IfaceRow) {
 }
 
 templ ifaceList(rows []IfaceRow) {
-	<ul class="space-y-2 mt-2">
+	<ul class="divide-y divide-rw-border mt-2">
 		for _, i := range rows {
-			<li class="panel px-4 py-2 text-sm flex flex-wrap items-center gap-3">
+			<li class="py-2 text-sm flex flex-wrap items-center gap-3">
 				<span class="font-mono text-rw-text">{ i.Name }</span>
 				<span class="min-w-0 font-mono text-xs text-rw-muted break-all">{ i.Addr }</span>
 				if i.Label != "" {

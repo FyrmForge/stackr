@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -234,13 +235,22 @@ func (l *Leaf) History(ctx context.Context, tileIDs []string, limit int) ([]stor
 }
 
 // Last is the newest job touching the tile, in any state: what the
-// orchestrator layers over tile.State (DECIDE 8). ok=false: none yet.
+// orchestrator layers over tile.State (DECIDE 8). ok=false: none yet. The
+// node-wide disk jobs lock every tile on the node but are none of the tile's
+// own, so they are skipped.
+// ponytail: looks at the newest 20; a tile under 20 disk jobs in a row reads
+// as having none.
 func (l *Leaf) Last(ctx context.Context, tileID string) (store.Job, bool, error) {
-	js, err := l.jobs.ListTouching(ctx, []string{tileID}, "", 1)
-	if err != nil || len(js) == 0 {
+	js, err := l.jobs.ListTouching(ctx, []string{tileID}, "", 20)
+	if err != nil {
 		return store.Job{}, false, err
 	}
-	return js[0], true, nil
+	for _, j := range js {
+		if !strings.HasPrefix(j.Kind, "disk-") {
+			return j, true, nil
+		}
+	}
+	return store.Job{}, false, nil
 }
 
 // LastDone is the tile's newest finished job of kind; with the deploy kind

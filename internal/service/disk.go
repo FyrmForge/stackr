@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
@@ -186,6 +187,15 @@ func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskVie
 		if i := slices.IndexFunc(f.Disks, func(x hostdisk.Fact) bool { return x.Path == d.MountPath }); i >= 0 {
 			x := f.Disks[i]
 			v.Free, v.Total, v.Network, v.Stale, v.ReadAt = x.Free, x.Total, x.Network, f.DisksStale, x.ReadAt
+		}
+	}
+	// A controller with no worker has no facts. When the panel sees the mount
+	// itself (not an installed panel), one statfs is the same answer.
+	if v.Total == 0 && o.dh.inProcess(ctx, nodeID) {
+		var st syscall.Statfs_t
+		if syscall.Statfs(d.MountPath, &st) == nil && st.Blocks > 0 {
+			v.Free, v.Total = st.Bavail*uint64(st.Bsize), st.Blocks*uint64(st.Bsize)
+			v.Stale, v.ReadAt = false, time.Now()
 		}
 	}
 	return v, nil
