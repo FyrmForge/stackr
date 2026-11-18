@@ -24,12 +24,16 @@ class ConfirmDialog extends HTMLElement {
       this.querySelector<HTMLInputElement>("[data-word]")?.focus();
     } else if (target.closest("[data-cancel]")) {
       dialog.close();
+      this.reset();
     } else if (target.closest("[data-confirm]")) {
       if (this.confirmButton()?.disabled) return;
       dialog.close();
       this.dispatchEvent(new CustomEvent("confirmed", { bubbles: true }));
     }
   };
+
+  // Escape closes the dialog too: a half-typed word must not stay behind.
+  private onEscape = (): void => this.reset();
 
   private onInput = (e: Event): void => {
     const input = e.target as HTMLInputElement;
@@ -51,6 +55,7 @@ class ConfirmDialog extends HTMLElement {
     this.form?.addEventListener("submit", this.onSubmit);
     this.addEventListener("click", this.onClick);
     this.addEventListener("input", this.onInput);
+    this.addEventListener("cancel", this.onEscape, true);
     // rendered disabled so a click before this element upgrades is not lost
     this.querySelectorAll<HTMLButtonElement>("button[data-open]").forEach((b) => (b.disabled = false));
     // open: the server answered with the question (a promote's plan).
@@ -64,6 +69,7 @@ class ConfirmDialog extends HTMLElement {
     this.form?.removeEventListener("submit", this.onSubmit);
     this.removeEventListener("click", this.onClick);
     this.removeEventListener("input", this.onInput);
+    this.removeEventListener("cancel", this.onEscape, true);
   }
 
   private step(button: Element): void {

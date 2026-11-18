@@ -18,6 +18,7 @@ class ConfirmDialog extends HTMLElement {
         }
         else if (target.closest("[data-cancel]")) {
             dialog.close();
+            this.reset();
         }
         else if (target.closest("[data-confirm]")) {
             if (this.confirmButton()?.disabled)
@@ -26,6 +27,7 @@ class ConfirmDialog extends HTMLElement {
             this.dispatchEvent(new CustomEvent("confirmed", { bubbles: true }));
         }
     };
+    onEscape = () => this.reset();
     onInput = (e) => {
         const input = e.target;
         if (!input.matches("[data-word]") || input.closest("confirm-dialog") !== this)
@@ -45,6 +47,7 @@ class ConfirmDialog extends HTMLElement {
         this.form?.addEventListener("submit", this.onSubmit);
         this.addEventListener("click", this.onClick);
         this.addEventListener("input", this.onInput);
+        this.addEventListener("cancel", this.onEscape, true);
         this.querySelectorAll("button[data-open]").forEach((b) => (b.disabled = false));
         if (this.hasAttribute("open")) {
             this.reset();
@@ -55,6 +58,7 @@ class ConfirmDialog extends HTMLElement {
         this.form?.removeEventListener("submit", this.onSubmit);
         this.removeEventListener("click", this.onClick);
         this.removeEventListener("input", this.onInput);
+        this.removeEventListener("cancel", this.onEscape, true);
     }
     step(button) {
         const at = button.closest("[data-step]");
