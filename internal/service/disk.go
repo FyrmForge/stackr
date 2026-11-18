@@ -476,11 +476,19 @@ func (o *Orchestrator) diskTiles(ctx context.Context, e store.Environment, on ma
 	if err != nil {
 		return nil, err
 	}
-	return slices.DeleteFunc(ts, func(t Tile) bool {
-		return !slices.ContainsFunc(vs, func(v Volume) bool {
-			if v.InstanceID != nil && *v.InstanceID == t.ID {
-				return true
+	// an instance's data volume belongs to its tile, not to a volumes line
+	owners := map[string]bool{}
+	for _, v := range vs {
+		if v.InstanceID != nil {
+			it, err := o.instanceTile(ctx, *v.InstanceID)
+			if err != nil {
+				return nil, err
 			}
+			owners[it.ID] = true
+		}
+	}
+	return slices.DeleteFunc(ts, func(t Tile) bool {
+		return !owners[t.ID] && !slices.ContainsFunc(vs, func(v Volume) bool {
 			for _, l := range tile.Lines(t.Volumes) {
 				if sl, _, ok := MountedVolume(l); ok && sl == v.Slug {
 					return true

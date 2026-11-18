@@ -94,6 +94,17 @@ func (o *Orchestrator) forgetRefusals(ctx context.Context, d store.NodeDisk, s f
 	for _, f := range s.folders {
 		on[f.Name] = true
 	}
+	// a primary that failed over onto this disk's node is no env's volume here:
+	// nothing would restore it, and the way back would start Postgres empty
+	for _, m := range s.members {
+		if m.Role == opmember.Primary && !m.Fenced {
+			name := m.InstanceID
+			if it, err := o.instanceTile(ctx, m.InstanceID); err == nil {
+				name = it.Name
+			}
+			return errs.Refusedf("%s runs its primary on this node after a failover. Move it back first.", name)
+		}
+	}
 	var all []store.Volume
 	for _, e := range s.envs {
 		for _, v := range s.vols[e.ID] {
