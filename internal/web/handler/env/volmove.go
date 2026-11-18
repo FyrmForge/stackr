@@ -39,6 +39,9 @@ func (h *handler) moveDialog(c echo.Context, msg string) (volume.MoveDialog, err
 		return d, nil
 	}
 	d.Need, d.Free, d.Low = diskSize(p.Need), diskSize(int64(p.Free)), !p.Fits
+	if p.SizeBytes < 0 && !p.Finish {
+		d.Need = "unknown"
+	}
 	switch {
 	case p.SizeBytes >= 0:
 		d.Text = diskSize(p.SizeBytes) + " moves from Docker storage to the node disk."
