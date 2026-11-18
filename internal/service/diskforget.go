@@ -333,8 +333,13 @@ func (o *Orchestrator) runDiskForget(ctx context.Context, r *jobs.Run, p diskFor
 	// newest backup and deploy. Any error, a partial enqueue included, keeps
 	// the row forgetting.
 	var failed []error
+	on := map[string]bool{}
+	for _, f := range s.folders {
+		on[f.Name] = true
+	}
 	for _, e := range s.envs {
-		_, notes, err := o.restoreThenDeploy(ctx, e.ID, s.tiles[e.ID])
+		// only the disk's volumes: the env's other tiles were not stopped or held
+		_, notes, err := o.restoreSomeThenDeploy(ctx, e.ID, s.tiles[e.ID], func(v store.Volume) bool { return on[v.Name] })
 		for _, note := range notes {
 			_, _ = fmt.Fprintf(r.Log, "%s: %s\n", e.Slug, note)
 		}

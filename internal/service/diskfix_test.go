@@ -9,7 +9,9 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -72,5 +74,27 @@ func TestForgetRefusedForARelocatedPrimaryOnTheDisk(t *testing.T) {
 	}
 	if w.state(t) != disk.StateMissing || sawCall(w.wFake, "StopRemove(") || sawCall(w.wFake, "RemoveVolume(") {
 		t.Errorf("state %s, calls %v", w.state(t), callNames(w.wFake))
+	}
+}
+
+// Forget restores only the disk's volumes: a plain volume of the env, whose
+// mounters were not stopped or held, is left alone.
+func TestForgetRestoresOnlyTheDiskVolumes(t *testing.T) {
+	ctx := context.Background()
+	w := newForgetWorld(t, true, true)
+	plain := w.vol(t, "plain") // no folder row, no object: reads as empty
+	pid := plain.ID
+	must(t, w.st.BackupRuns.Create(ctx, store.BackupRun{ID: "run2", Kind: "volume", VolumeID: &pid, DestID: "dest", Status: backup.Done, ObjectKey: "p.tar.age", CreatedAt: time.Now()}))
+	w.lose(t)
+	if j := w.forget(t); j.State != job.Done {
+		t.Fatalf("job = %s %q", j.State, j.Error)
+	}
+	for _, j := range w.jobsOf(t, string(kindRestore)) {
+		if strings.Contains(j.Payload, plain.ID) {
+			t.Errorf("the plain volume was restored: %s", j.Payload)
+		}
+	}
+	if n := len(w.jobsOf(t, string(kindRestore))); n != 1 {
+		t.Errorf("%d restore jobs, want 1", n)
 	}
 }

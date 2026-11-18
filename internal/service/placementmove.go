@@ -843,9 +843,19 @@ func (o *Orchestrator) noLiveMembers(ctx context.Context, vs []store.Volume) err
 // name the volumes that start empty or were left alone; every deploy's job
 // log opens with them.
 func (o *Orchestrator) restoreThenDeploy(ctx context.Context, envID string, ts []store.Tile) (Job, []string, error) {
+	return o.restoreSomeThenDeploy(ctx, envID, ts, nil)
+}
+
+// restoreSomeThenDeploy is restoreThenDeploy limited to the volumes only
+// accepts (nil = all): a caller that holds just some of the env's tiles must
+// not restore a volume whose mounters it did not hold.
+func (o *Orchestrator) restoreSomeThenDeploy(ctx context.Context, envID string, ts []store.Tile, only func(store.Volume) bool) (Job, []string, error) {
 	vs, err := o.store.Volumes.ListByScope(ctx, "env", envID)
 	if err != nil {
 		return Job{}, nil, err
+	}
+	if only != nil {
+		vs = slices.DeleteFunc(vs, func(v store.Volume) bool { return !only(v) })
 	}
 	if err := o.noLiveMembers(ctx, vs); err != nil {
 		return Job{}, nil, err
