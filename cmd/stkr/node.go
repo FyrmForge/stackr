@@ -98,7 +98,7 @@ func (a *app) nodes() *cobra.Command {
 	return noun("node", "The cluster's machines: the controller and its workers",
 		a.nodeAdd(), a.nodeConfirm(), a.nodeReject(), a.nodeLs(), a.nodeShow(), a.nodeMetrics(), a.linkMetrics(),
 		a.nodeTag(true), a.nodeTag(false), a.nodeExit(), a.nodeSet(),
-		a.nodeRejoin(), a.nodeRotate(), a.nodeRemove(), a.nodeForget(), a.nodeBackup(), a.nodeBackups())
+		a.nodeRejoin(), a.nodeRotate(), a.nodeRemove(), a.nodeForget(), a.nodeBackup(), a.nodeBackups(), a.nodeDisk())
 }
 
 func (a *app) nodeAdd() *cobra.Command {

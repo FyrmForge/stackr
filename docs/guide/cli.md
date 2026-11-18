@@ -1414,6 +1414,112 @@ Accept a worker that called back (server admin)
 stkr node confirm <name>
 ```
 
+### `stkr node disk`
+
+A node's disk: the folder its volumes live on
+
+#### `stkr node disk add`
+
+Make a mounted folder on the node its disk; the folder is checked first (server admin)
+
+```
+stkr node disk add <node> <path> [flags]
+```
+
+```
+      --no-wait   print the job and return; it runs server-side
+```
+
+Example:
+
+```
+  stkr node disk add vps-fsn1 /mnt/data
+```
+
+#### `stkr node disk adopt`
+
+Put the disk of a forgotten node on this node, with the envs that lived there. No path lists the disks to adopt (server admin)
+
+```
+stkr node disk adopt <node> [<path>] [flags]
+```
+
+```
+      --confirm string   the word that confirms (the node's name, or the volume's slug with --discard); without it the verb asks
+      --discard string   remove this blocking plain copy (a volume slug) first; the folder stays
+      --no-wait          print the job and return; it runs server-side
+```
+
+Example:
+
+```
+  stkr node disk adopt vps-new
+  stkr node disk adopt vps-new /mnt/data
+```
+
+#### `stkr node disk check`
+
+Check the node's disk again; the way out of missing (server admin)
+
+```
+stkr node disk check <node> [flags]
+```
+
+```
+      --no-wait   print the job and return; it runs server-side
+```
+
+#### `stkr node disk forget`
+
+Forget a disk that is missing, half added or left by a forgotten node; its envs are restored from backups (server admin)
+
+```
+stkr node disk forget <disk-id> [flags]
+```
+
+```
+      --confirm string   the word that confirms (the node's name or the disk's id); without it the verb asks
+      --no-wait          print the job and return; it runs server-side
+```
+
+Example:
+
+```
+  stkr node disk forget 3f2a9c1e
+```
+
+#### `stkr node disk ls`
+
+Show a node's disk (server admin)
+
+```
+stkr node disk ls <node>
+```
+
+Example:
+
+```
+  stkr node disk ls vps-fsn1
+```
+
+#### `stkr node disk move-all`
+
+Copy every volume of the node onto its disk, one env at a time, smallest first (server admin)
+
+```
+stkr node disk move-all <node> [flags]
+```
+
+```
+      --no-wait   print the job and return; it runs server-side
+```
+
+Example:
+
+```
+  stkr node disk move-all vps-fsn1
+```
+
 ### `stkr node exit`
 
 Set the exits a node without egress sends its traffic out through, in order, up to three (server admin)
@@ -4275,6 +4381,21 @@ stkr volume add <slug> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
+### `stkr volume discard`
+
+Remove the plain Docker copy of a volume that also has a disk folder; --bound removes an object bound elsewhere. The folders stay
+
+```
+stkr volume discard <volume> [flags]
+```
+
+```
+      --bound            the object is bound somewhere other than the volume's folder
+      --confirm string   the word that confirms (the volume's slug); without it the verb asks
+      --env string       the environment (default: the linked one)
+      --stack string     the stack (default: the linked one)
+```
+
 ### `stkr volume ls`
 
 List volumes at the level
@@ -4285,6 +4406,20 @@ stkr volume ls [flags]
 
 ```
       --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+### `stkr volume move-to-disk`
+
+Copy a volume onto its node's disk; the tiles that mount it stop while it copies
+
+```
+stkr volume move-to-disk <volume> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
       --stack string   the stack (default: the linked one)
 ```
 
