@@ -1420,20 +1420,24 @@ A node's disk: the folder its volumes live on
 
 #### `stkr node disk add`
 
-Make a mounted folder on the node its disk; the folder is checked first (server admin)
+Make a mounted folder, or with --device a whole disk that is formatted, the node's disk (server admin)
 
 ```
-stkr node disk add <node> <path> [flags]
+stkr node disk add <node> [<path>] [flags]
 ```
 
 ```
-      --no-wait   print the job and return; it runs server-side
+      --confirm string   the word that confirms (the disk's name, like sdb; --yes does not answer it); without it the verb asks
+      --device devices   a whole disk to format xfs: its name (sdb), path or id from devices. Everything on it is erased
+      --format-anyway    erase a disk that already holds a filesystem, a partition table or an earlier stackr disk
+      --no-wait          print the job and return; it runs server-side
 ```
 
 Example:
 
 ```
   stkr node disk add vps-fsn1 /mnt/data
+  stkr node disk add vps-fsn1 --device sdb --confirm sdb
 ```
 
 #### `stkr node disk adopt`
@@ -1469,6 +1473,20 @@ stkr node disk check <node> [flags]
       --no-wait   print the job and return; it runs server-side
 ```
 
+#### `stkr node disk devices`
+
+List the whole disks on the node and why each can or cannot be added (server admin)
+
+```
+stkr node disk devices <node>
+```
+
+Example:
+
+```
+  stkr node disk devices vps-fsn1
+```
+
 #### `stkr node disk forget`
 
 Forget a disk that is missing, half added or left by a forgotten node; its envs are restored from backups (server admin)
@@ -1486,6 +1504,18 @@ Example:
 
 ```
   stkr node disk forget 3f2a9c1e
+```
+
+#### `stkr node disk grow`
+
+Grow the node's xfs disk into the space its device gained; the disk stays in use (server admin)
+
+```
+stkr node disk grow <node> [flags]
+```
+
+```
+      --no-wait   print the job and return; it runs server-side
 ```
 
 #### `stkr node disk ls`
@@ -4379,6 +4409,26 @@ stkr volume add <slug> [flags]
 ```
       --env string     the environment (default: the linked one)
       --stack string   the stack (default: the linked one)
+```
+
+### `stkr volume cap`
+
+Set a volume's size cap, like 20GB, or remove it with none. Only a volume on a whole disk is held to it
+
+```
+stkr volume cap <volume> <size|none> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+Example:
+
+```
+  stkr volume cap pgdata 20GB
+  stkr volume cap pgdata none
 ```
 
 ### `stkr volume discard`

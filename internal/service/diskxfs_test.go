@@ -529,7 +529,7 @@ func TestXFSPlaceAssignsProjectsAndCapsSurviveAReplace(t *testing.T) { // DL: ca
 	}
 
 	// above the largest cap: its own refusal, nothing saved
-	huge := int64(1<<40 + 1)
+	huge := int64(1<<30 + 1)
 	if err := x.orch.SetVolumeCap(ctx, a.ID, &huge); err == nil || !strings.Contains(err.Error(), "Give a size up to 1 PB.") {
 		t.Errorf("cap over 1 PB = %v, want the 1 PB refusal", err)
 	}

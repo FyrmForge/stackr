@@ -14,6 +14,9 @@ func TestNodeDiskAPI(t *testing.T) {
 		{"POST", "/admin/nodes/x/disk", `{"path":"/mnt/data"}`},
 		{"POST", "/admin/nodes/x/disk/probe", `{"path":"/mnt/data"}`},
 		{"POST", "/admin/nodes/x/disk/check", ""},
+		{"POST", "/admin/nodes/x/disk/devices", ""},
+		{"POST", "/admin/nodes/x/disk/add-device", `{"device":{"path":"/dev/sdb","id":"sdb"},"confirm":"sdb"}`},
+		{"POST", "/admin/nodes/x/disk/grow", ""},
 		{"GET", "/admin/nodes/x/disk/adopt-plan?path=/mnt/data", ""},
 		{"POST", "/admin/nodes/x/disk/adopt", `{"disk_id":"d","path":"/mnt/data","confirm":"x"}`},
 		{"POST", "/admin/nodes/x/disk/adopt-discard", `{"disk_id":"d","path":"/mnt/data","volume_id":"v","confirm":"v"}`},
@@ -82,5 +85,22 @@ func TestVolumeMoveAPI(t *testing.T) {
 	// an owner passes the permission and meets the service's refusal
 	if code, body := w.do(t, w.owner, "POST", base+"/move-to-disk", ""); code != 403 || !strings.Contains(body, "disk is not ready") {
 		t.Errorf("owner move-to-disk = %d %s, want the refusal with its message", code, body)
+	}
+	if code, _ := w.do(t, "", "PUT", base+"/cap", `{"max_size_mb":100}`); code != 401 {
+		t.Errorf("cap anonymous = %d, want 401", code)
+	}
+	if code, _ := w.do(t, w.stranger, "PUT", base+"/cap", `{"max_size_mb":100}`); code != 404 && code != 403 {
+		t.Errorf("cap other org = %d, want 404", code)
+	}
+	// the cap: saved and reported not enforced on a volume with no xfs disk, removed with null,
+	// and a size over 1 PB is its own refusal
+	if code, body := w.do(t, w.owner, "PUT", base+"/cap", `{"max_size_mb":100}`); code != 200 || !strings.Contains(body, `"max_size_mb":100`) || !strings.Contains(body, `"enforced":false`) {
+		t.Errorf("owner cap = %d %s", code, body)
+	}
+	if code, body := w.do(t, w.owner, "PUT", base+"/cap", `{"max_size_mb":null}`); code != 200 || !strings.Contains(body, `"max_size_mb":null`) {
+		t.Errorf("owner cap none = %d %s", code, body)
+	}
+	if code, body := w.do(t, w.owner, "PUT", base+"/cap", `{"max_size_mb":2000000000}`); code != 400 || !strings.Contains(body, "Give a size up to 1 PB.") {
+		t.Errorf("owner cap over 1 PB = %d %s", code, body)
 	}
 }

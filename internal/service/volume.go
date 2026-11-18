@@ -89,8 +89,8 @@ func (o *Orchestrator) mounters(ctx context.Context, v Volume) ([]Tile, error) {
 	return out, err
 }
 
-// maxCapMB keeps a cap in MB inside int64 bytes.
-const maxCapMB = 1 << 40
+// maxCapMB is 1 PB in MB, far inside int64 bytes.
+const maxCapMB = 1 << 30
 
 // capBytes is a volume's cap in bytes; 0 means none.
 func capBytes(mb *int64) int64 {

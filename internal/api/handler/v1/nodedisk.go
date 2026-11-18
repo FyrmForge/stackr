@@ -32,6 +32,15 @@ type NodeDiskOut struct {
 	ReadAt  time.Time `json:"read_at"`
 	Stale   bool      `json:"stale"`
 	Volumes int       `json:"volumes"`
+	// xfs: the device behind the disk; new_space is what it gained, damaged
+	// is "smaller" or "other_fs"; was_bytes is its size when the disk was
+	// added or last grown.
+	Device      string `json:"device"`
+	DeviceBytes uint64 `json:"device_bytes"`
+	NewSpace    uint64 `json:"new_space"`
+	Damaged     string `json:"damaged"`
+	WasBytes    uint64 `json:"was_bytes"`
+	Formatted   bool   `json:"formatted"`
 }
 
 // NodeDisk (server admin) is the node's disk from the worker's last facts.
@@ -412,5 +421,88 @@ func (h *H) DiscardPlainCopy() Endpoint {
 func (h *H) DiscardBoundObject() Endpoint {
 	return Done(func(c echo.Context, in ConfirmIn) error {
 		return h.Orch.DiscardBoundObject(rc(c), middleware.Principal(c), c.Param("volume"), in.Confirm)
+	})
+}
+
+// ---- whole disks (xfs) ----
+
+// DisksOut is the whole disks the node has, each with why it can or cannot be
+// formatted.
+type DisksOut struct {
+	Devices []service.DiskDevice `json:"devices"`
+}
+
+// NodeDevices (server admin) lists the node's whole disks. It runs the host
+// helper on the node, so it is a POST: a GET never does.
+func (h *H) NodeDevices() Endpoint {
+	return JSON(200, func(c echo.Context, _ None) (DisksOut, error) {
+		id, err := h.nodeID(c)
+		if err != nil {
+			return DisksOut{}, err
+		}
+		d, err := h.Orch.NodeDevices(rc(c), middleware.Principal(c), id)
+		return DisksOut{Devices: append([]service.DiskDevice{}, d...)}, err
+	})
+}
+
+// AddDeviceIn is the disk as the list gave it, whole, so one that changed
+// since is caught. Confirm is the device's name (sdb, /dev/sdb or its id).
+// Force is Format anyway: only a disk that holds data needs it.
+type AddDeviceIn struct {
+	Device  service.DiskDevice `json:"device"`
+	Confirm string             `json:"confirm"`
+	Force   bool               `json:"force"`
+}
+
+// AddNodeDevice (server admin) queues formatting the picked disk xfs and
+// making it the node's disk.
+func (h *H) AddNodeDevice() Endpoint {
+	return Job(func(c echo.Context, in AddDeviceIn) (service.Job, error) {
+		id, err := h.nodeID(c)
+		if err != nil {
+			return service.Job{}, err
+		}
+		return h.Orch.AddNodeDevice(rc(c), middleware.Principal(c), id, in.Device, in.Confirm, in.Force)
+	})
+}
+
+// GrowNodeDisk (server admin) queues growing the xfs disk into the space its
+// device gained.
+func (h *H) GrowNodeDisk() Endpoint {
+	return Job(func(c echo.Context, _ None) (service.Job, error) {
+		id, err := h.nodeID(c)
+		if err != nil {
+			return service.Job{}, err
+		}
+		return h.Orch.GrowNodeDisk(rc(c), middleware.Principal(c), id)
+	})
+}
+
+// VolumeCapIn is a volume's size cap in MB; null removes it.
+type VolumeCapIn struct {
+	MaxSizeMB *int64 `json:"max_size_mb"`
+}
+
+// VolumeCapOut is the cap as saved, and whether it is a limit: only a volume
+// on a whole disk is held to it.
+type VolumeCapOut struct {
+	MaxSizeMB *int64 `json:"max_size_mb"`
+	Enforced  bool   `json:"enforced"`
+}
+
+// SetVolumeCap (tile.write) sets or removes a volume's size cap. A cap under
+// what the volume holds is refused and nothing changes.
+func (h *H) SetVolumeCap() Endpoint {
+	return JSON(200, func(c echo.Context, in VolumeCapIn) (VolumeCapOut, error) {
+		id := c.Param("volume")
+		if err := h.Orch.SetVolumeCap(rc(c), id, in.MaxSizeMB); err != nil {
+			return VolumeCapOut{}, err
+		}
+		v, err := h.Orch.Volume(rc(c), id)
+		if err != nil {
+			return VolumeCapOut{}, err
+		}
+		on, err := h.Orch.CapEnforced(rc(c), v)
+		return VolumeCapOut{MaxSizeMB: v.MaxSizeMB, Enforced: on}, err
 	})
 }

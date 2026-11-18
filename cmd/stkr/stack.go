@@ -2316,6 +2316,7 @@ func (a *app) volumes() *cobra.Command {
 			}),
 		add,
 		a.volumeMoveToDisk(),
+		a.volumeCap(),
 		a.volumeDiscard(),
 		leaf("rm <volume>", "org.volumes,stack.volumes,env.volumes,volume.delete", "Delete a volume (its data is kept for the retention window, then backed up and removed)", exact(1),
 			a.at(atOrg, func(c *cobra.Command, p string, args []string) error {

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -53,7 +55,7 @@ func confirmFlag(c *cobra.Command, dst *string, what string) {
 
 func (a *app) nodeDisk() *cobra.Command {
 	return noun("disk", "A node's disk: the folder its volumes live on",
-		a.diskLs(), a.diskAdd(), a.diskCheck(), a.diskAdopt(), a.diskForget(), a.diskMoveAll())
+		a.diskLs(), a.diskDevices(), a.diskAdd(), a.diskGrow(), a.diskCheck(), a.diskAdopt(), a.diskForget(), a.diskMoveAll())
 }
 
 func nodeDiskPath(node, sub string) string {
@@ -90,10 +92,74 @@ func (a *app) diskLs() *cobra.Command {
 	return c
 }
 
+// typedWord is a word that must be typed: --confirm gives it, else it is asked
+// on a terminal. -y never answers it, because it guards a format.
+func (a *app) typedWord(given, word, q string) (string, error) {
+	if given != "" {
+		return given, nil
+	}
+	if a.json || !a.tty {
+		return "", fmt.Errorf("type %s with --confirm to confirm (--yes does not answer it): %s", word, q)
+	}
+	_, _ = fmt.Fprintf(a.errw, "%s Type %s to confirm: ", q, word)
+	line, _ := a.in.ReadString('\n')
+	return strings.TrimSpace(line), nil
+}
+
+// devName is a device as the panel names it: sdb for /dev/sdb.
+func devName(m map[string]any) string {
+	return path.Base(cell(m["path"]))
+}
+
+func (a *app) diskDevices() *cobra.Command {
+	c := leaf("devices <node>", "admin.node-disk-devices",
+		"List the whole disks on the node and why each can or cannot be added (server admin)", exact(1),
+		func(_ *cobra.Command, args []string) error {
+			v, err := a.call(POST, nodeDiskPath(args[0], "/devices"), nil)
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			var rows [][]string
+			for _, x := range asList(asMap(v)["devices"]) {
+				m := asMap(x)
+				what := "free"
+				switch {
+				case cell(m["blocked"]) != "(none)":
+					what = "not available: " + cell(m["blocked"])
+				case cell(m["signature"]) != "(none)":
+					what = "holds data: " + cell(m["signature"])
+				}
+				rows = append(rows, []string{devName(m), gb(m["bytes"]), cell(m["id"]), what})
+			}
+			if len(rows) == 0 {
+				a.say("%s has no whole disks.", args[0])
+				return nil
+			}
+			a.table([]string{"disk", "size", "id", "state"}, rows)
+			return nil
+		})
+	c.Example = "  stkr node disk devices vps-fsn1"
+	return c
+}
+
 func (a *app) diskAdd() *cobra.Command {
-	c := waits(leaf("add <node> <path>", "admin.node-disk-probe,admin.node-disk-add",
-		"Make a mounted folder on the node its disk; the folder is checked first (server admin)", exact(2),
+	var device, confirm string
+	var anyway bool
+	c := waits(leaf("add <node> [<path>]", "admin.node-disk-probe,admin.node-disk-add,admin.node-disk-devices,admin.node-disk-add-device",
+		"Make a mounted folder, or with --device a whole disk that is formatted, the node's disk (server admin)", cobra.RangeArgs(1, 2),
 		func(c *cobra.Command, args []string) error {
+			if device != "" {
+				if len(args) != 1 {
+					return usage("give a folder or --device, not both")
+				}
+				return a.addDevice(c, args[0], device, confirm, anyway)
+			}
+			if len(args) != 2 {
+				return usage("give the folder to add, or --device <disk> to format a whole disk")
+			}
 			v, err := a.call(POST, nodeDiskPath(args[0], "/probe"), map[string]string{"path": args[1]})
 			if err != nil {
 				return err
@@ -105,8 +171,56 @@ func (a *app) diskAdd() *cobra.Command {
 			a.say("%s: %s, %s free of %s", args[1], cell(p["fs_type"]), gb(p["free"]), gb(p["total"]))
 			return a.job(c, "/admin", POST, nodeDiskPath(args[0], ""), map[string]string{"path": args[1]}, "adding the disk")
 		}))
-	c.Example = "  stkr node disk add vps-fsn1 /mnt/data"
+	c.Flags().StringVar(&device, "device", "", "a whole disk to format xfs: its name (sdb), path or id from `devices`. Everything on it is erased")
+	c.Flags().BoolVar(&anyway, "format-anyway", false, "erase a disk that already holds a filesystem, a partition table or an earlier stackr disk")
+	confirmFlag(c, &confirm, "the disk's name, like sdb; --yes does not answer it")
+	c.Example = "  stkr node disk add vps-fsn1 /mnt/data\n  stkr node disk add vps-fsn1 --device sdb --confirm sdb"
 	return c
+}
+
+// addDevice formats the listed disk. The disk goes back whole, as it was
+// listed, so one that changed since is refused; the typed name is never
+// skipped by -y, and the server decides what needs Format anyway.
+func (a *app) addDevice(c *cobra.Command, node, device, confirm string, anyway bool) error {
+	v, err := a.call(POST, nodeDiskPath(node, "/devices"), nil)
+	if err != nil {
+		return err
+	}
+	var pick map[string]any
+	for _, x := range asList(asMap(v)["devices"]) {
+		m := asMap(x)
+		if device == cell(m["id"]) || device == cell(m["path"]) || device == devName(m) {
+			pick = m
+			break
+		}
+	}
+	if pick == nil {
+		return fmt.Errorf("%s has no disk %q; list them: stkr node disk devices %s", node, device, node)
+	}
+	name := devName(pick)
+	if b := cell(pick["blocked"]); b != "(none)" {
+		return fmt.Errorf("%s cannot be used (%s)", name, b)
+	}
+	if sig := cell(pick["signature"]); sig != "(none)" {
+		if !anyway {
+			return fmt.Errorf("%s already holds data (%s). Add --format-anyway to erase it", name, sig)
+		}
+		a.say("%s holds data (%s). Formatting erases all of it.", name, sig)
+	}
+	word, err := a.typedWord(confirm, name, "Erase "+name+" ("+gb(pick["bytes"])+") and format it xfs?")
+	if err != nil {
+		return err
+	}
+	return a.job(c, "/admin", POST, nodeDiskPath(node, "/add-device"),
+		map[string]any{"device": pick, "confirm": word, "force": anyway}, "formatting the disk")
+}
+
+func (a *app) diskGrow() *cobra.Command {
+	return waits(leaf("grow <node>", "admin.node-disk-grow",
+		"Grow the node's xfs disk into the space its device gained; the disk stays in use (server admin)", exact(1),
+		func(c *cobra.Command, args []string) error {
+			return a.job(c, "/admin", POST, nodeDiskPath(args[0], "/grow"), nil, "growing the disk")
+		}))
 }
 
 func (a *app) diskCheck() *cobra.Command {
@@ -366,6 +480,59 @@ func (a *app) volumeMoveToDisk() *cobra.Command {
 			}
 			return a.job(c, p, POST, p+"/volumes/"+id+"/move-to-disk", nil, "move to disk")
 		})))
+}
+
+// capMB reads a size cap: 20GB, 1500MB, 2TB, or none (null). A bare number is MB.
+func capMB(s string) (*int64, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "none" || s == "" {
+		return nil, nil
+	}
+	mult := int64(1)
+	for suf, m := range map[string]int64{"tb": 1 << 20, "gb": 1 << 10, "mb": 1} {
+		if strings.HasSuffix(s, suf) {
+			s, mult = strings.TrimSpace(strings.TrimSuffix(s, suf)), m
+			break
+		}
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 1 {
+		return nil, usage("give a size like 20GB or 1500MB, or none")
+	}
+	if n > (1<<30)/mult {
+		return nil, usage("give a size up to 1 PB")
+	}
+	mb := n * mult
+	return &mb, nil
+}
+
+// volumeCap is `stkr volume cap`.
+func (a *app) volumeCap() *cobra.Command {
+	c := leaf("cap <volume> <size|none>", "volume.cap",
+		"Set a volume's size cap, like 20GB, or remove it with none. Only a volume on a whole disk is held to it", exact(2),
+		a.at(atOrg, func(c *cobra.Command, p string, args []string) error {
+			id, _, err := a.volume(c, args[0])
+			if err != nil {
+				return err
+			}
+			mb, err := capMB(args[1])
+			if err != nil {
+				return err
+			}
+			v, err := a.call(PUT, p+"/volumes/"+id+"/cap", map[string]*int64{"max_size_mb": mb})
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			if asMap(v)["enforced"] != true {
+				a.say("Saved. It is not enforced: only a volume on a whole disk is held to it.")
+			}
+			return nil
+		}))
+	c.Example = "  stkr volume cap pgdata 20GB\n  stkr volume cap pgdata none"
+	return c
 }
 
 // volumeDiscard is `stkr volume discard`: the ghost's resolutions.

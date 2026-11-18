@@ -157,3 +157,72 @@ func TestVolumeMoveToDisk(t *testing.T) {
 		t.Errorf("writes = %v", w)
 	}
 }
+
+const devs = `{"devices":[` +
+	`{"path":"/dev/sdb","id":"ata-X_1","bytes":536870912000,"blocked":"","signature":""},` +
+	`{"path":"/dev/sdc","id":"ata-X_2","bytes":2147483648000,"signature":"filesystem","fs_type":"ext4"},` +
+	`{"path":"/dev/sda","id":"ata-X_0","bytes":85899345920,"blocked":"system"}]}`
+
+func TestNodeDiskDevicesAndAddDevice(t *testing.T) {
+	r := fake(t, map[string]string{"/devices": devs})
+	if code, out, errw := cli(t, "node", "disk", "devices", "n1"); code != 0 || !strings.Contains(out, "sdb") || !strings.Contains(out, "not available: system") || !strings.Contains(out, "holds data: filesystem") || len(writes(r)) != 1 {
+		t.Errorf("devices = %d %q %q", code, out, errw)
+	}
+
+	// no --confirm and no terminal: nothing is formatted, and -y does not answer it
+	r = fake(t, map[string]string{"/devices": devs, "/add-device": `{"id":"j1","kind":"disk-add-device","state":"queued"}`})
+	for _, args := range [][]string{{"node", "disk", "add", "n1", "--device", "sdb"}, {"-y", "node", "disk", "add", "n1", "--device", "sdb"}} {
+		if code, _, errw := cli(t, args...); code != 1 || !strings.Contains(errw, "--confirm") {
+			t.Errorf("%v = %d %q, want the typed word asked for", args, code, errw)
+		}
+	}
+	for _, q := range writes(r) {
+		if strings.Contains(q, "add-device") {
+			t.Fatalf("formatted without the typed word: %v", writes(r))
+		}
+	}
+	// the typed word sends the whole listed disk; force stays off
+	r = fake(t, map[string]string{"/devices": devs, "/add-device": `{"id":"j1","kind":"disk-add-device","state":"queued"}`})
+	if code, _, errw := cli(t, "node", "disk", "add", "n1", "--device", "ata-X_1", "--confirm", "sdb", "--no-wait"); code != 0 {
+		t.Fatalf("add = %d %q", code, errw)
+	}
+	w := writes(r)
+	if len(w) != 2 || !strings.HasPrefix(w[1], "POST "+nd+"/add-device ") || !strings.Contains(w[1], `"confirm":"sdb"`) || !strings.Contains(w[1], `"force":false`) || !strings.Contains(w[1], `"path":"/dev/sdb"`) {
+		t.Errorf("writes = %v", w)
+	}
+	// a disk that holds data needs --format-anyway; a blocked one is refused
+	r = fake(t, map[string]string{"/devices": devs})
+	if code, _, errw := cli(t, "node", "disk", "add", "n1", "--device", "sdc", "--confirm", "sdc"); code != 1 || !strings.Contains(errw, "--format-anyway") {
+		t.Errorf("holds data = %d %q", code, errw)
+	}
+	if code, _, errw := cli(t, "node", "disk", "add", "n1", "--device", "sda", "--confirm", "sda", "--format-anyway"); code != 1 || !strings.Contains(errw, "cannot be used") {
+		t.Errorf("blocked = %d %q", code, errw)
+	}
+	for _, q := range writes(r) {
+		if strings.Contains(q, "add-device") {
+			t.Fatalf("a refused disk was sent: %v", writes(r))
+		}
+	}
+	r = fake(t, map[string]string{"/devices": devs, "/add-device": `{"id":"j1","kind":"disk-add-device","state":"queued"}`})
+	if code, _, errw := cli(t, "node", "disk", "add", "n1", "--device", "sdc", "--confirm", "sdc", "--format-anyway", "--no-wait"); code != 0 || !strings.Contains(writes(r)[1], `"force":true`) {
+		t.Errorf("format anyway = %d %q, wrote %v", code, errw, writes(r))
+	}
+}
+
+func TestNodeDiskGrowAndVolumeCap(t *testing.T) {
+	r := fake(t, nil)
+	if code, _, _ := cli(t, "node", "disk", "grow", "n1", "--no-wait"); code != 0 || len(writes(r)) != 1 || writes(r)[0] != "POST "+nd+"/grow " {
+		t.Errorf("grow wrote %v", writes(r))
+	}
+	for in, want := range map[string]string{"20GB": "20480", "1500MB": "1500", "2tb": "2097152", "none": "null"} {
+		r = fake(t, map[string]string{"/cap": `{"max_size_mb":null,"enforced":true}`, "/volumes": `[{"id":"v1","slug":"pg","scope_kind":"env"}]`})
+		if code, _, errw := cli(t, "volume", "cap", "v1", in); code != 0 || !strings.HasSuffix(writes(r)[0], `{"max_size_mb":`+want+`}`) {
+			t.Errorf("cap %s = %d %q, wrote %v", in, code, errw, writes(r))
+		}
+	}
+	for _, bad := range []string{"0", "abc", "-3GB", "2000000TB"} {
+		if code, _, _ := cli(t, "volume", "cap", "v1", bad); code != 2 {
+			t.Errorf("cap %q = %d, want 2", bad, code)
+		}
+	}
+}

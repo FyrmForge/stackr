@@ -135,6 +135,7 @@ func routes(h *v1.H) []Route {
 		// volumes and backups, by id under the org
 		{DELETE, org + "/volumes/:volume", "volume.delete", "tile.write", h.DeleteVolume()},
 		{GET, org + "/volumes/:volume/move-plan", "volume.move-plan", "tile.write", h.PlanVolumeMove()},
+		{PUT, org + "/volumes/:volume/cap", "volume.cap", "tile.write", h.SetVolumeCap()},
 		{POST, org + "/volumes/:volume/move-to-disk", "volume.move-to-disk", "tile.write", h.MoveVolumeToDisk()},
 		{POST, org + "/volumes/:volume/discard-plain", "volume.discard-plain", "tile.write", h.DiscardPlainCopy()},
 		{POST, org + "/volumes/:volume/discard-bound", "volume.discard-bound", "tile.write", h.DiscardBoundObject()},
@@ -331,6 +332,9 @@ func routes(h *v1.H) []Route {
 		{POST, "/admin/nodes/:node/disk", "admin.node-disk-add", "node.manage", h.AddNodeFolder()},
 		{POST, "/admin/nodes/:node/disk/probe", "admin.node-disk-probe", "node.manage", h.ProbeNodeFolder()},
 		{POST, "/admin/nodes/:node/disk/check", "admin.node-disk-check", "node.manage", h.CheckNodeDisk()},
+		{POST, "/admin/nodes/:node/disk/devices", "admin.node-disk-devices", "node.manage", h.NodeDevices()},
+		{POST, "/admin/nodes/:node/disk/add-device", "admin.node-disk-add-device", "node.manage", h.AddNodeDevice()},
+		{POST, "/admin/nodes/:node/disk/grow", "admin.node-disk-grow", "node.manage", h.GrowNodeDisk()},
 		{GET, "/admin/nodes/:node/disk/adopt-plan", "admin.node-disk-adopt-plan", "node.manage", h.PlanDiskAdopt()},
 		{POST, "/admin/nodes/:node/disk/adopt", "admin.node-disk-adopt", "node.manage", h.AdoptDisk()},
 		{POST, "/admin/nodes/:node/disk/adopt-discard", "admin.node-disk-adopt-discard", "node.manage", h.DiscardAdoptCopy()},
