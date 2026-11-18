@@ -114,8 +114,8 @@ func TestProgressLine(t *testing.T) {
 // spinner and the clock while it runs.
 func TestFooterPhase(t *testing.T) {
 	since := time.Now().Add(-time.Minute)
-	q := render(t, Footer("n1", FooterView{Kind: "service", Status: "queued", Phase: "Queued (2 of 5)", Since: since}))
-	if !strings.Contains(q, ">Queued (2 of 5)<") || strings.Contains(q, "local-time") || !strings.Contains(q, "border border-rw-faint") {
+	q := render(t, Footer("n1", FooterView{Kind: "service", Status: "queued", Phase: "Queued", Since: since}))
+	if !strings.Contains(q, ">Queued<") || strings.Contains(q, "local-time") || !strings.Contains(q, "border border-rw-faint") {
 		t.Errorf("queued: %s", q)
 	}
 	r := render(t, Footer("n1", FooterView{Kind: "service", Status: "building", Phase: "Pulling image", Since: since}))

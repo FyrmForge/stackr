@@ -61,8 +61,8 @@ type Flow struct {
 	// RestartPending says a saved change waits for the tile's next restart;
 	// nil = none.
 	RestartPending func(tileID string) bool
-	// Phase is the step a live job of a tile is at ("Queued (2 of 5)",
-	// "Pulling image"); "" = no word beyond the job's own. nil = none asked.
+	// Phase is the step a live job of a tile is at ("Pulling image");
+	// "" = no word beyond the job's own. nil = none asked.
 	Phase func(ctx context.Context, j store.Job) string
 	// PushFail is the error of a stack's last push when it failed; nil = none asked.
 	PushFail func(ctx context.Context, stackID string) (string, bool)

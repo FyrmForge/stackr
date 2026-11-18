@@ -32,7 +32,7 @@ func ErrTail(err string, max int) (short, full string) {
 // a failed push; the next push that does not fail takes it away.
 templ PushFailed(p PushFailView) {
 	<div class="banner banner-danger flex items-center gap-3" role="alert">
-		<span class="min-w-0 flex-1 truncate" title={ p.Full }>{ "The last push failed: " + p.Short + "." }</span>
+		<span class="min-w-0 flex-1 truncate" title={ p.Full }>{ "The last push failed: " + strings.TrimRight(p.Short, ".") + "." }</span>
 		if p.Href != "" {
 			<a href={ templ.SafeURL(p.Href) } class="shrink-0 underline">Job log</a>
 		}

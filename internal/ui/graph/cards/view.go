@@ -60,7 +60,7 @@ type FooterView struct {
 	Waiting    string    // the param a "waiting" tile misses
 	Under      string    // building/queued over a running tile: "running", the word beneath
 	Since      time.Time // that job's start; zero = none, the line reads as the word alone
-	Phase      string    // that job's step ("Pulling image", "Queued (2 of 5)"); "" = the word
+	Phase      string    // that job's step ("Pulling image"); "" = the word
 	Fail       string    // the last deploy's error while it failed; "" = none
 	StoppedAt  string    // a tile the failed promote never reached: the tile it stopped at
 	StopHref   string    // that promote's job log
