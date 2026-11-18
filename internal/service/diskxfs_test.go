@@ -46,6 +46,27 @@ type xfsFake struct {
 	aside     map[string]string
 }
 
+// umountLocked is the host's umount: the contents leave the mount point and a bare
+// empty folder stays, until mount puts them back.
+func (f *xfsFake) umountLocked(point string) {
+	for i, p := range f.mounts {
+		if p != point {
+			continue
+		}
+		back := filepath.Join(f.root, p) + ".aside"
+		if err := os.Rename(filepath.Join(f.root, p), back); err != nil {
+			panic(err)
+		}
+		if err := os.MkdirAll(filepath.Join(f.root, p), 0o755); err != nil {
+			panic(err)
+		}
+		f.aside[p] = back
+		f.mounts = append(f.mounts[:i], f.mounts[i+1:]...)
+		break
+	}
+	f.writeTable()
+}
+
 // unmount takes the disk away: its contents leave the mount point (an empty
 // folder is all a bare mount point shows) until mount puts them back.
 func (f *xfsFake) unmount(t *testing.T) {
@@ -119,6 +140,9 @@ func (f *xfsFake) exec(_ context.Context, name string, args ...string) ([]byte, 
 	case "wipefs":
 		f.fstype, f.label, f.uuid = "", "", ""
 	case "nsenter":
+		if len(args) > 5 && args[4] == "umount" {
+			f.umountLocked(args[len(args)-1])
+		}
 		if len(args) > 5 && args[4] == "mount" {
 			if f.failMount {
 				return nil, errors.New("mount: wrong fs type")
@@ -718,8 +742,53 @@ func TestXFSForgetOfAMissingDiskKeepsFoldersAndDeletesRows(t *testing.T) { // DL
 	if _, err := x.st.NodeDisks.Get(ctx, row.ID); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("row still there: %v", err)
 	}
-	if b, err := os.ReadFile(file); err != nil || string(b) != "precious" {
+	// the folder data is on the disk, which is now off the host: unmounted, unit gone
+	kept := filepath.Join(x.fx.aside[row.MountPath], strings.TrimPrefix(file, filepath.Join(x.env.Root, row.MountPath)))
+	if b, err := os.ReadFile(kept); err != nil || string(b) != "precious" {
 		t.Errorf("folder data = %q %v", b, err)
+	}
+	if um := x.fx.ran("umount"); len(um) != 1 || um[0][1] != row.MountPath {
+		t.Errorf("umount = %v", um)
+	}
+	if _, err := os.Stat(filepath.Join(x.env.Root, "etc/systemd/system", unitNameOf(row.MountPath))); err == nil {
+		t.Error("the mount unit stays and would mount the disk again at boot")
+	}
+}
+
+func unitNameOf(point string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(strings.TrimPrefix(point, "/"), "-", `\x2d`), "/", "-") + ".mount"
+}
+
+// X9, X11: a formatted adding row whose device now carries another filesystem is dropped and started
+// over; dropping it takes the old mount unit off the host (a fresh unit would be refused as foreign).
+func TestXFSAddDeviceStartsOverWhenTheFilesystemChanged(t *testing.T) {
+	ctx := context.Background()
+	x := newXFSTest(t)
+	x.fx.failMount = true
+	if j := x.addDevice(t, false); j.State != job.Failed {
+		t.Fatalf("add with a failing mount: %s", j.State)
+	}
+	old, _, _ := x.orch.nodeDisk(ctx, "w1")
+	unit := filepath.Join(x.env.Root, "etc/systemd/system", unitNameOf(old.MountPath))
+	if _, err := os.Stat(unit); err != nil {
+		t.Fatalf("no unit after the failed mount: %v", err)
+	}
+	x.fx.mu.Lock()
+	x.fx.failMount = false
+	x.fx.fstype, x.fx.label, x.fx.uuid = "ext4", "", "fs-other" // somebody made another filesystem on it
+	x.fx.mu.Unlock()
+	if _, err := x.orch.AddNodeDevice(ctx, adminP(), "w1", x.pick(t), "sdb", false); !errors.Is(err, errs.ErrRefused) {
+		t.Fatalf("a foreign filesystem needs Format anyway: %v", err) // nothing queued, the stuck row waits
+	}
+	if j := x.addDevice(t, true); j.State != job.Done {
+		t.Fatalf("start over: %s %q", j.State, j.Error)
+	}
+	got, _, _ := x.orch.nodeDisk(ctx, "w1")
+	if got.ID == old.ID || got.State != disk.StateReady {
+		t.Errorf("row = %+v, old %s", got, old.ID)
+	}
+	if _, err := os.Stat(unit); err == nil {
+		t.Error("the old unit is still there")
 	}
 }
 

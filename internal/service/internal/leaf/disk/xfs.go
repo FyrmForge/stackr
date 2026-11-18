@@ -172,7 +172,10 @@ func (l *Leaf) AddXFS(ctx context.Context, nodeID string, pick hostdisk.Device, 
 	switch {
 	case ok && d.State != StateAdding:
 		return d, errs.Conflictf("This node already has a disk.")
-	case ok && (d.Kind != KindXFS || d.DeviceID != pick.ID):
+	case ok && (d.Kind != KindXFS || d.DeviceID != pick.ID),
+		ok && d.FSUUID != "" && d.FSUUID != pick.FSUUID:
+		// another device, or the same one with another filesystem now (the row's
+		// uuid is stuck: nothing can mount it): start over, the typed confirm is fresh
 		if err := l.dropAdding(ctx, d); err != nil {
 			return d, err
 		}
@@ -277,6 +280,23 @@ func (l *Leaf) MountXFS(ctx context.Context, nodeID string, d store.NodeDisk, mo
 		}
 	}
 	return refusal(hostdisk.Result{Error: &hostdisk.Error{Code: hostdisk.CodeNoDevice, Message: "no device with filesystem " + d.FSUUID}})
+}
+
+// UnmountXFS takes an xfs disk off its node: unmounted, its mount unit
+// removed, the mount point removed. The device and the folders on it are not
+// touched. Idempotent; refused while something else is mounted below it.
+func (l *Leaf) UnmountXFS(ctx context.Context, d store.NodeDisk) error {
+	if d.Kind != KindXFS {
+		return nil
+	}
+	res, err := l.host.Disk(ctx, d.NodeID, hostdisk.Request{Op: "unmount", Kind: KindXFS, DiskID: d.ID, Mount: d.MountPath})
+	if err != nil {
+		return err
+	}
+	if res.Error != nil {
+		return refusal(res)
+	}
+	return nil
 }
 
 // HasDevice says whether the node lists a device carrying the disk's filesystem.

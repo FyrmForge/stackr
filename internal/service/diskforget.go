@@ -330,6 +330,12 @@ func (o *Orchestrator) runDiskForget(ctx context.Context, r *jobs.Run, p diskFor
 		}
 	}
 
+	// step 3b: nothing uses the disk any more: an xfs disk comes off the host (unmounted, unit
+	// and mount point removed; the device and the folders on it stay). Idempotent for a retry.
+	if err := o.diskLeaf.UnmountXFS(ctx, d); err != nil {
+		return fmt.Errorf("unmount the disk: %w", err)
+	}
+
 	// step 4: the volumes are plain and empty now: restore each env from its
 	// newest backup and deploy. Any error, a partial enqueue included, keeps
 	// the row forgetting.

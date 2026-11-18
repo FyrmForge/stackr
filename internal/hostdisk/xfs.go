@@ -708,22 +708,26 @@ func xfsUnmount(ctx context.Context, e Env, r Request) Result {
 		}
 	}
 	unit := unitName(point)
-	if _, err := e.host(ctx, "systemctl", "disable", unit); err != nil {
-		return fail(CodeIO, "disable the mount unit: "+err.Error())
-	}
-	if err := os.Remove(joinRoot(e.Root, "/etc/systemd/system/"+unit)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fail(CodeIO, err.Error())
-	}
-	if _, err := e.host(ctx, "systemctl", "daemon-reload"); err != nil {
-		return fail(CodeIO, "reload systemd: "+err.Error())
+	unitFile := joinRoot(e.Root, "/etc/systemd/system/"+unit)
+	if _, err := os.Lstat(unitFile); err == nil {
+		if _, err := e.host(ctx, "systemctl", "disable", unit); err != nil {
+			return fail(CodeIO, "disable the mount unit: "+err.Error())
+		}
+		if err := os.Remove(unitFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fail(CodeIO, err.Error())
+		}
+		if _, err := e.host(ctx, "systemctl", "daemon-reload"); err != nil {
+			return fail(CodeIO, "reload systemd: "+err.Error())
+		}
 	}
 	dir := joinRoot(e.Root, point)
 	if _, err := os.Lstat(dir); err == nil {
 		if _, err := e.exec(ctx, "chattr", "-i", dir); err != nil {
 			return fail(CodeIO, err.Error())
 		}
-		if err := os.Remove(dir); err != nil {
-			return fail(CodeNotEmpty, point+" could not be removed: "+err.Error())
+		// a folder with something in it is left (rmdir refuses): never delete files here
+		if err := os.Remove(dir); err != nil && !errors.Is(err, syscall.ENOTEMPTY) {
+			return fail(CodeIO, point+" could not be removed: "+err.Error())
 		}
 	}
 	return Result{}

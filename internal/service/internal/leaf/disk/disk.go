@@ -206,6 +206,12 @@ func (l *Leaf) dropAdding(ctx context.Context, d store.NodeDisk) error {
 	if d.State != StateAdding || len(fs) > 0 {
 		return errs.Conflictf("This node already has a disk.")
 	}
+	// a formatted device may be mounted and have its unit: take it off the host first
+	if d.Kind == KindXFS && d.FSUUID != "" {
+		if err := l.UnmountXFS(ctx, d); err != nil {
+			return err
+		}
+	}
 	return l.disks.Delete(ctx, d.ID)
 }
 

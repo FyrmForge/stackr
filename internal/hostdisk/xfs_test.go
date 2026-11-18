@@ -1036,3 +1036,19 @@ func TestUnmountRefusals(t *testing.T) { // DL, X9
 		t.Fatalf("went on after a failed umount: %v", x.fx.calls)
 	}
 }
+
+func TestUnmountOfADiskThatIsNotMountedAndHasNoUnit(t *testing.T) { // X9: a retry, a half-added disk
+	x := newX(t, plain())
+	if err := os.WriteFile(filepath.Join(x.real, "keep"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, x.run("unmount", nil), "")
+	for _, p := range []string{"umount", "systemctl"} {
+		if len(x.fx.ran(p)) != 0 {
+			t.Fatalf("%s ran: %v", p, x.fx.calls)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(x.real, "keep")); err != nil {
+		t.Fatal("a file in the mount point was removed")
+	}
+}
