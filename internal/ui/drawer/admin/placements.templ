@@ -159,9 +159,9 @@ templ Placements(v PlacementsView) {
 			if len(v.Rows) == 0 {
 				<p class="text-sm text-rw-faint">No placements yet.</p>
 			}
-			<ul class="space-y-3">
+			<ul class="divide-y divide-rw-border">
 				for _, r := range v.Rows {
-					<li class="panel px-4 py-3 text-sm space-y-2">
+					<li class="py-3 text-sm space-y-2">
 						<div class="flex flex-wrap items-center gap-2">
 							<span class="text-rw-text font-medium">{ r.Name }</span>
 							if r.Default {

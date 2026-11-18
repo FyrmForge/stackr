@@ -157,9 +157,9 @@ templ Users(v UsersView) {
 	<div id="tab-users">
 		@c.LiveTab(Href("users"), "tab-users")
 		@c.Section("", "", "Server admins bypass every organization check. To invite someone to an organization, use that organization's settings.") {
-			<ul class="space-y-2">
+			<ul class="divide-y divide-rw-border">
 				for _, u := range v.Rows {
-					<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+					<li class="py-3 text-sm flex flex-wrap items-center gap-2">
 						<span class="text-rw-text">{ nameOr(u.Name, u.Email) }</span>
 						if u.Name != "" {
 							<span class="text-rw-faint">{ u.Email }</span>
@@ -276,9 +276,9 @@ templ Update(v UpdateView) {
 				if v.Workers.Pending {
 					<p class="mb-3 text-sm text-rw-muted" role="status">The rollout starts once the panel's image is published.</p>
 				}
-				<ul class="space-y-2 mb-3">
+				<ul class="divide-y divide-rw-border mb-3">
 					for _, r := range v.Workers.Rows {
-						<li class="panel px-4 py-2 text-sm">
+						<li class="py-2 text-sm">
 							<div class="flex flex-wrap items-center gap-3">
 								<span class="text-rw-text font-medium">{ r.Name }</span>
 								if r.Current != "" {
@@ -323,9 +323,9 @@ templ Routes(v RoutesView) {
 			if len(v.Rows) == 0 {
 				<p class="text-sm text-rw-faint">No external routes yet.</p>
 			} else {
-				<ul class="space-y-2">
+				<ul class="divide-y divide-rw-border">
 					for _, r := range v.Rows {
-						<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+						<li class="py-3 text-sm flex flex-wrap items-center gap-2">
 							<span class="text-rw-text">{ r.Host }</span>
 							@c.Chip(r.Mode, "")
 							if r.Insecure {

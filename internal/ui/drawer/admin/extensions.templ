@@ -59,9 +59,9 @@ templ recipeList(rows []RecipeRow, none string) {
 	if len(rows) == 0 {
 		<p class="text-sm text-rw-faint">{ none }</p>
 	} else {
-		<ul class="space-y-3">
+		<ul class="divide-y divide-rw-border">
 			for _, r := range rows {
-				<li class="panel px-4 py-3 text-sm space-y-2">
+				<li class="py-3 text-sm space-y-2">
 					<div class="flex flex-wrap items-center gap-2">
 						<span class="text-rw-text font-medium">{ r.Name }</span>
 						<span class="text-xs text-rw-muted">{ r.Info }</span>

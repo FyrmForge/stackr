@@ -46,7 +46,7 @@ templ Backups(v BackupsView) {
 		@c.Section("Stackr's own database", "instance", "A copy of the panel database, taken while it serves. Restore it on the host with stackr-install restore.") {
 			<div class="space-y-4">
 				if n := lastFailed(v.Rows); n > 0 {
-					<div class="rounded-lg border border-rw-danger/40 bg-rw-danger/10 px-4 py-3 text-sm" role="status">
+					<div class="rounded-lg bg-rw-danger/10 px-4 py-3 text-sm" role="status">
 						<p class="font-medium text-rw-danger">{ failedTitle(n) }</p>
 						if v.Rows[0].Error != "" {
 							<p class="text-rw-text mt-0.5">{ v.Rows[0].Error }</p>
@@ -111,9 +111,9 @@ templ Backups(v BackupsView) {
 			if len(v.Rows) == 0 {
 				<p class="text-sm text-rw-muted">No panel backups yet.</p>
 			} else {
-				<ul class="space-y-2">
+				<ul class="divide-y divide-rw-border">
 					for _, b := range v.Rows {
-						<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+						<li class="py-3 text-sm flex flex-wrap items-center gap-2">
 							@c.JobBadge(b.Status)
 							<span class="text-rw-text">@c.When(b.When)</span>
 							<span class="text-rw-faint">{ b.Trigger }, { b.Dest }</span>

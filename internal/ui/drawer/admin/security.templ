@@ -55,11 +55,11 @@ templ Security(v SecurityView) {
 			if len(v.Rows) == 0 {
 				<p class="text-sm text-rw-faint">Nothing matches.</p>
 			} else {
-				<ul class="space-y-2">
+				<ul class="divide-y divide-rw-border">
 					for _, r := range v.Rows {
-						<li class="panel text-sm">
+						<li class="text-sm">
 							<details>
-								<summary class="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
+								<summary class="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 py-3">
 									<span class="w-28 shrink-0 text-xs text-rw-faint">@c.When(r.When)</span>
 									<span class="text-rw-text">{ r.Actor }</span>
 									<span class="text-rw-muted">{ r.Action }</span>
@@ -73,7 +73,7 @@ templ Security(v SecurityView) {
 									</span>
 								</summary>
 								if len(r.Details) > 0 {
-									<dl class="grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-x-3 gap-y-1 border-t border-rw-border px-4 py-3 text-xs">
+									<dl class="grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-x-3 gap-y-1 border-t border-rw-border py-3 text-xs">
 										for _, d := range r.Details {
 											<dt class="text-rw-faint">{ d.Label }</dt>
 											<dd class="whitespace-pre-wrap break-all font-mono text-rw-muted">{ d.Value }</dd>

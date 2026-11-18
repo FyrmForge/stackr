@@ -52,9 +52,9 @@ templ Overview(v OverviewView) {
 			if len(v.Problems) == 0 {
 				<p class="text-sm text-rw-muted">Nothing needs you.</p>
 			} else {
-				<ul class="rounded-lg border border-rw-border divide-y divide-rw-border">
+				<ul class="divide-y divide-rw-border">
 					for _, p := range v.Problems {
-						<li class="flex flex-wrap items-start gap-3 px-4 py-3 text-sm">
+						<li class="flex flex-wrap items-start gap-3 py-3 text-sm">
 							<span class={ "mt-0.5 shrink-0 font-semibold", problemTone(p.Critical) } aria-hidden="true">!</span>
 							<span class="flex-1 min-w-0 text-rw-text">
 								{ p.Message }
