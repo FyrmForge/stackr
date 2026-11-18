@@ -12,16 +12,31 @@ import (
 // stkr node disk and stkr volume move-to-disk: the CLI side of a node's
 // disk. Every verb mirrors the panel's: the same plan first, the same
 // refusals (the server writes them), the same typed word for the destructive
-// ones. --confirm <word> answers the question; without it the verb asks, and
-// -y answers it too.
+// ones. --confirm <word> answers the question; without it the verb asks. -y
+// answers a yes question (adopt) but never a typed word.
 
-// typed is the word a destructive verb sends: the one given with --confirm,
+// answered is the word the adopt verb sends: the one given with --confirm,
 // else the expected one once the person has answered the question.
-func (a *app) typed(given, word, q string) (string, error) {
+func (a *app) answered(given, word, q string) (string, error) {
 	if given != "" {
 		return given, nil
 	}
 	return word, a.confirm(q)
+}
+
+// typed is the word a destructive verb sends: the one given with --confirm, or
+// one the person types at the prompt. -y does not skip it, and no terminal
+// without --confirm is refused.
+func (a *app) typed(given, word, q string) (string, error) {
+	if given != "" {
+		return given, nil
+	}
+	if !a.tty || a.json {
+		return "", usage("Pass --confirm %s.", word)
+	}
+	_, _ = fmt.Fprintf(a.errw, "%s Type %s to confirm: ", q, word)
+	line, _ := a.in.ReadString('\n')
+	return strings.TrimSpace(line), nil
 }
 
 // size is a byte count; a negative one is a size the server could not read.
@@ -179,7 +194,7 @@ func (a *app) diskAdopt() *cobra.Command {
 			}
 			word := confirm
 			if !resume {
-				if word, err = a.typed(confirm, cell(p["node"]), "Adopt this disk on "+cell(p["node"])+"? The envs above move to it."); err != nil {
+				if word, err = a.answered(confirm, cell(p["node"]), "Adopt this disk on "+cell(p["node"])+"? The envs above move to it."); err != nil {
 					return err
 				}
 			}

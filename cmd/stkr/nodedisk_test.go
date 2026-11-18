@@ -69,6 +69,10 @@ func TestNodeDiskAdopt(t *testing.T) {
 	if code != 1 || !strings.Contains(errw, "A copy of pg blocks the adopt.") || !strings.Contains(out, "--discard pg") || len(writes(r)) != 0 {
 		t.Errorf("refused adopt = %d %q %q, wrote %v", code, out, errw, writes(r))
 	}
+	// -y does not skip the typed slug of a discard
+	if code, _, errw = cli(t, "-y", "node", "disk", "adopt", "n1", "/mnt/data", "--discard", "pg"); code != 2 || !strings.Contains(errw, "Pass --confirm pg.") || len(writes(r)) != 0 {
+		t.Fatalf("discard -y = %d %q, wrote %v", code, errw, writes(r))
+	}
 	// --discard removes the copy, with the slug as the word
 	if code, _, errw = cli(t, "node", "disk", "adopt", "n1", "/mnt/data", "--discard", "pg", "--confirm", "pg"); code != 0 {
 		t.Fatalf("discard = %d %q", code, errw)
@@ -81,8 +85,12 @@ func TestNodeDiskAdopt(t *testing.T) {
 func TestNodeDiskForgetAndMoveAll(t *testing.T) {
 	plan := `{"disk_id":"d1","node":"old","gone":false,"volumes":[{"slug":"pg","where":"shop / prod","has_backup":true,"backup":"2026-11-01T08:00:00Z"}],"refusal":""}`
 	r := fake(t, map[string]string{"/forget-plan": plan, "/forget": `{"id":"","kind":""}`})
-	if code, out, _ := cli(t, "node", "disk", "forget", "d1"); code != 3 || !strings.Contains(out, "backup 2026-11-01") || len(writes(r)) != 0 {
-		t.Errorf("forget unconfirmed = %d %q, wrote %v", code, out, writes(r))
+	if code, out, errw := cli(t, "node", "disk", "forget", "d1"); code != 2 || !strings.Contains(out, "backup 2026-11-01") || !strings.Contains(errw, "Pass --confirm old.") || len(writes(r)) != 0 {
+		t.Errorf("forget unconfirmed = %d %q %q, wrote %v", code, out, errw, writes(r))
+	}
+	// -y does not skip a typed word
+	if code, _, errw := cli(t, "-y", "node", "disk", "forget", "d1"); code != 2 || !strings.Contains(errw, "Pass --confirm old.") || len(writes(r)) != 0 {
+		t.Errorf("forget -y = %d %q, wrote %v", code, errw, writes(r))
 	}
 	if code, out, errw := cli(t, "node", "disk", "forget", "d1", "--confirm", "old"); code != 0 || !strings.Contains(out, "forgotten") {
 		t.Errorf("forget = %d %q %q", code, out, errw)
@@ -139,7 +147,10 @@ func TestVolumeMoveToDisk(t *testing.T) {
 	if code, _, errw := cli(t, "volume", "discard", "data", "--confirm", "data"); code != 0 {
 		t.Fatalf("discard = %d %q", code, errw)
 	}
-	if code, _, _ := cli(t, "volume", "discard", "data", "--bound", "-y"); code != 0 {
+	if code, _, errw := cli(t, "volume", "discard", "data", "--bound", "-y"); code != 2 || !strings.Contains(errw, "Pass --confirm data.") || len(writes(r)) != 1 {
+		t.Fatalf("discard --bound -y = %d %q, wrote %v", code, errw, writes(r))
+	}
+	if code, _, _ := cli(t, "volume", "discard", "data", "--bound", "--confirm", "data"); code != 0 {
 		t.Fatal("discard --bound failed")
 	}
 	if w := writes(r); len(w) != 2 || w[0] != "POST "+org+`/discard-plain {"confirm":"data"}` || w[1] != "POST "+org+`/discard-bound {"confirm":"data"}` {
