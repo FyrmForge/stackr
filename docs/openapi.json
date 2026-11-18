@@ -835,6 +835,9 @@
       },
       "Change": {
         "properties": {
+          "details": {
+            "type": "string"
+          },
           "field": {
             "type": "string"
           },

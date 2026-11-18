@@ -45,7 +45,8 @@ class SettingsRead extends HTMLElement {
         const undo = row.querySelector("[data-undo]");
         if (!c || !val)
             return;
-        if (!this.was.has(val)) this.was.set(val, Array.from(val.childNodes, (n) => n.cloneNode(true)));
+        if (!this.was.has(val))
+            this.was.set(val, Array.from(val.childNodes, (n) => n.cloneNode(true)));
         undo.hidden = !this.dirty(c);
         if (!this.dirty(c)) {
             val.replaceChildren(...this.old(val));
@@ -144,3 +145,4 @@ class SettingsRead extends HTMLElement {
     }
 }
 customElements.define("settings-read", SettingsRead);
+export {};
