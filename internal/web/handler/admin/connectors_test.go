@@ -27,7 +27,7 @@ func TestAdminConnectors(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		`id="tab-connectors"`, `id="connectors-list"`, "main", "No org (admins only)",
-		`<li class="rounded-lg border`, `hx-get="/-/admin/connectors/` + srv + `/settings?tab=git"`, ">Sharing<",
+		`<li class="py-4 text-sm`, `hx-get="/-/admin/connectors/` + srv + `/settings?tab=git"`, ">Sharing<",
 		`hx-get="/-/admin/connectors/new"`, "+ Add connector",
 	} {
 		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
@@ -154,7 +154,7 @@ func TestAdminConnectorCards(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := s.As(t, root, "GET", "/-/admin/connectors", nil).Body.String()
-	if n := strings.Count(body, `<li class="rounded-lg border`); n != 2 {
+	if n := strings.Count(body, `<li class="py-4 text-sm`); n != 2 {
 		t.Errorf("cards = %d, want 2\n%s", n, body)
 	}
 	for _, want := range []string{
