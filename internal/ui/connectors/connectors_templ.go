@@ -512,7 +512,7 @@ func rows(rs []Row) templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<ul class=\"space-y-3 mb-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<ul class=\"divide-y divide-rw-border mb-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -547,7 +547,7 @@ func row(r Row) templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<li class=\"rounded-lg border border-rw-border p-4 text-sm space-y-2\"><div class=\"flex flex-wrap items-center gap-x-3 gap-y-1\"><div class=\"min-w-0\"><p class=\"font-medium text-rw-text\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<li class=\"py-4 text-sm space-y-2\"><div class=\"flex flex-wrap items-center gap-x-3 gap-y-1\"><div class=\"min-w-0\"><p class=\"font-medium text-rw-text\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

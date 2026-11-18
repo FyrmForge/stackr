@@ -141,7 +141,7 @@ templ synced(msg string) {
 }
 
 templ rows(rs []Row) {
-	<ul class="space-y-3 mb-4">
+	<ul class="divide-y divide-rw-border mb-4">
 		for _, r := range rs {
 			@row(r)
 		}
@@ -149,7 +149,7 @@ templ rows(rs []Row) {
 }
 
 templ row(r Row) {
-	<li class="rounded-lg border border-rw-border p-4 text-sm space-y-2">
+	<li class="py-4 text-sm space-y-2">
 		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
 			<div class="min-w-0">
 				<p class="font-medium text-rw-text">{ r.Kind }</p>

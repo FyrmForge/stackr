@@ -122,9 +122,9 @@ templ Plan(p PlanView) {
 			</div>
 		}
 		if len(p.Gaps) > 0 {
-			<ul class="space-y-2" aria-label="To fill in">
+			<ul class="divide-y divide-rw-border" aria-label="To fill in">
 				for i, g := range p.Gaps {
-					<li class="panel border-rw-warn/40 px-4 py-2.5 text-sm flex flex-wrap items-center gap-2">
+					<li class="py-2.5 text-sm flex flex-wrap items-center gap-2">
 						@Chip(gapWord(g), "warn")
 						<span class="text-rw-text">{ g.Label }</span>
 						if g.Kind == "secret" && g.Post != "" {
@@ -141,9 +141,9 @@ templ Plan(p PlanView) {
 		if len(p.Changes) == 0 {
 			<p class="text-sm text-rw-faint">Nothing changes.</p>
 		}
-		<ul class="space-y-2">
+		<ul class="divide-y divide-rw-border">
 			for _, c := range p.Changes {
-				<li class={ "panel px-4 py-2.5 text-sm", templ.KV("border-rw-warn/40", c.Impact != "") }>
+				<li class={ "py-2.5 text-sm", templ.KV("border-l-2 border-rw-warn/40 pl-3", c.Impact != "") }>
 					<div class="flex flex-wrap items-center gap-2 font-mono">
 						<span class={ planSignClass(c) } aria-hidden="true">{ planSign(c) }</span>
 						if c.Optional {

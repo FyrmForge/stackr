@@ -129,7 +129,7 @@ func ParamEditor(v ParamEditorView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<ul class=\"space-y-2 mb-5\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<ul class=\"divide-y divide-rw-border mb-5\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -154,7 +154,7 @@ func ParamEditor(v ParamEditorView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<ul class=\"space-y-2 mb-5\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<ul class=\"divide-y divide-rw-border mb-5\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -200,7 +200,7 @@ func paramRow(v ParamEditorView, p ParamRowView) templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<li class=\"panel px-3 py-2.5 flex items-start gap-2 has-[details[open]]:border-rw-accent/60\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<li class=\"py-2.5 flex items-start gap-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -373,7 +373,7 @@ func secretRow(v ParamEditorView, s SecretRowView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var12 = []any{"panel px-3 py-2.5 flex flex-wrap items-start gap-2 has-[details[open]]:border-rw-accent/60", templ.KV("border-rw-danger/60", !s.Set)}
+			var templ_7745c5c3_Var12 = []any{"py-2.5 flex flex-wrap items-start gap-2", templ.KV("border-l-2 border-rw-danger/60 pl-3", !s.Set)}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_ElementWriter, templ_7745c5c3_Var12...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -797,7 +797,7 @@ func newRow(d ParamDraft) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "><summary class=\"btn btn-ghost btn-sm w-full border border-dashed border-rw-border cursor-pointer list-none select-none\">+ Add variable</summary><div class=\"panel px-3 py-2.5 mt-2 border-rw-accent/60 flex flex-wrap items-center gap-2\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "><summary class=\"btn btn-ghost btn-sm w-full border border-dashed border-rw-border cursor-pointer list-none select-none\">+ Add variable</summary><div class=\"rounded bg-rw-inset px-3 py-2.5 mt-2 flex flex-wrap items-center gap-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

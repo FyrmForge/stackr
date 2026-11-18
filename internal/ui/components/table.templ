@@ -18,7 +18,7 @@ templ Table(t TableView) {
 	} else if len(t.Rows) == 0 {
 		@EmptyState(t.Empty)
 	} else {
-		<div class="panel overflow-x-auto">
+		<div class="overflow-x-auto">
 			<table class="w-full text-sm tabular-nums">
 				<thead>
 					<tr class="text-left text-rw-faint border-b border-rw-border">
@@ -50,7 +50,7 @@ templ Text(s string) {
 
 // Facts is v0's connection panel: label / value rows in a mono panel.
 templ Facts() {
-	<div class="panel p-5 space-y-3 text-sm font-mono">
+	<div class="space-y-3 text-sm font-mono">
 		{ children... }
 	</div>
 }

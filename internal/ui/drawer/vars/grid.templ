@@ -194,7 +194,7 @@ templ addForm(g Grid, group string) {
 				+ Add variable
 			}
 		</summary>
-		<form class="panel px-3 py-2.5 mt-2 border-rw-accent/60 space-y-2" hx-post={ g.Action } hx-target="#vars-editor" hx-swap="outerHTML">
+		<form class="rounded bg-rw-inset px-3 py-2.5 mt-2 space-y-2" hx-post={ g.Action } hx-target="#vars-editor" hx-swap="outerHTML">
 			<input type="hidden" name="add_form" value={ group }/>
 			<input type="checkbox" id={ "add-secret-" + group } name="add_kind" value="secret" class="peer sr-only" aria-label="Secret" checked?={ typed(r, "add_kind") == "secret" }/>
 			<div class="flex flex-wrap items-center gap-2">

@@ -58,7 +58,7 @@ templ ParamEditor(v ParamEditorView) {
 			if len(v.Params) == 0 {
 				<p class="text-sm text-rw-faint mb-5">Nothing here yet.</p>
 			} else {
-				<ul class="space-y-2 mb-5">
+				<ul class="divide-y divide-rw-border mb-5">
 					for _, p := range v.Params {
 						@paramRow(v, p)
 					}
@@ -68,7 +68,7 @@ templ ParamEditor(v ParamEditorView) {
 			if len(v.Secrets) == 0 {
 				<p class="text-sm text-rw-faint mb-5">Nothing here yet.</p>
 			} else {
-				<ul class="space-y-2 mb-5">
+				<ul class="divide-y divide-rw-border mb-5">
 					for _, s := range v.Secrets {
 						@secretRow(v, s)
 					}
@@ -82,7 +82,7 @@ templ ParamEditor(v ParamEditorView) {
 }
 
 templ paramRow(v ParamEditorView, p ParamRowView) {
-	<li class="panel px-3 py-2.5 flex items-start gap-2 has-[details[open]]:border-rw-accent/60">
+	<li class="py-2.5 flex items-start gap-2">
 		if v.ReadOnly {
 			<div class="flex-1 min-w-0 flex flex-wrap items-center gap-2">
 				@rowName(p.Collection, p.Name, false)
@@ -112,7 +112,7 @@ templ paramRow(v ParamEditorView, p ParamRowView) {
 
 // secretRow is a mask and a chip, or v0's danger row when none is stored.
 templ secretRow(v ParamEditorView, s SecretRowView) {
-	<li class={ "panel px-3 py-2.5 flex flex-wrap items-start gap-2 has-[details[open]]:border-rw-accent/60", templ.KV("border-rw-danger/60", !s.Set) }>
+	<li class={ "py-2.5 flex flex-wrap items-start gap-2", templ.KV("border-l-2 border-rw-danger/60 pl-3", !s.Set) }>
 		if v.ReadOnly {
 			<div class="flex-1 min-w-0 flex flex-wrap items-center gap-2">
 				@secretSummary(s)
@@ -193,7 +193,7 @@ templ newRow(d ParamDraft) {
 	{{ collErr, nameErr := KeptErr(ctx, "new_collection", ""), KeptErr(ctx, "new_name", "") }}
 	<details class="group" open?={ d.Name != "" || d.Collection != "" || collErr != "" || nameErr != "" }>
 		<summary class="btn btn-ghost btn-sm w-full border border-dashed border-rw-border cursor-pointer list-none select-none">+ Add variable</summary>
-		<div class="panel px-3 py-2.5 mt-2 border-rw-accent/60 flex flex-wrap items-center gap-2">
+		<div class="rounded bg-rw-inset px-3 py-2.5 mt-2 flex flex-wrap items-center gap-2">
 			<input class="input font-mono !w-32" name="new_collection" value={ d.Collection } placeholder="collection" aria-label="New param collection" { Invalid("new_collection", collErr)... }/>
 			<input class="input font-mono flex-1 min-w-32" name="new_name" value={ d.Name } placeholder="NAME" aria-label="New param name" { Invalid("new_name", nameErr)... }/>
 			<input class="input font-mono flex-1 min-w-32" name="new_value" value={ d.Value } placeholder="value" autocomplete="off" aria-label="New param value"/>

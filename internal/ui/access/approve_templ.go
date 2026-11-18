@@ -139,7 +139,7 @@ func Approve(v ApproveView) templ.Component {
 			}
 		}
 		if v.Controller != nil {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"rounded border border-rw-warn/40 p-3 text-sm\" role=\"note\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"rounded bg-rw-warn/10 p-3 text-sm\" role=\"note\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

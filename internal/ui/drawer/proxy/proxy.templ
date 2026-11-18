@@ -19,9 +19,9 @@ templ routes(v View) {
 		if len(v.Rows) == 0 {
 			<p class="text-sm text-rw-muted">No tile in this env has a domain.</p>
 		}
-		<ul class="space-y-2">
+		<ul class="divide-y divide-rw-border">
 			for _, r := range v.Rows {
-				<li class="flex flex-wrap items-center gap-2 rounded-lg border border-rw-border px-3 py-2.5 text-sm">
+				<li class="flex flex-wrap items-center gap-2 py-2.5 text-sm">
 					<span class="font-mono text-rw-text">{ r.Host }{ r.Path }</span>
 					<span class="text-rw-muted">→ { r.Tile }:{ r.Port }</span>
 					<span class="ml-auto flex items-center gap-1.5">

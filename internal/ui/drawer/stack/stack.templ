@@ -102,9 +102,9 @@ templ order(v OrderView) {
 	if len(v.Rungs) == 0 {
 		<p class="text-sm text-rw-muted">No environments yet.</p>
 	} else {
-		<ol class="rounded-lg border border-rw-border divide-y divide-rw-border text-sm">
+		<ol class="divide-y divide-rw-border text-sm">
 			for i, r := range v.Rungs {
-				<li class="flex items-center gap-3 px-3 py-2">
+				<li class="flex items-center gap-3 py-2">
 					<span class="text-rw-faint w-4">{ strconv.Itoa(i + 1) }</span>
 					<span class="flex-1">
 						@c.EnvBadge(r.Name, r.Color)

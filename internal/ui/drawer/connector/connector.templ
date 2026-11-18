@@ -41,7 +41,7 @@ func settingsHelp(v SettingsView) string {
 templ Settings(v SettingsView) {
 	<div id="tab-settings">
 		@c.Section("Connector", "organization", settingsHelp(v)) {
-			<div class="panel px-4 py-3 flex flex-wrap items-center gap-3 mb-5">
+			<div class="py-3 flex flex-wrap items-center gap-3 mb-5">
 				<span class="text-sm text-rw-text">{ v.Name }</span>
 				if v.Shared {
 					<span class="text-rw-faint text-xs ml-auto">shared from the server</span>
@@ -110,9 +110,9 @@ templ Repos(v ReposView) {
 				</div>
 			} else {
 				<p class="text-sm text-rw-muted mb-3">Connected and installed on { repoCount(len(v.Repos)) }.</p>
-				<ul class="space-y-2 mb-5">
+				<ul class="divide-y divide-rw-border mb-5">
 					for _, r := range v.Repos {
-						<li class="panel px-3 py-2 font-mono text-xs text-rw-muted">{ r }</li>
+						<li class="py-2 font-mono text-xs text-rw-muted">{ r }</li>
 					}
 				</ul>
 				<div class="flex flex-wrap gap-2">
