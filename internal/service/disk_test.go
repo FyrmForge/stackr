@@ -706,9 +706,17 @@ func TestStateLookupErrorFailsClosed(t *testing.T) {
 	if !d.orch.volumes.HoldsData(ctx, v) || d.orch.volumes.SizeBytes(ctx, v) != -1 {
 		t.Error("holds data must be true and the size unknown")
 	}
+	// the gate now returns the lookup error at once; a failed job is as good
 	j, err := d.orch.Deploy(ctx, tl.ID)
-	if j = d.run(t, j, err); j.State != job.Failed || !strings.Contains(j.Error, "db gone") {
-		t.Errorf("deploy: %s %q", j.State, j.Error)
+	switch {
+	case err != nil:
+		if !strings.Contains(err.Error(), "db gone") {
+			t.Errorf("deploy err = %v", err)
+		}
+	default:
+		if j = d.wait(t, j); j.State != job.Failed || !strings.Contains(j.Error, "db gone") {
+			t.Errorf("deploy: %s %q", j.State, j.Error)
+		}
 	}
 	if n := volumeCreates(d.wFake); n != 0 {
 		t.Errorf("%d volumes created", n)
