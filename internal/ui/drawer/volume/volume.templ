@@ -75,6 +75,7 @@ type OverviewView struct {
 	OldCopy           bool      // the orphan is a move's old copy: no date, it goes when the move ends
 	Mounts            []Mount
 	Storage           *Storage // nil = where it lives is not known
+	Cap               *CapFact // nil = no cap fact (a read that failed)
 
 	// The node disk screens: each is nil when there is nothing to offer.
 	Job   *c.JobStatusView // the newest volume-to-disk job of the volume
@@ -92,6 +93,7 @@ type Storage struct {
 	Mismatch     bool // an object bound to Folder, not to the volume's own folder
 	NodeOpen     string
 	Size         string
+	SizeBytes    int64  // -1 = unknown
 	SizeAt       string // "2 min ago"; "" = no read time
 }
 
@@ -174,6 +176,9 @@ templ Overview(o OverviewView) {
 			}
 			@stat("Created") {
 				<p class="text-sm text-rw-text">@c.When(o.Created)</p>
+			}
+			if o.Cap != nil {
+				@capFact(o.Cap)
 			}
 			<div class="panel p-4 sm:col-span-2">
 				<p class="text-xs text-rw-muted mb-1.5">Docker volume</p>
@@ -425,10 +430,13 @@ func restore(b BackupsView, r Run) c.ConfirmView {
 	}
 }
 
-// Settings is the delete. blocked says why it cannot go ("" = it can):
-// v0's "Detach before deleting".
-templ Settings(v View, blocked string) {
-	<div id="tab-settings">
+// Settings is the size cap (cap nil = none to show) and the delete. blocked
+// says why it cannot go ("" = it can): v0's "Detach before deleting".
+templ Settings(v View, blocked string, cap *CapCard) {
+	<div id="tab-settings" class="flex flex-col gap-4">
+		if cap != nil {
+			@capCard(*cap)
+		}
 		if blocked != "" {
 			<p class="text-sm text-rw-muted">{ blocked }</p>
 		} else {

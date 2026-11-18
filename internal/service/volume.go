@@ -137,16 +137,27 @@ func (o *Orchestrator) CapEnforced(ctx context.Context, v Volume) (bool, error) 
 	return ok, err
 }
 
+// CheckVolumeCap is the refusal a size cap gets before anything is saved: nil
+// (no cap) and 1 MB to 1 PB are fine. The panel's cap field asks it too.
+func CheckVolumeCap(mb *int64) error {
+	switch {
+	case mb == nil:
+		return nil
+	case *mb > maxCapMB:
+		return errs.Invalidf("max_size_mb", "Give a size up to 1 PB.")
+	case *mb < 1:
+		return errs.Invalidf("max_size_mb", "Give a size of at least 1 MB, or leave it empty for no cap.")
+	}
+	return nil
+}
+
 // SetVolumeCap sets a volume's size cap in MB, nil for none. On an xfs disk
 // the folder's quota changes at once; a cap under what the volume holds is
 // refused and nothing changes. On any other volume the cap is saved and not
 // enforced (CapEnforced).
 func (o *Orchestrator) SetVolumeCap(ctx context.Context, volumeID string, mb *int64) error {
-	if mb != nil && *mb > maxCapMB {
-		return errs.Invalidf("max_size_mb", "Give a size up to 1 PB.")
-	}
-	if mb != nil && *mb < 1 {
-		return errs.Invalidf("max_size_mb", "Give a size of at least 1 MB, or leave it empty for no cap.")
+	if err := CheckVolumeCap(mb); err != nil {
+		return err
 	}
 	v, err := o.store.Volumes.Get(ctx, volumeID)
 	if err != nil {

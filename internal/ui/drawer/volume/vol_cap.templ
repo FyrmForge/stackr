@@ -1,0 +1,226 @@
+package volume
+
+import (
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// The volume's size cap. Overview shows it as a fact with the used bar and a
+// link to Settings; Settings edits it: a pencil turns the row into a field, a
+// change stages it (a pending footer, nothing saved), Apply saves it. Only a
+// volume on a whole disk is held to the cap; the others say so.
+
+// CapFact is the cap fact of the Overview tab. Used "" = not read.
+type CapFact struct {
+	Set        bool
+	Value      string // "20 GB"
+	Used       string // "14.2 GB"
+	Pct        int
+	Tone       string // accent | warn | danger
+	Note       string // "Not enforced on a folder disk."
+	Edit, Node string // the Settings tab's URL and the drawer's node; "" = no link
+}
+
+// lead is what the used line says first: how full the cap is.
+func (f CapFact) lead() string {
+	switch f.Tone {
+	case "warn":
+		return "Nearly full. "
+	}
+	return ""
+}
+
+templ capFact(f *CapFact) {
+	<div class="panel p-4 sm:col-span-2">
+		<p class="text-xs text-rw-muted mb-1.5">Size cap</p>
+		<div class="flex items-center gap-3 text-sm">
+			<span class="min-w-0 flex-1">
+				if f.Set {
+					<span class="text-rw-text">{ f.Value }</span>
+				} else {
+					<span class="text-rw-faint">No cap</span>
+					<span class="ml-1">
+						@c.Chip("default", "")
+					</span>
+				}
+			</span>
+			if f.Edit != "" {
+				<a href={ templ.SafeURL("?drawer=" + f.Node + "&tab=settings") } hx-get={ f.Edit } hx-target={ "#" + Root } hx-swap="outerHTML" hx-push-url={ templ.SafeURL("?drawer=" + f.Node + "&tab=settings") } class="link text-xs shrink-0">Edit in Settings</a>
+			}
+		</div>
+		if f.Used != "" {
+			if !f.Set {
+				<p class="mt-3 text-xs text-rw-muted">Used { f.Used }</p>
+			} else {
+				<div class="mt-3 text-xs text-rw-muted">
+					switch f.Tone {
+						case "danger":
+							<span class="text-rw-danger">Used { f.Used } of { f.Value }. Full, writes fail.</span>
+						case "warn":
+							<span class="text-rw-warn">{ f.lead() }Used { f.Used } of { f.Value }</span>
+						default:
+							Used { f.Used } of { f.Value }
+					}
+					<div class="mt-1.5 h-1.5 rounded-full bg-rw-border overflow-hidden" aria-hidden="true">
+						<div class={ "h-full rounded-full", capBar(f.Tone) } style={ "width:" + strconv.Itoa(f.Pct) + "%" }></div>
+					</div>
+				</div>
+			}
+		}
+		if f.Note != "" {
+			<p class="mt-2 text-xs text-rw-warn">{ f.Note }</p>
+		}
+	</div>
+}
+
+// capBar spells every class in full so tailwind keeps them.
+func capBar(tone string) string {
+	switch tone {
+	case "warn":
+		return "bg-rw-warn"
+	case "danger":
+		return "bg-rw-danger"
+	}
+	return "bg-rw-accent"
+}
+
+// CapCard is the Settings tab's cap card. Mode is read, edit or pending.
+// Value is what the row says (in pending, the new cap; Was the one saved);
+// Size and Unit are the field; Err sits under the field (edit) or in the
+// footer (pending); Impact is the footer's line; MB is what Apply saves ("" =
+// no cap). Can = the person may change it (no pencil otherwise).
+type CapCard struct {
+	Mode       string
+	Value, Was string
+	Size, Unit string
+	MB         string
+	Err        string
+	Impact     string
+	Note       string // read: "Not enforced on a folder disk."
+	Can        bool
+	Base       string // the drawer's URL: Settings is Base?tab=settings
+}
+
+func (k CapCard) settings() string { return k.Base + "?tab=settings" }
+func (k CapCard) editURL() string {
+	if k.Mode == "pending" { // edit again from the staged value
+		return k.settings() + "&cap=edit&size=" + k.Size + "&unit=" + k.Unit
+	}
+	return k.settings() + "&cap=edit"
+}
+
+templ capIcon(path string) {
+	<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		@templ.Raw(path)
+	</svg>
+}
+
+templ capIconButton(label, url, icon string) {
+	<button type="button" title={ label } aria-label={ label } class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" hx-get={ url } hx-target={ "#" + Root } hx-swap="outerHTML">
+		@capIcon(icon)
+	</button>
+}
+
+const iconPen = `<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>`
+const iconUndo = `<path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7"/>`
+
+templ capCard(k CapCard) {
+	<div class="panel p-4 overflow-hidden">
+		<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 text-sm sm:grid-cols-[8rem_minmax(0,1fr)_auto]">
+			<span class="col-span-2 text-xs text-rw-muted sm:col-span-1 sm:text-sm">Size cap</span>
+			switch k.Mode {
+				case "edit":
+					<form id="cap-form" class="min-w-0" hx-post={ k.Base + "/cap/stage" } hx-trigger="change, submit" hx-target={ "#" + Root } hx-swap="outerHTML">
+						<div class="flex items-center gap-2">
+							<input
+								class={ "input font-mono !w-28", templ.KV("!border-rw-danger", k.Err != "") }
+								name="size" value={ k.Size } placeholder="No cap" inputmode="numeric" autocomplete="off" aria-label="Size cap" autofocus?={ k.Err == "" }
+								if k.Err != "" {
+									aria-invalid="true"
+								}
+							/>
+							<select class="input !w-auto !py-1 text-sm" name="unit" aria-label="Unit">
+								<option value="MB" selected?={ k.Unit == "MB" }>MB</option>
+								<option value="GB" selected?={ k.Unit != "MB" }>GB</option>
+							</select>
+						</div>
+					</form>
+					<span class="flex items-center justify-end">
+						<button type="button" class="btn btn-ghost btn-sm" hx-get={ k.settings() } hx-target={ "#" + Root } hx-swap="outerHTML">Cancel</button>
+					</span>
+				case "pending":
+					<span class="min-w-0 text-rw-text [overflow-wrap:anywhere]">
+						<span class="inline-flex items-center gap-1.5 flex-wrap">
+							<span class="h-1.5 w-1.5 rounded-full bg-rw-accent shrink-0" aria-hidden="true"></span>
+							<span class="text-rw-text">{ k.Value }</span>
+							<span class="text-xs text-rw-faint line-through">{ k.Was }</span>
+						</span>
+					</span>
+					<span class="flex items-center justify-end">
+						@capIconButton("Undo", k.settings(), iconUndo)
+						@capIconButton("Edit size cap", k.editURL(), iconPen)
+					</span>
+				default:
+					<span class="min-w-0 text-rw-text [overflow-wrap:anywhere]">
+						<span class="text-rw-text">{ k.Value }</span>
+					</span>
+					<span class="flex items-center justify-end">
+						if k.Can {
+							@capIconButton("Edit size cap", k.editURL(), iconPen)
+						}
+					</span>
+			}
+		</div>
+		switch k.Mode {
+			case "edit":
+				<p class="mt-2 text-xs text-rw-faint">Leave empty for no cap.</p>
+				if k.Err != "" {
+					<div class="mt-2">
+						@c.DlgAlert(k.Err)
+					</div>
+				}
+			case "pending":
+				@capPending(k)
+			default:
+				if k.Note != "" {
+					<p class="mt-2 text-xs text-rw-warn">{ k.Note }</p>
+				}
+		}
+	</div>
+}
+
+// capPending is the footer of a staged cap: what changes, and Apply.
+templ capPending(k CapCard) {
+	<div class="-mx-4 -mb-4 mt-4 border-t border-rw-border bg-rw-inset px-4 py-3">
+		<p class="text-xs font-medium text-rw-muted">1 change not saved</p>
+		<ul class="mt-1.5 space-y-1">
+			<li class="flex flex-wrap items-baseline gap-x-2 text-sm">
+				<span class="text-rw-muted">Size cap</span>
+				<span class="text-xs text-rw-faint line-through">{ k.Was }</span>
+				<span class="text-rw-faint">to</span>
+				<span class="text-rw-text">{ k.Value }</span>
+			</li>
+		</ul>
+		if k.Impact != "" {
+			<p class="mt-2 text-sm text-rw-muted">{ k.Impact }</p>
+		}
+		if k.Err != "" {
+			<div class="mt-2">
+				@c.DlgAlert(k.Err)
+			</div>
+		}
+		<div class="mt-3 flex flex-wrap items-center gap-2">
+			<button type="button" class="btn btn-primary btn-sm group disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ k.Base + "/cap" } hx-vals={ capVals(k.MB) } hx-target={ "#" + Root } hx-swap="outerHTML" hx-disabled-elt="this">
+				<span class="group-[.htmx-request]:hidden">Apply</span>
+				<span class="hidden group-[.htmx-request]:inline-flex items-center gap-2">
+					<span class="inline-block size-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" aria-hidden="true"></span>
+					Applying
+				</span>
+			</button>
+			<button type="button" class="btn btn-ghost btn-sm" hx-get={ k.settings() } hx-target={ "#" + Root } hx-swap="outerHTML">Cancel</button>
+		</div>
+	</div>
+}
+
+func capVals(mb string) string { return `{"max_size_mb":"` + mb + `"}` }

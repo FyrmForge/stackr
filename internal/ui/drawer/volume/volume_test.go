@@ -55,7 +55,7 @@ func TestEveryTabRenders(t *testing.T) {
 			[]string{"0 2 * * *", "Volume archive", "/backup\"", "/restore?run=r1", "local disk", "/schedules\"", "/schedules/s1/delete", `hx-trigger="every 2s"`, `hx-select="#backup-history-v1"`},
 		},
 		"settings": {
-			Settings(v, ""),
+			Settings(v, "", nil),
 			[]string{"Delete volume", `word="uploads"`, "/-/volumes/v1/delete"},
 		},
 	} {
@@ -88,7 +88,7 @@ func TestHistoryPollCountsDown(t *testing.T) {
 // A mounted volume offers no delete.
 func TestMountedHasNoDelete(t *testing.T) {
 	var sb strings.Builder
-	if err := Settings(View{Name: "uploads"}, "Detach before deleting.").Render(context.Background(), &sb); err != nil {
+	if err := Settings(View{Name: "uploads"}, "Detach before deleting.", nil).Render(context.Background(), &sb); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(sb.String(), "Delete volume") || !strings.Contains(sb.String(), "Detach before deleting") {

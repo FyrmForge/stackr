@@ -107,6 +107,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/volumes/:volume/schedules/:schedule/delete", h.DeleteSchedule, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/restore", h.Restore, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/delete", h.DeleteVolume, a.Require("tile.write"))
+	g.POST(e+"/volumes/:volume/cap/stage", h.CapStage, a.Require("tile.write"))
+	g.POST(e+"/volumes/:volume/cap", h.SetCap, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/move/plan", h.MoveToDiskPlan, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/move", h.MoveToDisk, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/discard-copy", h.DiscardCopy, a.Require("tile.write"))
@@ -1541,7 +1543,11 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		body = volume.Settings(v, blocked(vol, ms))
+		enforced, err := h.orch.CapEnforced(ctx, vol)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		body = volume.Settings(v, blocked(vol, ms), h.capCard(c, vol, h.storage(c, vol.ID), enforced))
 	default:
 		o := volume.OverviewView{
 			Docker:   vol.Name,
@@ -1554,6 +1560,11 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 			return middleware.HTTPError(err)
 		}
 		o.Storage = h.storage(c, vol.ID)
+		enforced, err := h.orch.CapEnforced(ctx, vol)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		o.Cap = h.capFact(c, vol, o.Storage, enforced)
 		if err := h.diskScreens(c, vol, &o); err != nil {
 			return middleware.HTTPError(err)
 		}
@@ -1570,7 +1581,7 @@ func (h *handler) storage(c echo.Context, volumeID string) *volume.Storage {
 	if err != nil {
 		return nil
 	}
-	s := &volume.Storage{Disk: st.OnDisk, Docker: st.InDocker, State: st.State, Folder: st.Folder}
+	s := &volume.Storage{Disk: st.OnDisk, Docker: st.InDocker, State: st.State, Folder: st.Folder, SizeBytes: st.SizeBytes}
 	if st.Ghost == "bound" { // the object's folder is the one to show: it is the wrong one
 		s.Mismatch, s.Folder = true, st.Device
 	}
