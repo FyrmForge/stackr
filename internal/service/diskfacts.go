@@ -164,6 +164,12 @@ func (o *Orchestrator) dataDiskOf(ctx context.Context, nodeID string) (free, tot
 			}
 		}
 	}
+	// the same fallback NodeDisk shows: a controller the panel sees itself reads the mount directly
+	if d.State == disk.StateReady && o.dh.inProcess(ctx, nodeID) {
+		if free, total, ok := mountStatfs(mount); ok {
+			return free, total, nil
+		}
+	}
 	return 0, 0, errs.Refusedf("The node has not read its disk yet.")
 }
 
