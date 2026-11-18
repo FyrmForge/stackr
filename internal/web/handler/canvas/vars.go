@@ -99,7 +99,7 @@ func pick(cs []col, token string) (col, bool) {
 // vars is the grid of s's own params. A secret's value never reaches the view.
 // ponytail: no drift chip; the file's value per cell is not returned by any
 // verb the editor can call cheaply (the plan computes it per apply).
-func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string) (templ.Component, error) {
+func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string, mods ...func(*vars.Grid)) (templ.Component, error) {
 	ctx := c.Request().Context()
 	write := can(c, s, "variable.write")
 	cs, name, err := h.cols(ctx, s)
@@ -119,6 +119,9 @@ func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string) (te
 	if form, _ := c.FormParams(); c.Request().Method == http.MethodPost && errMsg == "" && form.Has("add_form") {
 		group := form.Get("add_form") // the note right after the add form that posted
 		g.Added, g.Note = &group, note
+	}
+	for _, m := range mods {
+		m(&g)
 	}
 	v.Grid = &g
 	return vars.Editor(v), nil
@@ -155,6 +158,24 @@ func (h *handler) grid(ctx context.Context, cs []col, write bool) (vars.Grid, er
 				plain[k] = true
 			}
 		}
+		if !write {
+			continue
+		}
+		// a value the env's tiles wait for is a declared secret: a row, unset
+		waits, err := h.orch.UnsetParams(ctx, c.ps)
+		if err != nil {
+			return g, err
+		}
+		for name, tiles := range waits {
+			coll, n, _ := strings.Cut(name, ".")
+			k := key{coll, n}
+			if cells[k] == nil {
+				cells[k] = make([]vars.Cell, len(cs))
+			}
+			if !cells[k][i].Set {
+				cells[k][i].Waits = tiles
+			}
+		}
 	}
 	for _, k := range slices.SortedFunc(maps.Keys(cells), func(a, b key) int {
 		return cmp.Or(strings.Compare(a.coll, b.coll), strings.Compare(a.name, b.name))
@@ -187,6 +208,14 @@ func (h *handler) SetVars(c echo.Context) error {
 	col, ok := pick(cs, form.Get("scope"))
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest)
+	}
+	if form.Get("restart") == "later" {
+		names, err := h.orch.SetParamsLater(ctx, col.ps, render.ParamEntries(form))
+		note := "Saved."
+		if len(names) > 0 {
+			note += " " + strings.Join(names, ", ") + " restart later."
+		}
+		return h.varsAfter(c, s, note, err)
 	}
 	rs, err := h.orch.SetParams(ctx, col.ps, render.ParamEntries(form))
 	return h.varsAfter(c, s, saved("Saved.", rs), err)

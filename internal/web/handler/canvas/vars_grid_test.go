@@ -30,7 +30,7 @@ func TestOrgUntieredGrid(t *testing.T) {
 	s := webtest.New(t)
 	_, _ = s.Orch.SetParams(context.Background(), service.ParamScope{Kind: "org", ID: s.Org}, []service.ParamEntry{{Collection: "smtp", Name: "host", Kind: "param", Value: "h"}})
 	body := get(t, s, "/acme/-/vars")
-	for _, w := range []string{"data-wide", ">all<", ">pr<", `value="org"`, `value="org_pr"`} {
+	for _, w := range []string{"data-wide", ">all<", ">pr<", `scope=org"`, `scope=org_pr"`} {
 		if !strings.Contains(body, w) {
 			t.Errorf("no %q in untiered grid", w)
 		}
@@ -74,7 +74,7 @@ func TestOrgTieredGrid(t *testing.T) {
 		{Collection: "smtp", Name: "pass", Kind: "secret", Value: "hunter2"},
 	})
 	body := get(t, s, "/acme/-/vars")
-	for _, w := range []string{"data-wide", "smtp.dev", ">dev<", ">prod<", ">pr<", "Locked: read only from inside prod", `value="tier:` + dev.ID + `"`, "Replace", "unset"} {
+	for _, w := range []string{"data-wide", "smtp.dev", ">dev<", ">prod<", ">pr<", "Locked: read only from inside prod", `scope=tier%3A` + dev.ID, "Replace", "unset"} {
 		if !strings.Contains(body, w) {
 			t.Errorf("no %q in grid", w)
 		}
@@ -152,7 +152,7 @@ func TestStackGrid(t *testing.T) {
 		t.Fatalf("mixed add = %d %s", rec.Code, rec.Body)
 	}
 	if body := rec.Body.String(); !strings.Contains(body, "plainval") || strings.Contains(body, "s3cret") ||
-		!strings.Contains(body, `name="param.app.mix"`) || !strings.Contains(body, `name="secret.app.mix"`) {
+		!strings.Contains(body, `aria-label="Edit app.mix"`) || !strings.Contains(body, `aria-label="Show app.mix"`) {
 		t.Errorf("mixed row did not keep each cell's kind:\n%s", body)
 	}
 	// no value anywhere is refused

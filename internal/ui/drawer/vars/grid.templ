@@ -12,9 +12,9 @@ import (
 
 // Grid is a params editor with one column per env (stack: its envs and pr;
 // org: its tiers and pr). A cell edits that column's scope. A secret cell
-// is a mask: its value never reaches the page, so no reveal.
+// is a mask: its value never reaches the page unless its Show was pressed.
 type Grid struct {
-	Action       string // hx-post of a cell save and of Add
+	Action       string // hx-post of a save and of Add; the edit, preview and reveal routes hang off it
 	DeleteAction string // hx-post of Unset
 	Cols         []Col
 	Groups       []Group
@@ -24,6 +24,34 @@ type Grid struct {
 	// group) and Note what it did: the note sits right after that form.
 	Added *string
 	Note  string
+	// Edit is the one cell open as an input; Shown the one secret on view;
+	// Pending the one change waiting for Apply.
+	Edit    *CellRef
+	Shown   *Shown
+	Pending *Pending
+}
+
+// CellRef names one cell: its column's scope token, group and name.
+type CellRef struct{ Scope, Group, Name string }
+
+// Shown is a revealed secret. Value is that one cell's, fetched on demand.
+type Shown struct {
+	CellRef
+	Value string
+}
+
+// Pending is an edit held until Apply: what it replaces, what it becomes
+// and what applying does to running tiles. Field and Value are the form
+// field Apply posts back (param.g.n or secret.g.n).
+type Pending struct {
+	CellRef
+	Label    string
+	Old, New string
+	Field    string
+	Value    string
+	Impact   []string
+	Starts   bool // the tiles wait for it: applying starts them, it does not restart them
+	Tiles    int
 }
 
 type Col struct {
@@ -54,7 +82,8 @@ func (r Row) Set() bool {
 type Cell struct {
 	Value  string // "" for a secret
 	Set    bool
-	Secret bool // this cell's own kind; a name may be plain in one env, secret in another
+	Secret bool     // this cell's own kind; a name may be plain in one env, secret in another
+	Waits  []string // an unset secret: the tiles that wait for it
 }
 
 templ grid(v View) {
@@ -62,10 +91,12 @@ templ grid(v View) {
 		if v.Grid.ReadOnly {
 			<p class="banner">{ v.Grid.Why }</p>
 		}
-		<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-rw-faint">
-			<span class="flex items-center gap-1.5"><span class="text-rw-warn">@lockIcon(true)</span> locked, read from inside only</span>
-			<span class="flex items-center gap-1.5"><span class="inline-block h-3 w-6 rounded border border-dashed border-rw-border"></span> unset</span>
-		</div>
+		if len(v.Grid.Cols) > 1 {
+			<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-rw-faint">
+				<span class="flex items-center gap-1.5"><span class="text-rw-warn">@lockIcon(true)</span> locked, read from inside only</span>
+				<span class="flex items-center gap-1.5"><span class="inline-block h-3 w-6 rounded border border-dashed border-rw-border"></span> unset</span>
+			</div>
+		}
 		if !v.Grid.ReadOnly {
 			<p class="text-xs text-rw-faint" data-hint>Saving or unsetting a value redeploys the running tiles that read it.</p>
 		}
@@ -81,105 +112,296 @@ templ grid(v View) {
 	</div>
 }
 
+// one is the env view: a single column shows as flat rows, not a table.
+func (g Grid) one() bool { return len(g.Cols) == 1 }
+
+func (g Grid) editing(col Col, group, name string) bool {
+	return g.Edit != nil && g.Edit.Scope == col.Token && g.Edit.Group == group && g.Edit.Name == name
+}
+
+func (g Grid) shown(col Col, group, name string) *Shown {
+	if s := g.Shown; s != nil && s.Scope == col.Token && s.Group == group && s.Name == name {
+		return s
+	}
+	return nil
+}
+
+func (g Grid) pending(col Col, group, name string) *Pending {
+	if p := g.Pending; p != nil && p.Scope == col.Token && p.Group == group && p.Name == name {
+		return p
+	}
+	return nil
+}
+
+// editURL draws the editor with one cell open as an input.
+func (g Grid) editURL(col Col, group, name string) string {
+	q := url.Values{"scope": {col.Token}, "group": {group}, "name": {name}}
+	return g.Action + "/edit?" + q.Encode()
+}
+
+// plainURL draws the editor with nothing open: Cancel, Undo and Hide.
+func (g Grid) plainURL() string { return g.Action + "/edit" }
+
 templ groupPanel(g Grid, grp Group) {
-	<section class="panel p-4">
-		<div class="flex items-baseline gap-3 mb-3">
+	<section class="panel p-4 sm:p-6 overflow-hidden">
+		<div class="flex items-baseline gap-3 mb-1">
 			<h3 class="font-mono text-sm font-semibold text-rw-text">{ grp.Name }</h3>
 		</div>
-		<div class="overflow-x-auto">
-			<table class="w-full text-sm">
-				<thead>
-					<tr class="text-left text-xs uppercase tracking-wide text-rw-faint">
-						<th class="pb-2 pr-3 font-medium align-bottom w-28">name</th>
-						for _, col := range g.Cols {
-							<th class="pb-2 pr-3 font-medium align-bottom min-w-[9.5rem]">
-								<span class="flex items-center gap-1.5 normal-case tracking-normal text-sm">
-									@c.EnvBadge(col.Label, col.Hue)
-									<span class={ lockTone(col.Locked) } title={ lockTitle(col) }>@lockIcon(col.Locked)</span>
-									if col.Own {
-										@c.Chip("own env", "accent")
-									}
-								</span>
-								<span class="block text-[10px] normal-case tracking-normal text-rw-faint font-normal">{ col.Sub }</span>
-							</th>
-						}
-					</tr>
-				</thead>
-				<tbody>
-					for _, r := range grp.Rows {
-						<tr class="border-t border-rw-border" data-field data-changed?={ r.Set() }>
-							<td class="py-1.5 pr-3 align-middle">
-								<span class="font-mono text-sm text-rw-text">{ r.Name }</span>
-								if r.Secret {
-									@c.Chip("secret", "warn")
-								}
-							</td>
-							for i, cell := range r.Cells {
-								<td class="py-1.5 pr-3 align-middle">
-									@cellView(g, g.Cols[i], grp.Name, r, cell)
-								</td>
+		if g.one() {
+			<ul class="divide-y divide-rw-border">
+				for _, r := range grp.Rows {
+					<li class="py-3" data-field data-changed?={ r.Set() }>
+						@listRow(g, g.Cols[0], grp.Name, r, r.Cells[0])
+					</li>
+				}
+			</ul>
+		} else {
+			<div class="overflow-x-auto">
+				<table class="w-full text-sm">
+					<thead>
+						<tr class="text-left text-xs uppercase tracking-wide text-rw-faint">
+							<th class="pb-2 pr-3 font-medium align-bottom w-28">name</th>
+							for _, col := range g.Cols {
+								<th class="pb-2 pr-3 font-medium align-bottom min-w-[10rem]">
+									<span class="flex items-center gap-1.5 normal-case tracking-normal text-sm">
+										@c.EnvBadge(col.Label, col.Hue)
+										<span class={ lockTone(col.Locked) } title={ lockTitle(col) }>@lockIcon(col.Locked)</span>
+										if col.Own {
+											@c.Chip("own env", "accent")
+										}
+									</span>
+									<span class="block text-[10px] normal-case tracking-normal text-rw-faint font-normal">{ col.Sub }</span>
+								</th>
 							}
 						</tr>
-					}
-				</tbody>
-			</table>
-		</div>
+					</thead>
+					<tbody>
+						for _, r := range grp.Rows {
+							<tr class="border-t border-rw-border" data-field data-changed?={ r.Set() }>
+								<td class="py-2 pr-3 align-middle">
+									<span class="font-mono text-sm text-rw-text">{ r.Name }</span>
+									if r.Secret {
+										@c.Chip("secret", "warn")
+									}
+								</td>
+								for i, cell := range r.Cells {
+									<td class="py-2 pr-3 align-middle">
+										@cellView(g, g.Cols[i], grp.Name, r, cell)
+									</td>
+								}
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
 		if !g.ReadOnly {
 			@addForm(g, grp.Name)
+		}
+		if p := g.Pending; p != nil && p.Group == grp.Name {
+			@pendingFooter(g, *p)
 		}
 	</section>
 }
 
-templ cellView(g Grid, col Col, group string, r Row, cell Cell) {
-	if g.ReadOnly {
-		if cell.Set && cell.Secret {
-			<span class="font-mono text-xs text-rw-muted select-none" aria-label="hidden">••••••••</span>
-		} else if cell.Set {
-			<span class="block max-w-48 font-mono text-xs text-rw-text truncate" title={ cell.Value }>{ cell.Value }</span>
-		} else {
-			<span class="text-xs text-rw-faint">unset</span>
+// listRow is one variable of the env view: name, value, actions.
+templ listRow(g Grid, col Col, group string, r Row, cell Cell) {
+	{{ refused := cellRefused(ctx, col, group, r.Name) }}
+	if !g.ReadOnly && (g.editing(col, group, r.Name) || refused != nil) {
+		<form data-hold class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[11rem_minmax(0,1fr)_auto]" hx-post={ g.Action + "/preview" } hx-target="#vars-editor" hx-swap="outerHTML">
+			<div class="min-w-0 col-span-2 sm:col-span-1">@nameOf(r)</div>
+			<div class="min-w-0">
+				@editInput(g, col, group, r, cell, refused)
+			</div>
+			<div class="flex items-center justify-end gap-1">
+				<button type="submit" class="btn btn-primary btn-sm">Review</button>
+				<button type="button" class="btn btn-sm" hx-get={ g.plainURL() } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
+			</div>
+		</form>
+		if cell.Set && g.DeleteAction != "" {
+			@unsetButton(g, col, group, r)
 		}
 	} else {
-		{{ refused := cellRefused(ctx, col, group, r.Name) }}
-		<details class="group" open?={ refused != nil }>
-			<summary class="cursor-pointer list-none select-none rounded-md px-2 py-1.5 hover:bg-rw-inset text-xs">
-				if cell.Set && cell.Secret {
-					<span class="font-mono text-rw-muted" aria-label="hidden">••••••••</span>
-					<span class="ml-2 text-[10px] text-rw-faint">Replace</span>
-				} else if cell.Set {
-					<span class="block max-w-48 font-mono text-rw-text truncate" title={ cell.Value }>{ cell.Value }</span>
-				} else if r.Secret {
-					<span class="block rounded-md border border-dashed border-rw-danger/50 px-2 py-1 text-rw-danger">Set</span>
-				} else {
-					<span class="block rounded-md border border-dashed border-rw-border px-2 py-1 text-rw-faint">unset</span>
+		<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[11rem_minmax(0,1fr)_auto]">
+			<div class="min-w-0 col-span-2 sm:col-span-1">@nameOf(r)</div>
+			<div class="min-w-0 text-sm [overflow-wrap:anywhere]">
+				@cellValue(g, col, group, r, cell)
+				if len(cell.Waits) > 0 {
+					<p class="mt-0.5 text-xs text-rw-warn">{ waitsLine(cell.Waits) }</p>
 				}
-			</summary>
-			<form class="flex flex-wrap items-center gap-2 mt-1" hx-post={ g.Action } hx-target="#vars-editor" hx-swap="outerHTML">
-				<input type="hidden" name="scope" value={ col.Token }/>
-				if cell.Secret || (!cell.Set && r.Secret) {
-					<input class="input font-mono flex-1 min-w-24" type="password" autocomplete="new-password" name={ "secret." + group + "." + r.Name } placeholder="new value" aria-label={ group + "." + r.Name + " in " + col.Label + " (secret)" }/>
-				} else {
-					<input class="input font-mono flex-1 min-w-24" name={ "param." + group + "." + r.Name } value={ keptCell(refused, "param."+group+"."+r.Name, cell.Value) } autocomplete="off" aria-label={ group + "." + r.Name + " in " + col.Label }/>
+				if g.shown(col, group, r.Name) != nil {
+					@shownNote(g)
 				}
-				<button type="submit" class="btn btn-primary btn-sm">Save</button>
-				if refused != nil {
-					<p class="field-error basis-full" role="alert">{ refused.Msg }</p>
-				}
-			</form>
-			if cell.Set && g.DeleteAction != "" {
-				@c.Confirm(c.ConfirmView{
-					Button:  "Unset",
-					Label:   "Unset " + group + "." + r.Name + " in " + col.Label,
-					Title:   "Unset " + group + "." + r.Name + " in " + col.Label + "?",
-					Warning: "Tiles that read it wait until it is set again.",
-					Action:  g.DeleteAction,
-					Target:  "#vars-editor",
-					Vals:    delVals(col.Token, group, r.Name),
-					Quiet:   true,
-				})
-			}
-		</details>
+			</div>
+			<div class="flex items-center justify-end gap-1">
+				@cellActions(g, col, group, r, cell)
+			</div>
+		</div>
 	}
+}
+
+templ nameOf(r Row) {
+	<span class="font-mono text-sm text-rw-text">{ r.Name }</span>
+	if r.Secret {
+		@c.Chip("secret", "warn")
+	}
+}
+
+// cellView is a cell of the stack and org tables: value, actions, and the
+// input when it is being edited.
+templ cellView(g Grid, col Col, group string, r Row, cell Cell) {
+	{{ refused := cellRefused(ctx, col, group, r.Name) }}
+	if !g.ReadOnly && (g.editing(col, group, r.Name) || refused != nil) {
+		<form data-hold class="flex flex-wrap items-center gap-1" hx-post={ g.Action + "/preview" } hx-target="#vars-editor" hx-swap="outerHTML">
+			@editInput(g, col, group, r, cell, refused)
+			<button type="submit" class="btn btn-primary btn-sm">Review</button>
+			<button type="button" class="btn btn-sm" hx-get={ g.plainURL() } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
+		</form>
+		if cell.Set && g.DeleteAction != "" {
+			@unsetButton(g, col, group, r)
+		}
+	} else {
+		<div class="flex items-center gap-1">
+			<span class="min-w-0 flex-1">
+				@cellValue(g, col, group, r, cell)
+			</span>
+			@cellActions(g, col, group, r, cell)
+		</div>
+		if g.shown(col, group, r.Name) != nil {
+			@shownNote(g)
+		}
+	}
+}
+
+// cellValue is what the cell holds: the value, a mask, or unset. A pending
+// edit shows the new value with the old one struck. A secret's value shows
+// only when it was asked for.
+templ cellValue(g Grid, col Col, group string, r Row, cell Cell) {
+	if p := g.pending(col, group, r.Name); p != nil {
+		<span class="inline-flex items-center gap-1.5 flex-wrap">
+			<span class="h-1.5 w-1.5 rounded-full bg-rw-accent shrink-0" aria-hidden="true"></span>
+			<span class="font-mono text-xs text-rw-text">{ p.New }</span>
+			<span class="text-xs text-rw-faint line-through font-mono">{ p.Old }</span>
+		</span>
+	} else if s := g.shown(col, group, r.Name); s != nil {
+		<span class="font-mono text-xs text-rw-text">{ s.Value }</span>
+	} else if cell.Set && cell.Secret {
+		<span class="font-mono text-xs text-rw-muted select-none" aria-label="hidden">••••••••</span>
+	} else if cell.Set {
+		<span class="block font-mono text-xs text-rw-text [overflow-wrap:anywhere]" title={ cell.Value }>{ cell.Value }</span>
+	} else {
+		<span class="text-sm text-rw-faint">unset</span>
+	}
+}
+
+// cellActions: a plain value has its pencil; a secret has Show and Replace,
+// or Set while it is unset. A cell with an edit waiting has Undo.
+templ cellActions(g Grid, col Col, group string, r Row, cell Cell) {
+	if g.ReadOnly {
+	} else if g.pending(col, group, r.Name) != nil {
+		<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + group + "." + r.Name } hx-get={ g.plainURL() } hx-target="#vars-editor" hx-swap="outerHTML">@undoIcon()</button>
+	} else if cell.Set && cell.Secret {
+		if g.shown(col, group, r.Name) != nil {
+			<button type="button" class="btn btn-sm" hx-get={ g.plainURL() } hx-target="#vars-editor" hx-swap="outerHTML">Hide</button>
+		} else {
+			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/reveal" } hx-vals={ delVals(col.Token, group, r.Name) } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Show " + group + "." + r.Name }>Show</button>
+		}
+		<button type="button" class="btn btn-sm" hx-get={ g.editURL(col, group, r.Name) } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Replace " + group + "." + r.Name }>Replace</button>
+	} else if r.Secret {
+		<button type="button" class="btn btn-primary btn-sm" hx-get={ g.editURL(col, group, r.Name) } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Set " + group + "." + r.Name }>Set</button>
+	} else {
+		<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Edit" aria-label={ "Edit " + group + "." + r.Name } hx-get={ g.editURL(col, group, r.Name) } hx-target="#vars-editor" hx-swap="outerHTML">@penIcon()</button>
+	}
+}
+
+// shownNote: the revealed value goes back to a mask on Hide, and by itself.
+templ shownNote(g Grid) {
+	<p class="mt-1 text-xs text-rw-faint" data-hold>
+		Shown to you. Logged. Hides in 30 s.
+		<span hidden hx-get={ g.plainURL() } hx-trigger="load delay:30s" hx-target="#vars-editor" hx-swap="outerHTML"></span>
+	</p>
+}
+
+templ editInput(g Grid, col Col, group string, r Row, cell Cell, refused *c.Refused) {
+	<input type="hidden" name="scope" value={ col.Token }/>
+	if cell.Secret || (!cell.Set && r.Secret) {
+		<input class="input font-mono ff" type="password" autocomplete="new-password" name={ "secret." + group + "." + r.Name } aria-label={ "Value of " + group + "." + r.Name } placeholder="new value"/>
+	} else {
+		<input class="input font-mono ff" name={ "param." + group + "." + r.Name } value={ keptCell(refused, "param."+group+"."+r.Name, cell.Value) } autocomplete="off" aria-label={ "Value of " + group + "." + r.Name }/>
+	}
+	if len(cell.Waits) > 0 {
+		<p class="mt-1 text-xs text-rw-warn">Saving starts { strings.Join(cell.Waits, ", ") }.</p>
+	}
+	if refused != nil {
+		<p class="field-error basis-full" role="alert">{ refused.Msg }</p>
+	}
+}
+
+templ unsetButton(g Grid, col Col, group string, r Row) {
+	<div class="mt-1">
+		@c.Confirm(c.ConfirmView{
+			Button:  "Unset",
+			Label:   "Unset " + group + "." + r.Name + " in " + col.Label,
+			Title:   "Unset " + group + "." + r.Name + " in " + col.Label + "?",
+			Warning: "Tiles that read it wait until it is set again.",
+			Action:  g.DeleteAction,
+			Target:  "#vars-editor",
+			Vals:    delVals(col.Token, group, r.Name),
+			Quiet:   true,
+		})
+	</div>
+}
+
+templ pendingFooter(g Grid, p Pending) {
+	@c.PendingFooter(c.PendingView{
+		Action:  g.Action,
+		Target:  "#vars-editor",
+		Cancel:  g.plainURL(),
+		Changes: []c.PendingChange{{Label: p.Label, Old: p.Old, New: p.New}},
+		Impact:  p.Impact,
+		Apply:   c.PendingApply(pendingVerb(p), p.Tiles),
+		Later:   pendingLater(p),
+	}) {
+		<input type="hidden" name="scope" value={ p.Scope }/>
+		<input type="hidden" name={ p.Field } value={ p.Value }/>
+	}
+}
+
+func pendingVerb(p Pending) string {
+	if p.Starts {
+		return "start"
+	}
+	return "restart"
+}
+
+func pendingLater(p Pending) string {
+	if p.Tiles == 0 {
+		return ""
+	}
+	return "Apply, " + pendingVerb(p) + " later"
+}
+
+func waitsLine(tiles []string) string {
+	return naturalList(tiles) + " wait for it."
+}
+
+// naturalList is "a", "a and b", "a, b and c".
+func naturalList(xs []string) string {
+	switch len(xs) {
+	case 0:
+		return ""
+	case 1:
+		return xs[0]
+	}
+	return strings.Join(xs[:len(xs)-1], ", ") + " and " + xs[len(xs)-1]
+}
+
+templ penIcon() {
+	<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+}
+
+templ undoIcon() {
+	<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"></path><path d="M3 13a9 9 0 1 0 3-7"></path></svg>
 }
 
 // addForm is a row: group (fixed inside a group's panel), name, kind and a

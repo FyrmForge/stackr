@@ -50,7 +50,9 @@ document.addEventListener('htmx:sendError', function(evt) {
 // Live refreshes of a drawer (data-poll-guard on the polling element) wait
 // while the viewer is busy: a confirm dialog is open, and, by token, a field
 // of the drawer has focus ("fields"), a row under the element's parent is
-// expanded ("rows"), or focus is inside the parent ("region"). htmx filters
+// expanded ("rows"), focus is inside the parent ("region"), or a [data-hold]
+// element sits under it ("hold": an open edit, a pending change, a revealed
+// secret). htmx filters
 // would need 'unsafe-eval', so the check lives here. Token "dirty" waits
 // while any field under the parent differs from the value it arrived with
 // (half-typed, however focus left); "dirty-drawer" says the same of the whole
@@ -80,6 +82,7 @@ function pollBusy(el) {
         (g.indexOf('fields') >= 0 && drawer && drawer.querySelector('input:focus,textarea:focus,select:focus')) ||
         (g.indexOf('rows') >= 0 && box && box.querySelector('details[open]')) ||
         (g.indexOf('region') >= 0 && box && box.matches(':focus-within')) ||
+        (g.indexOf('hold') >= 0 && box && box.querySelector('[data-hold]')) ||
         (/(^| )dirty( |$)/.test(g) && pollDirty(box)) ||
         (g.indexOf('dirty-drawer') >= 0 && pollDirty(drawer));
 }
