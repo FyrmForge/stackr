@@ -107,6 +107,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/volumes/:volume/schedules/:schedule/delete", h.DeleteSchedule, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/restore", h.Restore, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/delete", h.DeleteVolume, a.Require("tile.write"))
+	g.POST(e+"/volumes/:volume/move/plan", h.MoveToDiskPlan, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/move", h.MoveToDisk, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/discard-copy", h.DiscardCopy, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/discard-object", h.DiscardObject, a.Require("tile.write"))
@@ -1546,12 +1547,16 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 			Docker:   vol.Name,
 			Created:  vol.CreatedAt,
 			Orphaned: when(vol.OrphanedAt),
+			OldCopy:  vol.OrphanedAt != nil && service.OldCopyHeld(*vol.OrphanedAt),
 		}
 		o.Mounts, err = h.mounts(c, vol.Slug)
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
 		o.Storage = h.storage(c, vol.ID)
+		if err := h.diskScreens(c, vol, &o); err != nil {
+			return middleware.HTTPError(err)
+		}
 		body = volume.Overview(o)
 	}
 	return respond.HTML(c, status, volume.Drawer(v, body))
@@ -1566,6 +1571,9 @@ func (h *handler) storage(c echo.Context, volumeID string) *volume.Storage {
 		return nil
 	}
 	s := &volume.Storage{Disk: st.OnDisk, Docker: st.InDocker, State: st.State, Folder: st.Folder}
+	if st.Ghost == "bound" { // the object's folder is the one to show: it is the wrong one
+		s.Mismatch, s.Folder = true, st.Device
+	}
 	if !st.SizeAt.IsZero() {
 		s.SizeAt = render.Ago(st.SizeAt)
 	}

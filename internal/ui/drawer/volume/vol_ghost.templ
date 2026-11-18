@@ -1,6 +1,74 @@
 package volume
 
-// volGhost is the two Discard actions for a ghost volume in the volume
-// drawer's overview. Work package 2F fills it in.
+import (
+	"encoding/json"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// GhostView is the banner of a volume with two copies (a plain Docker one
+// beside its folder) or a link to the wrong folder (an object bound elsewhere).
+// Discard is the typed confirm of its one button.
+type GhostView struct {
+	Bound   bool
+	Discard c.DiskConfirmView
+}
+
+// GhostDiscard builds the confirm of the banner's button. Action is the
+// discard route, Name the volume's name (the typed word), Where its env.
+// Points and Should are the object's folder and the volume's own, for a bound
+// object.
+func GhostDiscard(action, name, where string, bound bool, points, should string) c.DiskConfirmView {
+	vals, _ := json.Marshal(map[string]string{"confirm": name})
+	v := c.DiskConfirmView{
+		Opener: "Discard Docker storage copy", Title: "Discard Docker storage copy", Sub: name + ", " + where,
+		Word: name, Button: "Discard copy", Action: action, Target: "#" + c.DrawerRoot,
+		Vals: string(vals), Body: ghostCopyBody(),
+	}
+	if bound {
+		v.Opener, v.Title, v.Button = "Remove link", "Remove the wrong link", "Remove link"
+		v.Body = ghostBoundBody(points, should)
+	}
+	return v
+}
+
+// volGhost is the banner above the cards, with the Discard button in it.
 templ volGhost(o OverviewView) {
+	if g := o.Ghost; g != nil {
+		<div class="banner banner-danger" role="status">
+			<div class="flex items-start gap-2">
+				@alertIcon()
+				<div>
+					if g.Bound {
+						<p class="font-medium">This volume points at the wrong folder.</p>
+						<p class="text-sm mt-0.5">Deploys, backups and delete are refused.</p>
+					} else {
+						<p class="font-medium">Two copies of this volume.</p>
+						<p class="text-sm mt-0.5">One on the node disk, one in Docker storage. Deploys, backups and delete are refused.</p>
+					}
+				</div>
+			</div>
+			if g.Discard.Opener != "" {
+				<div class="mt-3 flex flex-wrap items-center gap-2">
+					@c.DiskConfirm(g.Discard)
+				</div>
+			}
+		</div>
+	}
+}
+
+templ ghostCopyBody() {
+	<p>Deletes the copy in Docker storage. The copy on the node disk stays.</p>
+}
+
+templ ghostBoundBody(points, should string) {
+	<p>Removes the link only. Both folders keep their data.</p>
+	if points != "" {
+		<dl class="dl text-sm">
+			<dt class="text-rw-muted">Points at</dt>
+			<dd class="font-mono text-xs text-rw-text">{ points }</dd>
+			<dt class="text-rw-muted">Should be</dt>
+			<dd class="font-mono text-xs text-rw-text">{ should }</dd>
+		</dl>
+	}
 }

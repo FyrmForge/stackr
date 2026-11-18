@@ -1,6 +1,88 @@
 package volume
 
-// volMove is the Move to disk action in the volume drawer's overview. Work
-// package 2M fills it in.
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// MoveView is the Move to disk action in the Stored on card. Plan opens the
+// dialog (a POST that measures), Move is the press, also the strip's Finish
+// move. Why says why the button is disabled; Disabled with no Why = a move
+// is running. Finish = an earlier move was cut off: the strip finishes it.
+type MoveView struct {
+	Plan, Move string
+	Why        string
+	Disabled   bool
+	Finish     bool
+	Strip      string // "Move did not finish. web is stopped."
+}
+
+// MoveDialog is what the plan POST answers into #vol-move-dlg. Msg is a
+// refusal: it shows under the figures and the button stays off.
+type MoveDialog struct {
+	Name, Where, Text, Need, Free string
+	Low                           bool
+	Msg                           string
+	Move                          string
+}
+
+// volMove is the button under Stored on. Static refusals disable it with a
+// hint; races answer in the dialog.
 templ volMove(o OverviewView) {
+	if m := o.Move; m != nil && !m.Finish {
+		if m.Why != "" {
+			<p class="mt-2 text-xs text-rw-muted">{ m.Why }</p>
+		}
+		<div class="mt-3">
+			if m.Disabled {
+				<button type="button" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>Move to disk</button>
+			} else {
+				<button type="button" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ m.Plan } hx-target="#vol-move-dlg" hx-swap="innerHTML" hx-disabled-elt="this">Move to disk</button>
+			}
+			<div id="vol-move-dlg"></div>
+		</div>
+	}
+}
+
+// volFinish is the strip of a move that was cut off after the swap.
+templ volFinish(o OverviewView) {
+	if m := o.Move; m != nil && m.Finish {
+		<div class="node-warnings panel px-4 py-3 text-sm flex flex-wrap items-center gap-3" role="status">
+			<ul class="space-y-1 flex-1 min-w-[16rem]">
+				<li class="text-rw-warn font-medium">{ m.Strip }</li>
+			</ul>
+			<div class="ml-auto flex items-center gap-2">
+				<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ m.Move } hx-vals='{"finish":"1"}' hx-target={ "#"+c.DrawerRoot } hx-swap="outerHTML" hx-disabled-elt="this" disabled?={ m.Disabled }>Finish move</button>
+			</div>
+		</div>
+	}
+}
+
+// volJob is the volume's latest move job, as a status line. The overview
+// polls, so it needs no stream of its own.
+templ volJob(o OverviewView) {
+	if o.Job != nil {
+		<div id="job-slot">
+			@c.JobStatus(*o.Job)
+		</div>
+	}
+}
+
+// MoveDialogView answers the plan POST into #vol-move-dlg, and a refused press.
+templ MoveDialogView(d MoveDialog) {
+	@c.DlgShell("Move "+d.Name+" to the node disk", d.Name+", "+d.Where, moveFoot(d)) {
+		if d.Text != "" {
+			<p>{ d.Text }</p>
+		}
+		if d.Need != "" {
+			@c.DlgFacts(d.Need, d.Free, d.Low, "")
+		}
+		if d.Low || d.Msg != "" {
+			@c.DlgAlert(d.Msg)
+		}
+	}
+}
+
+templ moveFoot(d MoveDialog) {
+	<button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+	<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ d.Move } hx-target={ "#"+c.DrawerRoot } hx-swap="outerHTML" hx-disabled-elt="this" disabled?={ d.Low || d.Msg != "" }>Move to disk</button>
 }
