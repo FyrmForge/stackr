@@ -84,7 +84,7 @@ func newDiskTest(t *testing.T, opts ...Option) *diskTest {
 
 func (d *diskTest) table(t *testing.T) {
 	t.Helper()
-	tbl := "25 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
+	tbl := "25 1 4094:1 / / rw - ext4 /dev/sda1 rw\n"
 	for i, p := range d.mounts {
 		dev, err := hostdisk.DevString(filepath.Join(d.env.Root, p)) // the opened root must be this device
 		must(t, err)

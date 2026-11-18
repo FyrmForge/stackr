@@ -322,7 +322,7 @@ func TestPGUpgradeScratchOnDiskAndRemoved(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Join(env.Root, "disk"), 0o755))
 	dev, err := hostdisk.DevString(filepath.Join(env.Root, "disk"))
 	must(t, err)
-	must(t, os.WriteFile(env.Mountinfo, []byte("25 1 8:1 / / rw - ext4 /dev/sda1 rw\n36 25 "+dev+" / /disk rw - ext4 /dev/sdb rw\n"), 0o644))
+	must(t, os.WriteFile(env.Mountinfo, []byte("25 1 4094:1 / / rw - ext4 /dev/sda1 rw\n36 25 "+dev+" / /disk rw - ext4 /dev/sdb rw\n"), 0o644))
 	r := newPGUpRig(t, WithDiskHost(InProcessDisk(env)))
 	ctl := storetest.Controller(t, r.st)
 	row, err := r.orch.diskLeaf.AddPath(ctx, ctl.ID, "/disk", "inst")

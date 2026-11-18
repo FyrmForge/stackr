@@ -11,7 +11,8 @@ import (
 	"testing/fstest"
 )
 
-const rootLine = "25 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
+// 4094:1 is a device no real machine has; a real 8:1 on the runner must not equal it.
+const rootLine = "25 1 4094:1 / / rw - ext4 /dev/sda1 rw\n"
 
 // rig: Root is a temp dir, /disk is a directory in it, and the mount table
 // (written by the test) says whether /disk is a mount point.
@@ -100,7 +101,7 @@ func TestProbePlainFolderRefused(t *testing.T) {
 }
 
 func TestProbeRootFilesystemRefused(t *testing.T) {
-	r := newRig(t, "36 25 8:1 /sub /disk rw - ext4 /dev/sda1 rw\n")
+	r := newRig(t, "36 25 4094:1 /sub /disk rw - ext4 /dev/sda1 rw\n")
 	wantCode(t, r.run("probe", nil), CodeRootFS)
 }
 

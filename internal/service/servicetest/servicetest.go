@@ -55,7 +55,7 @@ type DiskRig struct {
 	mounts          []string
 }
 
-const rootMount = "25 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
+const rootMount = "25 1 4094:1 / / rw - ext4 /dev/sda1 rw\n"
 
 func newDiskRig(t *testing.T) *DiskRig {
 	t.Helper()

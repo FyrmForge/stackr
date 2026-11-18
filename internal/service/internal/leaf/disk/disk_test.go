@@ -19,7 +19,7 @@ import (
 var ctx = context.Background()
 
 const (
-	rootLine = "25 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
+	rootLine = "25 1 4094:1 / / rw - ext4 /dev/sda1 rw\n"
 	diskLine = "36 25 8:17 / /disk rw - ext4 /dev/sdb rw\n"
 )
 
