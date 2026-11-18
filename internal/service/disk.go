@@ -219,7 +219,7 @@ func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskVie
 		if i := slices.IndexFunc(f.Disks, func(x hostdisk.Fact) bool { return x.Path == d.MountPath }); i >= 0 {
 			x := f.Disks[i]
 			v.Free, v.Total, v.Network, v.Stale, v.ReadAt = x.Free, x.Total, x.Network, f.DisksStale, x.ReadAt
-			v.DeviceBytes, v.NewSpace, v.Damaged = deviceFacts(d, x)
+			v.DeviceBytes, v.NewSpace, v.Damaged = deviceFacts(d, x, o.diskLeaf.GrownAt(d.ID))
 		}
 	}
 	// A controller with no worker has no facts. When the panel sees the mount

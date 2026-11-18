@@ -208,11 +208,27 @@ func (s *Server) refreshDisk(ctx context.Context, e *diskEntry) {
 		}
 		e.stamp, e.free, e.total, e.at = st, free, total, time.Now()
 		if dev != "" { // sysfs reads, only here and never on a request
-			if sz, u, derr := hostdisk.ReadDevice(s.cfg.HostRoot, dev); derr == nil {
-				e.devSize, e.fsuuid = sz, u
+			// The device is the one the mount stands on, not the recorded name: with
+			// no by-id link a kernel name can be another disk after a reboot.
+			e.devSize, e.fsuuid = 0, ""
+			if src := mountSource(s.cfg.HostRoot, path); src != "" {
+				if sz, u, derr := hostdisk.ReadDevice(s.cfg.HostRoot, src); derr == nil {
+					e.devSize, e.fsuuid = sz, u
+				}
 			}
 		}
 	}()
+}
+
+// mountSource is the device the host has mounted at path ("" when nothing is).
+func mountSource(root, path string) string {
+	ms := hostdisk.ParseMounts([]byte(readFile(strings.TrimSuffix(root, "/") + "/proc/1/mountinfo")))
+	for i := len(ms) - 1; i >= 0; i-- {
+		if ms[i].Point == path {
+			return ms[i].Source
+		}
+	}
+	return ""
 }
 
 // diskFacts fills the disk fields of f. It parses the mount table and serves

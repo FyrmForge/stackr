@@ -37,6 +37,10 @@ func TestXFSDamagedDiskStopsDeploys(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			x := newXFSTest(t)
 			row := x.addXFS(t)
+			if f.uuid == "other" { // another filesystem is claimed for a disk recorded by a by-id link only
+				row.DeviceID = "/dev/disk/by-id/ata-X"
+				must(t, x.st.NodeDisks.Update(ctx, row))
+			}
 			x.facts(t, worker.Facts{DisksRead: true, Disks: []hostdisk.Fact{{Path: row.MountPath, Mounted: true, Free: 1, Total: 1 << 30,
 				ReadAt: time.Now(), Device: row.DeviceID, DeviceBytes: f.bytes, FSUUID: f.uuid}}})
 			if f.uuid == "fs-uuid-0001" && row.FSUUID != f.uuid {

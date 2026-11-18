@@ -274,23 +274,26 @@ func (o *Orchestrator) diskDamaged(ctx context.Context, d store.NodeDisk) bool {
 	if i < 0 {
 		return false
 	}
-	_, _, dm := deviceFacts(d, f.Disks[i])
+	_, _, dm := deviceFacts(d, f.Disks[i], o.diskLeaf.GrownAt(d.ID))
 	return dm != ""
 }
 
 // deviceFacts compares what the worker last saw of an xfs disk's device with
 // what the row recorded when the disk was added or last grown. Without the
 // device facts (a path disk, a worker that does not report them) it says
-// nothing.
-func deviceFacts(d store.NodeDisk, x hostdisk.Fact) (bytes, newSpace uint64, damaged string) {
+// nothing. The worker reads the device the mount stands on. Another
+// filesystem is claimed only for a disk recorded by a by-id link (a kernel
+// name is no identity); a fact read before the last grow says nothing about
+// the size (the row already holds the grown one).
+func deviceFacts(d store.NodeDisk, x hostdisk.Fact, grown time.Time) (bytes, newSpace uint64, damaged string) {
 	if d.Kind != disk.KindXFS || x.DeviceBytes <= 0 {
 		return 0, 0, ""
 	}
 	bytes = uint64(x.DeviceBytes)
 	switch {
-	case x.FSUUID != "" && d.FSUUID != "" && x.FSUUID != d.FSUUID:
+	case x.FSUUID != "" && d.FSUUID != "" && x.FSUUID != d.FSUUID && strings.HasPrefix(d.DeviceID, "/dev/disk/by-id/"):
 		damaged = "other_fs"
-	case x.DeviceBytes < d.DeviceBytes:
+	case x.DeviceBytes < d.DeviceBytes && !x.ReadAt.Before(grown):
 		damaged = "smaller"
 	case x.DeviceBytes > d.DeviceBytes:
 		newSpace = uint64(x.DeviceBytes - d.DeviceBytes)

@@ -434,6 +434,11 @@ func TestXFSGrowAndNewSpaceAndDamaged(t *testing.T) {
 		t.Errorf("smaller: %+v", v)
 	}
 	fact(1<<30, "other")
+	if v, _ := x.orch.NodeDisk(ctx, "w1"); v.Damaged != "" { // X8: a kernel name is no identity, no alarm
+		t.Errorf("other fs on a disk with no by-id link: %+v", v)
+	}
+	row.DeviceID = "/dev/disk/by-id/ata-X"
+	must(t, x.st.NodeDisks.Update(ctx, row))
 	if v, _ := x.orch.NodeDisk(ctx, "w1"); v.Damaged != "other_fs" {
 		t.Errorf("other fs: %+v", v)
 	}
@@ -839,5 +844,39 @@ func TestXFSCapKeptPendingWhenTheHostAnswerIsLost(t *testing.T) { // DL
 	}
 	if got, _ = x.orch.Volume(ctx, a.ID); *got.MaxSizeMB != 100 || x.orch.CapPending(got) {
 		t.Errorf("after a refusal: cap %v pending %v", *got.MaxSizeMB, x.orch.CapPending(got))
+	}
+}
+
+// X8: a fact read before the last grow still shows the old size and says nothing; one read after it does.
+func TestDeviceFactsIgnoreAReadOlderThanTheGrow(t *testing.T) {
+	d := store.NodeDisk{Kind: disk.KindXFS, DeviceBytes: 3 << 30, FSUUID: "u", DeviceID: "/dev/sdb"}
+	grown := time.Now()
+	old := hostdisk.Fact{DeviceBytes: 1 << 30, FSUUID: "u", ReadAt: grown.Add(-time.Minute)}
+	if _, _, dm := deviceFacts(d, old, grown); dm != "" {
+		t.Errorf("a read before the grow: %q", dm)
+	}
+	fresh := old
+	fresh.ReadAt = grown.Add(time.Second)
+	if _, _, dm := deviceFacts(d, fresh, grown); dm != "smaller" {
+		t.Errorf("a read after the grow: %q", dm)
+	}
+	if _, _, dm := deviceFacts(d, old, time.Time{}); dm != "smaller" {
+		t.Errorf("never grown: %q", dm)
+	}
+}
+
+// X8: Check disk takes the device id from the mount, so a row recorded by a kernel name follows it.
+func TestXFSCheckDiskRefreshesTheDeviceID(t *testing.T) {
+	ctx := context.Background()
+	x := newXFSTest(t)
+	row := x.addXFS(t)
+	row.DeviceID = "/dev/vdz" // what a name that moved looks like
+	must(t, x.st.NodeDisks.Update(ctx, row))
+	j, err := x.orch.CheckNodeDisk(ctx, adminP(), "w1")
+	if j = x.run(t, j, err); j.State != job.Done {
+		t.Fatalf("check = %s %q", j.State, j.Error)
+	}
+	if got, _, _ := x.orch.nodeDisk(ctx, "w1"); got.DeviceID != "/dev/sdb" {
+		t.Errorf("device id = %q", got.DeviceID)
 	}
 }

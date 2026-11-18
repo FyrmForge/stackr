@@ -314,6 +314,7 @@ func (l *Leaf) Grow(ctx context.Context, d store.NodeDisk) (store.NodeDisk, erro
 		if err := l.disks.Update(ctx, d); err != nil {
 			return d, err
 		}
+		l.grown.Store(d.ID, time.Now())
 	}
 	return d, nil
 }

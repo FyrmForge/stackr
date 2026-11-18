@@ -52,6 +52,10 @@ type Leaf struct {
 	// (a timeout or a lost answer). In memory: the next folder run puts the
 	// cap on again and clears it.
 	capPending sync.Map
+	// grown: disk row id -> when the row last recorded a grown device. A worker
+	// fact read before that still shows the old size.
+	// ponytail: in memory; a panel restart forgets it, and the next read is newer anyway.
+	grown sync.Map
 }
 
 // WithCaps sets how the leaf learns a folder's size cap in bytes (0 = none),
@@ -228,7 +232,17 @@ func (l *Leaf) Verify(ctx context.Context, d store.NodeDisk) (store.NodeDisk, er
 		return cur, res.Error
 	}
 	cur.State = StateReady
+	if f := res.Disk; f != nil && f.Device != "" {
+		cur.DeviceID = f.Device // the device the mount stands on now: a kernel name can move
+	}
 	return cur, l.disks.Update(ctx, cur)
+}
+
+// GrownAt is when the disk's recorded device size last grew through this leaf (zero: never).
+func (l *Leaf) GrownAt(id string) time.Time {
+	t, _ := l.grown.Load(id)
+	at, _ := t.(time.Time)
+	return at
 }
 
 // MarkMissing latches a ready row missing. Any other state is left alone, so
