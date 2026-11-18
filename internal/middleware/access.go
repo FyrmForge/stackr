@@ -246,6 +246,7 @@ var byVerb = map[string]bool{
 	"route":      true, // an admin route's id; org-less, the verb is admin-level
 	"node":       true, // a pending node's id; org-less, the verb is admin-level
 	"placement":  true, // a placement's name; org-less, the verb is admin-level
+	"disk":       true, // a node disk's id; org-less, the verb is admin-level
 	"share":      true, // the verb takes the org and refuses another org's share
 	"invite":     true, // the verb takes the org and refuses another org's invite
 	"from":       true, // an env slug the service resolves inside the env's own stack
