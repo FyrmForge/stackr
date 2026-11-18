@@ -2348,7 +2348,7 @@ func (a *app) volume(c *cobra.Command, ref string) (id, name string, err error) 
 		switch {
 		case err == nil:
 			return cell(v["id"]), cell(v["slug"]) + " (" + cell(v["scope_kind"]) + ")", nil
-		case errors.As(err, &e):
+		case errors.As(err, &e), errors.Is(err, errAmbiguous):
 			return "", "", err
 		}
 	}
