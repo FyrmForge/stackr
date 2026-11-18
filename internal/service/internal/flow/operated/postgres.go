@@ -291,9 +291,11 @@ func (e pg) Unbind(ctx context.Context, i Instance, s Slice, g Grant, x Tools) e
 // public and what is in it. Read: connect, usage and SELECT. Both reach the
 // tables the owner and every writer create later (default privileges are
 // per creating role), and a writer's later tables reach every other cred.
+// A writer is also a member of the slice's owner role, so an app that runs
+// ALTER DATABASE ... SET on start works.
 // ponytail: schema public only; another schema, functions and types are not
 // granted, and a writer cannot ALTER or DROP another writer's table (owner
-// only in postgres). A shared owner role (SET ROLE) is the upgrade.
+// only in postgres, unless it SET ROLEs to the owner).
 func pgGrants(s Slice, g Grant, others []Grant) []string {
 	u := quote(g.User)
 	var out []string
@@ -304,6 +306,8 @@ func pgGrants(s Slice, g Grant, others []Grant) []string {
 			`GRANT ALL ON SCHEMA public TO `+u,
 			`GRANT ALL ON ALL TABLES IN SCHEMA public TO `+u,
 			`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO `+u,
+			// the slice owner's membership: the app may ALTER DATABASE ... SET
+			fmt.Sprintf(`GRANT %s TO %s`, quote(s.User), u),
 		)
 	} else {
 		out = append(
@@ -362,7 +366,11 @@ func pgRevokes(s Slice, g Grant, prev string, others []Grant) []string {
 	}
 	var out []string
 	if prev == "write" {
-		out = append(out, fmt.Sprintf(`REASSIGN OWNED BY %s TO %s`, u, quote(s.User)))
+		out = append(
+			out,
+			fmt.Sprintf(`REVOKE %s FROM %s`, quote(s.User), u),
+			fmt.Sprintf(`REASSIGN OWNED BY %s TO %s`, u, quote(s.User)),
+		)
 	}
 	out = append(
 		out,
@@ -389,6 +397,7 @@ func pgRevokes(s Slice, g Grant, prev string, others []Grant) []string {
 // granted (default privileges included) goes, then the role.
 func pgUnbind(s Slice, g Grant) []string {
 	return []string{
+		fmt.Sprintf(`REVOKE %s FROM %s`, quote(s.User), quote(g.User)),
 		fmt.Sprintf(`REASSIGN OWNED BY %s TO %s`, quote(g.User), quote(s.User)),
 		`DROP OWNED BY ` + quote(g.User),
 		`DROP ROLE IF EXISTS ` + quote(g.User),

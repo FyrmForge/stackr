@@ -63,7 +63,7 @@ Set packages or a package URL, not both. Sharing sets who may use it: everyone, 
 2. Create a postgres instance on 17 or 18 and deploy it.
 3. Instance drawer, Settings, Extensions: list `vchord`, `vector`, `cube` and `earthdistance`. Check, then Apply plan with the restart ticked. `vchord` becomes a startup module by itself.
 4. Add a slice tile on it and, in the slice drawer, tick all four. Deploy the slice.
-5. Point Immich at the slice with a ref such as `${{ tile.immich-db.url }}`, as in [What apps read](operated.md#what-apps-read).
+5. Point Immich at the slice with a ref such as `${{ tile.immich-db.url }}`, as in [What apps read](operated.md#what-apps-read). The app needs write access: it then owns its database's settings, which Immich changes on every start. A read-only app cannot start.
 
 Set `vchordrq.probes` per session in the app. Setting it server-wide breaks some index shapes.
 

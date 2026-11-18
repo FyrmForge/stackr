@@ -37,6 +37,7 @@ func TestPostgresStatements(t *testing.T) {
 				`GRANT ALL ON SCHEMA public TO "orders_api"`,
 				`GRANT ALL ON ALL TABLES IN SCHEMA public TO "orders_api"`,
 				`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "orders_api"`,
+				`GRANT "orders" TO "orders_api"`,
 				`ALTER DEFAULT PRIVILEGES FOR ROLE "orders" IN SCHEMA public GRANT ALL ON TABLES TO "orders_api"`,
 				`ALTER DEFAULT PRIVILEGES FOR ROLE "orders" IN SCHEMA public GRANT ALL ON SEQUENCES TO "orders_api"`,
 			},
@@ -60,6 +61,7 @@ func TestPostgresStatements(t *testing.T) {
 				`GRANT ALL ON SCHEMA public TO "orders_api"`,
 				`GRANT ALL ON ALL TABLES IN SCHEMA public TO "orders_api"`,
 				`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "orders_api"`,
+				`GRANT "orders" TO "orders_api"`,
 				`ALTER DEFAULT PRIVILEGES FOR ROLE "orders" IN SCHEMA public GRANT ALL ON TABLES TO "orders_api"`,
 				`ALTER DEFAULT PRIVILEGES FOR ROLE "orders" IN SCHEMA public GRANT ALL ON SEQUENCES TO "orders_api"`,
 				`ALTER DEFAULT PRIVILEGES FOR ROLE "orders_api" IN SCHEMA public GRANT SELECT ON TABLES TO "orders_reporter"`,
@@ -69,6 +71,7 @@ func TestPostgresStatements(t *testing.T) {
 			name: "write to read revokes and hands its tables to the owner",
 			got:  pgRevokes(s, api, "write", []Grant{rep}),
 			want: []string{
+				`REVOKE "orders" FROM "orders_api"`,
 				`REASSIGN OWNED BY "orders_api" TO "orders"`,
 				`REVOKE ALL ON DATABASE "orders" FROM "orders_api"`,
 				`REVOKE ALL ON SCHEMA public FROM "orders_api"`,
@@ -96,6 +99,7 @@ func TestPostgresStatements(t *testing.T) {
 			name: "unbind",
 			got:  pgUnbind(s, rep),
 			want: []string{
+				`REVOKE "orders" FROM "orders_reporter"`,
 				`REASSIGN OWNED BY "orders_reporter" TO "orders"`,
 				`DROP OWNED BY "orders_reporter"`,
 				`DROP ROLE IF EXISTS "orders_reporter"`,
