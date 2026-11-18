@@ -72,8 +72,13 @@ func stopped(tiles []string) string {
 // moveRefusal words a refused press as the dialog does.
 func moveRefusal(msg string) string {
 	switch {
-	case strings.Contains(msg, "job holds the data volume"):
-		return "A backup is running. Try again when it is done."
+	case strings.Contains(msg, " job holds the data volume"):
+		kind := strings.TrimPrefix(strings.SplitN(msg, " job holds", 2)[0], "a ")
+		noun, ok := map[string]string{"backup": "A backup", "restore": "A restore", "volume-to-disk": "A move", "deploy": "A deploy"}[kind]
+		if !ok {
+			noun = "Another job"
+		}
+		return noun + " is running. Try again when it is done."
 	case msg == "The volume's mounts changed, try again.":
 		return "The volume's mounts changed. Try again."
 	}
