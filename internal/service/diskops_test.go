@@ -243,10 +243,12 @@ func TestPhase2StubsRefuseAndAreRegistered(t *testing.T) {
 	ctx := context.Background()
 	d := newDiskTest(t)
 	hs := d.orch.handlers()
-	if hs[kindDiskForget] == nil { // built in 2F: its own tests are in diskforget_test.go
-		t.Errorf("%s has no handler", kindDiskForget)
+	for _, k := range []jobs.Kind{kindDiskForget, kindVolumeToDisk} { // built: own tests in diskforget_test.go, volumemove_test.go
+		if hs[k] == nil {
+			t.Errorf("%s has no handler", k)
+		}
 	}
-	for _, k := range []jobs.Kind{kindDiskAdopt, kindVolumeToDisk} {
+	for _, k := range []jobs.Kind{kindDiskAdopt} {
 		if hs[k] == nil {
 			t.Errorf("%s has no handler", k)
 			continue
@@ -268,8 +270,6 @@ func TestPhase2StubsRefuseAndAreRegistered(t *testing.T) {
 	refused("PlanDiskAdopt", err)
 	_, err = o.AdoptDisk(ctx, by, "w1", "d", "/x", "")
 	refused("AdoptDisk", err)
-	_, err = o.MoveVolumeToDisk(ctx, by, "v")
-	refused("MoveVolumeToDisk", err)
 	_, err = o.PlanMoveAllToDisk(ctx, by, "w1")
 	refused("PlanMoveAllToDisk", err)
 	_, err = o.MoveAllToDisk(ctx, by, "w1")
