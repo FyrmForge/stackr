@@ -141,8 +141,17 @@ func (o *Orchestrator) dataDiskOf(ctx context.Context, nodeID string) (free, tot
 		free, total = o.diskOf(ctx, nodeID)
 		return free, total, nil
 	}
-	if d.State != disk.StateReady {
+	mode := opMode(ctx, d) // the owning job of an adopt or forget only
+	if mode == disk.StateForgetting {
+		free, total = o.diskOf(ctx, nodeID) // plain volumes, the Docker disk
+		return free, total, nil
+	}
+	if d.State != disk.StateReady && mode != disk.StateAdopting {
 		return 0, 0, &disk.MissingError{Node: nodeID}
+	}
+	mount := d.MountPath
+	if d.NodeID != nodeID { // an adopt before its transaction: the path on this node
+		mount = d.OpMountPath
 	}
 	n, err := o.store.Nodes.Get(ctx, nodeID)
 	if err != nil {
@@ -150,7 +159,7 @@ func (o *Orchestrator) dataDiskOf(ctx context.Context, nodeID string) (free, tot
 	}
 	if f := o.diskFacts(ctx, n); f != nil {
 		for _, x := range f.Disks {
-			if x.Path == d.MountPath && x.Total > 0 {
+			if x.Path == mount && x.Total > 0 {
 				return x.Free, x.Total, nil
 			}
 		}

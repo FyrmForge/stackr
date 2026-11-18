@@ -59,6 +59,9 @@ const (
 	kindMoveEnv        jobs.Kind = "move-env"
 	kindShareReconcile jobs.Kind = "share-reconcile"
 	kindSeed           jobs.Kind = "seed"
+	kindDiskAdopt      jobs.Kind = "disk-adopt"
+	kindDiskForget     jobs.Kind = "disk-forget"
+	kindVolumeToDisk   jobs.Kind = "volume-to-disk" // a single move, and each group of Move all
 )
 
 type runJob struct {
@@ -411,6 +414,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindNodeBackup:     controllerJob(o, payload(o.runNodeBackup)),
 		kindDiskAdd:        controllerJob(o, payload(o.runDiskAdd)),
 		kindDiskCheck:      controllerJob(o, payload(o.runDiskCheck)),
+		kindDiskAdopt:      controllerJob(o, ownedJob(payload(o.runDiskAdopt))),
+		kindDiskForget:     controllerJob(o, ownedJob(payload(o.runDiskForget))),
+		kindVolumeToDisk:   controllerJob(o, ownedJob(payload(o.runVolumeToDisk))),
 		kindWorkerRollout:  controllerJob(o, o.runWorkerRollout),
 	}
 }

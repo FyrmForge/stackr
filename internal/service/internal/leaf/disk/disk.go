@@ -53,14 +53,29 @@ func BindOpts(mount, diskID, name string) map[string]string {
 	return docker.BindOpts(path.Join(mount, diskID, name))
 }
 
-// OfNode is the node's disk row; ok is false when it has none.
-// ponytail: phase 2 also finds an adopting row by op_node_id.
+// OfNode is the node's disk row; ok is false when it has none. An adopting
+// row is also the disk of its target node (op_node_id), so that node already
+// sees its disk as not ready.
+// ponytail: the adopting lookup lists every disk row (a handful); add a
+// lookup by op_node_id if a panel ever has thousands.
 func (l *Leaf) OfNode(ctx context.Context, nodeID string) (store.NodeDisk, bool, error) {
 	d, err := l.disks.GetByNode(ctx, nodeID)
-	if errors.Is(err, errs.ErrNotFound) {
-		return store.NodeDisk{}, false, nil
+	if err == nil {
+		return d, true, nil
 	}
-	return d, err == nil, err
+	if !errors.Is(err, errs.ErrNotFound) {
+		return d, false, err
+	}
+	rows, err := l.disks.List(ctx)
+	if err != nil {
+		return store.NodeDisk{}, false, err
+	}
+	for _, r := range rows {
+		if r.State == StateAdopting && r.OpNodeID == nodeID {
+			return r, true, nil
+		}
+	}
+	return store.NodeDisk{}, false, nil
 }
 
 func (l *Leaf) req(d store.NodeDisk, op string, names ...string) hostdisk.Request {
@@ -96,7 +111,10 @@ func (l *Leaf) live(ctx context.Context, d store.NodeDisk) (store.NodeDisk, erro
 		return d, err
 	}
 	if cur.State != StateReady {
-		return cur, &MissingError{Node: cur.NodeID}
+		// the owner of an adopt (WithOp) works on the adopting row
+		if m, ok := OpOf(ctx, cur); !ok || m != StateAdopting {
+			return cur, &MissingError{Node: cur.NodeID}
+		}
 	}
 	return cur, nil
 }

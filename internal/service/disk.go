@@ -93,8 +93,10 @@ func (a diskAdapter) State(ctx context.Context, nodeID string) (volume.DiskState
 		return volume.DiskNone, err // never read as "no disk"
 	case !ok:
 		return volume.DiskNone, nil
-	case d.State == disk.StateReady:
+	case d.State == disk.StateReady, opMode(ctx, d) == disk.StateAdopting:
 		return volume.DiskReady, nil
+	case opMode(ctx, d) == disk.StateForgetting:
+		return volume.DiskNone, nil // only the forget job sees plain volumes here
 	}
 	return volume.DiskNotReady, nil
 }
@@ -114,7 +116,7 @@ func (a diskAdapter) ready(ctx context.Context, nodeID string) (store.NodeDisk, 
 	if err != nil {
 		return d, err
 	}
-	if !ok || d.State != disk.StateReady {
+	if !ok || d.State != disk.StateReady && opMode(ctx, d) != disk.StateAdopting {
 		return d, &volume.MissingError{Node: nodeID}
 	}
 	return d, nil
