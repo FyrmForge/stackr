@@ -10,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 )
 
@@ -205,8 +206,31 @@ func (o *Orchestrator) VolumeOnDisk(ctx context.Context, v Volume) bool {
 	return o.volumes.OnDisk(ctx, v)
 }
 
+// cutOffMove is a volume whose move copied it and then failed before the
+// deploy: the row names the target and a tile's newest job is the failed move.
+// Job rows only, so a poll may ask; halfMoved asks Docker and settles it.
+func (o *Orchestrator) cutOffMove(ctx context.Context, v Volume) (bool, error) {
+	if !isMoveName(v.ID, v.Name) {
+		return false, nil
+	}
+	ts, err := o.moveTiles(ctx, []Volume{v})
+	if err != nil {
+		return false, err
+	}
+	for _, t := range ts {
+		j, ok, err := o.jobRows.Last(ctx, t.ID)
+		if err != nil {
+			return false, err
+		}
+		if ok && j.Kind == string(kindVolumeToDisk) && j.State == string(job.Failed) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // inDockerCount is how many live env volumes of the node have no folder on
-// its disk. Rows only.
+// its disk, or a move cut off after the copy. Rows only.
 func (o *Orchestrator) inDockerCount(ctx context.Context, nodeID string) (int, error) {
 	live, err := o.store.Volumes.ListLive(ctx)
 	if err != nil {
@@ -214,7 +238,14 @@ func (o *Orchestrator) inDockerCount(ctx context.Context, nodeID string) (int, e
 	}
 	n := 0
 	for _, v := range live {
-		if v.ScopeKind == ScopeEnv && o.volumeNode(ctx, v.ID) == nodeID && !o.volumes.OnDisk(ctx, v) {
+		if v.ScopeKind != ScopeEnv || o.volumeNode(ctx, v.ID) != nodeID {
+			continue
+		}
+		if !o.volumes.OnDisk(ctx, v) {
+			n++
+		} else if cut, err := o.cutOffMove(ctx, v); err != nil {
+			return 0, err
+		} else if cut {
 			n++
 		}
 	}

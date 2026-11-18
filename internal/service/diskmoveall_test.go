@@ -431,3 +431,16 @@ func TestMoveAllGroupResumeNeverDeploysBeforeEveryVolumeOfTheGroupIsCopied(t *te
 		t.Errorf("app deployed %d times", n)
 	}
 }
+
+// A move cut off after the swap still counts as in Docker storage, so Move all stays offered.
+func TestInDockerCountKeepsACutOffMoveAfterTheSwap(t *testing.T) {
+	r := newMoveRig(t)
+	r.crash(t, "swap", r.v)
+	must(t, r.st.Jobs.Create(context.Background(), store.Job{ID: "cut", Kind: string(kindVolumeToDisk), State: job.Failed,
+		LockSet: store.StringList{r.tl.ID}, Payload: "{}", CreatedAt: time.Now()}))
+	n, err := r.orch.inDockerCount(context.Background(), r.orch.volumeNode(context.Background(), r.v.ID))
+	must(t, err)
+	if n != 1 {
+		t.Fatalf("count = %d, want 1", n)
+	}
+}
