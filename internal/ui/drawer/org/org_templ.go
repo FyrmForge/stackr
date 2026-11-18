@@ -2231,7 +2231,7 @@ func Shares(v SharesView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "options", Label: "Options", Placeholder: "nfsvers=4"}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "options", Label: "Options", Placeholder: "nfsvers=4", Help: "Use nfsvers=4 if the server only speaks NFS v4."}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

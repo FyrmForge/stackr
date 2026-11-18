@@ -45,3 +45,19 @@ func TestOrgRevokeInvite(t *testing.T) {
 		t.Errorf("revoked link = %d, want 404", got)
 	}
 }
+
+// A literal SMB password is refused on the password field alone: one error
+// span, no other field flagged.
+func TestOrgShareLiteralPasswordErrorsOnce(t *testing.T) {
+	b := newBrowser(t, "owner")
+	body := b.do(t, "POST", "/acme/-/drawer/shares", url.Values{
+		"slug": {"qasmb"}, "kind": {"smb"}, "source": {"//203.0.113.1/playground"},
+		"user": {"stackr"}, "password": {"literal"},
+	}, true).Body.String()
+	if n := strings.Count(body, `id="error-password"`); n != 1 {
+		t.Errorf("error-password spans = %d:\n%s", n, body)
+	}
+	if n := strings.Count(body, `data-has-error="true"`); n != 1 {
+		t.Errorf("flagged fields = %d:\n%s", n, body)
+	}
+}
