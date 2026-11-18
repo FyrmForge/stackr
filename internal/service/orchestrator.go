@@ -261,13 +261,13 @@ type Orchestrator struct {
 	recoverSeen recoverNonces
 	// restartPending are the tiles a restart-later param save reaches (paramview.go).
 	restartPending sync.Map
-	db          *sqlx.DB
-	store       *store.Store
-	sessions    *auth.SessionManager
-	docker      Docker
-	vip         tile.VIP  // the boot rebuild reads it (vipboot.go)
-	dnsKick     *coalesce // the records sync after a proxy push (dnssync.go)
-	dnsSync     dnsState
+	db             *sqlx.DB
+	store          *store.Store
+	sessions       *auth.SessionManager
+	docker         Docker
+	vip            tile.VIP  // the boot rebuild reads it (vipboot.go)
+	dnsKick        *coalesce // the records sync after a proxy push (dnssync.go)
+	dnsSync        dnsState
 
 	users       *user.Leaf
 	orgs        *org.Leaf
@@ -333,7 +333,7 @@ type Orchestrator struct {
 	trustAsync      sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
 	vipLocks        sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
 	moveAllLocks    sync.Map              // node ID -> *sync.Mutex: one Move all batch per node at a time
-	earlyMu         sync.Mutex           // guards earlyIPs
+	earlyMu         sync.Mutex            // guards earlyIPs
 	earlyIPs        map[string]earlyEnt   // container id -> address holding early lan rules
 	// downSince is when each instance's primary was first seen down (the
 	// primary-down problem waits for it to last); lease and leasePush: lease.go.
@@ -851,25 +851,26 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.graph = build("flow/graph", func() *graph.Flow {
 		return &graph.Flow{
-			Orgs:       orch.orgs,
-			Stacks:     orch.stacks,
-			Envs:       orch.envs,
-			Tiles:      orch.tiles,
-			Params:     orch.params,
-			Tiers:      orch.tiers,
-			Volumes:    orch.volumes,
-			Domains:    orch.domains,
-			Operated:   orch.operated,
-			Conns:      orch.conns,
-			Releases:   orch.releases,
-			Jobs:       orch.jobRows,
-			Runs:       orch.runs,
-			Canvas:     orch.canvas,
-			Images:     orch.images,
-			Target:     orch.deploy.Target,
-			Slice:      orch.engines.SliceWord,
-			ExtUpdates: orch.pgExtUpdateCount,
+			Orgs:           orch.orgs,
+			Stacks:         orch.stacks,
+			Envs:           orch.envs,
+			Tiles:          orch.tiles,
+			Params:         orch.params,
+			Tiers:          orch.tiers,
+			Volumes:        orch.volumes,
+			Domains:        orch.domains,
+			Operated:       orch.operated,
+			Conns:          orch.conns,
+			Releases:       orch.releases,
+			Jobs:           orch.jobRows,
+			Runs:           orch.runs,
+			Canvas:         orch.canvas,
+			Images:         orch.images,
+			Target:         orch.deploy.Target,
+			Slice:          orch.engines.SliceWord,
+			ExtUpdates:     orch.pgExtUpdateCount,
 			RestartPending: orch.RestartPending,
+			Phase:          orch.jobPhase,
 		}
 	})
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {

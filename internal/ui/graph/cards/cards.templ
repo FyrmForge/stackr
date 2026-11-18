@@ -84,12 +84,15 @@ templ top(kind, name, detail string, host, newVersion bool, acc Access) {
 // (hx-target="this", or it would inherit the card's #drawer-body).
 templ Footer(id string, f FooterView) {
 	<div
-		class="node-footer mt-auto pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0"
+		class={ "node-footer mt-auto border-t border-rw-border flex items-center justify-between gap-2 min-w-0 relative", templ.KV("pt-3", f.Fail == ""), templ.KV("pt-1.5", f.Fail != "") }
 		data-kind={ f.Kind }
 		sse-swap={ "footer:" + id }
 		hx-target="this"
 		hx-swap="outerHTML"
 	>
+		if short, full := FailLine(f.Fail); short != "" {
+			<p class="node-fail absolute bottom-full mb-px inset-x-0 truncate text-[11px] leading-none text-rw-danger" title={ full }>{ short }</p>
+		}
 		switch f.Kind {
 			case "cron", "function":
 				@line(run(f.LastRun, f.Status), f.LastRun) {
@@ -145,7 +148,7 @@ templ Footer(id string, f FooterView) {
 // Status is a card's status line (v0 nodeStatus).
 templ Status(status, waiting string) {
 	{{ tone, text := word(status, waiting) }}
-	@line(tone, text)
+	@mark(tone, text, status == "waiting" || status == "queued", false)
 }
 
 // progress is a live deploy beside the tile's state: "Online · Building
@@ -154,21 +157,37 @@ templ Status(status, waiting string) {
 // server text is fixed so a poll's footer never differs and the canvas stream
 // does not resend it.
 templ progress(f FooterView) {
-	{{ _, w := word(f.Status, "") }}
+	{{ w := progressWord(f) }}
 	if f.Under == "running" {
 		@line("success", "Online") {
 			<span class="text-rw-faint">{ " · " + w + " (" }<local-time since={ f.Since.UTC().Format(time.RFC3339) }>00:00</local-time>{ ")" }</span>
 		}
+	} else if f.Status == "queued" {
+		@mark("faint", w, true, false)
 	} else {
-		@line("warn", w+" (") {
+		@mark("warn", w+" (", false, true) {
 			<local-time since={ f.Since.UTC().Format(time.RFC3339) }>00:00</local-time>{ ")" }
 		}
 	}
 }
 
 templ line(tone, text string) {
+	@mark(tone, text, false, false) {
+		{ children... }
+	}
+}
+
+// mark is line with the dot of a phase: hollow while it waits, a spinner
+// while it runs.
+templ mark(tone, text string, hollow, spin bool) {
 	<span class={ "node-status flex items-center gap-2 text-xs", toneText(tone) }>
-		<span class={ "h-1.5 w-1.5 rounded-full shrink-0", toneDot(tone) }></span>
+		if spin {
+			<span class={ "h-3 w-3 rounded-full shrink-0 border-2 border-t-transparent animate-spin", toneBorder(tone) } aria-hidden="true"></span>
+		} else if hollow {
+			<span class={ "h-1.5 w-1.5 rounded-full shrink-0 border", toneBorder(tone) } aria-hidden="true"></span>
+		} else {
+			<span class={ "h-1.5 w-1.5 rounded-full shrink-0", toneDot(tone) }></span>
+		}
 		<span class="truncate">{ text }{ children... }</span>
 	</span>
 }

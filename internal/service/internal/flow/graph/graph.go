@@ -61,6 +61,9 @@ type Flow struct {
 	// RestartPending says a saved change waits for the tile's next restart;
 	// nil = none.
 	RestartPending func(tileID string) bool
+	// Phase is the step a live job of a tile is at ("Queued (2 of 5)",
+	// "Pulling image"); "" = no word beyond the job's own. nil = none asked.
+	Phase func(ctx context.Context, j store.Job) string
 }
 
 // Node kinds besides the tile kinds (service, image, operated, cron,
@@ -148,6 +151,8 @@ type Node struct {
 	Waiting        string     // the param a parked job waits for
 	Under          string     // building/queued over a running tile: the word beneath, "running"
 	Since          time.Time  // that job's start (queued: its creation); zero = no such job
+	Phase          string     // the live job's step, "" = the word alone
+	Fail           string     // the failed deploy's error, whole; "" = none
 	// Vars card counts; never a value.
 	Params, Secrets int
 	Consumers       int // slice: the tiles that ref it, name it in slice_access or hold a cred on it
@@ -591,6 +596,8 @@ type status struct {
 	waiting  string
 	under    string
 	since    time.Time
+	phase    string
+	fail     string
 	replicas []Sub
 }
 
@@ -667,6 +674,15 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			s.under, s.since = under, j.CreatedAt
 			if j.StartedAt != nil && s.word == "building" {
 				s.since = *j.StartedAt
+			}
+			if f.Phase != nil && (s.word == "queued" || rollout[j.Kind]) {
+				s.phase = f.Phase(ctx, j)
+			}
+		}
+		if j.State == job.Failed && rollout[j.Kind] {
+			s.fail = j.Error
+			if s.word == "error" && under == "none" { // never ran: nothing crashed
+				s.word = "failed"
 			}
 		}
 	}
@@ -1084,7 +1100,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 			return n, err
 		}
 		n.Status, n.LastRun, n.Waiting = st.word, st.lastRun, st.waiting
-		n.Under, n.Since = st.under, st.since
+		n.Under, n.Since, n.Phase, n.Fail = st.under, st.since, st.phase, st.fail
 		n.Running = 0
 		for _, c := range st.state.Replicas {
 			if c.State == "running" {

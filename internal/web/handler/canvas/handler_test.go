@@ -123,7 +123,7 @@ func TestCanvasPositionsAndNotes(t *testing.T) {
 }
 
 // The stream sends every footer at connect, then only the ones that move:
-// a failed job turns the env card's footer to "Crashed".
+// a failed deploy of a tile that never ran turns the env card footer to "Deploy failed".
 func TestCanvasEventsSwapFooter(t *testing.T) {
 	stream.PollEvery, canvas.Every = 10*time.Millisecond, 0
 	s := webtest.New(t)
@@ -139,7 +139,7 @@ func TestCanvasEventsSwapFooter(t *testing.T) {
 		t.Fatalf("want the env footer at connect and once more on change, no graph event:\n%s", body)
 	}
 	last := body[strings.LastIndex(body, name):]
-	if !strings.Contains(last, `sse-swap="footer:env:`+s.Tile.Env+`"`) || !strings.Contains(last, ">Crashed<") {
+	if !strings.Contains(last, `sse-swap="footer:env:`+s.Tile.Env+`"`) || !strings.Contains(last, ">Deploy failed<") {
 		t.Errorf("second footer is not the error one:\n%s", last)
 	}
 }
