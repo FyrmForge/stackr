@@ -32,6 +32,9 @@ type VolumeStore interface {
 	ListByNode(ctx context.Context, nodeID string) ([]Volume, error)
 	Update(ctx context.Context, v Volume) error
 	Delete(ctx context.Context, id string) error
+	// RepointNode moves every volume pinned to node from onto node to (an
+	// adopt hands a dead node's orphans to the adopting node). Idempotent.
+	RepointNode(ctx context.Context, from, to string) error
 }
 
 var volumesT = newTable[Volume]("volumes", nil)
@@ -52,4 +55,9 @@ func (s volumes) ListLive(ctx context.Context) ([]Volume, error) {
 
 func (s volumes) ListByNode(ctx context.Context, nodeID string) ([]Volume, error) {
 	return s.many(ctx, "orphaned_at IS NOT NULL AND node_id = ?", nodeID)
+}
+
+func (s volumes) RepointNode(ctx context.Context, from, to string) error {
+	_, err := s.q.ExecContext(ctx, `UPDATE volumes SET node_id = ? WHERE node_id = ? AND node_id != ''`, to, from)
+	return mapErr(err)
 }

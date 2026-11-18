@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -239,37 +238,14 @@ func TestDiskInOpAndOpEnvIDs(t *testing.T) {
 
 // The three job kinds and the verbs of the later packages are registered and
 // refuse until they are built.
-func TestPhase2StubsRefuseAndAreRegistered(t *testing.T) {
-	ctx := context.Background()
+func TestPhase2JobKindsAreRegistered(t *testing.T) {
 	d := newDiskTest(t)
 	hs := d.orch.handlers()
-	for _, k := range []jobs.Kind{kindDiskForget, kindVolumeToDisk} { // built: own tests in diskforget_test.go, volumemove_test.go
+	for _, k := range []jobs.Kind{kindDiskAdopt, kindDiskForget, kindVolumeToDisk} { // built: own tests in diskadopt_test.go, diskforget_test.go, volumemove_test.go
 		if hs[k] == nil {
 			t.Errorf("%s has no handler", k)
 		}
 	}
-	for _, k := range []jobs.Kind{kindDiskAdopt} {
-		if hs[k] == nil {
-			t.Errorf("%s has no handler", k)
-			continue
-		}
-		j, err := d.orch.enqueue(ctx, k, map[string]string{})
-		must(t, err)
-		if j = d.wait(t, j); j.State != job.Failed || !strings.Contains(j.Error, "Not available yet") {
-			t.Errorf("%s ran as %s %q", k, j.State, j.Error)
-		}
-	}
-	o, by := d.orch, adminP()
-	refused := func(name string, err error) {
-		t.Helper()
-		if !errors.Is(err, errs.ErrRefused) {
-			t.Errorf("%s err = %v, want a refusal", name, err)
-		}
-	}
-	_, err := o.PlanDiskAdopt(ctx, "w1", "/x")
-	refused("PlanDiskAdopt", err)
-	_, err = o.AdoptDisk(ctx, by, "w1", "d", "/x", "")
-	refused("AdoptDisk", err)
 }
 
 func TestNewJobKindsAreInDataCaps(t *testing.T) {

@@ -43,6 +43,7 @@ type Request struct {
 	Kind    string   `json:"kind"` // "path"
 	DiskID  string   `json:"disk_id,omitempty"`
 	Owner   string   `json:"owner,omitempty"`   // the node id the stamp must carry
+	From    string   `json:"from,omitempty"`    // claim: the node that owned the stamp before
 	Install string   `json:"install,omitempty"` // add: written into the stamp
 	Mount   string   `json:"mount,omitempty"`
 	Names   []string `json:"names,omitempty"` // folder, usage, drop: single path elements
@@ -126,6 +127,8 @@ func Run(ctx context.Context, e Env, r Request) Result {
 		return usage(ctx, e, r)
 	case "drop":
 		return drop(e, r)
+	case "claim":
+		return claim(e, r)
 	}
 	return fail(CodeUnsupported, "op "+r.Op)
 }

@@ -6,8 +6,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 )
 
-// Adopt disk in the node drawer. Work package 2A fills these in; until then
-// the verbs refuse and the drawer shows why.
+// Adopt disk in the node drawer. The service does the work; the plan dialog
+// and the Resume button are drawn once nodedisk_adopt.templ is built, until
+// then the plan is read and not shown.
 
 // POST …/nodes/:node/disk/adopt/plan: what the adopt would do.
 func (h *handler) diskAdoptPlan(c echo.Context) error {
