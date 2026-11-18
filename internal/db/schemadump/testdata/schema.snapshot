@@ -171,10 +171,12 @@ table disk_folders
   col disk_id TEXT notnull=1 default=- pk=0
   col name TEXT notnull=1 default=- pk=0
   col created_at DATETIME notnull=1 default=- pk=0
+  col project INTEGER notnull=1 default=0 pk=0
   fk disk_id -> node_disks(id) on_update=NO ACTION on_delete=CASCADE
   index (auto) unique=1 origin=pk partial=0 (id)
   index (auto) unique=1 origin=u partial=0 (disk_id,name)
-  sql CREATE TABLE disk_folders ( id TEXT PRIMARY KEY, disk_id TEXT NOT NULL REFERENCES node_disks (id) ON DELETE CASCADE, name TEXT NOT NULL, created_at DATETIME NOT NULL, UNIQUE (disk_id, name) )
+  index disk_folders_disk_project unique=1 origin=c partial=1 (disk_id,project) where project > 0
+  sql CREATE TABLE disk_folders ( id TEXT PRIMARY KEY, disk_id TEXT NOT NULL REFERENCES node_disks (id) ON DELETE CASCADE, name TEXT NOT NULL, created_at DATETIME NOT NULL, project INTEGER NOT NULL DEFAULT 0, UNIQUE (disk_id, name) )
 table dns_domains
   col id TEXT notnull=0 default=- pk=1
   col connector_id TEXT notnull=1 default=- pk=0
@@ -427,9 +429,12 @@ table node_disks
   col op_mount_path TEXT notnull=1 default='' pk=0
   col op_env_ids TEXT notnull=1 default='' pk=0
   col created_at DATETIME notnull=1 default=- pk=0
+  col device_id TEXT notnull=1 default='' pk=0
+  col fs_uuid TEXT notnull=1 default='' pk=0
+  col device_bytes INTEGER notnull=1 default=0 pk=0
   index (auto) unique=1 origin=pk partial=0 (id)
   index (auto) unique=1 origin=u partial=0 (node_id)
-  sql CREATE TABLE node_disks ( id TEXT PRIMARY KEY, node_id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, mount_path TEXT NOT NULL, state TEXT NOT NULL, op_node_id TEXT NOT NULL DEFAULT '', op_from_node_id TEXT NOT NULL DEFAULT '', op_mount_path TEXT NOT NULL DEFAULT '', op_env_ids TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL )
+  sql CREATE TABLE node_disks ( id TEXT PRIMARY KEY, node_id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, mount_path TEXT NOT NULL, state TEXT NOT NULL, op_node_id TEXT NOT NULL DEFAULT '', op_from_node_id TEXT NOT NULL DEFAULT '', op_mount_path TEXT NOT NULL DEFAULT '', op_env_ids TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL , device_id TEXT NOT NULL DEFAULT '', fs_uuid TEXT NOT NULL DEFAULT '', device_bytes INTEGER NOT NULL DEFAULT 0)
 table nodes
   col id TEXT notnull=0 default=- pk=1
   col name TEXT notnull=1 default=- pk=0
@@ -890,10 +895,11 @@ table volumes
   col orphaned_at DATETIME notnull=0 default=- pk=0
   col created_at DATETIME notnull=1 default=- pk=0
   col node_id TEXT notnull=1 default='' pk=0
+  col max_size_mb INTEGER notnull=0 default=- pk=0
   fk instance_id -> operated_instances(id) on_update=NO ACTION on_delete=SET NULL
   index (auto) unique=1 origin=pk partial=0 (id)
   index (auto) unique=1 origin=u partial=0 (scope_kind,scope_id,slug)
-  sql CREATE TABLE volumes ( id TEXT PRIMARY KEY, scope_kind TEXT NOT NULL CHECK (scope_kind IN ('env', 'stack', 'org')), scope_id TEXT NOT NULL, instance_id TEXT REFERENCES operated_instances (id) ON DELETE SET NULL, slug TEXT NOT NULL, name TEXT NOT NULL, orphaned_at DATETIME, created_at DATETIME NOT NULL, node_id TEXT NOT NULL DEFAULT '', UNIQUE (scope_kind, scope_id, slug) )
+  sql CREATE TABLE volumes ( id TEXT PRIMARY KEY, scope_kind TEXT NOT NULL CHECK (scope_kind IN ('env', 'stack', 'org')), scope_id TEXT NOT NULL, instance_id TEXT REFERENCES operated_instances (id) ON DELETE SET NULL, slug TEXT NOT NULL, name TEXT NOT NULL, orphaned_at DATETIME, created_at DATETIME NOT NULL, node_id TEXT NOT NULL DEFAULT '', max_size_mb INTEGER, UNIQUE (scope_kind, scope_id, slug) )
 trigger backup_destinations_keep_runs: CREATE TRIGGER backup_destinations_keep_runs BEFORE DELETE ON backup_destinations WHEN EXISTS (SELECT 1 FROM backup_runs WHERE dest_id = OLD.id) AND (OLD.org_id IS NULL OR EXISTS (SELECT 1 FROM orgs WHERE id = OLD.org_id)) BEGIN SELECT RAISE(ABORT, 'backup destination still has runs'); END
 trigger environments_scope_cascade: CREATE TRIGGER environments_scope_cascade AFTER DELETE ON environments BEGIN DELETE FROM params WHERE scope_kind = 'env' AND scope_id = old.id; DELETE FROM backup_schedules WHERE volume_id IN (SELECT id FROM volumes WHERE scope_kind = 'env' AND scope_id = old.id); UPDATE volumes SET orphaned_at = COALESCE(orphaned_at, CURRENT_TIMESTAMP), node_id = CASE WHEN node_id = '' THEN old.node_id ELSE node_id END WHERE scope_kind = 'env' AND scope_id = old.id; DELETE FROM positions WHERE scope_kind = 'env' AND scope_id = old.id; DELETE FROM annotations WHERE scope_kind = 'env' AND scope_id = old.id; END
 trigger exit_ladders_env_cascade: CREATE TRIGGER exit_ladders_env_cascade AFTER DELETE ON environments BEGIN DELETE FROM exit_ladders WHERE scope_kind = 'env' AND scope_id = old.id; END

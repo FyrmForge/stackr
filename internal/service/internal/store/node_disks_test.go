@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -118,16 +119,38 @@ func TestNodeDisksMigrationDownThenUp(t *testing.T) {
 		}
 		return string(b)
 	}
+	db.MustExec(read("018_node_disks_xfs.down.sql"))
 	db.MustExec(read("017_node_disks.down.sql"))
 	if _, err := s.NodeDisks.List(ctx); err == nil {
 		t.Fatal("node_disks still there after down")
 	}
 	db.MustExec(read("017_node_disks.up.sql"))
+	db.MustExec(read("018_node_disks_xfs.up.sql"))
 	if rows, err := s.NodeDisks.List(ctx); err != nil || len(rows) != 0 {
 		t.Errorf("after up again: %d rows, %v", len(rows), err)
 	}
 	var n int
 	if err := db.Get(&n, `SELECT count(*) FROM settings WHERE key = 'k'`); err != nil || n != 1 {
 		t.Errorf("a table 017 does not touch lost its row: %d, %v", n, err)
+	}
+}
+
+// Project numbers are unique per disk once set; 0 (none) may repeat.
+func TestDiskFolderProjectUnique(t *testing.T) {
+	s := servicetest.Store(t)
+	ctx := context.Background()
+	if err := s.NodeDisks.Create(ctx, disk("d1", "n1")); err != nil {
+		t.Fatal(err)
+	}
+	f := func(id, name string, p int64) error {
+		return s.DiskFolders.Create(ctx, store.DiskFolder{ID: id, DiskID: "d1", Name: name, Project: p, CreatedAt: t0})
+	}
+	for i, p := range []int64{0, 0, 7} {
+		if err := f(fmt.Sprint("f", i), fmt.Sprint("n", i), p); err != nil {
+			t.Fatalf("folder %d: %v", i, err)
+		}
+	}
+	if err := f("f9", "n9", 7); err == nil {
+		t.Error("duplicate project 7 on one disk accepted")
 	}
 }

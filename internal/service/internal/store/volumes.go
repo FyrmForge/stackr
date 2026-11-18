@@ -19,6 +19,8 @@ type Volume struct {
 	// NodeID is where an orphan's data lives once its env row is gone; ''
 	// means the controller. Set by the env delete trigger.
 	NodeID string `db:"node_id" json:"node_id"`
+	// MaxSizeMB is the volume's size cap in MB; nil = uncapped.
+	MaxSizeMB *int64 `db:"max_size_mb" json:"max_size_mb"`
 }
 
 type VolumeStore interface {

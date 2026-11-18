@@ -8,9 +8,12 @@ import (
 // DiskFolder is a row of disk_folders: the folder <mount>/<disk id>/<Name> on
 // a disk. Name is the Docker volume name; (DiskID, Name) is unique.
 type DiskFolder struct {
-	ID        string    `db:"id" json:"id"`
-	DiskID    string    `db:"disk_id" json:"disk_id"`
-	Name      string    `db:"name" json:"name"`
+	ID     string `db:"id" json:"id"`
+	DiskID string `db:"disk_id" json:"disk_id"`
+	Name   string `db:"name" json:"name"`
+	// Project is the xfs project number; 0 = none (path kind). Unique per disk
+	// when set.
+	Project   int64     `db:"project" json:"project"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
