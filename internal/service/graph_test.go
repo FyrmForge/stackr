@@ -691,3 +691,23 @@ func TestCanvasStackPushFailKeepsWorse(t *testing.T) {
 		t.Errorf("stack status = %q, want failed kept over pushfailed", st.Status)
 	}
 }
+
+// An env off the ladder (a PR env) is promoted to by nothing: it is never
+// behind, so nothing waits for it.
+func TestCanvasPREnvNeverBehind(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	pr := uuid.NewString()
+	if err := w.e.Store.Environments.Create(ctx, store.Environment{
+		ID: pr, StackID: w.shop, Name: "pr-7", Slug: "pr-7", Type: "ephemeral", FromKind: "branch", Settings: "{}", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := w.e.Orch.WaitingRelease(ctx, w.shop, pr); ok {
+		t.Error("a PR env has a release waiting for it")
+	}
+	if _, ok := w.e.Orch.WaitingRelease(ctx, w.shop, w.prod); !ok {
+		t.Error("the ladder's prod rung lost its waiting release")
+	}
+}

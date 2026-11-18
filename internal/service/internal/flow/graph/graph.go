@@ -451,6 +451,7 @@ func (f *Flow) ladder(ctx context.Context, stackID string) ([]store.Environment,
 	if err != nil {
 		return nil, nil, err
 	}
+	rungs := len(es)
 	es = append(es, rest(all, es)...)
 	hues := environment.Hues(all)
 	rs := make([]Rung, 0, len(es))
@@ -469,11 +470,14 @@ func (f *Flow) ladder(ctx context.Context, stackID string) ([]store.Environment,
 			}
 			r.Release = rel.Number
 		}
-		r.Behind = i > 0 && prev > r.Release
-		if r.Behind {
-			r.Waiting = prev
+		// an env off the ladder (a PR env) is promoted to by nothing
+		if i < rungs {
+			r.Behind = i > 0 && prev > r.Release
+			if r.Behind {
+				r.Waiting = prev
+			}
+			prev = r.Release
 		}
-		prev = r.Release
 		rs = append(rs, r)
 	}
 	return es, rs, nil
