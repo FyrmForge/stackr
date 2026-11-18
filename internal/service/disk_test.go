@@ -991,6 +991,31 @@ func TestRoomChecksMeasureADiskVolumeFresh(t *testing.T) {
 	}
 }
 
+// Q10: a forgotten placement node only skips the envs on it; any other env is
+// still measured, and a volume lookup error is returned, not swallowed.
+func TestPlanSizesSkipOnlyTheForgottenNodeAndReturnLookupErrors(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	v := d.vol(t, "data")
+	d.ensure(t, v)
+	must(t, os.WriteFile(filepath.Join(d.folder(row, v.Name), "f"), make([]byte, 10), 0o644))
+	es := []store.Environment{d.edge}
+	sizes, err := d.orch.pmSizes(ctx, es, "some-other-node")
+	must(t, err)
+	if sizes[v.ID] != 10 {
+		t.Fatalf("sizes = %v, want the env measured although another node is forgotten", sizes)
+	}
+	if sizes, err = d.orch.pmSizes(ctx, es, d.edge.NodeID); err != nil || len(sizes) != 0 {
+		t.Fatalf("restored env sizes = %v %v, want none", sizes, err)
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := d.orch.pmSizes(cctx, es, ""); err == nil {
+		t.Fatal("a volume lookup error was swallowed")
+	}
+}
+
 // R11: a placement plan measures its volumes once, fresh: one helper run for
 // the node, not one per volume per reader.
 func TestPlacementPlanMeasuresOncePerNode(t *testing.T) {

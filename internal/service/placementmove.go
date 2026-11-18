@@ -310,6 +310,9 @@ func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, res
 	var total uint64
 	unknown := 0
 	var bare []string
+	if sizes == nil && !restore {
+		sizes = o.volumes.SizesFresh(ctx, vols)
+	}
 	for _, v := range vols {
 		if restore {
 			r, err := o.newestBackup(ctx, v.ID)
@@ -326,7 +329,7 @@ func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, res
 			}
 			continue
 		}
-		sz := o.pmSize(ctx, v, sizes)
+		sz := pmSize(v, sizes)
 		if sz < 0 {
 			unknown++
 			continue
@@ -407,32 +410,32 @@ func (o *Orchestrator) pmEnvPath(ctx context.Context, e store.Environment) (stri
 }
 
 // pmSizes measures the volumes of the envs once, fresh: one helper run per
-// node for the whole plan, handed to pmLine and pmDisk. A restore reads sizes
-// from backups and measures nothing. A failure leaves the volume out and the
-// reader measures it alone.
-func (o *Orchestrator) pmSizes(ctx context.Context, es []store.Environment, restore bool) map[string]int64 {
-	if restore {
-		return nil
-	}
+// node for the whole plan, handed to pmLine and pmDisk. Envs on restoreNode
+// (the placement's forgotten node, "" for none) read sizes from backups and
+// measure nothing; every other env is measured even then. SizesFresh fills
+// -1 for a volume it cannot read, so a plan never measures a volume alone.
+func (o *Orchestrator) pmSizes(ctx context.Context, es []store.Environment, restoreNode string) (map[string]int64, error) {
 	var vs []store.Volume
 	for _, e := range es {
-		if e.NodeID == "" {
+		if e.NodeID == "" || e.NodeID == restoreNode {
 			continue
 		}
-		if v, err := o.pmVolumes(ctx, e.ID); err == nil {
-			vs = append(vs, v...)
+		v, err := o.pmVolumes(ctx, e.ID)
+		if err != nil {
+			return nil, err
 		}
+		vs = append(vs, v...)
 	}
-	return o.volumes.SizesFresh(ctx, vs)
+	return o.volumes.SizesFresh(ctx, vs), nil
 }
 
-// pmSize is the volume's size from sizes, else measured fresh: a plan never
-// decides on the cache's unknown.
-func (o *Orchestrator) pmSize(ctx context.Context, v store.Volume, sizes map[string]int64) int64 {
+// pmSize is the volume's size from sizes, -1 when it was not measured: a plan
+// never decides on the cache's unknown.
+func pmSize(v store.Volume, sizes map[string]int64) int64 {
 	if sz, ok := sizes[v.ID]; ok {
 		return sz
 	}
-	return o.volumes.SizeBytesFresh(ctx, v)
+	return -1
 }
 
 // pmLine is one env's row of a plan; sizes are read on the env's node.
@@ -456,8 +459,11 @@ func (o *Orchestrator) pmLine(ctx context.Context, e store.Environment, restore 
 	case restore:
 		l.Bytes, l.Downtime = -1, "until restored from backups"
 	default:
+		if sizes == nil {
+			sizes = o.volumes.SizesFresh(ctx, vols)
+		}
 		for _, v := range vols {
-			sz := o.pmSize(ctx, v, sizes)
+			sz := pmSize(v, sizes)
 			if sz < 0 {
 				l.Bytes = -1
 				break
@@ -557,7 +563,14 @@ func (o *Orchestrator) PlanPlacementMove(ctx context.Context, placement, toNode 
 		plan.From = nm.label(p.NodeID)
 	}
 	movers := pmMovers(es, to.ID)
-	sizes := o.pmSizes(ctx, movers, forgotten)
+	restoreNode := ""
+	if forgotten {
+		restoreNode = p.NodeID
+	}
+	sizes, err := o.pmSizes(ctx, movers, restoreNode)
+	if err != nil {
+		return plan, err
+	}
 	var ids []string
 	for _, e := range movers {
 		l, err := o.pmLine(ctx, e, forgotten && e.NodeID == p.NodeID, sizes)
@@ -1122,7 +1135,14 @@ func (o *Orchestrator) PlanEnvPin(ctx context.Context, envID, placement string) 
 	if plan.Restore, err = o.pmForgotten(ctx, e.NodeID); err != nil {
 		return plan, err
 	}
-	sizes := o.pmSizes(ctx, []store.Environment{e}, plan.Restore)
+	restoreNode := ""
+	if plan.Restore {
+		restoreNode = e.NodeID
+	}
+	sizes, err := o.pmSizes(ctx, []store.Environment{e}, restoreNode)
+	if err != nil {
+		return plan, err
+	}
 	l, err := o.pmLine(ctx, e, plan.Restore, sizes)
 	if err != nil {
 		return plan, err
