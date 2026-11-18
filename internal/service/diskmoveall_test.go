@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -118,6 +119,45 @@ func TestMoveAllRefusedWithoutRoom(t *testing.T) {
 	}
 	r.facts(t, diskFacts(1<<30))
 	r.waitAll(t, r.moveAll(t))
+}
+
+// Concurrent presses: one enqueues every group, the rest are refused, so no
+// two calls split the groups between them.
+func TestMoveAllConcurrentPressesOneEnqueuesTheRestAreRefused(t *testing.T) {
+	r := newMoveRig(t)
+	r.logs(t)
+	release := r.blockCopy()
+	const n = 8
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	jobsOf := make([][]Job, n)
+	errsOf := make([]error, n)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			jobsOf[i], errsOf[i] = r.orch.MoveAllToDisk(context.Background(), adminP(), "w1")
+		}()
+	}
+	close(start)
+	wg.Wait()
+	ok, total := 0, 0
+	for i := range n {
+		total += len(jobsOf[i])
+		if errsOf[i] == nil {
+			ok++
+		} else if _, c := errors.AsType[errs.Conflict](errsOf[i]); !c {
+			t.Errorf("press %d: %v, want a conflict", i, errsOf[i])
+		}
+	}
+	if ok != 1 || total != 2 {
+		t.Errorf("%d presses enqueued %d jobs, want 1 press and the 2 groups", ok, total)
+	}
+	release()
+	for _, js := range jobsOf {
+		r.waitAll(t, js)
+	}
 }
 
 func TestMoveAllEnqueuesOneJobPerGroupSmallestFirst(t *testing.T) {

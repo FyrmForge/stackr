@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
@@ -113,6 +114,16 @@ func (o *Orchestrator) PlanMoveAllToDisk(ctx context.Context, by *Principal, nod
 // queued is refused on its own: the others are still queued, and the jobs
 // that were queued come back with the joined refusals.
 func (o *Orchestrator) MoveAllToDisk(ctx context.Context, by *Principal, nodeID string) ([]Job, error) {
+	// The Busy check and the enqueues are one step: two presses at once would
+	// both see Busy=false and split the groups. A press that loses is refused
+	// as Busy.
+	// ponytail: in-process, so one controller process is the ceiling; a second
+	// controller needs the guard in the job store (an exclusive enqueue).
+	mu, _ := o.moveAllLocks.LoadOrStore(nodeID, &sync.Mutex{})
+	if !mu.(*sync.Mutex).TryLock() {
+		return nil, errs.Conflictf("Volumes are already moving to the disk.")
+	}
+	defer mu.(*sync.Mutex).Unlock()
 	p, err := o.PlanMoveAllToDisk(ctx, by, nodeID)
 	if err != nil {
 		return nil, err

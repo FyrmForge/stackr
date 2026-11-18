@@ -329,7 +329,8 @@ type Orchestrator struct {
 	vipAsync        sync.WaitGroup        // rerouteVIPsAsync runs in flight; tests wait on it
 	trustAsync      sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
 	vipLocks        sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
-	earlyMu         sync.Mutex            // guards earlyIPs
+	moveAllLocks    sync.Map              // node ID -> *sync.Mutex: one Move all batch per node at a time
+	earlyMu         sync.Mutex           // guards earlyIPs
 	earlyIPs        map[string]earlyEnt   // container id -> address holding early lan rules
 	// downSince is when each instance's primary was first seen down (the
 	// primary-down problem waits for it to last); lease and leasePush: lease.go.
