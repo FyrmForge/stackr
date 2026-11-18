@@ -245,7 +245,7 @@ templ ServerGit(v ServerGitView) {
 templ ServerObserve(v ServerObserveView) {
 	@shell(v.Frame) {
 		<div class="grid sm:grid-cols-2 gap-3 mb-6">
-			<div class="panel px-3 py-2.5">
+			<div class="rounded bg-rw-inset px-3 py-2.5">
 				<p class="text-sm font-semibold text-rw-text mb-1">With it</p>
 				<ul class="list-disc pl-4 space-y-0.5 text-xs text-rw-muted">
 					<li>{ v.Retention } days of graphs.</li>
@@ -253,7 +253,7 @@ templ ServerObserve(v ServerObserveView) {
 					<li>Uses memory, and disk up to the caps below.</li>
 				</ul>
 			</div>
-			<div class="panel px-3 py-2.5">
+			<div class="rounded bg-rw-inset px-3 py-2.5">
 				<p class="text-sm font-semibold text-rw-text mb-1">Without it</p>
 				<ul class="list-disc pl-4 space-y-0.5 text-xs text-rw-muted">
 					<li>24 hours of live graphs.</li>
@@ -439,7 +439,7 @@ templ ServerNodesPanel(v NodesPanel) {
 				<button type="button" hx-get={ v.Base + "/nodes?add=1" } hx-target={ "#" + NodesPanelID } hx-swap="outerHTML" class="btn btn-primary btn-sm ml-auto">Add node</button>
 			</div>
 			for _, p := range v.Pending {
-				<div class="panel px-3 py-2 text-sm space-y-2">
+				<div class="rounded bg-rw-inset px-3 py-2 text-sm space-y-2">
 					<p><span class="text-rw-text font-medium">{ p.Name }</span> <span class="text-xs text-rw-warn">called in, waiting for you</span></p>
 					if len(p.Addresses) > 0 {
 						<p class="font-mono text-xs text-rw-muted break-all">{ strings.Join(p.Addresses, ", ") }</p>
@@ -466,11 +466,11 @@ templ ServerNodesPanel(v NodesPanel) {
 // ServerSummary is each step's state; Finish stamps the wizard done.
 templ ServerSummary(v ServerSummaryView) {
 	@shell(v.Frame) {
-		<ul id="setup-summary" class="space-y-2">
+		<ul id="setup-summary" class="divide-y divide-rw-border">
 			@c.LiveTab(v.Base+"/ui/summary", "setup-summary")
 			for _, r := range v.Rows {
 				<li>
-					<a href={ templ.SafeURL(r.Href) } class="panel px-3 py-2 flex items-center justify-between gap-3 hover:border-rw-accent transition-colors">
+					<a href={ templ.SafeURL(r.Href) } class="flex items-center justify-between gap-3 py-2 hover:text-rw-accent transition-colors">
 						<span>
 							<span class="block text-sm text-rw-text">{ r.Label }</span>
 							<span class="block text-xs text-rw-faint">{ r.Detail }</span>

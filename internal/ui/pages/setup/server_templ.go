@@ -830,7 +830,7 @@ func ServerObserve(v ServerObserveView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<div class=\"grid sm:grid-cols-2 gap-3 mb-6\"><div class=\"panel px-3 py-2.5\"><p class=\"text-sm font-semibold text-rw-text mb-1\">With it</p><ul class=\"list-disc pl-4 space-y-0.5 text-xs text-rw-muted\"><li>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<div class=\"grid sm:grid-cols-2 gap-3 mb-6\"><div class=\"rounded bg-rw-inset px-3 py-2.5\"><p class=\"text-sm font-semibold text-rw-text mb-1\">With it</p><ul class=\"list-disc pl-4 space-y-0.5 text-xs text-rw-muted\"><li>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -843,7 +843,7 @@ func ServerObserve(v ServerObserveView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, " days of graphs.</li><li>Log search and access logs.</li><li>Uses memory, and disk up to the caps below.</li></ul></div><div class=\"panel px-3 py-2.5\"><p class=\"text-sm font-semibold text-rw-text mb-1\">Without it</p><ul class=\"list-disc pl-4 space-y-0.5 text-xs text-rw-muted\"><li>24 hours of live graphs.</li><li>No log search.</li></ul></div></div><form novalidate hx-post=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, " days of graphs.</li><li>Log search and access logs.</li><li>Uses memory, and disk up to the caps below.</li></ul></div><div class=\"rounded bg-rw-inset px-3 py-2.5\"><p class=\"text-sm font-semibold text-rw-text mb-1\">Without it</p><ul class=\"list-disc pl-4 space-y-0.5 text-xs text-rw-muted\"><li>24 hours of live graphs.</li><li>No log search.</li></ul></div></div><form novalidate hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1913,7 +1913,7 @@ func ServerNodesPanel(v NodesPanel) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		for _, p := range v.Pending {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 130, "<div class=\"panel px-3 py-2 text-sm space-y-2\"><p><span class=\"text-rw-text font-medium\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 130, "<div class=\"rounded bg-rw-inset px-3 py-2 text-sm space-y-2\"><p><span class=\"text-rw-text font-medium\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2067,7 +2067,7 @@ func ServerSummary(v ServerSummaryView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 142, "<ul id=\"setup-summary\" class=\"space-y-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 142, "<ul id=\"setup-summary\" class=\"divide-y divide-rw-border\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2089,7 +2089,7 @@ func ServerSummary(v ServerSummaryView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 144, "\" class=\"panel px-3 py-2 flex items-center justify-between gap-3 hover:border-rw-accent transition-colors\"><span><span class=\"block text-sm text-rw-text\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 144, "\" class=\"flex items-center justify-between gap-3 py-2 hover:text-rw-accent transition-colors\"><span><span class=\"block text-sm text-rw-text\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

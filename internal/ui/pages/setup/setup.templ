@@ -368,14 +368,14 @@ templ ConnectorBody(v GitView) {
 			@nav(v.Base+"/connector", "I installed it, check again")
 		} else {
 			<p class="text-sm text-rw-muted mb-3">Connected and installed on { repoCount(len(v.Repos)) }.</p>
-			<ul class="space-y-2 mb-5">
+			<ul class="divide-y divide-rw-border mb-5">
 				for i, r := range v.Repos {
 					if i < shownRepos {
-						<li class="panel px-3 py-2 font-mono text-xs text-rw-muted">{ r.FullName }</li>
+						<li class="py-2 font-mono text-xs text-rw-muted">{ r.FullName }</li>
 					}
 				}
 				if len(v.Repos) > shownRepos {
-					<li class="panel px-3 py-2 text-xs text-rw-faint">{ strconv.Itoa(len(v.Repos) - shownRepos) } more</li>
+					<li class="py-2 text-xs text-rw-faint">{ strconv.Itoa(len(v.Repos) - shownRepos) } more</li>
 				}
 			</ul>
 			<a href={ templ.SafeURL(v.Next) } class="btn btn-primary w-full">Continue</a>
@@ -493,7 +493,7 @@ templ Plan(v PlanView) {
 			// this banner back out of the whole page the poll fetches.
 			<div
 				id="apply-state"
-				class={ "panel px-4 py-3 mb-4 text-sm", templ.KV("text-rw-danger", v.Failed), templ.KV("text-rw-muted", !v.Failed) }
+				class={ "rounded bg-rw-inset px-4 py-3 mb-4 text-sm", templ.KV("text-rw-danger", v.Failed), templ.KV("text-rw-muted", !v.Failed) }
 				if v.Poll != "" {
 					hx-get={ v.Poll }
 					hx-trigger="every 2s"
@@ -520,20 +520,20 @@ templ Plan(v PlanView) {
 			}
 		</div>
 		if v.Error != "" {
-			<div class="panel border-rw-danger/40 p-4 mb-4">
+			<div class="rounded bg-rw-inset p-4 mb-4">
 				<pre class="text-sm text-rw-danger whitespace-pre-wrap">{ v.Error }</pre>
 			</div>
 		}
 		if v.Parsed {
 			for _, e := range v.Errors {
-				<div class="panel border-rw-danger/40 p-3 mb-2 text-sm text-rw-danger">{ e }</div>
+				<div class="rounded bg-rw-inset p-3 mb-2 text-sm text-rw-danger">{ e }</div>
 			}
 			for _, w := range v.Warnings {
-				<div class="panel border-rw-warning/40 p-3 mb-2 text-sm text-rw-warning">{ w }</div>
+				<div class="rounded bg-rw-inset p-3 mb-2 text-sm text-rw-warning">{ w }</div>
 			}
 			if len(v.Gaps) > 0 {
 				for i, g := range v.Gaps {
-					<form novalidate hx-post={ g.Post } class="panel border-rw-warning/40 p-3 mb-4 space-y-2">
+					<form novalidate hx-post={ g.Post } class="rounded bg-rw-inset p-3 mb-4 space-y-2">
 						<div class="flex flex-wrap items-center gap-2 text-sm">
 							<label for={ "gap-" + strconv.Itoa(i) } class="text-rw-warning">{ g.Label } has no value yet.</label>
 							<input type="password" id={ "gap-" + strconv.Itoa(i) } name={ g.Field } class="input ml-auto w-56" autocomplete="off"/>
@@ -545,7 +545,7 @@ templ Plan(v PlanView) {
 			if len(v.Changes) == 0 && v.Error == "" {
 				<p class="text-sm text-rw-muted">No changes. Everything already matches the config.</p>
 			} else {
-				<ul class="space-y-1.5">
+				<ul class="divide-y divide-rw-border">
 					for _, ch := range v.Changes {
 						@planChange(ch)
 					}
@@ -588,7 +588,7 @@ templ Plan(v PlanView) {
 // planChange is one row. A row with a note opens; one without stays a
 // plain line, so a page of one-line updates grows no column of dead arrows.
 templ planChange(ch Change) {
-	<li class="panel px-4 py-2.5 text-sm">
+	<li class="py-2.5 text-sm">
 		if ch.Note != "" {
 			<details class="group">
 				<summary class="flex flex-wrap items-center gap-2 font-mono cursor-pointer list-none [&::-webkit-details-marker]:hidden">
@@ -711,7 +711,7 @@ templ Domain(v DomainView) {
 // steps back to a secondary.
 templ Team(v TeamView) {
 	@shell(v.Frame) {
-		<div class="rounded-lg border border-rw-border bg-rw-inset/40 p-4">
+		<div class="rounded-lg bg-rw-inset/40 p-4">
 			@peoplePanel(v)
 		</div>
 		if len(v.People) > 0 {
@@ -731,9 +731,9 @@ templ peoplePanel(v TeamView) {
 	if len(v.Candidates) > 0 {
 		<div class="mb-5">
 			<span class="label">People on this server</span>
-			<ul class="space-y-2 mt-1.5">
+			<ul class="divide-y divide-rw-border mt-1.5">
 				for _, u := range v.Candidates {
-					<li class="panel px-3 py-2 flex items-center gap-2">
+					<li class="py-2 flex items-center gap-2">
 						@avatar(u.Name, "h-7 w-7 text-xs")
 						<span class="min-w-0 flex-1">
 							<span class="block text-sm text-rw-text truncate">{ u.Name }</span>
@@ -772,9 +772,9 @@ templ peoplePanel(v TeamView) {
 // accepted yet, and invites that ran out. A row's buttons are whatever its
 // state allows.
 templ peopleList(v TeamView) {
-	<ul class="space-y-2">
+	<ul class="divide-y divide-rw-border">
 		for _, p := range v.People {
-			<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+			<li class="py-2.5 flex flex-wrap items-center gap-2">
 				@avatar(p.Name, "h-8 w-8 text-xs")
 				<span class="min-w-[12rem] flex-1">
 					<span class="block text-sm text-rw-text truncate">{ p.Name }</span>
@@ -861,9 +861,9 @@ templ avatar(name, size string) {
 // as the thing standing between them and the org.
 templ Done(v DoneView) {
 	@shell(v.Frame) {
-		<ul class="space-y-2 mb-6">
+		<ul class="divide-y divide-rw-border mb-6">
 			for _, it := range v.Rows {
-				<li class="panel px-3 py-2.5 flex items-center gap-2 text-sm">
+				<li class="py-2.5 flex items-center gap-2 text-sm">
 					if it.Done {
 						<span class="text-rw-success">✓</span>
 						<span class="text-rw-text">{ it.Label }</span>
