@@ -230,7 +230,26 @@ func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to s
 	}
 
 	// disk
-	out = append(out, o.pmDisk(ctx, from, to, from == "", forgotten, vols, nm, sizes))
+	restore := map[string]bool{}
+	if forgotten {
+		for _, id := range envIDs {
+			e, err := o.store.Environments.Get(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			if e.NodeID != from {
+				continue
+			}
+			vs, err := o.pmVolumes(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			for _, v := range vs {
+				restore[v.ID] = true
+			}
+		}
+	}
+	out = append(out, o.pmDisk(ctx, from, to, from == "", restore, vols, nm, sizes))
 
 	// memory
 	ok, detail := pmMemory(toName, toFacts, tiles)
@@ -293,11 +312,11 @@ func (o *Orchestrator) pmStandbys(ctx context.Context, envIDs []string, to, toNa
 }
 
 // pmDisk: the target's free disk against the volumes' sizes plus 10%. A
-// restore sizes each volume by its newest backup; a volume with none would
+// restored volume (one on the forgotten node) is sized by its newest backup; a volume with none would
 // start empty, which fails the check overridably (MovePlacement's
 // startEmpty). A size or a disk that cannot be read is a detail, never a
 // failure.
-func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, restore bool, vols []store.Volume, nm pmNames, sizes map[string]int64) planfile.Check {
+func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting bool, restore map[string]bool, vols []store.Volume, nm pmNames, sizes map[string]int64) planfile.Check {
 	c := planfile.Check{Name: "disk", OK: true}
 	switch {
 	case len(vols) == 0:
@@ -310,11 +329,17 @@ func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, res
 	var total uint64
 	unknown := 0
 	var bare []string
-	if sizes == nil && !restore {
-		sizes = o.volumes.SizesFresh(ctx, vols)
+	if sizes == nil {
+		var live []store.Volume
+		for _, v := range vols {
+			if !restore[v.ID] {
+				live = append(live, v)
+			}
+		}
+		sizes = o.volumes.SizesFresh(ctx, live)
 	}
 	for _, v := range vols {
-		if restore {
+		if restore[v.ID] {
 			r, err := o.newestBackup(ctx, v.ID)
 			switch {
 			case err != nil:

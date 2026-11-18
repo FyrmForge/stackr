@@ -27,6 +27,7 @@ type Env struct {
 	TempMounts bool
 
 	beforeTakeover func() // test seam: runs between the emptiness check and the takeover
+	beforeStamp    func() // test seam: runs between the emptiness check and the first stamp write
 }
 
 func (e Env) mountinfo() string {

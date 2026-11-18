@@ -373,7 +373,7 @@ func TestPlacementDiskCheckRefusesAMissingTargetDisk(t *testing.T) {
 	d := newDiskTest(t)
 	row := d.addDisk(t)
 	setState(t, d, row, disk.StateMissing)
-	c := d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, false, []store.Volume{d.vol(t, "data")}, d.orch.pmNodeNames(ctx), nil)
+	c := d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, nil, []store.Volume{d.vol(t, "data")}, d.orch.pmNodeNames(ctx), nil)
 	if c.OK || !strings.Contains(c.Detail, "disk is missing") {
 		t.Errorf("check = %+v", c)
 	}
@@ -528,7 +528,7 @@ func TestPMDiskReadsNodeDiskAndLeafSizes(t *testing.T) {
 			Disks: []hostdisk.Fact{{Path: "/disk", Mounted: true, Free: diskFree, Total: 1 << 40}}})
 	}
 	check := func() planfile.Check {
-		return d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, false, []store.Volume{v}, d.orch.pmNodeNames(ctx), nil)
+		return d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, nil, []store.Volume{v}, d.orch.pmNodeNames(ctx), nil)
 	}
 	facts(1 << 30) // Docker's disk is huge, the node's disk is not
 	if c := check(); c.OK {
@@ -537,5 +537,19 @@ func TestPMDiskReadsNodeDiskAndLeafSizes(t *testing.T) {
 	facts(1 << 39)
 	if c := check(); !c.OK || strings.Contains(c.Detail, "unknown") {
 		t.Errorf("a roomy disk refused: %+v", c)
+	}
+}
+
+// Only a volume on the forgotten node is sized from backups; one on a healthy
+// node uses the fresh sizes, so it never reads as "no backup".
+func TestPlacementDiskCheckRestoresOnlyTheForgottenNodesVolumes(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	d.addDisk(t)
+	gone, live := d.vol(t, "gone"), d.vol(t, "live")
+	d.facts(t, worker.Facts{DisksRead: true, Disks: []hostdisk.Fact{{Path: "/disk", Mounted: true, Free: 1 << 39, Total: 1 << 40}}})
+	c := d.orch.pmDisk(ctx, d.ctl.ID, "w1", false, map[string]bool{gone.ID: true}, []store.Volume{gone, live}, d.orch.pmNodeNames(ctx), map[string]int64{live.ID: 10})
+	if !strings.Contains(c.Detail, "no backup for gone; it starts empty") || strings.Contains(c.Detail, "live") {
+		t.Errorf("check = %+v", c)
 	}
 }

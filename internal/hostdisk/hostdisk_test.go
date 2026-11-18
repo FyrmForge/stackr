@@ -772,3 +772,14 @@ func TestMkVolumeUnderAFileIsDiskMissing(t *testing.T) {
 		t.Fatalf("herr = %v", herr)
 	}
 }
+
+// A concurrent add of the same id and owner but another install wins the stamp
+// race: the loser refuses it as foreign, like the main path.
+func TestLostStampRaceToAnotherInstallIsForeign(t *testing.T) {
+	r := newRig(t, diskLine)
+	r.env.beforeStamp = func() {
+		r.env.beforeStamp = nil
+		wantCode(t, r.run("add", func(q *Request) { q.Install = "other" }), "")
+	}
+	wantCode(t, r.run("add", nil), CodeForeignStamp)
+}

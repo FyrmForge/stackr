@@ -306,9 +306,12 @@ func add(e Env, r Request) Result {
 			return fail(CodeNotEmpty, r.Mount+" is not empty and has no stamp")
 		}
 		s = Stamp{ID: r.DiskID, Install: r.Install, Kind: "path", Owner: r.Owner, Created: time.Now().UTC()}
+		if e.beforeStamp != nil {
+			e.beforeStamp()
+		}
 		if err := writeStamp(t.root, s, false); errors.Is(err, fs.ErrExist) {
 			// a concurrent add stamped first: it wins, unless it is another id
-			if s2, ok, rerr := readStamp(t.root); rerr != nil || !ok || s2.ID != r.DiskID || s2.Owner != r.Owner {
+			if s2, ok, rerr := readStamp(t.root); rerr != nil || !ok || s2.ID != r.DiskID || s2.Owner != r.Owner || s2.Install != r.Install {
 				return fail(CodeForeignStamp, "the disk carries another stamp")
 			}
 		} else if err != nil {
