@@ -132,6 +132,12 @@ func TestAddPathRowAddingBeforeStampThenReady(t *testing.T) {
 	}
 }
 
+type ioHost struct{}
+
+func (ioHost) Disk(context.Context, string, hostdisk.Request) (hostdisk.Result, error) {
+	return hostdisk.Result{Error: &hostdisk.Error{Code: hostdisk.CodeIO, Message: "disk hiccup"}}, nil
+}
+
 type crashHost struct{}
 
 func (crashHost) Disk(context.Context, string, hostdisk.Request) (hostdisk.Result, error) {
@@ -156,6 +162,9 @@ func TestReaddRefusesAStampMatchingNoRow(t *testing.T) {
 	r := newRig(t)
 	old := r.ready()
 	if err := r.l.Delete(ctx, old); err != nil { // rows gone, stamp stays
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.dir, old.ID, "data"), []byte("x"), 0o644); err != nil { // an id folder with data is never taken over
 		t.Fatal(err)
 	}
 	_, err := r.l.AddPath(ctx, "n1", "/disk", "i1")
@@ -409,3 +418,48 @@ func TestRefusedRetryDeletesTheAddingRowButNeverAReadyOne(t *testing.T) {
 }
 
 func isConflict(err error) bool { _, ok := errs.IsConflict(err); return ok }
+
+// R10: an I/O error on a resumed adding row keeps it, so the retry finds it.
+func TestAnIOErrorKeepsTheAddingRow(t *testing.T) {
+	r := newRig(t)
+	crash := disk.New(r.st.NodeDisks, r.st.DiskFolders, crashHost{})
+	if _, err := crash.AddPath(ctx, "n1", "/disk", "i1"); err == nil {
+		t.Fatal("expected the crash")
+	}
+	row, _, _ := r.l.OfNode(ctx, "n1")
+	io := disk.New(r.st.NodeDisks, r.st.DiskFolders, ioHost{})
+	if _, err := io.AddPath(ctx, "n1", "/disk", "i1"); code(err) != hostdisk.CodeIO {
+		t.Fatalf("add = %v, want io", err)
+	}
+	if got, ok, _ := r.l.OfNode(ctx, "n1"); !ok || got.ID != row.ID {
+		t.Fatalf("the io error dropped the adding row: %+v ok=%v", got, ok)
+	}
+	if got, err := r.l.AddPath(ctx, "n1", "/disk", "i1"); err != nil || got.ID != row.ID || got.State != disk.StateReady {
+		t.Fatalf("retry = %+v, %v", got, err)
+	}
+}
+
+// R10: an adding row at A replaced by an add at B leaves A re-addable.
+func TestReplacedAddingRowLeavesTheOldFolderReAddable(t *testing.T) {
+	r := newRig(t)
+	if err := os.Mkdir(filepath.Join(filepath.Dir(r.dir), "disk2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.table(rootLine + diskLine + "37 25 8:18 / /disk2 rw - ext4 /dev/sdc rw\n")
+	a := r.ready()
+	a.State = disk.StateAdding
+	if err := r.st.NodeDisks.Update(ctx, a); err != nil { // the add at A did not finish
+		t.Fatal(err)
+	}
+	b, err := r.l.AddPath(ctx, "n1", "/disk2", "i1")
+	if err != nil || b.ID == a.ID || b.State != disk.StateReady {
+		t.Fatalf("add at B = %+v, %v", b, err)
+	}
+	if err := r.l.Delete(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.l.AddPath(ctx, "n1", "/disk", "i1")
+	if err != nil || got.State != disk.StateReady || !r.exists(got.ID) || r.exists(a.ID) {
+		t.Fatalf("re-add at A = %+v, %v", got, err)
+	}
+}

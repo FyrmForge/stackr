@@ -119,7 +119,7 @@ func (l *Leaf) Probe(ctx context.Context, nodeID, mount string) (hostdisk.Fact, 
 // AddPath writes the row in adding, has the host stamp the disk, then sets
 // ready. A retry resumes an adding row of this node at the same path; an
 // adding row at another path is a half-made add and is replaced. A refusal
-// removes the adding row, a crash keeps it. A ready or missing row, or one
+// removes the adding row, a crash or an I/O error keeps it. A ready or missing row, or one
 // with folders, is never touched: "This node already has a disk."
 func (l *Leaf) AddPath(ctx context.Context, nodeID, mount, installID string) (store.NodeDisk, error) {
 	d, ok, err := l.OfNode(ctx, nodeID)
@@ -148,7 +148,9 @@ func (l *Leaf) AddPath(ctx context.Context, nodeID, mount, installID string) (st
 		return d, err // a crash leaves the row for a retry
 	}
 	if res.Error != nil {
-		_ = l.dropAdding(context.WithoutCancel(ctx), d)
+		if res.Error.Code != hostdisk.CodeIO { // an I/O error is not a refusal: the row stays for a retry
+			_ = l.dropAdding(context.WithoutCancel(ctx), d)
+		}
 		return d, res.Error
 	}
 	d.State = StateReady
