@@ -33,3 +33,19 @@ func TestSharedListsAreFlat(t *testing.T) {
 	}
 	uitest.NoPanelInCard(t, b.String())
 }
+
+// The bar's Settings link sits at the right on every level, with the page
+// actions, never beside the crumbs.
+func TestSettingsLinkSameSideAtEveryLevel(t *testing.T) {
+	for n := 1; n <= 4; n++ {
+		crumbs := make([]Link, n)
+		for i := range crumbs {
+			crumbs[i] = Link{Label: "c", Href: "/c"}
+		}
+		out := render(t, topBar(Shell{Crumbs: crumbs, Settings: "/s", SettingsPush: "/p"}, false))
+		_, right, ok := strings.Cut(out, `class="ml-auto flex`)
+		if !ok || !strings.Contains(right, ">Settings</button>") || strings.Count(out, ">Settings</button>") != 1 {
+			t.Errorf("%d crumbs: Settings not once on the right\n%s", n, out)
+		}
+	}
+}
