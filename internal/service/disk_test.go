@@ -915,3 +915,14 @@ func TestHelperImagePullIsOutsideTheDeadlineAndRetriedOnce(t *testing.T) {
 		}
 	})
 }
+
+// V7: the deploy gate fails closed when the disk row cannot be read.
+func TestDiskCheckFailsClosedOnARowLookupError(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	d.addDisk(t)
+	d.orch.diskLeaf = disk.New(failDisks{d.st.NodeDisks}, d.st.DiskFolders, InProcessDisk(d.env))
+	if _, err := d.orch.diskCheck(ctx, "w1"); err == nil || !strings.Contains(err.Error(), "db gone") {
+		t.Fatalf("diskCheck err = %v, want the lookup error", err)
+	}
+}

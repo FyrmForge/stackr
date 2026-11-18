@@ -275,7 +275,11 @@ func (o *Orchestrator) diskCheck(ctx context.Context, nodeID string) (warn strin
 	// A node with a disk keeps its data there: the room is that disk's too. A
 	// disk that is missing or unread is not a room problem; the volume route
 	// refuses it where a disk volume is used.
-	if _, has, _ := o.nodeDisk(ctx, nodeID); has {
+	_, has, derr := o.nodeDisk(ctx, nodeID)
+	if derr != nil {
+		return "", derr // a failed lookup is a failure, never "no disk"
+	}
+	if has {
 		if dfree, dtotal, err := o.dataDiskOf(ctx, nodeID); err == nil && dtotal > 0 && dfree < minFreeDisk {
 			return "", errs.Conflictf("%s has %s free on its disk; deploys need 1 GB. Free space and retry.", name, gb(dfree))
 		}
