@@ -7087,6 +7087,12 @@
       },
       "PromotePlan": {
         "properties": {
+          "access": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "can_deploy": {
             "type": "boolean"
           },
