@@ -227,7 +227,9 @@ var Catalogue = []Knob{
 		Label:  "Trusted proxies",
 		Type:   TStr,
 		Scopes: Flat,
-		Desc:   "CIDRs whose X-Forwarded-For is trusted",
+		// empty = trust none; a deleted row would bring the installer's list back
+		EmptyOff: true,
+		Desc:     "CIDRs whose X-Forwarded-For is trusted",
 	},
 	{
 		Key:    "proxy_custom",

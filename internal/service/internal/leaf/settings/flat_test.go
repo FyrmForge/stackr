@@ -193,3 +193,19 @@ func TestRefusalsNameTheLabel(t *testing.T) {
 		}
 	}
 }
+
+// Clearing the trusted proxies trusts none: the installer's list (the boot
+// value) must not come back.
+func TestTrustedProxiesClear(t *testing.T) {
+	l := settings.New(servicetest.Store(t).Settings, map[string]string{"trusted_proxies": "192.168.1.100/32"})
+	ctx := context.Background()
+	if v, _ := l.Get(ctx, "trusted_proxies"); v != "192.168.1.100/32" {
+		t.Fatalf("boot value = %q", v)
+	}
+	if err := l.Set(ctx, "trusted_proxies", ""); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := l.Get(ctx, "trusted_proxies"); v != "" {
+		t.Errorf("after clearing = %q, want empty", v)
+	}
+}
