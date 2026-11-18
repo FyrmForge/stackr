@@ -41,7 +41,7 @@ func TestNodeDiskAPI(t *testing.T) {
 		t.Fatalf("nodes = %s", body)
 	}
 	node := body[i+8:]
-	node = node[:strings.Index(node, `"`)]
+	node, _, _ = strings.Cut(node, `"`)
 	if code, body := w.do(t, w.admin, "GET", "/admin/nodes/"+node+"/disk", ""); code != 200 || !strings.Contains(body, `"has":false`) {
 		t.Errorf("disk = %d %s, want has false", code, body)
 	}

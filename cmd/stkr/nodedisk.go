@@ -380,11 +380,12 @@ func (a *app) volumeDiscard() *cobra.Command {
 				return err
 			}
 			slug, _, _ := strings.Cut(name, " (")
-			word, op := slug, "/discard-plain"
+			op := "/discard-plain"
 			if bound {
 				op = "/discard-bound"
 			}
-			if word, err = a.typed(confirm, slug, "Remove the Docker object of volume "+name+"? The folders on the disk stay."); err != nil {
+			word, err := a.typed(confirm, slug, "Remove the Docker object of volume "+name+"? The folders on the disk stay.")
+			if err != nil {
 				return err
 			}
 			_, err = a.call(POST, p+"/volumes/"+id+op, map[string]string{"confirm": word})
