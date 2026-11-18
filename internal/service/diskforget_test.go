@@ -634,14 +634,13 @@ func TestDiscardPlainCopyNeedsTheTypedConfirm(t *testing.T) {
 }
 
 // DL
-func TestDiscardBoundObjectRemovesOnlyTheDockerObjectAndShowsBothPaths(t *testing.T) {
+func TestDiscardBoundObjectRemovesOnlyTheDockerObjectAndShowsNoPaths(t *testing.T) {
 	ctx := context.Background()
 	w := newForgetWorld(t, false, false)
 	w.boundGhost(t, "/elsewhere/data")
-	want := filepath.Join(w.row.MountPath, w.row.ID, w.v.Name)
 	err := w.orch.DiscardBoundObject(ctx, adminP(), w.v.ID, "nope")
-	if !isInvalid(err) || !strings.Contains(err.Error(), "/elsewhere/data") || !strings.Contains(err.Error(), want) {
-		t.Fatalf("confirm refusal = %v, want both paths", err)
+	if !isInvalid(err) || strings.Contains(err.Error(), "/elsewhere") || strings.Contains(err.Error(), w.row.MountPath) {
+		t.Fatalf("confirm refusal = %v, want no host paths", err)
 	}
 	if sawCall(w.wFake, "RemoveVolume("+w.v.Name+")") && countCalls(w.wFake, "RemoveVolume(") > 1 {
 		t.Fatal("removed on a wrong confirm")

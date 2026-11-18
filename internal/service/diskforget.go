@@ -372,8 +372,7 @@ func (o *Orchestrator) DiscardPlainCopy(ctx context.Context, by *Principal, volu
 }
 
 // DiscardBoundObject removes only the Docker object of a volume that is bound
-// somewhere other than its folder. Neither folder is touched. The confirm
-// refusal names both paths, the object's and the expected folder.
+// somewhere other than its folder. Neither folder is touched.
 func (o *Orchestrator) DiscardBoundObject(ctx context.Context, by *Principal, volumeID, confirm string) error {
 	return o.discardGhost(ctx, by, volumeID, confirm, true)
 }
@@ -394,7 +393,7 @@ func (o *Orchestrator) discardGhost(ctx context.Context, by *Principal, volumeID
 			return nil
 		}
 		if bound {
-			return errs.Invalidf("confirm", "the object is bound to %s, the volume's folder is %s; type %s to remove only the object", g.Device, g.Want, v.Slug)
+			return errs.Invalidf("confirm", "type %s to remove only the object bound to another folder", v.Slug)
 		}
 		return errs.Invalidf("confirm", "type %s to remove the plain copy and keep the disk copy", v.Slug)
 	})
