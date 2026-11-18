@@ -47,3 +47,24 @@ func TestLogLineANSI(t *testing.T) {
 		t.Error("a plain line got segments")
 	}
 }
+
+// A line the pane stamps does not show the app's own stamp a second time.
+func TestStripStamp(t *testing.T) {
+	for in, want := range map[string]string{
+		"2026/11/18 16:57:56 WARN traffic: no table": "WARN traffic: no table",
+		"2026-11-18T16:57:56.123Z started":           "started",
+		"[2026-11-18 16:57:56,123] INFO ready":       "INFO ready",
+		"2026-11-18 16:57:56":                        "2026-11-18 16:57:56",
+		"GET /2026-11-18 ok":                         "GET /2026-11-18 ok",
+	} {
+		if got := StripStamp(in); got != want {
+			t.Errorf("StripStamp(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if l := NewLogLine(time.Now(), "2026-11-18 16:57:56 ERROR boom"); l.Text != "ERROR boom" || l.Level != "error" {
+		t.Errorf("stamped line = %+v", l)
+	}
+	if l := NewLogLine(time.Time{}, "2026-11-18 16:57:56 ERROR boom"); l.Text != "2026-11-18 16:57:56 ERROR boom" {
+		t.Errorf("an unstamped line lost its own time: %+v", l)
+	}
+}

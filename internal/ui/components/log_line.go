@@ -33,6 +33,9 @@ var jsonLevels = map[string]string{
 // ported.
 func NewLogLine(at time.Time, text string) LogLineView {
 	l := LogLineView{Time: at}
+	if !at.IsZero() {
+		text = StripStamp(text)
+	}
 	l.Text, l.Segs = ansiSegs(text)
 	text = l.Text
 	if i := strings.IndexByte(text, '{'); i >= 0 && strings.HasSuffix(text, "}") {
@@ -116,4 +119,17 @@ func ansiSegs(s string) (string, []LogSeg) {
 	}
 	emit(s[at:])
 	return plain.String(), segs
+}
+
+// ownStamp is a timestamp an app writes at the head of its own line: the
+// pane already shows the line's time, so it would read twice.
+var ownStamp = regexp.MustCompile(`^\[?\d{4}[-/]\d\d[-/]\d\d[T ]\d\d:\d\d:\d\d(?:[.,]\d+)?(?:Z|[+-]\d\d:?\d\d)?\]?[ \t]*`)
+
+// StripStamp drops the app's own leading timestamp from a line that has a
+// time of its own; a line with nothing after the stamp keeps it.
+func StripStamp(text string) string {
+	if rest := ownStamp.ReplaceAllString(text, ""); rest != "" {
+		return rest
+	}
+	return text
 }

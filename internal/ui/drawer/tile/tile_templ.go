@@ -1019,7 +1019,7 @@ func Logs(v View, l LogsView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if l.History != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<div class=\"flex items-center gap-2\"><span class=\"btn btn-sm btn-primary pointer-events-none\" aria-current=\"true\">Live</span> <button type=\"button\" class=\"btn btn-ghost btn-sm\" hx-get=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<div class=\"flex items-center gap-2 mb-1\"><span class=\"btn btn-sm btn-primary pointer-events-none\" aria-current=\"true\">Live</span> <button type=\"button\" class=\"btn btn-ghost btn-sm\" hx-get=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

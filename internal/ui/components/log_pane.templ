@@ -18,7 +18,7 @@ type LogPaneView struct {
 // filter, search, the toggles and the stream state ([state], shown by
 // [data-status]); htmx owns the stream.
 templ LogPane(v LogPaneView) {
-	<log-pane level={ v.Level } search={ v.Search }>
+	<log-pane class="block" level={ v.Level } search={ v.Search }>
 		<div class="flex flex-wrap items-center gap-3 mb-2">
 			<div class="relative">
 				<svg class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-rw-faint pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>

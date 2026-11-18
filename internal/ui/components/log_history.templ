@@ -96,7 +96,7 @@ templ LogHistoryMore(v LogHistoryView) {
 			if len(v.Tiles) > 0 {
 				<span class="shrink-0 text-rw-muted">{ l.Tile }</span>
 			}
-			<span class={ "basis-full sm:basis-auto min-w-0 whitespace-pre-wrap break-all", templ.KV("text-rw-danger", l.Err), templ.KV("text-rw-muted", l.Source == "access") }>{ l.Text }</span>
+			<span class={ "basis-full sm:basis-auto min-w-0 whitespace-pre-wrap break-all", templ.KV("text-rw-danger", l.Err), templ.KV("text-rw-muted", l.Source == "access") }>{ StripStamp(l.Text) }</span>
 		</div>
 	}
 	if len(v.Lines) == 0 && v.Error == "" {
