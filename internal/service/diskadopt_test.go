@@ -521,10 +521,10 @@ func TestAdoptRefusedBeforeStep2WhenAPlainCopyOfAFolderNameIsOnTheNewNode(t *tes
 	if len(p.Copies) != 1 || p.Copies[0].VolumeID != w.data.ID || p.Refusal == "" {
 		t.Fatalf("plan = %+v", p)
 	}
-	if err := w.orch.DiscardAdoptCopy(ctx, adminP(), "w1", w.row.ID, w.data.ID, "nope"); !isInvalid(err) {
+	if err := w.orch.DiscardAdoptCopy(ctx, adminP(), "w1", "/disk", w.row.ID, w.data.ID, "nope"); !isInvalid(err) {
 		t.Errorf("wrong confirm = %v", err)
 	}
-	must(t, w.orch.DiscardAdoptCopy(ctx, adminP(), "w1", w.row.ID, w.data.ID, w.data.Slug))
+	must(t, w.orch.DiscardAdoptCopy(ctx, adminP(), "w1", "/disk", w.row.ID, w.data.ID, w.data.Slug))
 	if !sawCall(w.wFake, "RemoveVolume("+w.data.Name) {
 		t.Error("the plain copy was not removed")
 	}

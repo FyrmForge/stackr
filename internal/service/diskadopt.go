@@ -186,7 +186,7 @@ func (o *Orchestrator) adoptLock(ctx context.Context, n store.Node, d store.Node
 // adoptCopies are the plain Docker copies on the new node of a volume that
 // has a folder on the disk and a name the adopt claims. An empty copy is not
 // listed: Ensure removes it. A copy whose size is not known counts as data.
-func (o *Orchestrator) adoptCopies(ctx context.Context, nodeID, diskID string, v adoptView) ([]AdoptCopy, error) {
+func (o *Orchestrator) adoptCopies(ctx context.Context, nodeID, mount, diskID string, v adoptView) ([]AdoptCopy, error) {
 	on := map[string]bool{}
 	for _, f := range v.folders {
 		on[f.Name] = true
@@ -207,7 +207,7 @@ func (o *Orchestrator) adoptCopies(ctx context.Context, nodeID, diskID string, v
 		if dev != "" {
 			// bound to the disk's folder is what step 6 wants; bound anywhere
 			// else would fail it as a ghost after the commit, forever
-			if !strings.HasSuffix(dev, "/"+diskID+"/"+x.Name) {
+			if dev != disk.BindOpts(mount, diskID, x.Name)["device"] {
 				out = append(out, AdoptCopy{VolumeID: x.ID, Slug: x.Slug, Bound: true})
 			}
 			continue
@@ -275,7 +275,7 @@ func (o *Orchestrator) adoptRefusals(ctx context.Context, d store.NodeDisk, n st
 	if err := o.noLiveMembers(ctx, live); err != nil {
 		return err
 	}
-	cs, err := o.adoptCopies(ctx, n.ID, d.ID, v)
+	cs, err := o.adoptCopies(ctx, n.ID, path, d.ID, v)
 	if err != nil {
 		return err
 	}
@@ -398,7 +398,7 @@ func (o *Orchestrator) PlanDiskAdopt(ctx context.Context, nodeID, path string) (
 		return p, err
 	}
 	o.adoptFill(ctx, &p, v)
-	if p.Copies, err = o.adoptCopies(ctx, n.ID, d.ID, v); err != nil {
+	if p.Copies, err = o.adoptCopies(ctx, n.ID, path, d.ID, v); err != nil {
 		return p, err
 	}
 	if !adoptCommitted(d) {
@@ -512,8 +512,9 @@ func (o *Orchestrator) AdoptDisk(ctx context.Context, by *Principal, nodeID, dis
 // DiscardAdoptCopy removes a plain copy that blocks an adopt, before the
 // adopt has started. The volume's env is still on the old node then, so the
 // Discard verb of a ghost cannot reach it. Only the Docker object on the new
-// node goes: the folder stays. confirm is the volume's slug.
-func (o *Orchestrator) DiscardAdoptCopy(ctx context.Context, by *Principal, nodeID, diskID, volumeID, confirm string) error {
+// node goes: the folder stays. path is the folder the adopt was asked for.
+// confirm is the volume's slug.
+func (o *Orchestrator) DiscardAdoptCopy(ctx context.Context, by *Principal, nodeID, path, diskID, volumeID, confirm string) error {
 	if err := nodeAdmin(by); err != nil {
 		return err
 	}
@@ -532,7 +533,7 @@ func (o *Orchestrator) DiscardAdoptCopy(ctx context.Context, by *Principal, node
 	if err != nil {
 		return err
 	}
-	cs, err := o.adoptCopies(ctx, n.ID, d.ID, v)
+	cs, err := o.adoptCopies(ctx, n.ID, path, d.ID, v)
 	if err != nil {
 		return err
 	}

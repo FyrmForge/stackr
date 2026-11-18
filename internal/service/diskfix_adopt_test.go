@@ -78,6 +78,19 @@ func TestAdoptRefusedWhenAClaimedNameIsBoundElsewhereOnTheNewNode(t *testing.T) 
 		t.Fatalf("err = %v", err)
 	}
 	w.unchanged(t)
-	must(t, w.orch.DiscardAdoptCopy(ctx, adminP(), "w1", w.row.ID, w.data.ID, w.data.Slug))
+	must(t, w.orch.DiscardAdoptCopy(ctx, adminP(), "w1", "/disk", w.row.ID, w.data.ID, w.data.Slug))
 	w.done(t)
+}
+
+// An object bound at <elsewhere>/<diskID>/<name> is not the disk's folder: it
+// is reported and refuses the adopt like any other foreign bind.
+func TestAdoptRefusedWhenBoundUnderAnotherMountWithTheSameTail(t *testing.T) {
+	ctx := context.Background()
+	w := newAdoptWorld(t)
+	must(t, w.wFake.CreateVolume(ctx, w.data.Name, "local", map[string]string{"type": "none", "o": "bind", "device": "/elsewhere/" + w.row.ID + "/" + w.data.Name}, nil))
+	err := w.pressErr(t)
+	if !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), "bound to another folder") {
+		t.Fatalf("err = %v", err)
+	}
+	w.unchanged(t)
 }
