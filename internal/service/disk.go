@@ -27,11 +27,15 @@ import (
 // any other state refuses (leaf/disk).
 
 const (
-	kindDiskAdd   jobs.Kind = "disk-add"
-	kindDiskCheck jobs.Kind = "disk-check"
+	kindDiskAdd       jobs.Kind = "disk-add"
+	kindDiskCheck     jobs.Kind = "disk-check"
+	kindDiskAddDevice jobs.Kind = "disk-add-device"
+	kindDiskGrow      jobs.Kind = "disk-grow"
 
-	auditDiskAdd   = "disk.add"
-	auditDiskCheck = "disk.check"
+	auditDiskAdd       = "disk.add"
+	auditDiskCheck     = "disk.check"
+	auditDiskAddDevice = "disk.add_device"
+	auditDiskGrow      = "disk.grow"
 )
 
 // NodeDiskView is a node's disk as the panel shows it.
@@ -43,8 +47,17 @@ type NodeDiskView struct {
 	Free, Total uint64
 	Network     bool
 	ReadAt      time.Time // when the worker last read the disk; zero = never
-	Stale       bool // the worker's last read of the disk is old, or there is none
+	Stale       bool      // the worker's last read of the disk is old, or there is none
 	Volumes     int
+	// xfs: the device behind the disk. NewSpace is the bytes the device has
+	// beyond what the disk uses ("Use it" grows the disk into them); Damaged
+	// is "smaller" (the device shrank) or "other_fs" (another filesystem sits
+	// on it), and the disk is not to be trusted until that is looked at.
+	// Both come from the worker's last facts and stay empty without them.
+	Device      string
+	DeviceBytes uint64
+	NewSpace    uint64
+	Damaged     string
 }
 
 // FolderProbe is what a path on a node looks like before it is added. A
@@ -62,8 +75,12 @@ type FolderProbe struct {
 type diskJob struct {
 	NodeID string `json:"node_id"`
 	Path   string `json:"path,omitempty"`
-	By     string `json:"by,omitempty"`
-	KeyID  string `json:"key_id,omitempty"`
+	// add device: the disk as the person picked it, and whether they chose
+	// Format anyway.
+	Device *hostdisk.Device `json:"device,omitempty"`
+	Force  bool             `json:"force,omitempty"`
+	By     string           `json:"by,omitempty"`
+	KeyID  string           `json:"key_id,omitempty"`
 }
 
 // nodeDisk is the node's disk row. A lookup error is a failure everywhere,
@@ -181,7 +198,7 @@ func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskVie
 	if err != nil {
 		return NodeDiskView{}, err
 	}
-	v := NodeDiskView{Has: true, ID: d.ID, Kind: d.Kind, Path: d.MountPath, State: d.State, Volumes: len(fs), Stale: true}
+	v := NodeDiskView{Has: true, ID: d.ID, Kind: d.Kind, Path: d.MountPath, State: d.State, Volumes: len(fs), Stale: true, Device: d.DeviceID}
 	if d.State == disk.StateAdopting && d.NodeID != nodeID { // before the commit the row is still the old node's
 		v.Path = d.OpMountPath
 	}
@@ -193,6 +210,7 @@ func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskVie
 		if i := slices.IndexFunc(f.Disks, func(x hostdisk.Fact) bool { return x.Path == d.MountPath }); i >= 0 {
 			x := f.Disks[i]
 			v.Free, v.Total, v.Network, v.Stale, v.ReadAt = x.Free, x.Total, x.Network, f.DisksStale, x.ReadAt
+			v.DeviceBytes, v.NewSpace, v.Damaged = deviceFacts(d, x)
 		}
 	}
 	// A controller with no worker has no facts. When the panel sees the mount
@@ -377,6 +395,154 @@ func (o *Orchestrator) CheckNodeDisk(ctx context.Context, by *Principal, nodeID 
 		o.auditDiskLog(ctx, by, auditDiskCheck, n.ID, "")
 	}
 	return j, err
+}
+
+// DiskDevice is a whole block device on a node as the picker shows it: what
+// it is, and why it can or cannot be used. The pick comes back whole into
+// AddNodeDevice, so a device that changed since the list is caught.
+type DiskDevice = hostdisk.Device
+
+// DeviceBlockedWhy is the picker's reason a device cannot be used
+// (DiskDevice.Blocked), in words.
+func DeviceBlockedWhy(blocked string) string { return disk.BlockedWhy(blocked) }
+
+// NodeDevices lists the node's whole disks, each with why it can or cannot be
+// picked. It runs the host helper: a verb of the add dialog, never a poll.
+func (o *Orchestrator) NodeDevices(ctx context.Context, by *Principal, nodeID string) ([]DiskDevice, error) {
+	if err := nodeAdmin(by); err != nil {
+		return nil, err
+	}
+	n, err := o.diskNodeUp(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	return o.diskLeaf.Devices(ctx, n.ID)
+}
+
+// AddNodeDevice queues making the picked device the node's disk: it is
+// formatted xfs, mounted and stamped. Formatting destroys what is on it, so
+// the person must type the node's name or the device (typed), and a disk that
+// already holds a filesystem, a partition table or an earlier stackr disk is
+// only taken with force ("Format anyway"). A device that cannot be formatted
+// at all (mounted, partitions, system ...) is refused with no override.
+func (o *Orchestrator) AddNodeDevice(ctx context.Context, by *Principal, nodeID string, pick DiskDevice, typed string, force bool) (Job, error) {
+	if err := nodeAdmin(by); err != nil {
+		return Job{}, err
+	}
+	n, err := o.diskNodeUp(ctx, nodeID)
+	if err != nil {
+		return Job{}, err
+	}
+	if pick.ID == "" {
+		return Job{}, errs.Invalidf("device", "Pick a disk.")
+	}
+	// the person types the device (sdb, or its path) so the wrong disk is not wiped by a click
+	if pick.Path == "" || typed != filepath.Base(pick.Path) && typed != pick.Path && typed != pick.ID {
+		return Job{}, errs.Invalidf("confirm", "type %s to confirm", filepath.Base(pick.Path))
+	}
+	d, has, err := o.nodeDisk(ctx, n.ID)
+	if err != nil {
+		return Job{}, err
+	}
+	if has && d.State != disk.StateAdding {
+		return Job{}, errs.Conflictf("This node already has a disk.")
+	}
+	// A retry of an add that stopped after the format: the device carries the
+	// filesystem this very add made, so it is mounted, never formatted again.
+	resume := has && d.Kind == disk.KindXFS && d.DeviceID == pick.ID && d.FSUUID != "" && d.FSUUID == pick.FSUUID
+	if resume {
+		force = false
+	} else {
+		if pick.Blocked != "" {
+			return Job{}, errs.Refusedf("That disk cannot be used: %s.", disk.BlockedWhy(pick.Blocked))
+		}
+		if pick.Signature != "" && !force {
+			return Job{}, errs.Refusedf(disk.MsgNeedsForce)
+		}
+		force = force && pick.Signature != ""
+	}
+	if o.diskWorker(n) {
+		if f := o.diskFacts(ctx, n); f == nil || !f.DisksRead {
+			return Job{}, errs.Refusedf("This node's worker is too old to manage a disk. Update it first.")
+		}
+	}
+	lock, err := o.nodeLock(ctx, n)
+	if err != nil {
+		return Job{}, err
+	}
+	j, err := o.enqueue(ctx, kindDiskAddDevice, diskJob{NodeID: n.ID, Device: &pick, Force: force, By: by.User.ID, KeyID: by.KeyID}, lock...)
+	if err == nil {
+		o.auditDiskLog(ctx, by, auditDiskAddDevice, n.ID, pick.ID)
+	}
+	return j, err
+}
+
+// GrowNodeDisk queues growing an xfs disk's filesystem into the space its
+// device gained ("Use it"). The disk stays in use meanwhile.
+func (o *Orchestrator) GrowNodeDisk(ctx context.Context, by *Principal, nodeID string) (Job, error) {
+	if err := nodeAdmin(by); err != nil {
+		return Job{}, err
+	}
+	n, err := o.diskNodeUp(ctx, nodeID)
+	if err != nil {
+		return Job{}, err
+	}
+	d, has, err := o.nodeDisk(ctx, n.ID)
+	switch {
+	case err != nil:
+		return Job{}, err
+	case !has:
+		return Job{}, errs.ErrNotFound
+	case d.Kind != disk.KindXFS:
+		return Job{}, errs.Refusedf("Only a disk made from a whole device can grow.")
+	case d.State != disk.StateReady:
+		return Job{}, errs.Refusedf("The disk is %s. Check it first.", d.State)
+	}
+	lock, err := o.nodeLock(ctx, n)
+	if err != nil {
+		return Job{}, err
+	}
+	j, err := o.enqueue(ctx, kindDiskGrow, diskJob{NodeID: n.ID, By: by.User.ID, KeyID: by.KeyID}, lock...)
+	if err == nil {
+		o.auditDiskLog(ctx, by, auditDiskGrow, n.ID, d.DeviceID)
+	}
+	return j, err
+}
+
+func (o *Orchestrator) runDiskAddDevice(ctx context.Context, r *jobs.Run, p diskJob) error {
+	n, err := o.nodeLeaf().Get(ctx, p.NodeID)
+	if err != nil {
+		return err
+	}
+	if p.Device == nil {
+		return errors.New("disk: add device without a device")
+	}
+	_, _ = fmt.Fprintf(r.Log, "adding %s on %s\n", p.Device.ID, n.Name)
+	d, err := o.diskLeaf.AddXFS(ctx, n.ID, *p.Device, p.Force, o.cfg.InstallID)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(r.Log, "disk ready: %s\n", d.MountPath)
+	if err := o.pushDisks(ctx, n); err != nil {
+		_, _ = fmt.Fprintf(r.Log, "the worker was not told yet (%v); it is retried\n", err)
+	}
+	return nil
+}
+
+func (o *Orchestrator) runDiskGrow(ctx context.Context, r *jobs.Run, p diskJob) error {
+	d, has, err := o.nodeDisk(ctx, p.NodeID)
+	if err != nil {
+		return err
+	}
+	if !has {
+		return errs.ErrNotFound
+	}
+	d, err = o.diskLeaf.Grow(ctx, d)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(r.Log, "disk grown: %s, device %d bytes\n", d.MountPath, d.DeviceBytes)
+	return nil
 }
 
 func (o *Orchestrator) runDiskAdd(ctx context.Context, r *jobs.Run, p diskJob) error {

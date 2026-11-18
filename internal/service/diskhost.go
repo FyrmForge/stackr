@@ -87,7 +87,8 @@ func (h *diskHost) inProcess(ctx context.Context, nodeID string) bool {
 // dead network path would otherwise hold the caller's locks for good.
 func (h *diskHost) Disk(ctx context.Context, nodeID string, r hostdisk.Request) (hostdisk.Result, error) {
 	wait := h.short
-	if r.Op == "usage" && r.Sizes {
+	// mkfs, xfs_growfs, and an xfs folder (xfs_quota walks its tree to set the project)
+	if r.Op == "usage" && r.Sizes || r.Op == "format" || r.Op == "grow" || r.Op == "folder" && r.Kind == "xfs" {
 		wait = h.long
 	}
 	if h.inProcess(ctx, nodeID) {

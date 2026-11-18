@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -85,6 +87,88 @@ func (o *Orchestrator) mounters(ctx context.Context, v Volume) ([]Tile, error) {
 		}
 	}
 	return out, err
+}
+
+// maxCapMB keeps a cap in MB inside int64 bytes.
+const maxCapMB = 1 << 40
+
+// capBytes is a volume's cap in bytes; 0 means none.
+func capBytes(mb *int64) int64 {
+	if mb == nil || *mb <= 0 {
+		return 0
+	}
+	return *mb << 20
+}
+
+// folderCap is the cap in bytes of the volume with this Docker name; the disk
+// leaf asks it whenever it puts a folder on the host, so a cap survives a
+// re-place. A volume this panel has no row for has none.
+// ponytail: a scan of the volume rows per call; a by-name lookup if volumes ever number in the thousands.
+func (o *Orchestrator) folderCap(ctx context.Context, name string) (int64, error) {
+	for _, list := range []func(context.Context) ([]store.Volume, error){o.store.Volumes.ListLive, o.store.Volumes.ListOrphaned} {
+		vs, err := list(ctx)
+		if err != nil {
+			return 0, err
+		}
+		for _, v := range vs {
+			if v.Name == name {
+				return capBytes(v.MaxSizeMB), nil
+			}
+		}
+	}
+	return 0, nil
+}
+
+// xfsDiskOf is the xfs disk a volume's folder is on, when it has one.
+func (o *Orchestrator) xfsDiskOf(ctx context.Context, v Volume) (store.NodeDisk, bool, error) {
+	rt, node, err := o.volumes.Where(ctx, v)
+	if err != nil || rt != volume.RouteDisk {
+		return store.NodeDisk{}, false, err
+	}
+	d, ok, err := o.nodeDisk(ctx, node)
+	return d, ok && d.Kind == disk.KindXFS, err
+}
+
+// CapEnforced says whether a volume's cap is a limit: only a volume with a
+// folder on an xfs disk has one. On any other volume the cap is saved and
+// does nothing (rows only, no host call).
+func (o *Orchestrator) CapEnforced(ctx context.Context, v Volume) (bool, error) {
+	_, ok, err := o.xfsDiskOf(ctx, v)
+	return ok, err
+}
+
+// SetVolumeCap sets a volume's size cap in MB, nil for none. On an xfs disk
+// the folder's quota changes at once; a cap under what the volume holds is
+// refused and nothing changes. On any other volume the cap is saved and not
+// enforced (CapEnforced).
+func (o *Orchestrator) SetVolumeCap(ctx context.Context, volumeID string, mb *int64) error {
+	if mb != nil && (*mb < 1 || *mb > maxCapMB) {
+		return errs.Invalidf("max_size_mb", "Give a size of at least 1 MB, or leave it empty for no cap.")
+	}
+	v, err := o.store.Volumes.Get(ctx, volumeID)
+	if err != nil {
+		return err
+	}
+	d, enforced, err := o.xfsDiskOf(ctx, v)
+	if err != nil {
+		return err
+	}
+	old := v.MaxSizeMB
+	v.MaxSizeMB = mb
+	if err := o.store.Volumes.Update(ctx, v); err != nil {
+		return err
+	}
+	if !enforced {
+		return nil
+	}
+	if err := o.diskLeaf.SetCap(ctx, d, v.Name); err != nil {
+		v.MaxSizeMB = old
+		if rerr := o.store.Volumes.Update(context.WithoutCancel(ctx), v); rerr != nil {
+			return errors.Join(err, rerr)
+		}
+		return err
+	}
+	return nil
 }
 
 // Volume is one volume by id.

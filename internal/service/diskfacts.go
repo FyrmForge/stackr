@@ -255,3 +255,23 @@ func sameRegs(a, b []worker.DiskReg) bool {
 	slices.Sort(kb)
 	return strings.Join(ka, "\n") == strings.Join(kb, "\n")
 }
+
+// deviceFacts compares what the worker last saw of an xfs disk's device with
+// what the row recorded when the disk was added or last grown. Without the
+// device facts (a path disk, a worker that does not report them) it says
+// nothing.
+func deviceFacts(d store.NodeDisk, x hostdisk.Fact) (bytes, newSpace uint64, damaged string) {
+	if d.Kind != disk.KindXFS || x.DeviceBytes <= 0 {
+		return 0, 0, ""
+	}
+	bytes = uint64(x.DeviceBytes)
+	switch {
+	case x.FSUUID != "" && d.FSUUID != "" && x.FSUUID != d.FSUUID:
+		damaged = "other_fs"
+	case x.DeviceBytes < d.DeviceBytes:
+		damaged = "smaller"
+	case x.DeviceBytes > d.DeviceBytes:
+		newSpace = uint64(x.DeviceBytes - d.DeviceBytes)
+	}
+	return bytes, newSpace, damaged
+}
