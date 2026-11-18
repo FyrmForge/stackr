@@ -406,7 +406,7 @@ func TestOrgDefaultsSave(t *testing.T) {
 		t.Errorf("orgs = %+v %v, want acme's rung saved", ogs, err)
 	}
 	body := b.do(t, "GET", "/acme/-/drawer?tab=general", nil, true).Body.String()
-	if !strings.Contains(body, `name="cpu_limit" type="number" step="any" value="1.5"`) || strings.Contains(body, "needs an owner") {
+	if !strings.Contains(body, `name="cpu_limit" data-stored="1.5" type="number" step="any" value="1.5"`) || strings.Contains(body, "needs an owner") {
 		t.Errorf("the drawer does not read the rung back:\n%s", body)
 	}
 

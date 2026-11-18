@@ -39,3 +39,27 @@ func TestSettingsFormReadModeRefusedAndReadOnly(t *testing.T) {
 		t.Errorf("a read-only form offers an edit:\n%s", html)
 	}
 }
+
+// A control carries the stored value, so a form redrawn after a refused save
+// (refused values as defaults) still tells a held edit from the stored value.
+func TestSettingsFormReadModeStoredValue(t *testing.T) {
+	row := SettingRowView{Key: "workers", Label: "Job workers", Type: "int", Value: "4"}
+	html := render(t, SettingsForm(SettingsFormView{ID: "f", Action: "/a", Rows: []SettingRowView{row}}))
+	if !strings.Contains(html, `data-stored="4"`) {
+		t.Errorf("no stored value on the control:\n%s", html)
+	}
+}
+
+// The pending footer is the card's flush footer inside a Section, a plain
+// divided strip elsewhere; never a rounded tinted box.
+func TestSettingsFormPendingFooterFlush(t *testing.T) {
+	row := SettingRowView{Key: "workers", Label: "Job workers", Type: "int", Value: "4"}
+	flush := render(t, SettingsForm(SettingsFormView{ID: "f", Action: "/a", Flush: true, Rows: []SettingRowView{row}}))
+	plain := render(t, SettingsForm(SettingsFormView{ID: "f", Action: "/a", Rows: []SettingRowView{row}}))
+	if !strings.Contains(flush, "-mx-4 sm:-mx-6 -mb-4 sm:-mb-6") || strings.Contains(flush, "rounded-lg bg-rw-inset") {
+		t.Errorf("flush footer:\n%s", flush)
+	}
+	if strings.Contains(plain, "-mx-4") || strings.Contains(plain, "rounded-lg bg-rw-inset") {
+		t.Errorf("plain footer:\n%s", plain)
+	}
+}

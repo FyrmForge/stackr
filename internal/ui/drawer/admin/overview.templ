@@ -122,6 +122,7 @@ type DomainsView struct {
 templ Domains(v DomainsView) {
 	<div id="tab-domains">
 		@c.Section("Panel and proxy", "instance", "") {
+			{{ v.Settings.Flush = true }}
 			@c.SettingsForm(v.Settings)
 		}
 		@c.Section("Custom Caddy config", "instance", "A JSON array of Caddy routes, added after stackr's own.") {
@@ -151,6 +152,7 @@ templ Knobs(title string, v c.SettingsFormView) {
 // KnobsDesc is Knobs with a line under the title.
 templ KnobsDesc(title, desc string, v c.SettingsFormView) {
 	@c.Section(title, "instance", desc) {
+		{{ v.Flush = true }}
 		@c.SettingsForm(v)
 	}
 }

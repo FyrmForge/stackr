@@ -19,21 +19,25 @@ class SettingsRead extends HTMLElement {
     return row.querySelector("[data-editor]")?.querySelector<Control>(CONTROL) ?? null;
   }
 
-  private dirty(c: Control): boolean {
+  // stored is what the row held when the server sent it, which is not the
+  // control's default after a refused save: the form comes back with the
+  // refused values as defaults, and they still differ from what is stored.
+  private stored(c: Control): string {
     if (c instanceof HTMLSelectElement) {
+      const s = c.dataset.stored;
+      if (s !== undefined) return Array.from(c.options).some((o) => o.value === s) ? s : (c.options[0]?.value ?? "");
       const d = Array.from(c.options).findIndex((o) => o.defaultSelected);
-      return c.selectedIndex !== (d < 0 ? 0 : d);
+      return c.options[d < 0 ? 0 : d]?.value ?? "";
     }
-    return c.value !== c.defaultValue;
+    return c.dataset.stored ?? c.defaultValue;
+  }
+
+  private dirty(c: Control): boolean {
+    return c.value !== this.stored(c);
   }
 
   private reset(c: Control): void {
-    if (c instanceof HTMLSelectElement) {
-      const d = Array.from(c.options).findIndex((o) => o.defaultSelected);
-      c.selectedIndex = d < 0 ? 0 : d;
-    } else {
-      c.value = c.defaultValue;
-    }
+    c.value = this.stored(c);
   }
 
   private said(c: Control): string {
@@ -125,7 +129,13 @@ class SettingsRead extends HTMLElement {
     }
   }
 
+  // applying: the form is posting, so a row neither opens nor undoes
+  private busy(): boolean {
+    return this.closest("form")?.classList.contains("htmx-request") ?? false;
+  }
+
   private onClick = (e: Event): void => {
+    if (this.busy()) return;
     const t = e.target as Element;
     const row = t.closest<HTMLElement>("[data-row]");
     if (t.closest("[data-cancel-all]")) {
@@ -137,7 +147,18 @@ class SettingsRead extends HTMLElement {
     }
   };
 
+  // Enter in a field holds the edit; the form is posted by Apply.
+  private onKeyDown = (e: KeyboardEvent): void => {
+    const t = e.target as Element;
+    if (e.key !== "Enter" || t instanceof HTMLTextAreaElement || !t.matches(CONTROL)) return;
+    const row = t.closest<HTMLElement>("[data-row]");
+    if (!row || !t.closest("[data-editor]")) return;
+    e.preventDefault();
+    if (!this.busy()) this.commit(row);
+  };
+
   private onDblClick = (e: Event): void => {
+    if (this.busy()) return;
     const row = (e.target as Element).closest<HTMLElement>("[data-row]");
     if (row && (e.target as Element).closest("[data-val]")) this.open(row);
   };
@@ -151,6 +172,9 @@ class SettingsRead extends HTMLElement {
     this.addEventListener("click", this.onClick);
     this.addEventListener("dblclick", this.onDblClick);
     this.addEventListener("change", this.onChange);
+    this.addEventListener("keydown", this.onKeyDown);
+    // a form that came back from a refused save holds edits: show them as held
+    for (const r of this.rows()) this.paint(r);
     this.refresh();
   }
 
@@ -158,6 +182,7 @@ class SettingsRead extends HTMLElement {
     this.removeEventListener("click", this.onClick);
     this.removeEventListener("dblclick", this.onDblClick);
     this.removeEventListener("change", this.onChange);
+    this.removeEventListener("keydown", this.onKeyDown);
   }
 }
 

@@ -7,21 +7,21 @@ class SettingsRead extends HTMLElement {
     control(row) {
         return row.querySelector("[data-editor]")?.querySelector(CONTROL) ?? null;
     }
-    dirty(c) {
+    stored(c) {
         if (c instanceof HTMLSelectElement) {
+            const s = c.dataset.stored;
+            if (s !== undefined)
+                return Array.from(c.options).some((o) => o.value === s) ? s : (c.options[0]?.value ?? "");
             const d = Array.from(c.options).findIndex((o) => o.defaultSelected);
-            return c.selectedIndex !== (d < 0 ? 0 : d);
+            return c.options[d < 0 ? 0 : d]?.value ?? "";
         }
-        return c.value !== c.defaultValue;
+        return c.dataset.stored ?? c.defaultValue;
+    }
+    dirty(c) {
+        return c.value !== this.stored(c);
     }
     reset(c) {
-        if (c instanceof HTMLSelectElement) {
-            const d = Array.from(c.options).findIndex((o) => o.defaultSelected);
-            c.selectedIndex = d < 0 ? 0 : d;
-        }
-        else {
-            c.value = c.defaultValue;
-        }
+        c.value = this.stored(c);
     }
     said(c) {
         if (c instanceof HTMLSelectElement)
@@ -108,7 +108,12 @@ class SettingsRead extends HTMLElement {
             list.append(li);
         }
     }
+    busy() {
+        return this.closest("form")?.classList.contains("htmx-request") ?? false;
+    }
     onClick = (e) => {
+        if (this.busy())
+            return;
         const t = e.target;
         const row = t.closest("[data-row]");
         if (t.closest("[data-cancel-all]")) {
@@ -122,7 +127,20 @@ class SettingsRead extends HTMLElement {
             this.undo(row);
         }
     };
+    onKeyDown = (e) => {
+        const t = e.target;
+        if (e.key !== "Enter" || t instanceof HTMLTextAreaElement || !t.matches(CONTROL))
+            return;
+        const row = t.closest("[data-row]");
+        if (!row || !t.closest("[data-editor]"))
+            return;
+        e.preventDefault();
+        if (!this.busy())
+            this.commit(row);
+    };
     onDblClick = (e) => {
+        if (this.busy())
+            return;
         const row = e.target.closest("[data-row]");
         if (row && e.target.closest("[data-val]"))
             this.open(row);
@@ -136,12 +154,16 @@ class SettingsRead extends HTMLElement {
         this.addEventListener("click", this.onClick);
         this.addEventListener("dblclick", this.onDblClick);
         this.addEventListener("change", this.onChange);
+        this.addEventListener("keydown", this.onKeyDown);
+        for (const r of this.rows())
+            this.paint(r);
         this.refresh();
     }
     disconnectedCallback() {
         this.removeEventListener("click", this.onClick);
         this.removeEventListener("dblclick", this.onDblClick);
         this.removeEventListener("change", this.onChange);
+        this.removeEventListener("keydown", this.onKeyDown);
     }
 }
 customElements.define("settings-read", SettingsRead);

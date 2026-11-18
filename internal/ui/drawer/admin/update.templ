@@ -159,6 +159,7 @@ templ Update(v UpdateView) {
 			}
 			if v.Settings.ID != "" {
 				<div class="mt-5 border-t border-rw-border pt-3">
+					{{ v.Settings.Flush = true }}
 					@c.SettingsForm(v.Settings)
 				</div>
 			}

@@ -16,6 +16,9 @@ type SettingsFormView struct {
 	Error    string // a refusal no one row owns
 	Note     string // what a save did
 	Flat     bool   // one list, no section heads: a Section around it titles it
+	// Flush says the form ends a Section's card: the pending footer then runs
+	// edge to edge as that card's footer, as the variables build's does.
+	Flush bool
 	// Keys is the rows the form shows, in this order; nil = every row. A
 	// key with no row is skipped.
 	Keys []string
@@ -254,7 +257,7 @@ templ SettingsForm(v SettingsFormView) {
 		</fieldset>
 		if !v.ReadOnly {
 			// the edits held in the rows, listed; <settings-read> shows it while any is held or open
-			<div data-pending hidden class="mt-4 rounded-lg bg-rw-inset px-4 py-3">
+			<div data-pending hidden class={ "mt-4 border-t border-rw-border", templ.KV("-mx-4 sm:-mx-6 -mb-4 sm:-mb-6 bg-rw-inset px-4 py-3 sm:px-6", v.Flush), templ.KV("pt-3", !v.Flush) }>
 				<p data-count class="text-xs font-medium text-rw-muted"></p>
 				<ul data-list class="mt-1.5 space-y-1"></ul>
 				<div class="mt-3 flex flex-wrap items-center gap-2 group-[.htmx-request]:hidden">
@@ -308,8 +311,8 @@ templ factRow(form string, r SettingRowView) {
 					@rowSub(r)
 				</span>
 				<span class="flex items-center justify-end">
-					<span data-undo hidden><button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + knobLabel(r) }>@settingUndoIcon()</button></span>
-					<button type="button" data-edit class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Edit" aria-label={ "Edit " + knobLabel(r) }>@settingPenIcon()</button>
+					<span data-undo hidden><button type="button" class="inline-flex h-7 w-7 group-[.htmx-request]:pointer-events-none group-[.htmx-request]:opacity-40 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + knobLabel(r) }>@settingUndoIcon()</button></span>
+					<button type="button" data-edit class="inline-flex h-7 w-7 group-[.htmx-request]:pointer-events-none group-[.htmx-request]:opacity-40 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Edit" aria-label={ "Edit " + knobLabel(r) }>@settingPenIcon()</button>
 				</span>
 			</div>
 		</div>
@@ -418,7 +421,7 @@ templ editBody(form string, r SettingRowView) {
 		</label>
 		switch {
 			case r.Type == "bool":
-				<select id={ form + "-" + r.Key } name={ r.Key } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
+				<select id={ form + "-" + r.Key } name={ r.Key } data-stored={ r.Value } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
 					if !r.NoInherit {
 						<option value="" selected?={ Kept(ctx, r.Key, r.Value) == "" }>{ inheritChoice(r) }</option>
 					}
@@ -426,15 +429,15 @@ templ editBody(form string, r SettingRowView) {
 					<option value="false" selected?={ Kept(ctx, r.Key, r.Value) == "false" }>Off</option>
 				</select>
 			case len(r.Options) > 0:
-				<select id={ form + "-" + r.Key } name={ r.Key } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
+				<select id={ form + "-" + r.Key } name={ r.Key } data-stored={ r.Value } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
 					for _, o := range r.Options {
 						<option value={ o.Value } selected?={ Kept(ctx, r.Key, r.Value) == o.Value }>{ o.Label }</option>
 					}
 				</select>
 			case r.Secret:
-				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
+				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" data-stored="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
 			default:
-				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ Kept(ctx, r.Key, r.Value) } placeholder={ inheritHint(r) } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
+				<input id={ form + "-" + r.Key } name={ r.Key } data-stored={ r.Value } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ Kept(ctx, r.Key, r.Value) } placeholder={ inheritHint(r) } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
 		}
 		if r.Secret {
 			<span class="settings-help">{ secretHelp(r.Effective) }</span>
