@@ -603,8 +603,8 @@ func TestXFSUsageIsTheProjectReportNotAWalk(t *testing.T) {
 }
 
 // xfs_disk_adopt: the device is matched by its filesystem uuid, the stamp owner is rewritten,
-// and an offline (not forgotten) old node is enough, unlike a folder disk.
-func TestXFSAdoptMatchesByFSUUIDAndNeedsOnlyAnOfflineOldNode(t *testing.T) { // DL: adopt on xfs
+// and, like a folder disk, only a forgotten old node releases it: offline is not enough, nothing fences it.
+func TestXFSAdoptMatchesByFSUUIDAndNeedsAForgottenOldNode(t *testing.T) { // DL: adopt on xfs
 	ctx := context.Background()
 	x := newXFSTest(t)
 	row := x.addXFS(t)
@@ -626,17 +626,33 @@ func TestXFSAdoptMatchesByFSUUIDAndNeedsOnlyAnOfflineOldNode(t *testing.T) { // 
 	must(t, x.st.Environments.SetNode(ctx, x.edge.ID, "old"))
 	must(t, x.wFake.RemoveVolume(ctx, vol.Name))
 
-	// the disk is listed among the candidates, its old node offline
+	// X4: the old node is offline, not forgotten: not a candidate, the plan and the adopt refuse
+	x.fx.unmount(t)
 	plan, err := x.orch.PlanDiskAdopt(ctx, "w1", "")
 	must(t, err)
-	if len(plan.Candidates) != 1 || plan.Candidates[0].DiskID != row.ID || plan.Candidates[0].Node != "oldbox" || plan.Candidates[0].Path != row.MountPath {
+	if len(plan.Candidates) != 0 {
+		t.Fatalf("an offline node's xfs disk is a candidate: %+v", plan.Candidates)
+	}
+	if plan, err = x.orch.PlanDiskAdopt(ctx, "w1", row.MountPath); err != nil || !strings.Contains(plan.Refusal, "offline but not forgotten") {
+		t.Fatalf("plan with the old node offline = %+v %v", plan, err)
+	}
+	if _, err := x.orch.AdoptDisk(ctx, adminP(), "w1", row.ID, row.MountPath, "w1"); !errors.Is(err, errs.ErrRefused) {
+		t.Fatalf("adopt with the old node offline: %v", err)
+	}
+	if len(x.fx.ran("mount")) != 1 { // the add's mount only
+		t.Fatalf("mounted for a refused adopt: %v", x.fx.ran("mount"))
+	}
+	// the node is forgotten (no row): the disk is listed among the candidates
+	must(t, x.st.Nodes.Delete(ctx, "old"))
+	plan, err = x.orch.PlanDiskAdopt(ctx, "w1", "")
+	must(t, err)
+	if len(plan.Candidates) != 1 || plan.Candidates[0].DiskID != row.ID || plan.Candidates[0].Path != row.MountPath {
 		t.Fatalf("candidates = %+v", plan.Candidates)
 	}
 	// the disk is not mounted on w1 yet: the plan finds it by its filesystem uuid
-	x.fx.unmount(t)
 	plan, err = x.orch.PlanDiskAdopt(ctx, "w1", row.MountPath)
 	must(t, err)
-	if plan.Refusal != "" || plan.DiskID != row.ID || plan.OldNode != "oldbox" {
+	if plan.Refusal != "" || plan.DiskID != row.ID {
 		t.Fatalf("plan = %+v", plan)
 	}
 	// a node that does not list the device cannot adopt
@@ -673,10 +689,6 @@ func TestXFSAdoptMatchesByFSUUIDAndNeedsOnlyAnOfflineOldNode(t *testing.T) { // 
 	sb, _ := os.ReadFile(filepath.Join(x.env.Root, row.MountPath, ".stackr-disk"))
 	if !strings.Contains(string(sb), `"owner":"w1"`) {
 		t.Errorf("stamp owner not rewritten: %s", sb)
-	}
-	// a folder disk of an offline node is still refused (its folder may be mounted twice)
-	if o, err := x.st.Nodes.Get(ctx, "old"); err != nil || o.Status == "online" {
-		t.Fatalf("old node = %+v %v", o, err)
 	}
 }
 

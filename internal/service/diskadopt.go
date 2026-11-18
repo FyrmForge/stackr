@@ -275,11 +275,10 @@ func (o *Orchestrator) adoptBlocks(ctx context.Context, d store.NodeDisk, n stor
 	switch {
 	case err == nil && old.Status == node.StatusOnline:
 		return errs.Refusedf("The disk's node, %s, is still online. A disk can only be adopted once its node is gone.", old.Name)
-	case err == nil && d.Kind == disk.KindXFS:
-		// a block device cannot be attached twice: an offline node is enough
-		// (the stamp's owner is still rewritten)
 	case err == nil:
-		// a folder (NFS, a bind mount) can be mounted by two hosts at once, so offline is not enough
+		// a folder (NFS, a bind mount) can be mounted by two hosts at once, and
+		// nothing fences an offline node's device either: only a forgotten node
+		// (no row) releases its disk
 		return errs.Refusedf("The disk's node, %s, is offline but not forgotten. Forget the node first: it may still be writing to the disk.", old.Name)
 	case !errors.Is(err, errs.ErrNotFound):
 		return err
@@ -402,8 +401,8 @@ func (o *Orchestrator) oldNodeName(ctx context.Context, nodeID string) string {
 }
 
 // adoptCandidates are the disk rows of forgotten nodes (no node row) that
-// were never adopted, and the xfs disks of nodes that are offline: a block
-// device cannot be attached to two machines, a folder can.
+// were never adopted. An offline node is not enough, for any kind: nothing
+// fences it, so it may still be writing to the disk.
 func (o *Orchestrator) adoptCandidates(ctx context.Context) ([]AdoptCandidate, error) {
 	rows, err := o.store.NodeDisks.List(ctx)
 	if err != nil {
@@ -414,10 +413,8 @@ func (o *Orchestrator) adoptCandidates(ctx context.Context) ([]AdoptCandidate, e
 		if r.State == disk.StateForgetting || r.State == disk.StateAdding || adoptCommitted(r) {
 			continue
 		}
-		if n, err := o.store.Nodes.Get(ctx, r.NodeID); err == nil {
-			if r.Kind != disk.KindXFS || n.Status == node.StatusOnline {
-				continue
-			}
+		if _, err := o.store.Nodes.Get(ctx, r.NodeID); err == nil {
+			continue
 		} else if !errors.Is(err, errs.ErrNotFound) {
 			return nil, err
 		}

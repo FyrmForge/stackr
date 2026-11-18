@@ -177,7 +177,7 @@ stkr node disk adopt vps-new
 stkr node disk adopt vps-new /mnt/data
 ```
 
-Adopt is refused while the old node still exists, even offline, because two nodes writing one folder corrupt it. A plain Docker copy of the same volume on the new node blocks it: the plan names it, and `--discard <slug>` removes that copy first.
+Adopt is refused while the old node still exists, even offline, for a folder and for a whole disk alike, because two nodes writing one disk corrupt it and nothing stops an offline node. A plain Docker copy of the same volume on the new node blocks it: the plan names it, and `--discard <slug>` removes that copy first.
 
 ### Two copies of a volume, or a link to the wrong folder
 
