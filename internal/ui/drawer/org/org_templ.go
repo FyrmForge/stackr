@@ -29,7 +29,7 @@ import (
 var Tabs = []string{"general", "people", "variables", "domains", "dns", "connectors", "storage", "config", "placement"}
 
 // Labels are the strip's words where the key's capitalised form is not.
-var Labels = map[string]string{"config": "Config as code", "dns": "Managed DNS"}
+var Labels = map[string]string{"config": "Config", "dns": "Managed DNS"}
 
 type SettingsView struct {
 	Name     string
