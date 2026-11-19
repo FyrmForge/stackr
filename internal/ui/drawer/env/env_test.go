@@ -90,6 +90,16 @@ func TestDNSBannerShowsRecordAndCurrent(t *testing.T) {
 	}
 }
 
+// A clean banner keeps asking, so a DNS problem that starts later shows
+// without a reload.
+func TestDNSBannerEmptyKeepsPolling(t *testing.T) {
+	var b strings.Builder
+	_ = DNSBanner(DNSBannerView{URL: "/x"}).Render(context.Background(), &b)
+	if !strings.Contains(b.String(), `hx-get="/x"`) || !strings.Contains(b.String(), "hidden") {
+		t.Errorf("empty banner = %s", b.String())
+	}
+}
+
 // An env marks Resources, Variables and Placement changed when it sets
 // them itself; their bodies (the cascade, the vars grid, the placement
 // tab) mark the fields.
