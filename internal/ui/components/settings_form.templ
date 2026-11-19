@@ -306,10 +306,12 @@ templ factRow(form string, r SettingRowView) {
 					{ knobLabel(r) }
 					@FieldMarks(r.Changed, r.From)
 				</span>
-				<span data-val class="min-w-0 text-rw-text [overflow-wrap:anywhere]">
-					@factValue(r)
+				<div class="min-w-0 text-rw-text [overflow-wrap:anywhere]">
+					<span data-val>
+						@factValue(r)
+					</span>
 					@rowSub(r)
-				</span>
+				</div>
 				<span class="flex items-center justify-end">
 					<span data-undo hidden><button type="button" class="inline-flex h-7 w-7 group-[.htmx-request]:pointer-events-none group-[.htmx-request]:opacity-40 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + knobLabel(r) }>@settingUndoIcon()</button></span>
 					<button type="button" data-edit class="inline-flex h-7 w-7 group-[.htmx-request]:pointer-events-none group-[.htmx-request]:opacity-40 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Edit" aria-label={ "Edit " + knobLabel(r) }>@settingPenIcon()</button>
