@@ -29,7 +29,7 @@ class GraphNode extends HTMLElement {
     }
     num = (name) => Number(this.getAttribute(name)) || 0;
     members = () => (this.getAttribute("members") ?? "").split(" ").filter(Boolean)
-        .map((id) => this.canvas()?.querySelector(`:scope > graph-node[node-id="${CSS.escape(id)}"]`)).filter((n) => n instanceof GraphNode);
+        .map((id) => this.canvas()?.querySelector(`:scope > [data-world] > graph-node[node-id="${CSS.escape(id)}"]`)).filter((n) => n instanceof GraphNode);
     canvas = () => this.closest("graph-canvas");
     onNativeDrag = (e) => e.preventDefault();
     onKey = (e) => {
@@ -49,10 +49,10 @@ class GraphNode extends HTMLElement {
     onDown = (e) => {
         this.swallow = false;
         const canvas = this.canvas();
-        if (e.button !== 0 || e.shiftKey || this.hasAttribute("static") || this.drag || this.parentElement !== canvas || e.target.closest("[data-resize]"))
+        if (e.button !== 0 || e.shiftKey || this.hasAttribute("static") || this.drag || !this.parentElement?.matches("graph-canvas > [data-world]") || e.target.closest("[data-resize]"))
             return;
         const picked = this.hasAttribute("selected") && canvas
-            ? [...canvas.querySelectorAll(":scope > graph-node[selected]:not([static])")]
+            ? [...canvas.querySelectorAll(":scope > [data-world] > graph-node[selected]:not([static])")]
             : [this];
         const group = [...new Set(picked.flatMap((n) => [n, ...n.members()]))];
         this.drag = {
@@ -95,7 +95,7 @@ class GraphNode extends HTMLElement {
         for (const [n] of d.start)
             n.commit();
         const moved = new Set(d.start.map(([n]) => n.getAttribute("node-id")));
-        const boxes = [...(this.canvas()?.querySelectorAll(":scope > graph-node[members]") ?? [])]
+        const boxes = [...(this.canvas()?.querySelectorAll(":scope > [data-world] > graph-node[members]") ?? [])]
             .filter((b) => b instanceof GraphNode && !moved.has(b.getAttribute("node-id")) && b.members().some((m) => moved.has(m.getAttribute("node-id"))));
         if (boxes.length > 0)
             queueMicrotask(() => requestAnimationFrame(() => boxes.forEach((b) => b.commit())));

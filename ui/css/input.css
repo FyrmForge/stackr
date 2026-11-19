@@ -749,45 +749,47 @@ log-pane[state="error"] [data-status]:empty::after { content: "reconnecting\2026
 
 /* ---- canvas ---- */
 /* v0's canvas look (css/input.css .graph-*), keyed on the elements.
-   graph-canvas writes --px/--py/--s, each card --x/--y: the grid, the
-   edge and lane layers and the cards follow them; sub-tiles ride inside
-   their card. The look attributes on graph-canvas (arrows, badges,
-   boundary, legend, hover-focus) switch the rules below; edge strokes are
-   attributes on the paths (graph.edgeAttrs), so the legend draws the same. */
+   graph-canvas sets one transform on its [data-world] child (pan and zoom),
+   each card is placed in world units by --x/--y; sub-tiles ride inside
+   their card. A pan step changes that one transform, nothing is restyled
+   or repainted. The look attributes on graph-canvas
+   (arrows, badges, boundary, legend, hover-focus) switch the rules below;
+   edge strokes are attributes on the paths (graph.edgeAttrs), so the
+   legend draws the same. */
 graph-canvas {
     display: block; position: relative; overflow: hidden; touch-action: none; user-select: none;
     cursor: grab;
-    --px: 0px; --py: 0px; --s: 1;
-    background-image: radial-gradient(circle, var(--rw-grid) 1px, transparent 1px);
-    background-size: calc(22px * var(--s)) calc(22px * var(--s));
-    background-position: var(--px) var(--py);
 }
-graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes], graph-canvas > graph-node {
-    position: absolute; left: 0; top: 0; transform-origin: 0 0;
+/* The dot grid, inside the world: a dot is 1 screen px at any zoom (--s, set by graph-canvas.ts with the rect). */
+.graph-grid {
+    position: absolute; pointer-events: none;
+    background-image: radial-gradient(circle, var(--rw-grid) calc(1px / var(--s, 1)), transparent calc(1px / var(--s, 1)));
+    background-size: 22px 22px;
 }
-graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes] {
+graph-canvas > [data-world] { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
+[data-world] > svg[data-edges], [data-world] > svg[data-lanes], [data-world] > graph-node { position: absolute; left: 0; top: 0; }
+[data-world] > svg[data-edges], [data-world] > svg[data-lanes] {
     width: 1px; height: 1px; overflow: visible; pointer-events: none;
     z-index: 1; /* over network boxes and notes, under cards */
-    transform: translate(var(--px), var(--py)) scale(var(--s));
 }
 graph-node { display: block; }
-graph-canvas > graph-node {
+[data-world] > graph-node {
     z-index: 2;
-    transform: translate(calc(var(--px) + var(--x, 0px) * var(--s)), calc(var(--py) + var(--y, 0px) * var(--s))) scale(var(--s));
+    left: var(--x, 0px); top: var(--y, 0px); /* not a transform: 150 transform nodes cost the layerizer 5 ms on every pan */
 }
-graph-canvas > graph-node[node-id^="note:"], graph-canvas > graph-node[members] { z-index: 0; }
+[data-world] > graph-node[node-id^="note:"], [data-world] > graph-node[members] { z-index: 0; }
 /* Notes sit over cards and lines; boxes stay behind (they frame cards). */
-graph-canvas > graph-node[note-kind="note"] { z-index: 3; }
-graph-canvas > graph-node[static] { cursor: default; }
+[data-world] > graph-node[note-kind="note"] { z-index: 3; }
+[data-world] > graph-node[static] { cursor: default; }
 /* A network box's corner: drag it to size the box (its cards still push it out). */
 .graph-resize {
     position: absolute; right: 0; bottom: 0; z-index: 1; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none;
     background: linear-gradient(135deg, transparent 50%, rgb(var(--rw-faint) / 0.6) 50%);
     border-bottom-right-radius: 10px;
 }
-graph-canvas > graph-node[dragging] { z-index: 10; }
-graph-canvas > graph-node[dragging], graph-canvas > graph-node[dragging] * { cursor: grabbing; }
-graph-canvas > graph-node[selected] { outline: 2px solid rgb(var(--rw-accent)); outline-offset: 2px; border-radius: 0.75rem; }
+[data-world] > graph-node[dragging] { z-index: 10; }
+[data-world] > graph-node[dragging], [data-world] > graph-node[dragging] * { cursor: grabbing; }
+[data-world] > graph-node[selected] { outline: 2px solid rgb(var(--rw-accent)); outline-offset: 2px; border-radius: 0.75rem; }
 graph-canvas [data-marquee] {
     position: absolute; z-index: 5; pointer-events: none;
     border: 1px solid rgb(var(--rw-accent)); background: var(--rw-marquee-fill); border-radius: 4px;
@@ -872,8 +874,8 @@ graph-canvas svg[data-lanes] text {
 
 /* Hover focus: the card under the pointer keeps its edges and neighbours,
    everything else drops back. */
-graph-canvas > graph-node, graph-canvas svg[data-edges] path, graph-canvas svg[data-lanes] g { transition: opacity 120ms ease-out; }
-graph-canvas[focusing] > graph-node:not([lit]):not([node-id^="note:"]):not([members]) { opacity: 0.28; }
+[data-world] > graph-node, graph-canvas svg[data-edges] path, graph-canvas svg[data-lanes] g { transition: opacity 120ms ease-out; }
+graph-canvas[focusing] [data-world] > graph-node:not([lit]):not([node-id^="note:"]):not([members]) { opacity: 0.28; }
 graph-canvas[focusing] svg[data-edges] path[data-edge-kind]:not([data-lit]) { opacity: 0.4; }
 graph-canvas[focusing] svg[data-edges] path[data-edge-kind][data-lit] { stroke-opacity: 1; }
 graph-canvas[focusing] svg[data-edges] path[data-edge-kind][data-lit]:not([data-edge-kind^="tunnel"]) { stroke-width: 2.4; }
@@ -930,7 +932,7 @@ graph-canvas:has(#rel-window) [data-legend] {
 .graph-view::backdrop { background: var(--rw-scrim); }
 
 @media (prefers-reduced-motion: reduce) {
-    graph-canvas > graph-node, graph-canvas svg[data-edges] path, graph-canvas svg[data-lanes] g,
+    [data-world] > graph-node, graph-canvas svg[data-edges] path, graph-canvas svg[data-lanes] g,
     .card-face { transition: none; }
     .card-face:hover { transform: none; }
     graph-canvas svg[data-lanes] path, .graph-legend-traffic line { animation: none; }

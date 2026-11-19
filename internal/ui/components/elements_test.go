@@ -15,7 +15,7 @@ import (
 var elements = map[string]int{
 	"confirm-dialog":  150,
 	"flash-toast":     150,
-	"graph-canvas":    450,
+	"graph-canvas":    460, // the world layer and its dot grid
 	"graph-node":      150,
 	"local-time":      150,
 	"log-pane":        150,
@@ -62,8 +62,7 @@ var contract = map[string][]string{
 		"[data-zoom]",
 		".graph-legend, [data-legend]",
 		`"data-marquee"`,
-		"--px",
-		"--py",
+		"[data-world]",
 		"--s",
 	},
 	"graph-node": {
