@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/graph"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -356,7 +357,8 @@ func (o *Orchestrator) RestartPending(tileID string) bool {
 
 // paramResolves says whether the value a job parked on now exists, by a store
 // read of the env and org blocks its tile reads (deploy.ParamSnapshot). A form
-// it does not look up (a server or qualified ref) answers true: the job
+// it does not look up (a server or qualified ref), or one no tile reads any
+// more, answers true: the job
 // re-runs and its handler decides.
 func (o *Orchestrator) paramResolves(ctx context.Context, j Job, param string) (bool, error) {
 	key, org := strings.CutPrefix(param, "org.")
@@ -376,6 +378,13 @@ func (o *Orchestrator) paramResolves(ctx context.Context, j Job, param string) (
 	st, err := o.stacks.Get(ctx, e.StackID)
 	if err != nil {
 		return true, nil
+	}
+	ts, err := o.tiles.List(ctx, e.ID)
+	if err != nil {
+		return false, err
+	}
+	if !slices.ContainsFunc(ts, func(t store.Tile) bool { return graph.ReadsParam(t, param) }) {
+		return true, nil // no tile reads it any more: the handler decides
 	}
 	snap, err := o.deploy.ParamSnapshot(ctx, e, st, true)
 	if err != nil {
