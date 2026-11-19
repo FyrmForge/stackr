@@ -25,6 +25,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/handler/devgallery"
 	"github.com/FyrmForge/stackr/internal/web/handler/env"
 	"github.com/FyrmForge/stackr/internal/web/handler/placement"
+	"github.com/FyrmForge/stackr/internal/web/handler/releases"
 	"github.com/FyrmForge/stackr/internal/web/handler/scope"
 	"github.com/FyrmForge/stackr/internal/web/handler/setup"
 	"github.com/FyrmForge/stackr/internal/web/handler/tile"
@@ -168,6 +169,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.POST("/cli/authorize", cli.Approve, authed)
 
 	site.GET("/-/waiting", waiting.NewHandler(deps.Orch).Page, page, authed)
+	site.GET("/-/releases", releases.NewHandler(deps.Orch).Page, page, authed)
 
 	acct := account.NewHandler(deps.Orch)
 	site.GET("/account", acct.Page, page, authed)

@@ -42,3 +42,17 @@ func TestRoutesShowGate(t *testing.T) {
 		}
 	}
 }
+
+// The empty note sits inside the polled region, so a first domain replaces it
+// without a reload.
+func TestRoutesEmptyNoteIsPolled(t *testing.T) {
+	var b strings.Builder
+	if err := Routes(View{Live: "/x/-/proxy"}).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	i, j := strings.Index(out, `id="proxy-routes"`), strings.Index(out, "No tile in this env has a domain.")
+	if i < 0 || j < i {
+		t.Errorf("note outside the region\n%s", out)
+	}
+}

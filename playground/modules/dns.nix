@@ -13,7 +13,10 @@
         "stackr.test,6,026e7306737461636b720474657374000a686f73746d617374657206737461636b720474657374000000000100000e1000000258000151800000003c"
         "stackr.test,2,026e7306737461636b72047465737400"
       ];
-      conf-file = "/var/lib/playground/namecheap/dnsmasq.conf";
+      conf-file = [
+        "/var/lib/playground/namecheap/dnsmasq.conf"
+        "/var/lib/playground/dns.conf"
+      ];
     };
   };
   # fake Namecheap restarts dnsmasq on every record write; bursts must not trip the start limit
@@ -21,5 +24,6 @@
   systemd.tmpfiles.rules = [
     "d /var/lib/playground/namecheap 0755 root root -"
     "f /var/lib/playground/namecheap/dnsmasq.conf 0644 root root -"
+    "f /var/lib/playground/dns.conf 0644 root root -"
   ];
 }

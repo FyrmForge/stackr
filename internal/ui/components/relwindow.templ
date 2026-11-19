@@ -14,7 +14,8 @@ type RelWindow struct {
 	Envs            []RelEnv
 	Waiting, Failed int
 	Rows            []RelRow
-	Err             bool // the rows could not be read
+	All             string // the Releases screen at this scope
+	Err             bool   // the rows could not be read
 	Open            bool // ?rel=1; main.js keeps the rest
 	// Title is the bar's word, "Releases" when "" (the cluster chart's is
 	// "Server config").
@@ -36,8 +37,10 @@ type RelNote struct{ Text, Link, Href string }
 // RelEnv is one env link of the bar.
 type RelEnv struct{ Name, Color, Href string }
 
-// RelLink is a text link: a review, or a job log.
-type RelLink struct{ Label, Href string }
+// RelLink is a text link: a review, or a job log. Ask, when set, is a GET
+// into the side drawer instead of a page load (the Releases screen opens a
+// review that way, full width); Href stays the fallback.
+type RelLink struct{ Label, Href, Ask string }
 
 // RelJob is one job of a release, for its open row.
 type RelJob struct {
@@ -72,6 +75,10 @@ type RelRow struct {
 	CommitFull    string
 	Stack         string // building: the stack
 	Queued        bool
+	// The Releases screen's column: what cut it. (Scope is above.)
+	Source string
+	Plan   bool // a config plan, not a release
+	Fixed  bool // a failure a later push or promote cured
 }
 
 // RelBody is what the "releases" event swaps: the bar's markers and the list.
@@ -195,7 +202,16 @@ templ relHead(r RelRow) {
 		@Chip(r.State, r.Tone)
 	}
 	if r.Link.Label != "" {
-		<a href={ templ.SafeURL(r.Link.Href) } class="link shrink-0 whitespace-nowrap">{ r.Link.Label }</a>
+		@relLink(r.Link, "link shrink-0 whitespace-nowrap")
+	}
+}
+
+// relLink is a link of a row: a page, or a review into the side drawer.
+templ relLink(l RelLink, class string) {
+	if l.Ask != "" {
+		<a href={ templ.SafeURL(l.Href) } hx-get={ l.Ask } hx-target="#drawer-body" data-full class={ class }>{ l.Label }</a>
+	} else {
+		<a href={ templ.SafeURL(l.Href) } class={ class }>{ l.Label }</a>
 	}
 }
 
@@ -214,7 +230,7 @@ templ relOpen(r RelRow) {
 			</div>
 		}
 		for _, l := range r.Reviews {
-			<div><a href={ templ.SafeURL(l.Href) } class="link">{ l.Label }</a></div>
+			<div>@relLink(l, "link")</div>
 		}
 		if r.CommitURL != "" {
 			<div>
@@ -264,6 +280,12 @@ templ RelWindowView(w RelWindow) {
 			<span aria-hidden="true" class="text-rw-faint group-open:rotate-180">&#9652;</span>
 		</summary>
 		@RelBody(w)
-		<p class="flex h-8 items-center border-t border-rw-border px-3 text-xs text-rw-faint">Updates by itself</p>
+		<div class="flex h-8 items-center border-t border-rw-border px-3 text-xs text-rw-faint">
+			<span>Updates by itself</span>
+			<span class="flex-1"></span>
+			if w.All != "" {
+				<a href={ templ.SafeURL(w.All) } hx-get={ w.All } hx-target="#main" hx-push-url="true" class="link">All releases</a>
+			}
+		</div>
 	</details>
 }

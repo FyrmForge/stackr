@@ -25,7 +25,7 @@ var (
 	tileCols     = []string{"slug", "name", "kind", "image_ref", "git_url", "container_port", "id"}
 	operatedCols = []string{"engine", "allow", "env_pairs", "tile_id", "id"}
 	sliceCols    = []string{"slug", "kind", "provision_from", "default_access", "on_remove", "url", "id"}
-	releaseCols  = []string{"number", "commit", "message", "created_by", "created_at", "id"}
+	releaseCols  = []string{"number", "commit", "message", "source", "runs_in", "state", "created_at", "id"}
 	domainCols   = []string{"host", "path", "container_port", "https", "force_https", "redirect_to", "id"}
 	paramCols    = []string{"collection", "name", "kind", "value", "scope_kind"}
 	volumeCols   = []string{"slug", "name", "scope_kind", "orphaned_at", "id"}
@@ -388,7 +388,7 @@ func named(flagName string, run func(*cobra.Command, []string) error) func(*cobr
 
 func (a *app) releases() *cobra.Command {
 	return scoped(noun("release", "Releases of the stack",
-		a.get("ls", "release.list", "List releases, newest first", atStack, "/releases", releaseCols...),
+		a.releaseLs(),
 		leaf("get <number>", "release.list,release.get", "Show a release and its pins", exact(1),
 			a.at(atStack, func(c *cobra.Command, p string, args []string) error {
 				id, err := a.release(c, args[0])
@@ -2523,4 +2523,22 @@ func genSecret(n int) string {
 		b.WriteString(rand.Text())
 	}
 	return b.String()[:n]
+}
+
+// releaseLs lists the stack's releases with their state and source; --env
+// reads them as that env sees them (what waits for it, what it can roll
+// back to).
+func (a *app) releaseLs() *cobra.Command {
+	return leaf("ls", "release.list", "List releases, newest first, with state and source", upTo(0),
+		a.at(atStack, func(c *cobra.Command, p string, _ []string) error {
+			sub := "/releases"
+			if env := flag(c, "env"); env != "" {
+				sub += "?env=" + url.QueryEscape(env)
+			}
+			v, err := a.call(GET, p+sub, nil)
+			if err != nil {
+				return err
+			}
+			return a.show(v, releaseCols...)
+		}))
 }

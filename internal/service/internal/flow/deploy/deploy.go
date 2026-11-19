@@ -67,6 +67,8 @@ type Flow struct {
 	// VIP, or the network of a standby on the consumer's node. nil = none.
 	ReadTarget func(ctx context.Context, e store.Environment, instanceID string) (host, network string, err error)
 
+	gateCache sync.Map // domain id -> gateVerdict (Gates)
+
 	Tiles    *tile.Leaf
 	Envs     *environment.Leaf
 	Stacks   *stack.Leaf
@@ -914,7 +916,7 @@ func (f *Flow) depParked(ctx context.Context, t store.Tile, refDeps []string) er
 			return err
 		}
 		if ok && j.State == job.Waiting && j.WaitingParam != nil {
-			return errs.Unset{Param: *j.WaitingParam}
+			return errs.Unset{Param: *j.WaitingParam, Via: j.ID}
 		}
 	}
 	return nil

@@ -58,13 +58,21 @@ func TestDomainGateLockedReason(t *testing.T) {
 		BasicAuth: &domain.BasicAuth{User: "alice", Password: "${{ params.gate.password }}"},
 	}})
 	must(t, err)
-	if g := w.orch.DomainGates(ctx, []string{d.ID})[d.ID]; g.User != "alice" || !strings.Contains(g.Locked, "gate.password") {
+	if g := w.orch.DomainGates(ctx, w.env, []string{d.ID})[d.ID]; g.User != "alice" || !strings.Contains(g.Locked, "gate.password") {
 		t.Errorf("unset: %+v", g)
 	}
 	_, err = w.orch.SetParams(ctx, ParamScope{Kind: "env", ID: w.env}, []ParamEntry{{Collection: "gate", Name: "password", Kind: "secret", Value: "x"}})
 	must(t, err)
-	if g := w.orch.DomainGates(ctx, []string{d.ID})[d.ID]; g.User != "alice" || g.Locked != "" {
+	if g := w.orch.DomainGates(ctx, w.env, []string{d.ID})[d.ID]; g.User != "alice" || g.Locked != "" {
 		t.Errorf("set: %+v", g)
+	}
+	if g := w.orch.DomainGates(ctx, w.env, []string{d.ID})[d.ID]; g.Locked != "" { // the kept verdict
+		t.Errorf("kept: %+v", g)
+	}
+	_, err = w.orch.DeleteParam(ctx, ParamScope{Kind: "env", ID: w.env}, "gate", "password")
+	must(t, err)
+	if g := w.orch.DomainGates(ctx, w.env, []string{d.ID})[d.ID]; !strings.Contains(g.Locked, "gate.password") {
+		t.Errorf("a kept verdict outlived its secret: %+v", g)
 	}
 }
 
@@ -84,7 +92,7 @@ func TestDomainGatesUserNeverResolvedSecret(t *testing.T) {
 		BasicAuth: &domain.BasicAuth{User: "${{ params.gate.user }}", Password: "${{ params.gate.password }}"},
 	}})
 	must(t, err)
-	gs := w.orch.DomainGates(ctx, []string{d.ID, "missing"})
+	gs := w.orch.DomainGates(ctx, w.env, []string{d.ID, "missing"})
 	if g := gs[d.ID]; g.User != "${{ params.gate.user }}" || g.Locked != "" || strings.Contains(g.User+g.Locked, "s3cr3t") {
 		t.Errorf("gate = %+v", g)
 	}

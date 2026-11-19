@@ -236,3 +236,43 @@ func TestCertStateAndRecheck(t *testing.T) {
 		t.Error("a host of no domain of the tile was rechecked")
 	}
 }
+
+// A host that left the inventory loses its state (a stale "waiting" would
+// keep the recheck dialling every host), and a certificate inside the renewal
+// window is valid with Soon, not failed.
+func TestCertStateSweepAndSoon(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	tl := w.tile(t, "web", false)
+	must(t, w.st.Domains.Create(ctx, store.Domain{ID: "s1", TileID: tl.ID, Host: "soon.acme.dev", Path: "/", HTTPS: true, CreatedAt: time.Now().Add(-48 * time.Hour)}))
+	must(t, w.st.Domains.Create(ctx, store.Domain{ID: "s2", TileID: tl.ID, Host: "gone.acme.dev", Path: "/", HTTPS: true, CreatedAt: time.Now()}))
+	certs := map[string]*x509.Certificate{"soon.acme.dev": certFor("soon.acme.dev", time.Now().Add(5*24*time.Hour))}
+	fakeProbe(t, certs)
+	w.orch.hostCertAlerts(ctx)
+	if s, _ := w.orch.CertState("soon.acme.dev"); s.Status != CertValid || !s.Soon {
+		t.Errorf("soon = %+v", s)
+	}
+	if s, _ := w.orch.CertState("gone.acme.dev"); s.Status != CertWaiting {
+		t.Fatalf("gone = %+v", s)
+	}
+	must(t, w.st.Domains.Delete(ctx, "s2"))
+	w.orch.hostCertAlerts(ctx)
+	if _, ok := w.orch.CertState("gone.acme.dev"); ok {
+		t.Error("the state of a detached host stayed")
+	}
+}
+
+// The first tick after boot probes every host, so no row reads "not checked
+// yet" until the daily pass.
+func TestCertBootProbe(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	tl := w.tile(t, "web", false)
+	must(t, w.st.Domains.Create(ctx, store.Domain{ID: "b1", TileID: tl.ID, Host: "ok.acme.dev", Path: "/", HTTPS: true, CreatedAt: time.Now().Add(-48 * time.Hour)}))
+	fakeProbe(t, map[string]*x509.Certificate{"ok.acme.dev": certFor("ok.acme.dev", time.Now().Add(60*24*time.Hour))})
+	w.orch.recheckFailingCerts(ctx)
+	w.orch.trustAsync.Wait()
+	if s, ok := w.orch.CertState("ok.acme.dev"); !ok || s.Status != CertValid {
+		t.Errorf("after boot = %+v, %v", s, ok)
+	}
+}

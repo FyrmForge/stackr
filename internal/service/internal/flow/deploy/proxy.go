@@ -3,6 +3,7 @@ package deploy
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -149,12 +150,22 @@ func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Setting
 // locked ("" when it is not). Never the password.
 type GateInfo struct{ User, Locked string }
 
-// Gates reports every domain's gate with one settings read and one secret
-// snapshot per env. A domain that cannot be read is locked with the error as
-// its reason; it never fails the others. Domains with no gate are absent.
-func (f *Flow) Gates(ctx context.Context, ds []store.Domain) map[string]GateInfo {
+// Gates reports every domain's gate with one fingerprint and at most one
+// secret snapshot per env. A domain that cannot be read is locked with the
+// error as its reason; it never fails the others. Domains with no gate are
+// absent. tiles is the loaded tiles the domains sit on. The panel polls this
+// every few seconds, so a verdict is kept until the env's params, tiers, envs
+// or the domain's own gate change (gateFingerprint): no secret is decrypted
+// while nothing moved.
+func (f *Flow) Gates(ctx context.Context, ds []store.Domain, tiles map[string]store.Tile) map[string]GateInfo {
+	type envGate struct {
+		fp  string
+		ex  domain.Expand
+		err error
+		ok  bool // ex was built
+	}
 	out := map[string]GateInfo{}
-	expands := map[string]domain.Expand{} // env id -> expander
+	envs := map[string]*envGate{} // env id -> its fingerprint and expander, built when first needed
 	for _, d := range ds {
 		x, err := domain.ExtrasOf(d)
 		if err == nil && x.BasicAuth == nil {
@@ -164,25 +175,78 @@ func (f *Flow) Gates(ctx context.Context, ds []store.Domain) map[string]GateInfo
 			out[d.ID] = GateInfo{Locked: err.Error()}
 			continue
 		}
-		t, err := f.Tiles.Get(ctx, d.TileID)
-		var ex domain.Expand
-		if err == nil {
-			var ok bool
-			if ex, ok = expands[t.EnvironmentID]; !ok {
-				ex, err = f.gateExpand(ctx, t)
-				if err == nil {
-					expands[t.EnvironmentID] = ex
-				}
-			}
-		}
-		if err != nil {
-			out[d.ID] = GateInfo{User: x.BasicAuth.User, Locked: err.Error()}
+		t, found := tiles[d.TileID]
+		if !found {
+			out[d.ID] = GateInfo{User: x.BasicAuth.User, Locked: "its tile is gone"}
 			continue
 		}
-		_, _, locked := domain.GateLogin(*x.BasicAuth, ex)
+		g := envs[t.EnvironmentID]
+		if g == nil {
+			g = &envGate{}
+			g.fp, g.err = f.gateFingerprint(ctx, t)
+			envs[t.EnvironmentID] = g
+		}
+		key := g.fp + "\x00" + d.ProxyJSON
+		if g.err == nil {
+			if v, hit := f.gateCache.Load(d.ID); hit && v.(gateVerdict).key == key {
+				out[d.ID] = v.(gateVerdict).info
+				continue
+			}
+		}
+		if g.err == nil && !g.ok {
+			g.ex, g.err = f.gateExpand(ctx, t)
+			g.ok = g.err == nil
+		}
+		if g.err != nil {
+			out[d.ID] = GateInfo{User: x.BasicAuth.User, Locked: g.err.Error()}
+			continue
+		}
+		_, _, locked := domain.GateLogin(*x.BasicAuth, g.ex)
 		out[d.ID] = GateInfo{User: x.BasicAuth.User, Locked: locked}
+		f.gateCache.Store(d.ID, gateVerdict{key, out[d.ID]})
 	}
 	return out
+}
+
+// gateVerdict is a kept Gates answer and what it was computed from.
+type gateVerdict struct {
+	key  string
+	info GateInfo
+}
+
+// gateFingerprint is what a gate's resolution reads besides the domain: the
+// params stamp (any param write), the env and its stack, and the lock of every
+// tier and env (a locked block resolves to nothing).
+func (f *Flow) gateFingerprint(ctx context.Context, t store.Tile) (string, error) {
+	e, err := f.Envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return "", err
+	}
+	st, err := f.Stacks.Get(ctx, t.StackID)
+	if err != nil {
+		return "", err
+	}
+	stamp, err := f.Params.Stamp(ctx)
+	if err != nil {
+		return "", err
+	}
+	tiers, err := f.Tiers.List(ctx, st.OrgID)
+	if err != nil {
+		return "", err
+	}
+	es, err := f.Envs.List(ctx, st.ID)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s|%s|%s|%s|%s", stamp, e.ID, e.Slug, e.Type, st.ID)
+	for _, x := range tiers {
+		fmt.Fprintf(&b, "|t:%s:%s:%t", x.ID, x.Slug, x.Locked)
+	}
+	for _, x := range es {
+		fmt.Fprintf(&b, "|e:%s:%s:%t", x.ID, x.Slug, x.Locked)
+	}
+	return b.String(), nil
 }
 
 func (f *Flow) gateExpand(ctx context.Context, t store.Tile) (domain.Expand, error) {
@@ -200,6 +264,42 @@ func (f *Flow) gateExpand(ctx context.Context, t store.Tile) (domain.Expand, err
 	}
 	rr := params.NewResolver(snap)
 	return func(s string) (string, error) { return rr.Expand(params.InGate, s) }, nil
+}
+
+// GateRefs are the references a gate in env envID may name as its password:
+// every variable and secret the env resolves, its own and the tier or org block
+// it inherits (ownScopes), as "${{ params.<collection>.<name> }}". Names only;
+// a secret is never read.
+func (f *Flow) GateRefs(ctx context.Context, envID string) ([]string, error) {
+	e, err := f.Envs.Get(ctx, envID)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stacks.Get(ctx, e.StackID)
+	if err != nil {
+		return nil, err
+	}
+	tiers, err := f.Tiers.List(ctx, st.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	envScope, orgScope, _ := ownScopes(e, st, tiers)
+	scopes := []params.Scope{envScope}
+	if orgScope != nil {
+		scopes = append(scopes, *orgScope)
+	}
+	var refs []string
+	for _, sc := range scopes {
+		ps, err := f.Params.Masked(ctx, sc)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range ps {
+			refs = append(refs, "${{ params."+p.Collection+"."+p.Name+" }}")
+		}
+	}
+	slices.Sort(refs)
+	return slices.Compact(refs), nil
 }
 
 // OrgReplicaNames are the container names (lower case, any state) of every

@@ -9,6 +9,8 @@
 #   nodes.sh trust                                 put Pebble's current issuing root into every container
 #   nodes.sh disk add NODE NAME [2G] | rm NODE NAME   an ext4 loop disk, at /mnt/NAME in the node
 #   nodes.sh stk ARGS | x NODE CMD... | logs NODE [CONTAINER] [LINES]
+#   nodes.sh dns [NAME NODE]                       list the extra DNS names, or point NAME.stackr.test at NODE
+#                                                  (ctrl = the default, drops it)
 #   nodes.sh hosts                                 /etc/hosts lines for the laptop
 #   nodes.sh pr REPO N ACTION HEAD [BASE]          send a pull_request event from the fake GitHub
 #   nodes.sh status                                one ok|FAIL line per check; exit 1 on any FAIL
@@ -30,6 +32,8 @@ NODES=(ctrl:lan0:10.77.0.10:10.77.0.1 w1:lan0:10.77.0.11:10.77.0.1 ext:wan0:203.
 REPO=https://github.com/FyrmForge/stackr/releases
 DISKS=/var/lib/playground/disks
 KEYFILE=/var/lib/playground/recovery.key
+DNSCONF=/var/lib/playground/dns.conf
+CADIR=/var/lib/stackr/dev-ca
 VERSION="" LOCAL=""
 
 x() { local n=$1; shift; incus exec "$n" -- "$@"; }
@@ -64,11 +68,17 @@ NET
 }
 
 # Pebble's issuing root, live; it changes on every Pebble restart.
-pebble_root() { curl -fsS --cacert $PEBBLE/api-root.pem "https://acme.$DOMAIN:15000/roots/0" -o "$1"; }
+# Fetches the current issuing root into $1 and keeps it in $ROOTS: certificates
+# issued before a Pebble restart still chain to an older root.
+ROOTS=$PEBBLE/roots.pem
+pebble_root() {
+	curl -fsS --cacert $PEBBLE/api-root.pem "https://acme.$DOMAIN:15000/roots/0" -o "$1" || return
+	grep -qF "$(sed -n 2p "$1")" $ROOTS 2>/dev/null || cat "$1" >>$ROOTS
+}
 
-# stkr runs inside the panel container, whose own store lacks Pebble's root: give Go a file.
+# stkr runs inside the panel container, whose own store lacks Pebble's root: give Go the dev-ca dir.
 stk() {
-	x ctrl sh -c 'exec docker exec -i -e SSL_CERT_FILE=/var/lib/stackr/pebble-issuing-root.pem -e STACKR_CONFIG=/var/lib/stackr/cli.json "$(docker ps -q --filter label=stackr.role=panel | head -n1)" /stackr "$@"' stk "$@"
+	x ctrl sh -c 'exec docker exec -i -e SSL_CERT_DIR=/etc/ssl/certs:/var/lib/stackr/dev-ca -e STACKR_CONFIG=/var/lib/stackr/cli.json "$(docker ps -q --filter label=stackr.role=panel | head -n1)" /stackr "$@"' stk "$@"
 }
 
 # One file per root, so older roots keep working. A node that holds the current
@@ -83,15 +93,16 @@ trust() {
 		# the containers may still be booting when this runs at VM start
 		for _ in $(seq 60); do x "$n" true 2>/dev/null && break; sleep 1; done
 		x "$n" true 2>/dev/null || { echo "$n is not running, skipped" >&2; continue; }
+		# the panel reads the root from dev-ca; the docker restart below restarts it
+		if [[ $n == ctrl ]] && ! x ctrl test -f "$CADIR/pebble-root-$sha.crt"; then
+			incus file push -q "$tmp" "ctrl$CADIR/pebble-root-$sha.crt" --create-dirs
+		fi
 		x "$n" test -f "/usr/local/share/ca-certificates/pebble-root-$sha.crt" && continue
 		incus file push -q "$tmp" "$n/usr/local/share/ca-certificates/pebble-root-$sha.crt"
 		x "$n" update-ca-certificates >/dev/null
 		x "$n" sh -c 'command -v docker >/dev/null && systemctl restart docker' || true
 		say "$n trusts the Pebble root"
 	done
-	if exists ctrl && x ctrl true 2>/dev/null; then
-		incus file push -q "$tmp" ctrl/var/lib/stackr/pebble-issuing-root.pem --create-dirs
-	fi
 	rm -f "$tmp"
 }
 
@@ -101,7 +112,7 @@ wait_panel() {
 	pebble_root "$root"
 	say "wait for the panel"
 	for _ in $(seq 90); do
-		if curl -fs --cacert "$root" -o /dev/null "https://$PANEL/api/health"; then rm -f "$root"; return; fi
+		if curl -fs --cacert $ROOTS -o /dev/null "https://$PANEL/api/health"; then rm -f "$root"; return; fi
 		sleep 2
 	done
 	rm -f "$root"; echo "panel not healthy at https://$PANEL after 180s" >&2; exit 1
@@ -169,6 +180,8 @@ upgrade() {
 		say "load the bundle on $n"
 		installer_in "$n"
 	done
+	dev_env
+	trust
 	say "upgrade stackr on ctrl"
 	x ctrl stackr-install --yes --domain $DOMAIN --panel-host $PANEL --email $ADMIN_EMAIL
 	wait_panel
@@ -184,6 +197,7 @@ ACME_CA_ROOT=pebble-api-root.pem
 NAMECHEAP_API=http://203.0.113.1:8080/xml.response
 GITHUB_URL=https://github.$DOMAIN:8443
 GITHUB_CA=/var/lib/stackr/proxy/pebble-api-root.pem
+EXTRA_CA_DIR=$CADIR
 ENV
 }
 
@@ -307,10 +321,12 @@ wipe_fakes() {
 	((${#units[@]} == 0)) || systemctl stop "${units[@]}"
 	rm -f /var/lib/playground/namecheap/zones.json
 	[[ ! -f /var/lib/playground/namecheap/dnsmasq.conf ]] || : >/var/lib/playground/namecheap/dnsmasq.conf
+	[[ ! -f $DNSCONF ]] || : >$DNSCONF
 	rm -rf /var/lib/playground/github/state.json /var/lib/playground/github/repos
 	[[ ! -d /var/lib/playground/rustfs ]] || find /var/lib/playground/rustfs -mindepth 1 -delete
 	find /srv/shares -mindepth 2 -delete 2>/dev/null || true
 	((${#units[@]} == 0)) || systemctl start "${units[@]}"
+	systemctl restart dnsmasq
 	if systemctl cat rustfs-bucket >/dev/null 2>&1; then systemctl restart rustfs-bucket; fi
 }
 
@@ -373,7 +389,7 @@ status() {
 	root=$(mktemp)
 	if pebble_root "$root"; then
 		sha=$(sha256sum "$root" | cut -c1-12)
-		check "panel health" curl -fsS --cacert "$root" -o /dev/null -w "https %{http_code}" "https://$PANEL/api/health"
+		check "panel health" curl -fsS --cacert $ROOTS -o /dev/null -w "https %{http_code}" "https://$PANEL/api/health"
 		for e in "${NODES[@]}"; do
 			n=${e%%:*}
 			check "root $n" bash -c 'incus exec "$0" -- test -f "/usr/local/share/ca-certificates/pebble-root-$1.crt" && echo "$1"' "$n" "$sha"
@@ -387,13 +403,28 @@ status() {
 	check "nodes" stk node ls
 	keys=$(x ctrl sh -c 'grep -v "^#" /var/lib/stackr/dev.env | cut -d= -f1' 2>/dev/null | tr '\n' ' ') || keys=""
 	v=""
-	for k in ACME_CA ACME_CA_ROOT NAMECHEAP_API GITHUB_URL GITHUB_CA; do [[ " $keys" == *" $k "* ]] || v+="$k "; done
+	for k in ACME_CA ACME_CA_ROOT NAMECHEAP_API GITHUB_URL GITHUB_CA EXTRA_CA_DIR; do [[ " $keys" == *" $k "* ]] || v+="$k "; done
 	if [[ -z $v ]]; then ok "dev.env" "$keys"; else fail "dev.env" "missing: $v"; fi
+	if [[ -n ${sha:-} ]]; then check "panel ca" x ctrl bash -c 'test -f "$0/pebble-root-$1.crt" && echo "$1"' "$CADIR" "$sha"; fi
 	for img in "$DISKS"/*.img; do
 		[[ -f $img ]] || continue
 		check "disk $(basename "$img" .img)" mountpoint -q "${img%.img}"
 	done
 	((FAILS == 0))
+}
+
+# ---- dns ----
+
+# dns [NAME NODE]: extra names under stackr.test; the wildcard points at ctrl, so ctrl drops the line.
+dns() {
+	local name=${1:-} node=${2:-} ip="" e
+	[[ -n $name ]] || { cat $DNSCONF; return; }
+	[[ $name =~ ^[a-z0-9.-]+\.stackr\.test$ ]] || die "name must be NAME.stackr.test"
+	for e in "${NODES[@]}"; do [[ ${e%%:*} != "$node" ]] || { IFS=: read -r _ _ ip _ <<<"$e"; }; done
+	[[ -n $ip ]] || die "dns NAME NODE (ctrl|w1|ext)"
+	local keep; keep=$(grep -vF "address=/$name/" $DNSCONF || true)
+	{ [[ -z $keep ]] || echo "$keep"; [[ $node == ctrl ]] || echo "address=/$name/$ip"; } >$DNSCONF
+	systemctl restart dnsmasq
 }
 
 # ---- entry points ----
@@ -412,11 +443,12 @@ upgrade) shift; upgrade "$@" ;;
 reset) shift; reset "$@" ;;
 trust) trust ;;
 disk) shift; disk "$@" ;;
+dns) shift; dns "$@" ;;
 hosts) hosts ;;
 pr) shift; pr "$@" ;;
 stk) shift; stk "$@" ;;
 x) shift; x "$@" ;;
 logs) shift; logs "$@" ;;
 status) status ;;
-*) sed -n '3,16p' "$0"; exit 1 ;;
+*) sed -n '3,18p' "$0"; exit 1 ;;
 esac

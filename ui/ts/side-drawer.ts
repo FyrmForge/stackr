@@ -16,15 +16,19 @@ type Failed = { target?: Element; xhr?: { status: number; getResponseHeader(name
 class SideDrawer extends HTMLElement {
   private opener: HTMLElement | null = null;
   private dirty = false;
+  private fullByLink = false; // a data-full link set full: the close undoes it
 
   private onSwap = (e: Event): void => {
-    const target = (e as CustomEvent<{ target?: Element }>).detail?.target;
+    const d = (e as CustomEvent<{ target?: Element; requestConfig?: { elt?: Element } }>).detail;
+    const target = d?.target;
     const body = this.body();
     if (!body || !target || !body.contains(target)) return;
     this.dirty = false;
     const was = document.activeElement as HTMLElement | null;
     if (!this.hasAttribute("open") && was && !this.contains(was)) this.opener = was;
     this.setAttribute("open", "");
+    // a link marked data-full (the Releases screen's reviews) opens the drawer wide
+    if (d.requestConfig?.elt?.closest("[data-full]") && !this.hasAttribute("full")) this.expand(true, true);
     const tab = new URLSearchParams(location.search).get("tab");
     if (tab) this.setAttribute("tab", tab);
     else this.removeAttribute("tab");
@@ -52,9 +56,15 @@ class SideDrawer extends HTMLElement {
     if (this.body()?.querySelector("[data-loading]")) this.close(true);
   };
 
+  // An answer that swapped nothing (204, redirect header) leaves the loading
+  // text up: this request's end closes it, another request's does not.
+  private onDone = (e: Event): void => {
+    if ((e as CustomEvent<{ target?: Element }>).detail?.target === this.body()) this.onLost();
+  };
+
   private onClick = (e: Event): void => {
     const el = e.target as Element;
-    if (el.closest("[data-expand]")) return this.expand(!this.hasAttribute("full"));
+    if (el.closest("[data-expand]")) return this.expand(!this.hasAttribute("full"), false);
     if (el.closest("[data-close], [data-backdrop]")) this.close();
   };
 
@@ -64,14 +74,15 @@ class SideDrawer extends HTMLElement {
   // varies (env band, wrapped crumbs), so it is measured here.
   // ponytail: measured per toggle and settle, not on resize; add a
   // ResizeObserver if a wrapping top bar ever overlaps.
-  private expand(on: boolean): void {
+  private expand(on: boolean, byLink = false): void {
+    this.fullByLink = byLink;
     this.toggleAttribute("full", on);
     const top = document.getElementById("shell-header")?.getBoundingClientRect().bottom ?? 0;
     this.style.setProperty("--shell-top", `${top}px`);
     this.querySelector("[data-expand]")?.setAttribute("aria-pressed", String(on));
   }
 
-  private onSettle = (): void => this.expand(this.hasAttribute("full"));
+  private onSettle = (): void => this.expand(this.hasAttribute("full"), this.fullByLink);
 
   // Only a form's own fields count: not a confirm's typed word, not the
   // log pane's filters.
@@ -118,6 +129,7 @@ class SideDrawer extends HTMLElement {
     document.addEventListener("htmx:beforeRequest", this.onBefore);
     document.addEventListener("htmx:sendError", this.onLost);
     document.addEventListener("htmx:timeout", this.onLost);
+    document.addEventListener("htmx:afterRequest", this.onDone);
     document.addEventListener("htmx:afterSwap", this.onSwap);
     document.addEventListener("htmx:afterSettle", this.onSettle);
     document.addEventListener("htmx:responseError", this.onError, true);
@@ -131,6 +143,7 @@ class SideDrawer extends HTMLElement {
     document.removeEventListener("htmx:beforeRequest", this.onBefore);
     document.removeEventListener("htmx:sendError", this.onLost);
     document.removeEventListener("htmx:timeout", this.onLost);
+    document.removeEventListener("htmx:afterRequest", this.onDone);
     document.removeEventListener("htmx:afterSwap", this.onSwap);
     document.removeEventListener("htmx:afterSettle", this.onSettle);
     document.removeEventListener("htmx:responseError", this.onError, true);
@@ -149,6 +162,7 @@ class SideDrawer extends HTMLElement {
     if (!this.hasAttribute("open")) return;
     if (this.dirty && !force && !window.confirm("Discard your unsaved changes?")) return;
     this.dirty = false;
+    if (this.fullByLink) this.expand(false); // the next canvas drawer opens at its own width
     this.removeAttribute("open");
     this.removeAttribute("tab");
     this.body()?.replaceChildren();

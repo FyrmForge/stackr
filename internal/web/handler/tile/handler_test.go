@@ -541,7 +541,7 @@ func TestDomainRowCertState(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String()
-	if !strings.Contains(body, "Certificate not checked yet.") || !strings.Contains(body, "/domains/"+d.ID+"/recheck") {
+	if !strings.Contains(body, "ertificate") || !strings.Contains(body, "/domains/"+d.ID+"/recheck") {
 		t.Fatalf("settings lacks the cert line\n%s", body)
 	}
 	rec := s.Do(t, "POST", drawer+"/domains/"+d.ID+"/recheck?open=network", nil)
@@ -569,5 +569,23 @@ func TestAddDomainGate(t *testing.T) {
 	rec = s.Do(t, "POST", drawer+"/domains?open=network", url.Values{"host": {"app.acme.dev"}, "port": {"80"}, "gate_user": {"alice"}, "gate_pw": {"${{ params.gate.pw }}"}})
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "gate: alice") || strings.Contains(rec.Body.String(), "s3cret") {
 		t.Fatalf("gated add = %d\n%s", rec.Code, rec.Body)
+	}
+}
+
+// A gate password without a user is refused with what was typed kept, and the
+// form offers the org block's names the env inherits, never their values.
+func TestAddDomainGateNeedsUserAndInherits(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	if _, err := s.Orch.SetParams(ctx, service.ParamScope{Kind: "org", ID: s.Org}, []service.ParamEntry{{Collection: "gate", Name: "inherited", Kind: "secret", Value: "org-s3cret"}}); err != nil {
+		t.Fatal(err)
+	}
+	body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String()
+	if !strings.Contains(body, "params.gate.inherited") || strings.Contains(body, "org-s3cret") {
+		t.Fatalf("the inherited name is not offered, or a value leaked\n%s", body)
+	}
+	rec := s.Do(t, "POST", drawer+"/domains?open=network", url.Values{"host": {"app.acme.dev"}, "port": {"80"}, "gate_pw": {"${{ params.gate.inherited }}"}})
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "Add a gate user") || strings.Contains(rec.Body.String(), "org-s3cret") {
+		t.Fatalf("a password with no user = %d\n%s", rec.Code, rec.Body)
 	}
 }

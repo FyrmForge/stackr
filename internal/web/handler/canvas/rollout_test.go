@@ -127,3 +127,32 @@ func TestPromoteSecretRefusesUnnamed(t *testing.T) {
 		}
 	}
 }
+
+// The window links to the Releases screen at its stack, and a viewer who
+// cannot promote is offered "View plan", not "Review plan".
+func TestReleasesWindowAllLinkAndViewOnly(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	staging := stagingOf(t, s)
+	r1, r2 := s.Release(t, s.Tile.Stack, 1), s.Release(t, s.Tile.Stack, 2)
+	for env, rid := range map[string]string{s.Tile.Env: r2, staging.ID: r1} {
+		row, err := s.Store.Environments.Get(ctx, env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		row.ReleaseID = &rid
+		if err := s.Store.Environments.Update(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := get(t, s, "/acme/shop")
+	if !strings.Contains(body, `href="/-/releases?scope=acme%2Fshop"`) || !strings.Contains(body, ">All releases<") || !strings.Contains(body, ">Review plan for staging<") {
+		t.Errorf("owner's window:\n%s", body)
+	}
+	viewer := s.User(t, "viewer@acme.test", false)
+	s.Member(t, s.Org, viewer, "viewer")
+	rec := s.As(t, s.Session(t, viewer), "GET", "/acme/shop", nil)
+	if b := rec.Body.String(); !strings.Contains(b, ">View plan for staging<") || strings.Contains(b, "Review plan") {
+		t.Errorf("viewer's window:\n%s", b)
+	}
+}

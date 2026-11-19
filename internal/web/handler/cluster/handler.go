@@ -73,7 +73,7 @@ func (h *handler) view(c echo.Context) (ui.View, cluster.Map, error) {
 // window is the releases window of the cluster chart: the server file's
 // plans, each row a summary in place of a number.
 func (h *handler) window(ctx context.Context) *components.RelWindow {
-	w := &components.RelWindow{Title: "Server config"}
+	w := &components.RelWindow{Title: "Server config", All: "/-/releases?scope=" + service.ScopeServer}
 	win, err := h.orch.ServerReleaseWindow(ctx)
 	if err != nil {
 		w.Err = true
@@ -82,7 +82,7 @@ func (h *handler) window(ctx context.Context) *components.RelWindow {
 	href := adminui.Href("config")
 	w.Waiting, w.Failed = win.Waiting, win.Failed
 	for _, r := range win.Rows {
-		w.Rows = append(w.Rows, render.RelPlanRow(r, "", href))
+		w.Rows = append(w.Rows, render.RelPlanRow(r, "", href, false))
 	}
 	w.Note = components.RelNote{Text: "No config plans yet."}
 	if !win.Bound {

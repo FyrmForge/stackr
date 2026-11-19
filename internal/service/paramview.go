@@ -80,31 +80,28 @@ func (o *Orchestrator) ParamImpact(ctx context.Context, s ParamScope, es []Param
 	return out, nil
 }
 
-// parkedJob is a job that waits on a value: parked now, or back queued or
-// running for its re-check (a parked job runs its handler again every poll,
-// and its row then holds no waiting_param; the runner remembers it).
+// parkedJob is a job that waits on a value: its row is waiting with that
+// param. A job resumed (queued or running again) waits for nothing.
 type parkedJob struct {
 	Job   Job
 	Param string // "collection.name", or "org.collection.name"
 }
 
-// parkedJobs are the jobs waiting on a value, in every state they cycle
-// through, so a view of them never blinks while one is re-checked.
+// parkedJobs are the jobs waiting on a value.
 func (o *Orchestrator) parkedJobs(ctx context.Context) ([]parkedJob, error) {
-	js, err := o.jobRows.List(ctx, job.Waiting, job.Queued, job.Running)
+	js, err := o.jobRows.List(ctx, job.Waiting)
 	if err != nil {
 		return nil, err
 	}
 	var out []parkedJob
 	for _, j := range js {
-		p := o.jobs.ParkedParam(j.ID)
-		if j.WaitingParam != nil {
-			p = *j.WaitingParam
-		}
-		if _, approval := hostgrant.Parse(p); p == "" || approval {
+		if j.WaitingParam == nil {
 			continue
 		}
-		out = append(out, parkedJob{j, p})
+		if _, approval := hostgrant.Parse(*j.WaitingParam); approval {
+			continue
+		}
+		out = append(out, parkedJob{j, *j.WaitingParam})
 	}
 	return out, nil
 }
@@ -127,19 +124,6 @@ func parkedTiles(j Job) []string {
 // lockedTiles are the tile ids in a job's lock set (not "env:<id>" or "*").
 func lockedTiles(j Job) []string {
 	return slices.DeleteFunc(slices.Clone([]string(j.LockSet)), func(k string) bool { return k == job.All || strings.Contains(k, ":") })
-}
-
-// stillUnset says a re-checking job's param has no value yet. Jobs that wait
-// in the parked state need no check: the runner requeues them only to look again.
-// ponytail: an org param (own tier or org block) is not looked up here; the
-// job counts as waiting for the few seconds its deploy runs after the value lands.
-func (o *Orchestrator) stillUnset(ctx context.Context, pj parkedJob, envID string) bool {
-	if pj.Job.State == job.Waiting || strings.HasPrefix(pj.Param, "org.") {
-		return true
-	}
-	have, err := o.params.Values(ctx, ParamScope{Kind: "env", ID: envID}, false)
-	_, set := have[pj.Param]
-	return err != nil || !set
 }
 
 // UnsetParams names the values an env's tiles wait for: a deploy parked on a
@@ -306,4 +290,39 @@ func (o *Orchestrator) cancelParked(ctx context.Context, s ParamScope, es []Para
 func (o *Orchestrator) RestartPending(tileID string) bool {
 	_, ok := o.restartPending.Load(tileID)
 	return ok
+}
+
+// paramResolves says whether the value a job parked on now exists, by a store
+// read of the env and org blocks its tile reads (deploy.ParamSnapshot). A form
+// it does not look up (a server or qualified ref) answers true: the job
+// re-runs and its handler decides.
+func (o *Orchestrator) paramResolves(ctx context.Context, j Job, param string) (bool, error) {
+	key, org := strings.CutPrefix(param, "org.")
+	if strings.ContainsAny(key, "[:") || strings.Count(key, ".") != 1 || strings.HasPrefix(key, "server.") {
+		return true, nil
+	}
+	var p map[string]any
+	_ = json.Unmarshal([]byte(j.Payload), &p)
+	envID := o.jobEnv(ctx, p)
+	if envID == "" {
+		return true, nil
+	}
+	e, err := o.envs.Get(ctx, envID)
+	if err != nil {
+		return true, nil // the env is gone: let the handler say so
+	}
+	st, err := o.stacks.Get(ctx, e.StackID)
+	if err != nil {
+		return true, nil
+	}
+	snap, err := o.deploy.ParamSnapshot(ctx, e, st, true)
+	if err != nil {
+		return false, err
+	}
+	vals := snap.EnvParams
+	if org {
+		vals = snap.OrgParams
+	}
+	_, ok := vals[key]
+	return ok, nil
 }

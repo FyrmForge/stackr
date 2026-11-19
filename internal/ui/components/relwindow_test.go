@@ -13,10 +13,10 @@ func relSample() RelWindow {
 	return RelWindow{
 		Envs: []RelEnv{{Name: "prod", Color: "teal", Href: "/o/immich/prod"}}, Waiting: 2, Failed: 1,
 		Rows: []RelRow{
-			{Kind: "building", Stack: "immich", Commit: "f9cdc50", At: at, Link: RelLink{"Job log", "/j/1"}},
-			{Kind: "failed", Commit: "a8c41d2", Message: "Push failed: build immich-ml, exit status 1", State: "failed", Tone: "danger", Link: RelLink{"Job log", "/j/2"}},
-			{Kind: "release", ID: "r4", Number: "4", Commit: "56abcb8", Message: "Image watch", State: "waiting", Tone: "accent", Lacks: "3", Link: RelLink{"Review plan", "/p/4"}, At: at, By: "image watch"},
-			{Kind: "release", ID: "r3", Number: "3", Commit: "b653b0c", Message: "immich: depends_on for the server", State: "waiting", Tone: "accent", Link: RelLink{"Review plan", "/p/3"}, At: at, By: "git push",
+			{Kind: "building", Stack: "immich", Commit: "f9cdc50", At: at, Link: RelLink{Label: "Job log", Href: "/j/1"}},
+			{Kind: "failed", Commit: "a8c41d2", Message: "Push failed: build immich-ml, exit status 1", State: "failed", Tone: "danger", Link: RelLink{Label: "Job log", Href: "/j/2"}},
+			{Kind: "release", ID: "r4", Number: "4", Commit: "56abcb8", Message: "Image watch", State: "waiting", Tone: "accent", Lacks: "3", Link: RelLink{Label: "Review plan", Href: "/p/4"}, At: at, By: "image watch"},
+			{Kind: "release", ID: "r3", Number: "3", Commit: "b653b0c", Message: "immich: depends_on for the server", State: "waiting", Tone: "accent", Link: RelLink{Label: "Review plan", Href: "/p/3"}, At: at, By: "git push",
 				Jobs: []RelJob{{"push, done in 14s", "/j/3"}}, CommitURL: "https://github.com/a/b/commit/b653b0c"},
 			{Kind: "release", ID: "r2", Number: "2", Commit: "256abcb", Message: "immich: v3.4.1", State: "running", Tone: "success", Envs: []EnvRun{{Name: "prod", Color: "teal"}}, At: at, By: "git push"},
 			{Kind: "release", ID: "r1", Number: "1", Commit: "10f3e7a", Message: "first stack file", State: "superseded", At: at, By: "git push"},
@@ -74,8 +74,8 @@ func TestRelWindowOrgAndCluster(t *testing.T) {
 	org := RelWindow{
 		Switch: true, View: "all", Waiting: 3, OrgWaiting: 1,
 		Rows: []RelRow{
-			{Kind: "plan", Scope: "org config", Commit: "7c2e9d1", Message: "1 to add: stack dashy", State: "waiting", Tone: "accent", Link: RelLink{"Review plan", "/o?drawer=org:1&tab=config"}},
-			{Kind: "release", ID: "r15", Scope: "media 15", OfStack: true, Number: "15", Commit: "96ffc59", Message: "media: forward auth for five tools", State: "waiting", Tone: "accent", Link: RelLink{"Review plan", "/o/media"}, At: at, By: "git push"},
+			{Kind: "plan", Scope: "org config", Commit: "7c2e9d1", Message: "1 to add: stack dashy", State: "waiting", Tone: "accent", Link: RelLink{Label: "Review plan", Href: "/o?drawer=org:1&tab=config"}},
+			{Kind: "release", ID: "r15", Scope: "media 15", OfStack: true, Number: "15", Commit: "96ffc59", Message: "media: forward auth for five tools", State: "waiting", Tone: "accent", Link: RelLink{Label: "Review plan", Href: "/o/media"}, At: at, By: "git push"},
 			{Kind: "release", ID: "r8", Scope: "auth 8", OfStack: true, Number: "8", Commit: "4d1a0be", Message: "auth: LLDAP and Authelia", State: "running", Tone: "success", Envs: []EnvRun{{Name: "prod", Color: "teal"}}, At: at, By: "git push"},
 			{Kind: "plan", Scope: "org config", Commit: "31b88f0", Message: "2 applied: stack immich, share photos", State: "applied"},
 		},
@@ -104,9 +104,9 @@ func TestRelWindowOrgAndCluster(t *testing.T) {
 		_ = os.WriteFile(os.Getenv("REL_DUMP_ORG"), []byte(b.String()), 0o600)
 		b.Reset()
 		srv := RelWindow{Title: "Server config", Waiting: 1, Failed: 0, Open: true, Rows: []RelRow{
-			{Kind: "plan", Commit: "e20fe28", Message: "1 removal to review: route auth.vulpe.dev", State: "waiting", Tone: "accent", Link: RelLink{"Review plan", "/-/admin/config"}},
+			{Kind: "plan", Commit: "e20fe28", Message: "1 removal to review: route auth.vulpe.dev", State: "waiting", Tone: "accent", Link: RelLink{Label: "Review plan", Href: "/-/admin/config"}},
 			{Kind: "plan", Commit: "b71c3e4", Message: "2 applied: routes nas, s3-console", State: "applied"},
-			{Kind: "plan", Commit: "90aa1f2", Message: "Plan failed: stackr-server.yml line 14, unknown key", State: "failed", Tone: "danger", Link: RelLink{"View details", "/-/admin/config"}},
+			{Kind: "plan", Commit: "90aa1f2", Message: "Plan failed: stackr-server.yml line 14, unknown key", State: "failed", Tone: "danger", Link: RelLink{Label: "View details", Href: "/-/admin/config"}},
 		}}
 		_ = RelWindowView(srv).Render(context.Background(), &b)
 		_ = os.WriteFile(os.Getenv("REL_DUMP_ORG")+".server", []byte(b.String()), 0o600)

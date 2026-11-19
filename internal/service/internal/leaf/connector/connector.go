@@ -301,7 +301,11 @@ func (l *Leaf) MakeServer(ctx context.Context, orgID, id string) (store.Connecto
 	}
 	if err := l.conns.MakeServer(ctx, id, orgID); err != nil {
 		if _, ok := errs.IsConflict(err); ok {
-			return c, errs.Conflictf("A server connector named %q exists; rename this one first.", c.Name)
+			// the unique name, or a share row for this org that is already there
+			if ss, lerr := l.conns.ListServer(ctx); lerr == nil && slices.ContainsFunc(ss, func(s store.Connector) bool { return s.Name == c.Name }) {
+				return c, errs.Conflictf("A server connector named %q exists; rename this one first.", c.Name)
+			}
+			return c, errs.Conflictf("This connector already has a share row for the organization; remove it, then try again.")
 		}
 		return c, err
 	}

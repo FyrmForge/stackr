@@ -709,7 +709,10 @@ func (o *Orchestrator) clusterBackups(ctx context.Context, ctl string) ([]Cluste
 }
 
 // endpointAddr is the IP an S3 endpoint URL points at, so the map can put the
-// destination in the network that holds it; "" when there is none.
+// destination in the network that holds it; "" when there is none or it is not
+// known yet. A name is never looked up on the render path: the answer is
+// cached per host and refreshed in the background, so the first render of a
+// new name shows "" and the next one the address.
 func endpointAddr(ctx context.Context, endpoint string) string {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Hostname() == "" {
@@ -719,11 +722,61 @@ func endpointAddr(ctx context.Context, endpoint string) string {
 	if a, err := netip.ParseAddr(h); err == nil {
 		return a.String()
 	}
-	as, err := resolveHost(ctx, h)
-	if err != nil || len(as) == 0 {
-		return ""
+	return endpointCache.get(h)
+}
+
+type endpointEntry struct {
+	addr string
+	at   time.Time
+	busy bool
+}
+
+// addrCache is host -> resolved address. ponytail: no size cap (a handful of
+// backup destinations); first answer wins for a name with many addresses.
+type addrCache struct {
+	mu sync.Mutex
+	m  map[string]*endpointEntry
+}
+
+var endpointCache = &addrCache{m: map[string]*endpointEntry{}}
+
+const (
+	endpointTTL     = 5 * time.Minute
+	endpointFailTTL = time.Minute
+	endpointTimeout = 2 * time.Second
+)
+
+// get is the cached address (stale while it refreshes) and starts a refresh
+// when the entry is missing or old.
+func (c *addrCache) get(host string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e := c.m[host]
+	if e == nil {
+		e = &endpointEntry{}
+		c.m[host] = e
 	}
-	return as[0] // ponytail: first answer; a name with many addresses is placed by the first
+	ttl := endpointTTL
+	if e.addr == "" {
+		ttl = endpointFailTTL
+	}
+	if !e.busy && time.Since(e.at) > ttl {
+		e.busy = true
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), endpointTimeout)
+			defer cancel()
+			as, _ := resolveHost(ctx, host)
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			e.busy, e.at = false, time.Now()
+			if len(as) > 0 {
+				e.addr = as[0]
+			} else {
+				e.addr = ""
+			}
+		}()
+	}
+	return e.addr
 }
 
 // factsFor is what a node reported last and when; a node that is slow keeps

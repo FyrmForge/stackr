@@ -47,6 +47,9 @@ type level struct {
 	title string
 	empty string // v0's line for a canvas with nothing on it yet
 	plans bool   // org canvas: the viewer may read the org's config plans (its window lists them)
+	// viewOnly: the viewer cannot promote here, so the window's links read
+	// "View plan".
+	viewOnly bool
 }
 
 func where(c echo.Context) level {
@@ -59,6 +62,8 @@ func where(c echo.Context) level {
 			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug,
 			title: sc.Env.Name,
 			empty: "No tiles in this environment yet.",
+
+			viewOnly: !can(c, sc, "env.write"),
 		}
 	case sc.Stack != nil:
 		return level{
@@ -66,6 +71,8 @@ func where(c echo.Context) level {
 			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug,
 			title: sc.Stack.Name,
 			empty: "This stack has no environments yet.",
+
+			viewOnly: !can(c, sc, "env.write"),
 		}
 	case sc.Org != nil:
 		return level{
@@ -74,6 +81,8 @@ func where(c echo.Context) level {
 			title: sc.Org.Name,
 			empty: "This organization has no stacks yet. Create one to get started.",
 			plans: can(c, sc, "org.owner.read"),
+
+			viewOnly: !can(c, sc, "env.write"),
 		}
 	}
 	p := middleware.Principal(c)
@@ -152,6 +161,9 @@ func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focu
 			v.Empty = "Release " + strconv.Itoa(rel.Number) + " is waiting."
 			v.EmptyNote = "Nothing runs here until it is promoted."
 			v.EmptyHref = l.base + "?drawer=" + url.QueryEscape("env:"+l.scope.ID) + "&tab=releases&plan=" + rel.ID
+			if l.viewOnly {
+				v.EmptyLink = "View plan"
+			}
 		}
 	}
 	if v.Empty != "" && l.scope.Kind == service.CanvasStack {
@@ -184,6 +196,8 @@ func (h *handler) pushWhy(ctx context.Context, v *ui.View, l level) {
 		v.EmptyNote = strings.Join(p.Skipped, "; ")
 	case p.Done:
 		v.EmptyLink, v.EmptyHref = "", ""
+	case p.Waits != "":
+		v.Empty = p.Waits + "."
 	default:
 		v.Empty, v.EmptyAt = "Building "+l.title+comp.AtSha(p.Sha)+", started ", p.Started
 		if p.Queued {

@@ -11,25 +11,48 @@
 #   playground/vm.sh status | ip           state, and its address on the default network
 #   playground/vm.sh console               serial console (leave with Ctrl+])
 #   playground/vm.sh delete --yes          remove the VM and its disk
+#   playground/vm.sh hold WHO [why] | release   keep the VM for a whole run; others get exit 75
 #
-# Env: PLAYGROUND_OUT (bundle dir, default ../stackr-playground-out next to the repo),
-# PLAYGROUND_ENV (.env holding UNIVERSAL_STACKR_PASSWORD, default the repo's .env), PLAYGROUND_KEY (public key).
+# Commands that change the VM (create deploy sync start stop delete, nodes up|upgrade|reset|trust|disk|dns)
+# take a lock; a second one exits 75 and prints the holder. bundle, ssh, status and the read-only nodes stay free.
+# Env: PLAYGROUND_OUT (bundle dir, default <checkout>-playground-out next to the checkout),
+# PLAYGROUND_ENV (.env holding UNIVERSAL_STACKR_PASSWORD, default the repo's .env, else the main checkout's),
+# PLAYGROUND_KEY (public key), PLAYGROUND_HOLDER (the WHO of your hold; lets your own commands through).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAME="${PLAYGROUND_VM:-playground}"
 KEY="${PLAYGROUND_KEY:-$HOME/.ssh/id_ed25519.pub}"
 ROOT="$(dirname "$HERE")"
-OUT="${PLAYGROUND_OUT:-$(dirname "$ROOT")/stackr-playground-out}"
+OUT="${PLAYGROUND_OUT:-$(dirname "$ROOT")/$(basename "$ROOT")-playground-out}"
 ENVFILE="${PLAYGROUND_ENV:-$ROOT/.env}"
+[[ -f $ENVFILE || -n ${PLAYGROUND_ENV:-} ]] || ENVFILE="$(dirname "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)")/.env"
 export LIBVIRT_DEFAULT_URI="${LIBVIRT_DEFAULT_URI:-qemu:///system}"
 SSH=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
 
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/stackr-playground"
+HOLD="$CACHE/$NAME.hold"
 
 ip() { virsh domifaddr "$NAME" --source lease 2>/dev/null | awk '/ipv4/ {split($4, a, "/"); print a[1]; exit}'; }
 # shellcheck disable=SC2029
 vssh() { ssh "${SSH[@]}" "root@$(ip)" "$@"; }
+
+# One writer at a time per VM: the flock on fd 9 lives as long as this process.
+lock() {
+	[[ -z ${LOCKED:-} ]] || return 0
+	LOCKED=1
+	mkdir -p "$CACHE"
+	exec 9>>"$CACHE/$NAME.lock"
+	if [[ -s $HOLD && $(cut -d' ' -f1 "$HOLD") != "${PLAYGROUND_HOLDER:-}" ]]; then
+		echo "playground held: $(cat "$HOLD")" >&2
+		exit 75
+	fi
+	if ! flock -n 9; then
+		echo "playground busy: $(cat "$CACHE/$NAME.lock")" >&2
+		exit 75
+	fi
+	echo "pid $$ $ROOT $0 $* $(date '+%F %T')" >"$CACHE/$NAME.lock"
+}
 
 # playground/ with the laptop key appended to ssh-keys; the repo copy stays a placeholder.
 stage() {
@@ -84,6 +107,7 @@ push_bundle() {
 # and is removed afterwards. Arguments are quoted for the VM's shell.
 nodes() {
 	[[ $# -gt 0 ]] || set -- up
+	case $1 in up | upgrade | reset | trust | disk | dns) lock "nodes $*" ;; esac
 	local pw args rc=0 load=""
 	args="$(printf '%q ' "$@")"
 	case $1 in
@@ -99,6 +123,9 @@ nodes() {
 	return $rc
 }
 
+case "${1:-}" in
+create | deploy | sync | start | stop | delete) lock "$@" ;;
+esac
 case "${1:-}" in
 create)
 	command -v docker >/dev/null || { echo "docker is required" >&2; exit 1; }
@@ -148,7 +175,20 @@ stop)
 	echo "still running after 60s; force it with: virsh destroy $NAME" >&2
 	exit 1
 	;;
-status) echo "$(virsh domstate "$NAME") $(ip)" ;;
+status)
+	echo "$(virsh domstate "$NAME") $(ip)"
+	[[ ! -s $HOLD ]] || echo "held: $(cat "$HOLD")"
+	;;
+hold)
+	[[ -n ${2:-} && $2 != *" "* ]] || { echo "hold WHO [why]" >&2; exit 1; }
+	PLAYGROUND_HOLDER=$2 lock hold
+	echo "$2 ${*:3} since $(date '+%F %T')" >"$HOLD"
+	echo "held for $2; run your commands with PLAYGROUND_HOLDER=$2, then: $0 release"
+	;;
+release)
+	[[ -s $HOLD ]] && echo "released: $(cat "$HOLD")"
+	rm -f "$HOLD"
+	;;
 ip) ip ;;
 console) virsh console "$NAME" ;;
 delete)
@@ -159,5 +199,5 @@ delete)
 	virsh destroy "$NAME" 2>/dev/null || true
 	virsh undefine "$NAME" --nvram --remove-all-storage
 	;;
-*) sed -n '2,15p' "$0"; exit 1 ;;
+*) sed -n '2,20p' "$0"; exit 1 ;;
 esac

@@ -12,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -209,14 +210,11 @@ func (o *Orchestrator) ShareConnector(
 // MakeServerConnector moves org orgID's connector id up to the server,
 // shared with that org, so one connector serves the server and the org. Its
 // id stays, so every binding that names it (the org's file, its stacks)
-// follows, and nothing is asked of the provider. Admin only; by is the
-// caller.
-func (o *Orchestrator) MakeServerConnector(ctx context.Context, by *Principal, orgID, id string) (ServerConnector, error) {
-	if by == nil || !by.Access.Admin || by.Access.KeyOrg != "" {
-		return ServerConnector{}, errs.ErrNotFound
-	}
+// follows, and nothing is asked of the provider. Admin only: the route is
+// mounted with connector.admin, so the verb does not check.
+func (o *Orchestrator) MakeServerConnector(ctx context.Context, orgID, id string) (ServerConnector, error) {
 	c, err := o.conns.MakeServer(ctx, orgID, id)
-	if err != nil {
+	if err := o.noted(ctx, err, securitylog.ConnectorServer, "connector", id, "org="+orgID); err != nil {
 		return ServerConnector{}, err
 	}
 	return o.serverConnector(ctx, c)

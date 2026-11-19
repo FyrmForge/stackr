@@ -2,6 +2,7 @@ package v1
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -131,9 +132,59 @@ func (h *H) CheckStackImages() Endpoint {
 
 // ---- releases and promote ----
 
+// ReleaseRow is a release with what the Releases screen shows beside it.
+type ReleaseRow struct {
+	service.Release
+	Source string `json:"source"`  // push, image-watch, user, ...
+	State  string `json:"state"`   // waiting, running, failed, superseded, ...
+	RunsIn string `json:"runs_in"` // env names, comma separated
+}
+
+// Releases lists the stack's releases, newest first, with each one's state
+// and source. ?env=<slug> reads them as that env sees them.
 func (h *H) Releases() Endpoint {
-	return Get(func(c echo.Context) ([]service.Release, error) {
-		return paged[service.Release](c)(h.Orch.Releases(rc(c), stackID(c)))
+	return Get(func(c echo.Context) ([]ReleaseRow, error) {
+		ctx, stack := rc(c), stackID(c)
+		rs, err := h.Orch.Releases(ctx, stack)
+		if err != nil {
+			return nil, err
+		}
+		envID := ""
+		if slug := c.QueryParam("env"); slug != "" {
+			es, err := h.Orch.Ladder(ctx, stack)
+			if err != nil {
+				return nil, err
+			}
+			i := slices.IndexFunc(es, func(e service.Environment) bool { return e.Slug == slug })
+			if i < 0 {
+				return nil, errs.Invalidf("env", "no environment %q in this stack", slug)
+			}
+			envID = es[i].ID
+		}
+		w, err := h.Orch.ReleaseHistory(ctx, stack, envID)
+		if err != nil {
+			return nil, err
+		}
+		names := map[string]string{}
+		for _, e := range w.Envs {
+			names[e.ID] = e.Name
+		}
+		byID := map[string]service.WindowRow{}
+		for _, r := range w.Rows {
+			if r.Kind == service.RowRelease {
+				byID[r.ID] = r
+			}
+		}
+		out := make([]ReleaseRow, len(rs))
+		for i, r := range rs {
+			row := byID[r.ID]
+			var runs []string
+			for _, id := range row.Runs {
+				runs = append(runs, names[id])
+			}
+			out[i] = ReleaseRow{Release: r, Source: service.SourceKey(r.CreatedBy), State: row.State, RunsIn: strings.Join(runs, ", ")}
+		}
+		return paged[ReleaseRow](c)(out, nil)
 	}).Paged()
 }
 

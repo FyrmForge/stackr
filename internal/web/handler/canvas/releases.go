@@ -265,18 +265,7 @@ func (h *handler) who(ctx context.Context) (map[string]string, error) {
 }
 
 // byWord is who or what cut a release, as a person reads it.
-func byWord(by string, names map[string]string) string {
-	if id, ok := strings.CutPrefix(by, "user:"); ok && names[id] != "" {
-		return names[id]
-	}
-	switch by {
-	case "push":
-		return "git push"
-	case "image-watch":
-		return "image watch"
-	}
-	return by
-}
+func byWord(by string, names map[string]string) string { return render.SourceWord(by, names) }
 
 // rolloutRunning is a promote or deploy of the env that is queued or
 // running: a new promote waits for it, so the review says so.

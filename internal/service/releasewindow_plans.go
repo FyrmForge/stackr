@@ -49,10 +49,10 @@ func planLine(summary, planJSON string) string {
 	return summary + ": " + strings.Join(names, ", ")
 }
 
-// planRows are the window rows of config plans, newest first as given:
+// windowPlanRows are the window rows of config plans, newest first as given:
 // a waiting plan, the failure of the newest one, an apply under way, then a
 // few that ended (applied, rejected). Superseded and clean ones are noise.
-func planRows(ps []planFacts) (rows []WindowRow, waiting, failed int) {
+func windowPlanRows(ps []planFacts) (rows []WindowRow, waiting, failed int) {
 	var older []WindowRow
 	for i, p := range ps {
 		row := WindowRow{Kind: RowPlan, PlanID: p.ID, Commit: p.Commit, Message: p.Summary, At: p.At, Err: p.Err}
@@ -137,7 +137,7 @@ func (o *Orchestrator) OrgReleaseWindow(ctx context.Context, orgID string, plans
 		for i, p := range ps {
 			facts[i] = planFacts{p.ID, p.Commit, planLine(p.Summary, p.Plan), p.Status, p.Error, p.CreatedAt, p.DecidedAt != nil}
 		}
-		rows, w.OrgWaiting, w.OrgFailed = planRows(facts)
+		rows, w.OrgWaiting, w.OrgFailed = windowPlanRows(facts)
 	}
 	w.Waiting, w.Failed = w.OrgWaiting, w.OrgFailed
 	sts, err := o.stacks.List(ctx, orgID)
@@ -180,6 +180,6 @@ func (o *Orchestrator) ServerReleaseWindow(ctx context.Context) (ReleaseWindow, 
 	for i, p := range ps {
 		facts[i] = planFacts{p.ID, p.Commit, planLine(p.Summary, p.Plan), p.Status, p.Error, p.CreatedAt, p.DecidedAt != nil}
 	}
-	w.Rows, w.Waiting, w.Failed = planRows(facts)
+	w.Rows, w.Waiting, w.Failed = windowPlanRows(facts)
 	return w, nil
 }

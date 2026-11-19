@@ -211,7 +211,7 @@ func (h *handler) orgPicker(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	rs, err := h.orch.OrgRepos(ctx, og.ID)
+	rs, err := h.orch.OrgConnectorRepos(ctx, og.ID)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
@@ -225,7 +225,7 @@ func (h *handler) orgPicker(c echo.Context) error {
 		v.Connectors = append(v.Connectors, orgui.Option{Value: k.ID, Label: label})
 	}
 	for _, r := range rs {
-		v.Repos = append(v.Repos, comp.RepoOption{FullName: r.FullName, DefaultBranch: r.DefaultBranch})
+		v.Repos = append(v.Repos, comp.RepoOption{FullName: r.FullName, DefaultBranch: r.DefaultBranch, ConnectorID: r.ConnectorID})
 	}
 	return respond.HTML(c, http.StatusOK, orgui.Picker(v))
 }

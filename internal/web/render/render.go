@@ -98,7 +98,7 @@ func Shell(c echo.Context, title string) components.Shell {
 	if p := middleware.Principal(c); p != nil {
 		s.User = p.User.Email
 		s.Theme, s.TimeZone = p.User.Theme, p.User.TimeZone
-		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Waiting", "/-/waiting", path), link("Account", "/account", path))
+		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Releases", "/-/releases", path), link("Waiting", "/-/waiting", path), link("Account", "/account", path))
 		if n, ok := c.Get(waitingYouKey).(func() int); ok {
 			s.WaitingYou = n()
 		}
@@ -250,7 +250,7 @@ func LiveLines(c echo.Context, orch *service.Orchestrator) []components.LiveLine
 	if s.Stack == nil || s.Org == nil {
 		return nil
 	}
-	ctx := c.Request().Context()
+	ctx := service.WithJobSnapshot(c.Request().Context())
 	jobs, envID := "/"+s.Org.Slug+"/-/jobs/", "" // a stack's job log is the org's
 	if s.Env != nil {
 		jobs, envID = EnvURL(c)+"/-/jobs/", s.Env.ID

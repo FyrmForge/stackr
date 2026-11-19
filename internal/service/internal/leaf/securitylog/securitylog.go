@@ -34,6 +34,7 @@ const (
 	MemberRole           = "member.role"
 	MemberRemove         = "member.remove"
 	GrantApprove         = "grant.approve"
+	ConnectorServer      = "connector.server" // an org connector moved up to the server (detail: org)
 	GrantRevoke          = "grant.revoke"
 	SecretReveal         = "secrets.reveal"
 	SliceBranch          = "slice.branch"     // a slice was copied as of now (detail: source, target, instance)

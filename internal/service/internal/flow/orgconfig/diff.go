@@ -88,6 +88,9 @@ type Live struct {
 	// hand-managed ones as notes. Neither blocks the apply.
 	DNS      []planfile.Change
 	DNSNotes []string
+	// FileNotes warn about what a stack file the org file binds declares
+	// (an env that would be skipped); none blocks.
+	FileNotes []string
 }
 
 // StackLive is one stack.
