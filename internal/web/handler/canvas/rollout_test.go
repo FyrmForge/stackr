@@ -156,3 +156,28 @@ func TestReleasesWindowAllLinkAndViewOnly(t *testing.T) {
 		t.Errorf("viewer's window:\n%s", b)
 	}
 }
+
+// A later release that lands on the env (a push, not a promote) takes the
+// failure away: the failed promote of release 3 says nothing once the env
+// runs release 4.
+func TestRolloutStopClearsWhenALaterReleaseLands(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	rel := s.Release(t, s.Tile.Stack, 3)
+	s.PromoteJob(t, s.Tile.Env, "failed", "deploy api: port 80 is taken", `{"stopped_at":"api"}`, rel, time.Now())
+	if body := get(t, s, "/acme/shop/dev"); !strings.Contains(body, "Promote of release 3 stopped at api.") {
+		t.Fatalf("no failure to clear:\n%s", body)
+	}
+	later := s.Release(t, s.Tile.Stack, 4)
+	row, err := s.Store.Environments.Get(ctx, s.Tile.Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row.ReleaseID = &later
+	if err := s.Store.Environments.Update(ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	if body := get(t, s, "/acme/shop/dev"); strings.Contains(body, "stopped at") {
+		t.Errorf("a later release left the failure:\n%s", body)
+	}
+}
