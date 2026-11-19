@@ -412,7 +412,8 @@ func OrgDefault(og store.Org) string { return og.ConfigConnectorID }
 
 // Pick is the connector a clone of a repo on host uses, from conns (an org's
 // ListConnected: its own, then the server ones shared with it). A named id
-// wins and, when it is not in conns, is NoConnector: it never falls through.
+// wins and, when it is not in conns or does not serve host (the clone would
+// refuse it), is NoConnector: it never falls through.
 // Otherwise the first id of inherit that is in conns and serves host.
 // Nothing is ever picked by host alone.
 func Pick(conns []store.Connector, host, named string, inherit ...string) (store.Connector, error) {
@@ -420,17 +421,23 @@ func Pick(conns []store.Connector, host, named string, inherit ...string) (store
 		return slices.IndexFunc(conns, func(c store.Connector) bool { return c.ID == id })
 	}
 	if named != "" {
-		if i := find(named); i >= 0 {
+		if i := find(named); i >= 0 && serves(conns[i], host) {
 			return conns[i], nil
 		}
 		return store.Connector{}, NoConnector{Host: host}
 	}
 	for _, id := range inherit {
-		if i := find(id); id != "" && i >= 0 && conns[i].Host == host {
+		if i := find(id); id != "" && i >= 0 && serves(conns[i], host) {
 			return conns[i], nil
 		}
 	}
 	return store.Connector{}, NoConnector{Host: host}
+}
+
+// serves is UsableFor's host rule: a clone of host goes only through a
+// connector on that host.
+func serves(c store.Connector, host string) bool {
+	return host != "" && host == strings.ToLower(c.Host)
 }
 
 // ForStack is the connector the stack's own config repo clones through: the

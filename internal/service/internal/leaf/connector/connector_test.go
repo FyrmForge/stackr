@@ -378,6 +378,7 @@ func TestPick(t *testing.T) {
 		want    string
 	}{
 		{"named wins over inherit", all, "github.com", "s1", []string{"own"}, "s1"},
+		{"named on another host is none", all, "gitlab.com", "s1", []string{"gl"}, ""},
 		{"named missing is none, no fall through", all, "github.com", "nope", []string{"own"}, ""},
 		{"inherit order", all, "github.com", "", []string{"s1", "own"}, "s1"},
 		{"first inherit missing, next taken", all, "github.com", "", []string{"nope", "own"}, "own"},
