@@ -243,7 +243,7 @@ func (o *Orchestrator) waitingParked(ctx context.Context, p *Principal, w *Waiti
 		var m map[string]any
 		_ = json.Unmarshal([]byte(pj.Job.Payload), &m)
 		env := o.jobEnv(ctx, m)
-		if env == "" || !o.stillUnset(ctx, pj, env) {
+		if env == "" {
 			continue
 		}
 		k := key{env, pj.Param}

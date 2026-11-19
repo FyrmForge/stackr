@@ -179,6 +179,8 @@ func (h *handler) pushWhy(ctx context.Context, v *ui.View, l level) {
 		v.EmptyNote = strings.Join(p.Skipped, "; ")
 	case p.Done:
 		v.EmptyLink, v.EmptyHref = "", ""
+	case p.Waits != "":
+		v.Empty = p.Waits + "."
 	default:
 		v.Empty, v.EmptyAt = "Building "+l.title+comp.AtSha(p.Sha)+", started ", p.Started
 		if p.Queued {

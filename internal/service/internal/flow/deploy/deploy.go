@@ -916,7 +916,7 @@ func (f *Flow) depParked(ctx context.Context, t store.Tile, refDeps []string) er
 			return err
 		}
 		if ok && j.State == job.Waiting && j.WaitingParam != nil {
-			return errs.Unset{Param: *j.WaitingParam}
+			return errs.Unset{Param: *j.WaitingParam, Via: j.ID}
 		}
 	}
 	return nil

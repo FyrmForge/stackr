@@ -158,11 +158,10 @@ func TestSetParamsLater(t *testing.T) {
 	}
 }
 
-// A parked deploy cycles through queued and running for its re-check, with no
-// waiting_param on its row: the unset value stays listed and a later save
-// still cancels it, at env scope and at org scope (the runner would resume it
-// the moment the value lands).
-func TestParkedRecheckStillWaits(t *testing.T) {
+// Only a waiting row waits: a deploy back queued (resumed) is no longer listed
+// as waiting for its value, and a waiting one is cancelled by a later save, at
+// env scope and at org scope.
+func TestOnlyWaitingRowsWait(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, ref string }{
 		{"env", "gate.password"},
@@ -187,14 +186,16 @@ func TestParkedRecheckStillWaits(t *testing.T) {
 			if j = w.waiting(t, j.ID); j.State != job.Waiting {
 				t.Fatalf("deploy = %s %q, want parked", j.State, j.Error)
 			}
-			// the runner has it back in the queue for a look, its row without a param
+			// the runner has resumed it: queued, its row without a param
 			_, err = w.st.DB().ExecContext(ctx, `UPDATE jobs SET state = 'queued', waiting_param = NULL WHERE id = ?`, j.ID)
 			must(t, err)
 			if tc.name == "env" {
-				if got, _ := w.orch.UnsetParams(ctx, es); !slices.Equal(got[tc.ref], []string{"bazarr"}) {
-					t.Errorf("a re-checked wait vanished: %v", got)
+				if got, _ := w.orch.UnsetParams(ctx, es); len(got) != 0 {
+					t.Errorf("a resumed job still waits: %v", got)
 				}
 			}
+			_, err = w.st.DB().ExecContext(ctx, `UPDATE jobs SET state = 'waiting', waiting_param = ? WHERE id = ?`, tc.ref, j.ID)
+			must(t, err)
 			_, waiting, err := w.orch.SetParamsLater(ctx, s, []ParamEntry{{Collection: "gate", Name: "password", Kind: "secret", Value: "pw"}})
 			must(t, err)
 			if !slices.Equal(waiting, []string{"bazarr"}) {
@@ -237,5 +238,29 @@ func TestRedeployPendingClearsOnSuccess(t *testing.T) {
 	}
 	if w.orch.RestartPending(tl.ID) {
 		t.Error("the mark stayed after a deploy that succeeded")
+	}
+}
+
+// A param park resolves on its own value only: an env param for a plain
+// ref, an org param for an org. ref; another param landing resolves nothing.
+func TestParamResolvesReadsTheJobsOwnParam(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	j := Job{Payload: `{"env_id":"` + w.env + `"}`}
+	for _, c := range []struct {
+		param string
+		scope ParamScope
+	}{{"app.k", ParamScope{Kind: "env", ID: w.env}}, {"org.app.k", ParamScope{Kind: "org", ID: w.org}}} {
+		_, err := w.orch.SetParams(ctx, ParamScope{Kind: "env", ID: w.env}, []ParamEntry{{Collection: "app", Name: "other", Kind: "param", Value: "x"}})
+		must(t, err)
+		if ok, err := w.orch.paramResolves(ctx, j, c.param); err != nil || ok {
+			t.Fatalf("%s before it is set: %v, %v", c.param, ok, err)
+		}
+		_, err = w.orch.SetParams(ctx, c.scope, []ParamEntry{{Collection: "app", Name: "k", Kind: "param", Value: "v"}})
+		must(t, err)
+		if ok, err := w.orch.paramResolves(ctx, j, c.param); err != nil || !ok {
+			t.Fatalf("%s after it is set: %v, %v", c.param, ok, err)
+		}
 	}
 }

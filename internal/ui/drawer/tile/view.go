@@ -259,6 +259,7 @@ type JobRow struct {
 	Kind, Line, State, Error, Cancel, Waits, Href string
 	Retry                                         string // POST target: the tile's normal deploy, on a failed row
 	When                                          time.Time
+	Here                                          bool // a failed promote stopped at this tile
 }
 
 type ImageView struct {

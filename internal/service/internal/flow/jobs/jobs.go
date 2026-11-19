@@ -54,6 +54,28 @@ func (r *Run) Swap() error {
 	return nil
 }
 
+// Lock adds tiles the handler created to the job's lock set: the durable
+// row (so the tile's job history lists it), the set Finish writes, and the
+// runner's active lock, so a queued job on a new tile waits for this one.
+// All under Runner.mu, which pass also holds when it starts a job.
+func (r *Run) Lock(ctx context.Context, ids ...string) error {
+	grown := false
+	for _, id := range ids {
+		if !slices.Contains(r.Job.LockSet, id) {
+			r.Job.LockSet = append(r.Job.LockSet, id)
+			grown = true
+		}
+	}
+	if !grown || r.r == nil {
+		return nil
+	}
+	slices.Sort(r.Job.LockSet)
+	r.r.mu.Lock()
+	defer r.r.mu.Unlock()
+	r.a.lock = slices.Clone(r.Job.LockSet)
+	return r.r.jobs.SetLock(context.WithoutCancel(ctx), r.Job)
+}
+
 type idleKey struct{}
 
 // Idle is called by a handler that is about to only wait on other jobs: until
@@ -112,14 +134,10 @@ type Options struct {
 	// one poll. nil = 2.
 	Workers func(ctx context.Context) (int, error)
 	// ParamSet reports whether a parked job's param (j.WaitingParam) resolves
-	// now. nil = requeue every parked job each poll and let the handler
-	// re-check.
+	// now: a store read of its own value, no git. A job parked on a param is
+	// requeued only once it does. nil = requeue every parked job each poll
+	// and let the handler re-check.
 	ParamSet func(ctx context.Context, j store.Job) (bool, error)
-	// Stamp is a cheap read of everything a parked job's value can come
-	// from (a store read, no git). A job parked on an unset param is
-	// re-run only once the stamp differs from the one read before its
-	// handler last ran. nil = re-run every poll.
-	Stamp func(ctx context.Context) (string, error)
 	// Hold, when it answers true, starts nothing: an upgrade helper is
 	// swapping the panel, and a job started now dies with the old panel or
 	// outlives a rollback of the new one's database. nil = never.
@@ -152,9 +170,10 @@ type Runner struct {
 	// ponytail: a waiting job superseded or cancelled keeps its entry until
 	// a restart; a few bytes each.
 	parked map[string]string
-	// stamp is Options.Stamp as read before each parked job's handler last
-	// ran. In memory only: after a restart a parked job re-runs once.
-	stamp map[string]string
+	// via is the other job a parked job waits only because of (an Unset's
+	// Via): it re-runs once that job is no longer waiting. In memory only,
+	// like parked: after a restart a parked job re-runs once.
+	via map[string]string
 
 	// deployed holds the "deploying <tile>" lines each job's log already
 	// has, so a parked job re-run every poll logs each tile's line once.
@@ -237,7 +256,7 @@ func New(jobs *job.Leaf, handlers map[Kind]Handler, dataDir string, opt Options)
 		opt:      opt,
 		running:  map[string]*active{},
 		parked:   map[string]string{},
-		stamp:    map[string]string{},
+		via:      map[string]string{},
 		deployed: map[string]map[string]bool{},
 		wake:     make(chan struct{}, 1),
 	}
@@ -323,31 +342,27 @@ func (r *Runner) loop(ctx context.Context) {
 	}
 }
 
-// unpark requeues waiting jobs whose param now resolves.
+// unpark requeues waiting jobs that may go on: one parked on a param whose
+// value now resolves (ParamSet), or one parked behind another job's wait once
+// that job no longer waits. Each job is judged alone: a read that fails
+// leaves that job parked until the next tick, never the others.
 func (r *Runner) unpark(ctx context.Context) {
 	parked, err := r.jobs.List(ctx, job.Waiting)
 	if err != nil {
 		return
 	}
-	var now string
-	var haveNow bool
 	for _, j := range parked {
 		r.mu.Lock()
-		was, quiet := r.stamp[j.ID]
+		_, known := r.parked[j.ID] // set when its handler parked it in this process
+		via := r.via[j.ID]
 		r.mu.Unlock()
-		if quiet && r.opt.Stamp != nil {
-			if !haveNow {
-				var err error
-				if now, err = r.opt.Stamp(ctx); err != nil {
-					return
-				}
-				haveNow = true
-			}
-			if now == was {
+		switch {
+		case !known: // parked before a restart: look again once
+		case via != "":
+			if d, err := r.jobs.Get(ctx, via); err == nil && d.State == job.Waiting {
 				continue
 			}
-		}
-		if r.opt.ParamSet != nil && j.WaitingParam != nil {
+		case r.opt.ParamSet != nil && j.WaitingParam != nil:
 			if ok, err := r.opt.ParamSet(ctx, j); err != nil || !ok {
 				continue
 			}
@@ -449,12 +464,7 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 	defer cancel()
 	rn := &Run{Job: j, a: a, r: r}
 	start := time.Now()
-	// Read before the handler: a value set while it runs differs from this.
-	var stamp string
-	if r.opt.Stamp != nil {
-		stamp, _ = r.opt.Stamp(ctx)
-	}
-	state, reason, param := r.call(ctx, rn, stamp)
+	state, reason, param := r.call(ctx, rn)
 
 	// The run's context is dead exactly when there is something to record.
 	fresh := context.Background()
@@ -482,12 +492,12 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 	}
 	if state != job.Waiting {
 		delete(r.parked, j.ID)
-		delete(r.stamp, j.ID)
+		delete(r.via, j.ID)
 		delete(r.deployed, j.ID)
 		delete(r.phase, j.ID)
 		delete(r.tilePhase, j.ID)
 		// rn.Job, not j: a handler may have rewritten its payload.
-		j.Payload = rn.Job.Payload
+		j.Payload, j.LockSet = rn.Job.Payload, rn.Job.LockSet
 		err = r.jobs.Finish(fresh, j, state, reason)
 		selfmetrics.Job(j.Kind, state, time.Since(start))
 		if err == nil {
@@ -500,7 +510,7 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 }
 
 // call runs the handler and turns its outcome into a state.
-func (r *Runner) call(ctx context.Context, rn *Run, stamp string) (state, reason, param string) {
+func (r *Runner) call(ctx context.Context, rn *Run) (state, reason, param string) {
 	j := rn.Job
 	h, ok := r.handlers[Kind(j.Kind)]
 	if !ok {
@@ -537,10 +547,10 @@ func (r *Runner) call(ctx context.Context, rn *Run, stamp string) (state, reason
 		r.mu.Lock()
 		said := r.parked[j.ID] == u.Param
 		r.parked[j.ID] = u.Param
-		if stamp != "" {
-			r.stamp[j.ID] = stamp
+		if u.Via != "" {
+			r.via[j.ID] = u.Via
 		} else {
-			delete(r.stamp, j.ID)
+			delete(r.via, j.ID)
 		}
 		r.mu.Unlock()
 		if !said {
@@ -552,7 +562,7 @@ func (r *Runner) call(ctx context.Context, rn *Run, stamp string) (state, reason
 		r.mu.Lock()
 		said := r.parked[j.ID] == n.What
 		r.parked[j.ID] = n.What
-		delete(r.stamp, j.ID)
+		delete(r.via, j.ID)
 		r.mu.Unlock()
 		if !said {
 			_, _ = fmt.Fprintf(f, "%v\n", n)
@@ -677,15 +687,6 @@ func (r *Runner) ended(j store.Job) {
 
 // Get returns one job row.
 func (r *Runner) Get(ctx context.Context, id string) (store.Job, error) { return r.jobs.Get(ctx, id) }
-
-// ParkedParam is what a job that has parked last waited on, "" for one that
-// never parked. It holds while the job is back queued or running for its
-// re-check, when its row has no waiting_param.
-func (r *Runner) ParkedParam(id string) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.parked[id]
-}
 
 // Phase is the step a running job's log last named ("Pulling image"), ""
 // when it has named none. For a job that deploys tile by tile it is the

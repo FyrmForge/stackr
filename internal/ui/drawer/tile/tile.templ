@@ -404,6 +404,9 @@ templ Jobs(v View, j JobsView) {
 						if r.Waits != "" {
 							<p class="basis-full text-xs text-rw-muted">{ r.Waits }</p>
 						}
+						if r.Here {
+							<p class="basis-full text-xs text-rw-danger">Failed here.</p>
+						}
 						if r.Error != "" {
 							<p class="basis-full text-xs text-rw-danger">{ r.Error }</p>
 						}

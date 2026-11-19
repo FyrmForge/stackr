@@ -250,7 +250,7 @@ func LiveLines(c echo.Context, orch *service.Orchestrator) []components.LiveLine
 	if s.Stack == nil || s.Org == nil {
 		return nil
 	}
-	ctx := c.Request().Context()
+	ctx := service.WithJobSnapshot(c.Request().Context())
 	jobs, envID := "/"+s.Org.Slug+"/-/jobs/", "" // a stack's job log is the org's
 	if s.Env != nil {
 		jobs, envID = EnvURL(c)+"/-/jobs/", s.Env.ID

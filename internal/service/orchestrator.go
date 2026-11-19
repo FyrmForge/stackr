@@ -912,12 +912,14 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {
 		// ponytail: a parked job is requeued every poll and its handler
 		// re-checks (DECIDE 17 (b)); a host access park resumes once its
-		// stack's grant covers the ask, however the grant got there.
+		// stack's grant covers the ask, however the grant got there, and a
+		// param park once its own value resolves (no git, plan or log line
+		// in between).
 		return jobs.New(orch.jobRows, orch.handlers(), cfg.DataDir, jobs.Options{
 			ParamSet: func(ctx context.Context, j store.Job) (bool, error) {
 				ask, approval := hostgrant.Parse(*j.WaitingParam)
 				if !approval {
-					return true, nil
+					return orch.paramResolves(ctx, j, *j.WaitingParam)
 				}
 				var p struct {
 					HostAccess *hostAccess `json:"host_access"`
@@ -928,9 +930,6 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				have, err := orch.hostgrant.Of(ctx, p.HostAccess.Stack)
 				return err == nil && len(ask.Missing(have)) == 0, err
 			},
-			// A job parked on an unset value re-runs once a param changes
-			// (no git, no plan, no log line in between).
-			Stamp:   orch.params.Stamp,
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true, kindBucketRestore: true},

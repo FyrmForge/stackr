@@ -224,7 +224,7 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		if can(c, "deployment.cancel") {
 			cancel = v.Base
 		}
-		body = ui.Jobs(v, jobsView(v.Base, cancel, can(c, "tile.write"), js))
+		body = ui.Jobs(v, jobsView(v.Base, t.Slug, cancel, can(c, "tile.write"), js))
 	case "runs":
 		rs, err := h.orch.Runs(ctx, t.ID, 20)
 		if err != nil {
