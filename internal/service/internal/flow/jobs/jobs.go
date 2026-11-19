@@ -505,6 +505,7 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 	}
 	if state != job.Waiting {
 		delete(r.parked, j.ID)
+		delete(r.warned, j.ID)
 		delete(r.via, j.ID)
 		delete(r.deployed, j.ID)
 		delete(r.phase, j.ID)
