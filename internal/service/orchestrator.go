@@ -862,6 +862,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Domains:  orch.domains,
 			Operated: orch.operated,
 			Traffic:  orch.traffic,
+			Out:      orch.store.TileOutbound,
 			Path:     cfg.Conntrack,
 			Remote:   orch.workerTraffic,
 		}

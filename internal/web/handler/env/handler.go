@@ -30,6 +30,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	envui "github.com/FyrmForge/stackr/internal/ui/drawer/env"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/instance"
+	"github.com/FyrmForge/stackr/internal/ui/drawer/outbound"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/proxy"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/slice"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/volume"
@@ -115,6 +116,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/volumes/:volume/discard-copy", h.DiscardCopy, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/discard-object", h.DiscardObject, a.Require("tile.write"))
 	g.GET(e+"/proxy", h.Proxy, a.Require("tile.read"))
+	g.GET(e+"/internet", h.Internet, a.Require("tile.read"))
 	g.GET(e+"/logs", h.Logs, a.Require("tile.read"))
 	g.GET(e+"/dns-banner", h.DNSBanner, a.Require("tile.read"))
 }
@@ -1445,6 +1447,23 @@ func (h *handler) Proxy(c echo.Context) error {
 		})
 	}
 	return respond.HTML(c, http.StatusOK, proxy.Routes(v))
+}
+
+// GET …/-/internet
+func (h *handler) Internet(c echo.Context) error {
+	if ok, err := render.ToShell(c, "internet"); ok {
+		return err
+	}
+	sc := scope(c)
+	rows, err := h.orch.Outbound(c.Request().Context(), sc.Env.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	v := outbound.View{Live: c.Request().URL.Path}
+	for _, r := range rows {
+		v.Rows = append(v.Rows, outbound.Row{Name: r.Name, LastSeen: r.LastSeen, Bytes: r.Bytes, Live: r.Live})
+	}
+	return respond.HTML(c, http.StatusOK, outbound.Drawer(v))
 }
 
 // ---- volume ----

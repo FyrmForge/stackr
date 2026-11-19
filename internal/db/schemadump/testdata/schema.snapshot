@@ -802,6 +802,13 @@ table tiers
   index (auto) unique=1 origin=pk partial=0 (id)
   index (auto) unique=1 origin=u partial=0 (org_id,slug)
   sql CREATE TABLE tiers ( id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs (id) ON DELETE CASCADE, slug TEXT NOT NULL, position INTEGER NOT NULL, locked BOOLEAN NOT NULL DEFAULT 1, created_at DATETIME NOT NULL, UNIQUE (org_id, slug) )
+table tile_outbound
+  col tile_id TEXT notnull=0 default=- pk=1
+  col last_seen DATETIME notnull=1 default=- pk=0
+  col bytes INTEGER notnull=1 default=0 pk=0
+  fk tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (tile_id)
+  sql CREATE TABLE tile_outbound ( tile_id TEXT PRIMARY KEY REFERENCES tiles (id) ON DELETE CASCADE, last_seen DATETIME NOT NULL, bytes INTEGER NOT NULL DEFAULT 0 )
 table tile_vips
   col tile_id TEXT notnull=0 default=- pk=1
   col node_id TEXT notnull=1 default=- pk=0

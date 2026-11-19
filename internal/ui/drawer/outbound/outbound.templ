@@ -1,0 +1,71 @@
+// Package outbound is the Internet box's drawer on the env canvas: which
+// tiles reached out, when last, how much.
+package outbound
+
+import (
+	"fmt"
+	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// Base is the drawer's address under an env.
+const Base = "/-/internet"
+
+type View struct {
+	Live string // the drawer's own URL, polled to stay current
+	Rows []Row
+}
+
+type Row struct {
+	Name     string
+	LastSeen time.Time
+	Bytes    int64
+	Live     bool
+}
+
+templ Drawer(v View) {
+	@c.Drawer(c.DrawerView{Title: "Internet", Kind: "outbound", Icon: "internet"}, body(v))
+}
+
+templ body(v View) {
+	<div id="tab-outbound">
+		@c.LiveTab(v.Live, "tab-outbound")
+		@c.Section("Outbound", "env", "Tiles in this environment that reached the internet.") {
+			if len(v.Rows) == 0 {
+				<p class="text-sm text-rw-muted">No tile has reached out yet.</p>
+			}
+			<ul class="divide-y divide-rw-border">
+				for _, r := range v.Rows {
+					<li class="flex flex-wrap items-center gap-2 py-2.5 text-sm">
+						<span class="font-mono text-rw-text">{ r.Name }</span>
+						if r.Live {
+							@c.Chip("now", "accent")
+						} else {
+							<span class="text-xs text-rw-muted">
+								@c.Time(r.LastSeen, c.WhenLayout)
+							</span>
+						}
+						<span class="ml-auto text-xs text-rw-muted">{ size(r.Bytes) }</span>
+					</li>
+				}
+			</ul>
+			if len(v.Rows) > 0 {
+				@c.ZoneNote()
+			}
+		}
+	</div>
+}
+
+// size is a byte count in the unit it reads best in.
+func size(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
+}

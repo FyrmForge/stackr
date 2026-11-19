@@ -73,10 +73,21 @@ func TestCanvasEgress(t *testing.T) {
 		!v.Walled {
 		t.Errorf("egress: nodes %+v edges %+v walled %v", v.Nodes, v.Edges, v.Walled)
 	}
+	// Traffic off only hides the markers: the box and its line stay.
 	off := graph.All
 	off.Traffic = false
 	v, _ = orch.graph.Build(ctx, s, graph.In{Show: off, Traffic: lanes})
-	if len(v.Edges) != 0 || len(v.Nodes) != 1 || v.Walled {
-		t.Errorf("traffic off: nodes %+v edges %+v walled %v, want api only (no params, so no vars card)", v.Nodes, v.Edges, v.Walled)
+	if len(v.Edges) != 1 || len(v.Nodes) != 2 || !v.Walled {
+		t.Errorf("traffic off: nodes %+v edges %+v walled %v, want api and the internet box", v.Nodes, v.Edges, v.Walled)
+	}
+	// A tile that reached out once and is quiet now keeps its box and line.
+	v, _ = orch.graph.Build(ctx, s, graph.In{Show: off, Outbound: []store.TileOutbound{{TileID: tl.ID, LastSeen: time.Now(), Bytes: 9}}})
+	if len(v.Edges) != 1 || v.Edges[0] != (graph.Edge{Kind: "egress", From: tl.ID, To: "internet"}) || len(v.Nodes) != 2 {
+		t.Errorf("idle: nodes %+v edges %+v, want the egress edge and the box", v.Nodes, v.Edges)
+	}
+	// Never reached out: neither.
+	v, _ = orch.graph.Build(ctx, s, graph.In{Show: graph.All})
+	if len(v.Edges) != 0 || len(v.Nodes) != 1 {
+		t.Errorf("never: nodes %+v edges %+v", v.Nodes, v.Edges)
 	}
 }

@@ -211,8 +211,11 @@ type In struct {
 	Show    Show
 	Status  bool
 	Traffic []ltraffic.Edge
-	Sync    map[string]string // env canvas: tile slug -> new | edited | removed; nil = no overlay
-	New     []store.Tile      // env canvas: the rows a sync would create, drawn as ghosts
+	// Outbound is the env's tiles that ever reached the internet; their box
+	// and line stay, whether or not traffic flows now.
+	Outbound []store.TileOutbound
+	Sync     map[string]string // env canvas: tile slug -> new | edited | removed; nil = no overlay
+	New      []store.Tile      // env canvas: the rows a sync would create, drawn as ghosts
 }
 
 // Build is the canvas at s.
@@ -969,12 +972,21 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	}
 
 	// The system column: the proxy when anything is proxied, the internet
-	// when a tile talked to it in the last sample.
+	// when a tile ever reached it. The line and the box stay; the markers
+	// (rates, pulses) come from the live lanes only.
 	egress := map[string]bool{}
-	for _, l := range in.Traffic {
-		if t, ok := byID[l.From]; ok && l.To == ltraffic.Internet && !egress[t.Slug] {
+	reach := func(id string) {
+		if t, ok := byID[id]; ok && !egress[t.Slug] {
 			egress[t.Slug] = true
 			v.Edges = append(v.Edges, Edge{EdgeEgress, t.ID, KindInternet})
+		}
+	}
+	for _, o := range in.Outbound {
+		reach(o.TileID)
+	}
+	for _, l := range in.Traffic {
+		if l.To == ltraffic.Internet {
+			reach(l.From)
 		}
 	}
 	if proxied {
@@ -1234,9 +1246,6 @@ func filter(v *View, s Show) {
 			}
 		}
 	}
-	if !s.Traffic {
-		drop[KindInternet] = true
-	}
 	if !s.Operated {
 		for _, n := range v.Nodes {
 			if n.Kind == KindRef {
@@ -1254,7 +1263,7 @@ func filter(v *View, s Show) {
 	edges := v.Edges[:0]
 	for _, e := range v.Edges {
 		off := drop[e.From] || drop[e.To] || (!s.Refs && e.Kind == EdgeRef) ||
-			(!s.Startup && e.Kind == EdgeStartup) || (!s.Traffic && e.Kind == EdgeEgress)
+			(!s.Startup && e.Kind == EdgeStartup)
 		if !off {
 			edges = append(edges, e)
 		}
