@@ -307,3 +307,38 @@ func (o *Orchestrator) RestartPending(tileID string) bool {
 	_, ok := o.restartPending.Load(tileID)
 	return ok
 }
+
+// paramResolves says whether the value a job parked on now exists, by a store
+// read of the env and org blocks its tile reads (deploy.ParamSnapshot). A form
+// it does not look up (a server or qualified ref) answers true: the job
+// re-runs and its handler decides.
+func (o *Orchestrator) paramResolves(ctx context.Context, j Job, param string) (bool, error) {
+	key, org := strings.CutPrefix(param, "org.")
+	if strings.ContainsAny(key, "[:") || strings.Count(key, ".") != 1 || strings.HasPrefix(key, "server.") {
+		return true, nil
+	}
+	var p map[string]any
+	_ = json.Unmarshal([]byte(j.Payload), &p)
+	envID := o.jobEnv(ctx, p)
+	if envID == "" {
+		return true, nil
+	}
+	e, err := o.envs.Get(ctx, envID)
+	if err != nil {
+		return true, nil // the env is gone: let the handler say so
+	}
+	st, err := o.stacks.Get(ctx, e.StackID)
+	if err != nil {
+		return true, nil
+	}
+	snap, err := o.deploy.ParamSnapshot(ctx, e, st, true)
+	if err != nil {
+		return false, err
+	}
+	vals := snap.EnvParams
+	if org {
+		vals = snap.OrgParams
+	}
+	_, ok := vals[key]
+	return ok, nil
+}

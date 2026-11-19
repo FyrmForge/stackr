@@ -3,7 +3,6 @@ package jobs_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -615,11 +614,11 @@ func TestFailKeepsPayload(t *testing.T) {
 	}
 }
 
-// A job parked on an unset param is not re-run while the stamp holds, and
-// logs nothing; a changed stamp runs it once.
+// A job parked on an unset param is not re-run while its param is unset, and
+// logs nothing; once it resolves the job runs once.
 func TestParkedRechecksQuietly(t *testing.T) {
 	var calls atomic.Int32
-	var stamp atomic.Int32
+	var set atomic.Bool
 	h := func(context.Context, *jobs.Run) error {
 		if calls.Add(1) == 1 {
 			return errs.Unset{Param: "app.db_url"}
@@ -627,7 +626,7 @@ func TestParkedRechecksQuietly(t *testing.T) {
 		return nil
 	}
 	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{
-		Stamp: func(context.Context) (string, error) { return fmt.Sprint(stamp.Load()), nil },
+		ParamSet: func(context.Context, store.Job) (bool, error) { return set.Load(), nil },
 	})
 	start(t, r)
 	id := enqueue(t, r, "a", "t1")
@@ -636,7 +635,7 @@ func TestParkedRechecksQuietly(t *testing.T) {
 	if n := calls.Load(); n != 1 {
 		t.Fatalf("handler ran %d times while parked", n)
 	}
-	stamp.Add(1)
+	set.Store(true)
 	waitState(t, l, id, job.Done)
 	if n := calls.Load(); n != 2 {
 		t.Fatalf("handler ran %d times", n)
@@ -646,6 +645,62 @@ func TestParkedRechecksQuietly(t *testing.T) {
 	if string(b) != "waiting: param app.db_url is not set; the job resumes once it is\n" {
 		t.Errorf("log = %q", b)
 	}
+}
+
+// A failing param read parks only its own job; the others of the tick go on.
+func TestParkedReadErrorSkipsOnlyThatJob(t *testing.T) {
+	var calls atomic.Int32
+	h := func(_ context.Context, r *jobs.Run) error {
+		if calls.Add(1) <= 2 {
+			return errs.Unset{Param: "p." + r.Job.LockSet[0]}
+		}
+		return nil
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{
+		ParamSet: func(_ context.Context, j store.Job) (bool, error) {
+			if *j.WaitingParam == "p.bad" {
+				return false, errors.New("read failed")
+			}
+			return true, nil
+		},
+	})
+	start(t, r)
+	bad := enqueue(t, r, "a", "bad")
+	waitState(t, l, bad, job.Waiting)
+	good := enqueue(t, r, "a", "good")
+	waitState(t, l, good, job.Done)
+	waitState(t, l, bad, job.Waiting)
+}
+
+// A job parked behind another job's wait re-runs once that job is cancelled,
+// though the param it names is still unset.
+func TestParkedBehindAJobResumesWhenItStopsWaiting(t *testing.T) {
+	var owner atomic.Value
+	var calls atomic.Int32
+	hA := func(context.Context, *jobs.Run) error { return errs.Unset{Param: "p"} }
+	hB := func(context.Context, *jobs.Run) error {
+		if calls.Add(1) == 1 {
+			return errs.Unset{Param: "p", Via: owner.Load().(string)}
+		}
+		return nil
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": hA, "b": hB}, jobs.Options{
+		ParamSet: func(context.Context, store.Job) (bool, error) { return false, nil },
+	})
+	start(t, r)
+	a := enqueue(t, r, "a", "t1")
+	owner.Store(a)
+	waitState(t, l, a, job.Waiting)
+	b := enqueue(t, r, "b", "t2")
+	waitState(t, l, b, job.Waiting)
+	time.Sleep(200 * time.Millisecond)
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("dependent ran %d times while its dependency waits", n)
+	}
+	if err := r.Cancel(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, l, b, job.Done)
 }
 
 // A handler that grows its job's lock set and then fails keeps the growth:

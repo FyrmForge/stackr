@@ -239,3 +239,27 @@ func TestRedeployPendingClearsOnSuccess(t *testing.T) {
 		t.Error("the mark stayed after a deploy that succeeded")
 	}
 }
+
+// A param park resolves on its own value only: an env param for a plain
+// ref, an org param for an org. ref; another param landing resolves nothing.
+func TestParamResolvesReadsTheJobsOwnParam(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	j := Job{Payload: `{"env_id":"` + w.env + `"}`}
+	for _, c := range []struct {
+		param string
+		scope ParamScope
+	}{{"app.k", ParamScope{Kind: "env", ID: w.env}}, {"org.app.k", ParamScope{Kind: "org", ID: w.org}}} {
+		_, err := w.orch.SetParams(ctx, ParamScope{Kind: "env", ID: w.env}, []ParamEntry{{Collection: "app", Name: "other", Kind: "param", Value: "x"}})
+		must(t, err)
+		if ok, err := w.orch.paramResolves(ctx, j, c.param); err != nil || ok {
+			t.Fatalf("%s before it is set: %v, %v", c.param, ok, err)
+		}
+		_, err = w.orch.SetParams(ctx, c.scope, []ParamEntry{{Collection: "app", Name: "k", Kind: "param", Value: "v"}})
+		must(t, err)
+		if ok, err := w.orch.paramResolves(ctx, j, c.param); err != nil || !ok {
+			t.Fatalf("%s after it is set: %v, %v", c.param, ok, err)
+		}
+	}
+}

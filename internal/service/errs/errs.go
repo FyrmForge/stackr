@@ -70,8 +70,9 @@ func (e Invalid) Error() string {
 }
 
 // Unset is a param ref with no value in any scope. A job that meets it waits
-// on Param instead of failing.
-type Unset struct{ Param string }
+// on Param instead of failing. Via is the job of another tile that waits on
+// it, when this job waits only because of that one ("" = it reads Param).
+type Unset struct{ Param, Via string }
 
 func (e Unset) Error() string {
 	return "param " + e.Param + " is not set"
