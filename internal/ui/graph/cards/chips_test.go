@@ -29,3 +29,17 @@ func TestNotedCardDropsKindChip(t *testing.T) {
 		t.Errorf("card with a stop note:\n%s", card)
 	}
 }
+
+// An env card that has a release waiting keeps that text whole: the domain
+// chip is not drawn beside it.
+func TestWaitingTextKeepsTheRow(t *testing.T) {
+	f := FooterView{Kind: "env", Status: "running", Wait: 12, Domain: "gate.example.test"}
+	out := render(t, Footer("e", f))
+	if !strings.Contains(out, "Release 12 waiting") || strings.Contains(out, "gate.example.test") {
+		t.Errorf("waiting card:\n%s", out)
+	}
+	f.Wait = 0
+	if out := render(t, Footer("e", f)); !strings.Contains(out, "gate.example.test") {
+		t.Errorf("no domain without a waiting release:\n%s", out)
+	}
+}
