@@ -245,6 +245,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if errors.As(err, &st) {
 				r.Job.Payload = withStopped(r.Job.Payload, st)
 			}
+			o.lockEnvTiles(ctx, r, p.EnvID)
 			return o.parkOnApproval(ctx, r, err)
 		}),
 		kindEnvSync: payload(func(ctx context.Context, r *jobs.Run, p envSyncJob) error {
@@ -269,6 +270,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
+			o.lockEnvTiles(ctx, r, p.EnvID)
 			return o.parkOnApproval(ctx, r, err)
 		}),
 		kindRun: payload(func(ctx context.Context, r *jobs.Run, p runJob) error {
@@ -866,6 +868,14 @@ func (o *Orchestrator) annotate(ctx context.Context, js []Job) ([]Job, error) {
 		js[i].Scope = o.jobScope(ctx, js[i])
 		js[i].Waits = job.Waits(js[i], live, held)
 		js[i].Line = jobLine(js[i])
+		if js[i].Kind == string(kindPromote) {
+			var p promoteJob
+			if json.Unmarshal([]byte(js[i].Payload), &p) == nil {
+				if r, err := o.releases.Get(ctx, p.ReleaseID); err == nil {
+					js[i].Line = fmt.Sprintf("promote of release %d", r.Number)
+				}
+			}
+		}
 	}
 	return js, nil
 }
@@ -962,4 +972,28 @@ func (o *Orchestrator) TileJobs(ctx context.Context, tileIDs []string, limit int
 // Conflict, and so is an already finished job.
 func (o *Orchestrator) CancelJob(ctx context.Context, id string) error {
 	return o.jobs.Cancel(ctx, id)
+}
+
+// lockEnvTiles adds the env's tiles the job created to its lock set, so the
+// tile's Deployments tab lists it (job_tiles follows lock_set by trigger). The
+// set was fixed at enqueue; a tile a promote or sync creates is not in it.
+// Written at once: ParkIfRunning writes the payload only, Finish a copy.
+func (o *Orchestrator) lockEnvTiles(ctx context.Context, r *jobs.Run, envID string) {
+	ts, err := o.tiles.List(ctx, envID)
+	if err != nil {
+		return
+	}
+	n := len(r.Job.LockSet)
+	for _, t := range ts {
+		if !slices.Contains(r.Job.LockSet, t.ID) {
+			r.Job.LockSet = append(r.Job.LockSet, t.ID)
+		}
+	}
+	if len(r.Job.LockSet) == n {
+		return
+	}
+	slices.Sort(r.Job.LockSet)
+	if err := o.store.Jobs.Update(context.WithoutCancel(ctx), r.Job); err != nil {
+		slog.Error("recording the job's tiles", "job", r.Job.ID, "error", err)
+	}
 }

@@ -62,6 +62,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(d+"/runs/:run/stop", h.StopRun, write)
 	g.POST(d+"/domains", h.AttachDomain, require("domain.write"))
 	g.POST(d+"/domains/:domain/detach", h.DetachDomain, require("domain.write"))
+	g.POST(d+"/domains/:domain/recheck", h.RecheckCert, require("domain.write"))
 	g.POST(d+"/domains/:domain/raw", h.SetRawCaddy, require("proxy.admin"))
 	g.POST(d+"/domains/:domain/records", h.AddRecord, require("domain.write"))
 	g.POST(d+"/domains/:domain/records/remove", h.RemoveRecord, require("domain.write"))
@@ -223,7 +224,7 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		if can(c, "deployment.cancel") {
 			cancel = v.Base
 		}
-		body = ui.Jobs(v, jobsView(v.Base, cancel, js))
+		body = ui.Jobs(v, jobsView(v.Base, cancel, can(c, "tile.write"), js))
 	case "runs":
 		rs, err := h.orch.Runs(ctx, t.ID, 20)
 		if err != nil {
@@ -340,6 +341,12 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		gates := h.orch.DomainGates(ctx, ids)
 		for i := range rows {
 			rows[i].Gate, rows[i].Locked = gates[rows[i].ID].User, gates[rows[i].ID].Locked
+			cs, ok := h.orch.CertState(rows[i].Host)
+			rc := ""
+			if can(c, "domain.write") {
+				rc = base(c) + "/domains/" + rows[i].ID + "/recheck?open=network"
+			}
+			rows[i].Cert = render.Cert(cs, ok, rc)
 			rs, err := h.orch.TileDomainRecords(ctx, t.ID, rows[i].ID)
 			if err != nil {
 				return sv, err
@@ -354,7 +361,11 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 			}
 			rows[i].Records = &v
 		}
-		sv.Domains = &ui.DomainsView{Rows: rows, Admin: p != nil && p.Access.Admin, Managed: managed, AutoHost: auto}
+		refs, err := h.gateRefs(ctx, t.EnvironmentID)
+		if err != nil {
+			return sv, err
+		}
+		sv.Domains = &ui.DomainsView{GateRefs: refs, Rows: rows, Admin: p != nil && p.Access.Admin, Managed: managed, AutoHost: auto}
 		if t.ContainerPort != 0 {
 			sv.Domains.Port = strconv.Itoa(t.ContainerPort)
 		}
@@ -517,6 +528,17 @@ func (h *handler) AttachDomain(c echo.Context) error {
 		}
 		s.Port = n
 	}
+	if u := strings.TrimSpace(c.FormValue("gate_user")); u != "" {
+		refs, err := h.gateRefs(c.Request().Context(), tileOf(c).EnvironmentID)
+		if err != nil {
+			return h.after(c, "settings", "", err)
+		}
+		pw := c.FormValue("gate_pw")
+		if !slices.Contains(refs, pw) {
+			return h.refuseDomain(c, errs.Invalidf("gate_pw", "Pick the gate password from the env's variables or secrets."))
+		}
+		s.Extras.BasicAuth = &service.BasicAuth{User: u, Password: pw}
+	}
 	ctx, org := c.Request().Context(), middleware.ScopeOf(c).Org.ID
 	if c.FormValue("adopt") != "" {
 		if err := h.orch.AdoptDNSHost(ctx, org, s.Host); err != nil {
@@ -538,6 +560,21 @@ func (h *handler) AttachDomain(c echo.Context) error {
 		return h.refuseDomain(c, err)
 	}
 	return h.after(c, "settings", "Attached "+s.Host+".", err)
+}
+
+// gateRefs are the env's variable and secret names as references: the only
+// values a gate password may take from the form.
+func (h *handler) gateRefs(ctx context.Context, envID string) ([]string, error) {
+	ps, err := h.orch.MaskedParams(ctx, service.ParamScope{Kind: "env", ID: envID})
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]string, 0, len(ps))
+	for _, p := range ps {
+		refs = append(refs, "${{ params."+p.Collection+"."+p.Name+" }}")
+	}
+	slices.Sort(refs)
+	return refs, nil
 }
 
 // refuseDomain answers a refused add: the add form opens again with what
@@ -591,7 +628,7 @@ func (h *handler) offerReplace(c echo.Context, host string, adopt bool) error {
 // domainForm is the add domain form as posted, for drawing it again.
 func domainForm(c echo.Context) map[string]string {
 	form := map[string]string{}
-	for _, k := range []string{"host", "domain", "sub", "path", "port", "redirect_to", "forward_auth", "https"} {
+	for _, k := range []string{"host", "domain", "sub", "path", "port", "redirect_to", "forward_auth", "gate_user", "gate_pw", "https"} {
 		if v := c.FormValue(k); v != "" {
 			form[k] = v
 		}
@@ -628,6 +665,22 @@ func (h *handler) AddRecord(c echo.Context) error {
 func (h *handler) RemoveRecord(c echo.Context) error {
 	err := h.orch.RemoveTileDomainRecord(c.Request().Context(), tileOf(c).ID, c.Param("domain"), c.FormValue("record"))
 	return h.after(c, "settings", "Record removed.", err)
+}
+
+// POST …/domains/:domain/recheck: probe the host's certificate now.
+func (h *handler) RecheckCert(c echo.Context) error {
+	ctx := c.Request().Context()
+	ds, err := h.orch.Domains(ctx, tileOf(c).ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	for _, d := range ds {
+		if d.ID == c.Param("domain") {
+			_, err = h.orch.RecheckCert(ctx, tileOf(c).ID, d.Host)
+			return h.after(c, "settings", "Checked.", err)
+		}
+	}
+	return middleware.HTTPError(errs.ErrNotFound)
 }
 
 func (h *handler) SetRawCaddy(c echo.Context) error {

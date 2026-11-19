@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/route"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -180,22 +181,97 @@ func (o *Orchestrator) hostCertAlerts(ctx context.Context) {
 			continue
 		}
 		for _, h := range hosts {
-			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			c, err := certProbe(cctx, addr, h.Host)
-			cancel()
-			o.certHostAlert(ctx, n, h.Host, certProblem(c, err, h.Host, h.Added, now))
+			o.checkCert(ctx, n, addr, h, now)
 		}
 	}
 }
 
+// Cert statuses.
+const (
+	CertWaiting = "waiting" // a new host the proxy has not got a certificate for yet
+	CertFailed  = "failed"
+	CertValid   = "valid"
+)
+
+// CertState is what the last probe of a host found. Memory only: a restart
+// loses it and the next check refills it (ponytail: no schema).
+type CertState struct {
+	Status    string
+	Reason    string    // CertFailed: what is wrong
+	NotAfter  time.Time // the certificate's end, when one was read
+	CheckedAt time.Time
+}
+
+// CertState is the last probe of host; false = not checked yet.
+func (o *Orchestrator) CertState(host string) (CertState, bool) {
+	v, ok := o.certStates.Load(host)
+	if !ok {
+		return CertState{}, false
+	}
+	return v.(CertState), true
+}
+
+// checkCert probes one host on node n, keeps the state and raises or clears
+// its alert.
+func (o *Orchestrator) checkCert(ctx context.Context, n store.Node, addr string, h certHost, now time.Time) CertState {
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	c, err := certProbe(cctx, addr, h.Host)
+	cancel()
+	problem := certProblem(c, err, h.Host, h.Added, now)
+	st := CertState{Status: CertValid, Reason: problem, CheckedAt: now}
+	if c != nil && err == nil {
+		st.NotAfter = c.NotAfter
+	}
+	switch {
+	case problem != "":
+		st.Status = CertFailed
+	case err != nil || c.VerifyHostname(h.Host) != nil:
+		st.Status = CertWaiting
+	}
+	o.certStates.Store(h.Host, st)
+	o.certHostAlert(ctx, n, h.Host, problem)
+	return st
+}
+
+// RecheckCert probes one host of the tile now, not the daily pass over every
+// host, and answers the new state.
+func (o *Orchestrator) RecheckCert(ctx context.Context, tileID, host string) (CertState, error) {
+	ds, err := o.Domains(ctx, tileID)
+	if err != nil {
+		return CertState{}, err
+	}
+	if !slices.ContainsFunc(ds, func(d Domain) bool { return d.Host == host && d.HTTPS }) {
+		return CertState{}, fmt.Errorf("domain %s: %w", host, errs.ErrNotFound)
+	}
+	inv, _ := o.certHosts(ctx)
+	for nodeID, hosts := range inv {
+		i := slices.IndexFunc(hosts, func(h certHost) bool { return h.Host == host })
+		if i < 0 {
+			continue
+		}
+		n, err := o.store.Nodes.Get(ctx, nodeID)
+		if err != nil {
+			return CertState{}, err
+		}
+		addr := o.certAddr(ctx, n)
+		if addr == "" {
+			return CertState{}, errs.Refusedf("The node has no public address to check.")
+		}
+		return o.checkCert(ctx, n, addr, hosts[i], time.Now()), nil
+	}
+	return CertState{}, fmt.Errorf("domain %s: %w", host, errs.ErrNotFound)
+}
+
 // recheckFailingCerts runs the host check again while a host is failing, so
-// its problem goes when the certificate arrives, not at the next daily check.
+// its problem (or a new host's wait) goes when the certificate arrives, not at the next daily check.
 // It runs off the tick, one at a time: each host dial may take its timeout.
 // ponytail: dials every HTTPS host while one fails; narrow it to the failing
 // rows if an install with hundreds of hosts feels it.
 func (o *Orchestrator) recheckFailingCerts(ctx context.Context) {
 	rows, err := o.store.Settings.ListPrefix(ctx, "alert.certfail.")
-	if err != nil || len(rows) == 0 || !o.certRecheck.CompareAndSwap(false, true) {
+	waiting := false
+	o.certStates.Range(func(_, v any) bool { waiting = waiting || v.(CertState).Status == CertWaiting; return !waiting })
+	if err != nil || (len(rows) == 0 && !waiting) || !o.certRecheck.CompareAndSwap(false, true) {
 		return
 	}
 	o.detach(ctx, func(ctx context.Context) {

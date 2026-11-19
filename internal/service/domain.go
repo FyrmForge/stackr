@@ -23,6 +23,8 @@ type (
 	DomainExtras = domain.Extras
 	// ForwardAuth is the forward-auth block of DomainExtras.
 	ForwardAuth = domain.ForwardAuth
+	// BasicAuth is the gate block of DomainExtras: a user and a password reference.
+	BasicAuth = domain.BasicAuth
 )
 
 func (o *Orchestrator) Domains(ctx context.Context, tileID string) ([]Domain, error) {

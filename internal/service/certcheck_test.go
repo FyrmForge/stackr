@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -177,8 +178,8 @@ func TestPanelCertGraceAndRecheck(t *testing.T) {
 	}
 	w.orch.recheckFailingCerts(ctx)
 	w.orch.trustAsync.Wait() // it runs off the tick
-	if n := len(*dialled); n != 1 {
-		t.Fatalf("nothing failing, yet the recheck dialled (%d dials)", n)
+	if n := len(*dialled); n != 2 { // the name is still waiting, so the recheck looks again
+		t.Fatalf("nothing failing and nothing waiting would not dial, this waits: %d dials", n)
 	}
 
 	ctl, err := w.orch.nodeLeaf().Controller(ctx)
@@ -194,5 +195,44 @@ func TestPanelCertGraceAndRecheck(t *testing.T) {
 	w.orch.trustAsync.Wait()
 	if failing() != 0 {
 		t.Fatal("the recheck did not clear the problem once the certificate was there")
+	}
+}
+
+// A host with no certificate reads failed with the reason, a young one
+// waiting, and Check again now gives valid once the certificate is there.
+func TestCertStateAndRecheck(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	tl := w.tile(t, "web", false)
+	for i, d := range []store.Domain{{Host: "bad.acme.dev"}, {Host: "fresh.acme.dev"}} {
+		d.ID, d.TileID, d.Path, d.HTTPS, d.CreatedAt = "s"+string(rune('1'+i)), tl.ID, "/", true, time.Now().Add(-48*time.Hour)
+		if d.Host == "fresh.acme.dev" {
+			d.CreatedAt = time.Now()
+		}
+		must(t, w.st.Domains.Create(ctx, d))
+	}
+	certs := map[string]*x509.Certificate{}
+	fakeProbe(t, certs)
+	if _, ok := w.orch.CertState("bad.acme.dev"); ok {
+		t.Fatal("state before any check")
+	}
+	w.orch.hostCertAlerts(ctx)
+	if s, _ := w.orch.CertState("bad.acme.dev"); s.Status != CertFailed || !strings.Contains(s.Reason, "no certificate") {
+		t.Errorf("bad = %+v", s)
+	}
+	if s, _ := w.orch.CertState("fresh.acme.dev"); s.Status != CertWaiting {
+		t.Errorf("fresh = %+v", s)
+	}
+	end := time.Now().Add(60 * 24 * time.Hour)
+	certs["bad.acme.dev"] = certFor("bad.acme.dev", end)
+	s, err := w.orch.RecheckCert(ctx, tl.ID, "bad.acme.dev")
+	if err != nil || s.Status != CertValid || s.NotAfter.IsZero() {
+		t.Errorf("recheck = %+v, %v", s, err)
+	}
+	if g, _ := w.orch.CertState("bad.acme.dev"); g.Status != CertValid {
+		t.Errorf("stored = %+v", g)
+	}
+	if _, err := w.orch.RecheckCert(ctx, tl.ID, "other.dev"); err == nil {
+		t.Error("a host of no domain of the tile was rechecked")
 	}
 }
