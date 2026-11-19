@@ -217,7 +217,7 @@ func without(blob, name string) string {
 
 // jobsView is the rows; base is the tile's drawer URL, "" = the viewer
 // may not cancel. The tab polls itself, quickly while a job is moving.
-func jobsView(drawer, base string, js []service.Job) ui.JobsView {
+func jobsView(drawer, base string, retry bool, js []service.Job) ui.JobsView {
 	v := ui.JobsView{Poll: drawer + "?tab=jobs"}
 	env, _, _ := strings.Cut(drawer, "/tiles/") // the env's /-/ prefix, where its job logs are
 	for _, j := range js {
@@ -229,6 +229,9 @@ func jobsView(drawer, base string, js []service.Job) ui.JobsView {
 			When:  j.CreatedAt,
 			Error: j.Error,
 			Waits: j.Waits,
+		}
+		if j.State == "failed" && j.Kind == "promote" && retry {
+			r.Retry = drawer + "/deploy" // the promote's own retry is a whole-env job; this tile's deploy is the way back
 		}
 		if j.FinishedAt == nil {
 			v.Fast = true

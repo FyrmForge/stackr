@@ -252,6 +252,7 @@ type JobsView struct {
 // job has not started; "" = none. Href is the job's log page.
 type JobRow struct {
 	Kind, Line, State, Error, Cancel, Waits, Href string
+	Retry                                         string // POST target: the tile's normal deploy, on a failed row
 	When                                          time.Time
 }
 

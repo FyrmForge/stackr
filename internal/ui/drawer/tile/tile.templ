@@ -393,6 +393,9 @@ templ Jobs(v View, j JobsView) {
 									Quiet:   true,
 								})
 							}
+							if r.Retry != "" {
+								@c.PostButton("Retry", r.Retry)
+							}
 							@c.JobBadge(r.State)
 						</span>
 						if r.Waits != "" {
