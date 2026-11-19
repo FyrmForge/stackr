@@ -129,3 +129,12 @@ func TestSaveCopy(t *testing.T) {
 		t.Error("a hint says a save always redeploys")
 	}
 }
+
+func TestWaitsLineAgrees(t *testing.T) {
+	if got := waitsLine([]string{"api"}); got != "api waits for it." {
+		t.Errorf("one tile: %q", got)
+	}
+	if got := waitsLine([]string{"api", "web"}); got != "api and web wait for it." {
+		t.Errorf("two tiles: %q", got)
+	}
+}

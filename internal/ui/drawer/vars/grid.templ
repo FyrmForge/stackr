@@ -428,6 +428,9 @@ func dropVals(field string) string {
 }
 
 func waitsLine(tiles []string) string {
+	if len(tiles) == 1 {
+		return tiles[0] + " waits for it."
+	}
 	return NaturalList(tiles) + " wait for it."
 }
 
