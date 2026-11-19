@@ -92,22 +92,12 @@ class GraphCanvas extends HTMLElement {
     onResize = () => (this.touched ? this.apply() : this.fit());
     stale = false;
     onRefresh = (e) => {
-        if (e.target?.id !== "graph" || !this.querySelector("textarea:focus"))
-            return;
-        e.preventDefault();
-        if (e.type === "htmx:sseBeforeMessage")
-            this.stale = true;
+        if (e.target?.id === "graph" && this.querySelector("textarea:focus")) {
+            e.preventDefault();
+            this.stale ||= e.type === "htmx:sseBeforeMessage";
+        }
     };
-    onFocusOut = () => {
-        if (!this.stale)
-            return;
-        setTimeout(() => {
-            if (!this.stale || this.querySelector("textarea:focus"))
-                return;
-            this.stale = false;
-            window.htmx?.ajax("GET", location.pathname + location.search, { target: "#graph", select: "#graph", swap: "outerHTML" });
-        });
-    };
+    onFocusOut = () => void setTimeout(() => this.stale && !this.querySelector("textarea:focus") && ((this.stale = false), document.dispatchEvent(new Event("graph-stale"))));
     nodes = () => [...this.querySelectorAll(":scope > [data-world] > graph-node")];
     cards = () => this.nodes().filter((n) => !idOf(n).startsWith("note:"));
     ids = () => this.cards().map(idOf).join(" ");

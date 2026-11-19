@@ -479,3 +479,8 @@ document.addEventListener('input', function (evt) {
         });
     });
 })();
+
+// A canvas dropped a stream update while a note had focus: fetch the page's graph now.
+document.addEventListener('graph-stale', function () {
+    htmx.ajax('GET', location.pathname + location.search, { target: '#graph', select: '#graph', swap: 'outerHTML' });
+});

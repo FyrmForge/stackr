@@ -92,22 +92,11 @@ class GraphCanvas extends HTMLElement {
     this.wire(false);
   }
   private onResize = (): void => (this.touched ? this.apply() : this.fit());
-  // The page refreshes #graph (timer or stream); skip one while someone types in a note: saving it answers with the canvas as it is.
-  // A dropped stream message is never resent, so mark the canvas stale and fetch the page's graph once the note loses focus.
-  private stale = false;
-  private onRefresh = (e: Event): void => {
-    if ((e.target as Element | null)?.id !== "graph" || !this.querySelector("textarea:focus")) return;
-    e.preventDefault();
-    if (e.type === "htmx:sseBeforeMessage") this.stale = true;
+  // The page refreshes #graph (timer or stream); skip one while someone types in a note, a dropped stream one is fetched (main.js) once the note loses focus.
+  private stale = false; private onRefresh = (e: Event): void => {
+    if ((e.target as Element | null)?.id === "graph" && this.querySelector("textarea:focus")) { e.preventDefault(); this.stale ||= e.type === "htmx:sseBeforeMessage"; }
   };
-  private onFocusOut = (): void => {
-    if (!this.stale) return;
-    setTimeout(() => {
-      if (!this.stale || this.querySelector("textarea:focus")) return;
-      this.stale = false;
-      (window as unknown as { htmx?: { ajax: (m: string, u: string, o: object) => void } }).htmx?.ajax("GET", location.pathname + location.search, { target: "#graph", select: "#graph", swap: "outerHTML" });
-    });
-  };
+  private onFocusOut = (): void => void setTimeout(() => this.stale && !this.querySelector("textarea:focus") && ((this.stale = false), document.dispatchEvent(new Event("graph-stale"))));
   private nodes = (): HTMLElement[] => [...this.querySelectorAll<HTMLElement>(":scope > [data-world] > graph-node")];
   private cards = (): HTMLElement[] => this.nodes().filter((n) => !idOf(n).startsWith("note:"));
   private ids = (): string => this.cards().map(idOf).join(" ");
