@@ -66,8 +66,8 @@ func TestMakeServerConnectorAction(t *testing.T) {
 	if !strings.Contains(body, "Make this a server connector") || !strings.Contains(body, `hx-post="`+card+`/make-server"`) {
 		t.Fatalf("an admin is not offered the move:\n%s", body)
 	}
-	if rec := r.owner.do(t, "POST", card+"/make-server", nil, true); rec.Code != http.StatusNotFound {
-		t.Errorf("an owner's move = %d, want 404", rec.Code)
+	if rec := r.owner.do(t, "POST", card+"/make-server", nil, true); rec.Code != http.StatusForbidden {
+		t.Errorf("an owner's move = %d, want 403", rec.Code)
 	}
 	rec := admin.do(t, "POST", card+"/make-server", nil, true)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "It is a server connector now") || !strings.Contains(rec.Body.String(), "shared from the server") ||

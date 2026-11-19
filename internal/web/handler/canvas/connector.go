@@ -102,14 +102,14 @@ func (h *handler) mountConnector(site *echo.Group, a *middleware.Access) {
 	site.POST(k+"/make-server", func(c echo.Context) error {
 		cd, err := h.cardOf(c, "connector")
 		if err == nil {
-			_, err = h.orch.MakeServerConnector(c.Request().Context(), middleware.Principal(c), cd.s.Org.ID, cd.conn.ID)
+			_, err = h.orch.MakeServerConnector(c.Request().Context(), cd.s.Org.ID, cd.conn.ID)
 		}
 		if err != nil {
 			return h.after(c, cd, "settings", "", err)
 		}
 		cd, _ = h.cardOf(c, "connector")
 		return h.after(c, cd, "settings", "It is a server connector now, shared with this organization.", nil)
-	}, write)
+	}, a.Require("connector.admin"))
 	site.POST(k+"/delete", func(c echo.Context) error {
 		cd, err := h.cardOf(c, "connector")
 		if err == nil {
