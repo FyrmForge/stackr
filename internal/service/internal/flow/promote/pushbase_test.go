@@ -80,3 +80,33 @@ func TestSecondWaitingPushCarriesTheFirstBuild(t *testing.T) {
 		t.Errorf("second release y/config = %+v", p2)
 	}
 }
+
+const xyFile = "version: 1\nstack: shop\nladder: [dev, prd]\nhead: main\nbase:\n  tiles:\n" +
+	"    x: {port: 80, watch_paths: [\"^x/\"]}\n    y: {port: 80, watch_paths: [\"^y/\"]}\n"
+
+func (w *world) fakeBuild(built *[]string) {
+	w.f.Build = func(ctx context.Context, _ store.Stack, tl store.Tile, commit string, _ io.Writer) (string, error) {
+		*built = append(*built, tl.Slug+"@"+commit)
+		im, err := w.f.D.Images.Built(ctx, "stackr/"+tl.Slug+":"+commit, "")
+		return im.ID, err
+	}
+}
+
+// An env that runs nothing yet: the second push is built on the first, so tile
+// x is not built twice.
+func TestSecondPushOnAnEnvWithNoReleaseBuildsOnTheFirst(t *testing.T) {
+	w := setup(t)
+	w.files["c1"], w.files["c2"] = xyFile, xyFile
+	var built []string
+	w.fakeBuild(&built)
+	r1, _, err := w.f.Push(ctx, w.st.ID, Event{Repo: pushRepo, Branch: "main", Commit: "c1"}, io.Discard)
+	must(t, err)
+	r2, _, err := w.f.Push(ctx, w.st.ID, Event{Repo: pushRepo, Branch: "main", Commit: "c2", Changed: []string{"y/main.go"}}, io.Discard)
+	must(t, err)
+	if r2.BuiltOn == nil || *r2.BuiltOn != r1.ID {
+		t.Errorf("second release built on %v, want the first", r2.BuiltOn)
+	}
+	if len(built) != 3 || built[2] != "y@c2" {
+		t.Errorf("built %v, want x and y once, then y", built)
+	}
+}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -114,5 +115,24 @@ func TestPlanPREnvKeepsHeadWhenBaseDeclaresBranch(t *testing.T) {
 		if c.Kind == "env" && c.Field == "from" {
 			t.Fatalf("PR env from planned: %+v", c)
 		}
+	}
+}
+
+// A PR env not yet promoted: the second PR push builds on the first, not on
+// the base env's release again.
+func TestSecondPRPushBuildsOnTheFirst(t *testing.T) {
+	w := setup(t)
+	prEnv(t, w)
+	w.files["c1"], w.files["c2"], w.files["c3"] = xyFile, xyFile, xyFile
+	w.runs(t, w.dev, release.Pin{Slug: release.ConfigSlug, Repo: w.st.ConfigRepo, CommitSHA: "c1"})
+	ev := Event{Repo: pushRepo, Branch: "feat", PR: true, PRNumber: 1}
+	ev.Commit = "c2"
+	r1, _, err := w.f.Push(ctx, w.st.ID, ev, io.Discard)
+	must(t, err)
+	ev.Commit, ev.Changed = "c3", []string{"y/main.go"}
+	r2, _, err := w.f.Push(ctx, w.st.ID, ev, io.Discard)
+	must(t, err)
+	if r2.BuiltOn == nil || *r2.BuiltOn != r1.ID {
+		t.Errorf("second PR release built on %v, want the first", r2.BuiltOn)
 	}
 }
