@@ -8,7 +8,7 @@ var StaticManifest = map[string]string{
 	"css/uplot.min.css": "css/uplot.min.df630c6a8d6f.css",
 	"css/xterm.css": "css/xterm.854a7c0fb70e.css",
 	"images/apple-touch-icon.png": "images/apple-touch-icon.bf7ad3fd7ca1.png",
-	"images/favicon-32.png": "images/favicon-32.714289f559fa.png",
+	"images/favicon-32.png": "images/favicon-32.e504cdaac119.png",
 	"images/logo-mark.png": "images/logo-mark.c7991eef2bbb.png",
 	"js/elements/confirm-dialog.js": "js/elements/confirm-dialog.27d1234ce5b9.js",
 	"js/elements/flash-toast.js": "js/elements/flash-toast.614ea70a3063.js",
