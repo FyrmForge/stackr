@@ -464,7 +464,7 @@ func TestRepoPicker(t *testing.T) {
 		`role="combobox"`,
 		`aria-controls="setup-repo-list"`,
 		`data-combo-list class="combo-list"`,
-		`data-value="acme/org" data-branch="main" class="combo-option"`,
+		`data-value="acme/org" data-branch="main" data-connector="" class="combo-option"`,
 		`list="setup-branch-list"`,
 		"data-path-note",
 		`name="connector_id"`,
