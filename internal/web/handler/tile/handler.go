@@ -361,7 +361,11 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 			}
 			rows[i].Records = &v
 		}
-		sv.Domains = &ui.DomainsView{Rows: rows, Admin: p != nil && p.Access.Admin, Managed: managed, AutoHost: auto}
+		refs, err := h.gateRefs(ctx, t.EnvironmentID)
+		if err != nil {
+			return sv, err
+		}
+		sv.Domains = &ui.DomainsView{GateRefs: refs, Rows: rows, Admin: p != nil && p.Access.Admin, Managed: managed, AutoHost: auto}
 		if t.ContainerPort != 0 {
 			sv.Domains.Port = strconv.Itoa(t.ContainerPort)
 		}
@@ -524,6 +528,17 @@ func (h *handler) AttachDomain(c echo.Context) error {
 		}
 		s.Port = n
 	}
+	if u := strings.TrimSpace(c.FormValue("gate_user")); u != "" {
+		refs, err := h.gateRefs(c.Request().Context(), tileOf(c).EnvironmentID)
+		if err != nil {
+			return h.after(c, "settings", "", err)
+		}
+		pw := c.FormValue("gate_pw")
+		if !slices.Contains(refs, pw) {
+			return h.refuseDomain(c, errs.Invalidf("gate_pw", "Pick the gate password from the env's variables or secrets."))
+		}
+		s.Extras.BasicAuth = &service.BasicAuth{User: u, Password: pw}
+	}
 	ctx, org := c.Request().Context(), middleware.ScopeOf(c).Org.ID
 	if c.FormValue("adopt") != "" {
 		if err := h.orch.AdoptDNSHost(ctx, org, s.Host); err != nil {
@@ -545,6 +560,21 @@ func (h *handler) AttachDomain(c echo.Context) error {
 		return h.refuseDomain(c, err)
 	}
 	return h.after(c, "settings", "Attached "+s.Host+".", err)
+}
+
+// gateRefs are the env's variable and secret names as references: the only
+// values a gate password may take from the form.
+func (h *handler) gateRefs(ctx context.Context, envID string) ([]string, error) {
+	ps, err := h.orch.MaskedParams(ctx, service.ParamScope{Kind: "env", ID: envID})
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]string, 0, len(ps))
+	for _, p := range ps {
+		refs = append(refs, "${{ params."+p.Collection+"."+p.Name+" }}")
+	}
+	slices.Sort(refs)
+	return refs, nil
 }
 
 // refuseDomain answers a refused add: the add form opens again with what
@@ -598,7 +628,7 @@ func (h *handler) offerReplace(c echo.Context, host string, adopt bool) error {
 // domainForm is the add domain form as posted, for drawing it again.
 func domainForm(c echo.Context) map[string]string {
 	form := map[string]string{}
-	for _, k := range []string{"host", "domain", "sub", "path", "port", "redirect_to", "forward_auth", "https"} {
+	for _, k := range []string{"host", "domain", "sub", "path", "port", "redirect_to", "forward_auth", "gate_user", "gate_pw", "https"} {
 		if v := c.FormValue(k); v != "" {
 			form[k] = v
 		}
