@@ -218,10 +218,10 @@ func without(blob, name string) string {
 
 // jobsView is the rows; base is the tile's drawer URL, "" = the viewer
 // may not cancel. The tab polls itself, quickly while a job is moving.
-func jobsView(drawer, base string, retry bool, js []service.Job) ui.JobsView {
+func jobsView(drawer, slug, base string, retry bool, js []service.Job) ui.JobsView {
 	v := ui.JobsView{Poll: drawer + "?tab=jobs"}
 	env, _, _ := strings.Cut(drawer, "/tiles/") // the env's /-/ prefix, where its job logs are
-	for _, j := range js {
+	for i, j := range js {
 		r := ui.JobRow{
 			Href:  env + "/jobs/" + j.ID,
 			Kind:  j.Kind,
@@ -230,8 +230,10 @@ func jobsView(drawer, base string, retry bool, js []service.Job) ui.JobsView {
 			When:  j.CreatedAt,
 			Error: j.Error,
 			Waits: j.Waits,
+			Here:  j.State == "failed" && j.Kind == "promote" && slug != "" && service.StoppedAt(j) == slug,
 		}
-		if j.State == "failed" && j.Kind == "promote" && retry {
+		// Only the newest row: an older failure is not what the tile is stuck on.
+		if i == 0 && j.State == "failed" && j.Kind == "promote" && retry {
 			r.Retry = drawer + "/deploy" // the promote's own retry is a whole-env job; this tile's deploy is the way back
 		}
 		if j.FinishedAt == nil {

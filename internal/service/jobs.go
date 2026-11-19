@@ -252,7 +252,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			o.ensureMesh(ctx)
 			pre, _ := o.tiles.List(ctx, p.EnvID)
-			plan, err := o.promote.ApplyTicked(context.WithValue(withMayPlace(ctx, p.MayPlace), placeAdminKey{}, p.Admin), p.EnvID, p.ReleaseID, p.Ticked, r.Log, r.Swap)
+			plan, err := o.promote.ApplyTicked(context.WithValue(withMayPlace(ctx, p.MayPlace), placeAdminKey{}, p.Admin), p.EnvID, p.ReleaseID, p.Ticked, lockLog{ctx, o, r, p.EnvID}, r.Swap)
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
@@ -260,7 +260,6 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if errors.As(err, &st) {
 				r.Job.Payload = withStopped(r.Job.Payload, st)
 			}
-			o.lockEnvTiles(ctx, r, p.EnvID)
 			return o.parkOnApproval(ctx, r, err)
 		}),
 		kindEnvSync: payload(func(ctx context.Context, r *jobs.Run, p envSyncJob) error {
@@ -273,9 +272,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			if len(p.Owed) > 0 {
 				// Parked after its writes: deploy what it still owes, no re-plan.
-				plan, err = o.promote.SyncRollout(ctx, p.Owed, r.Log, r.Swap)
+				plan, err = o.promote.SyncRollout(ctx, p.Owed, lockLog{ctx, o, r, p.EnvID}, r.Swap)
 			} else {
-				plan, err = o.promote.SyncApply(ctx, p.EnvID, p.FromID, p.Keep, p.Sig, r.Log, r.Swap)
+				plan, err = o.promote.SyncApply(ctx, p.EnvID, p.FromID, p.Keep, p.Sig, lockLog{ctx, o, r, p.EnvID}, r.Swap)
 			}
 			_, unset := errs.IsUnset(err)
 			_, approval := errs.IsNeedsApproval(err)
@@ -285,7 +284,6 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
-			o.lockEnvTiles(ctx, r, p.EnvID)
 			return o.parkOnApproval(ctx, r, err)
 		}),
 		kindRun: payload(func(ctx context.Context, r *jobs.Run, p runJob) error {
@@ -1012,20 +1010,35 @@ func (o *Orchestrator) CancelJob(ctx context.Context, id string) error {
 	return o.jobs.Cancel(ctx, id)
 }
 
-// lockEnvTiles adds the env's tiles the job created to its lock set, so the
-// tile's Deployments tab lists it (job_tiles follows lock_set by trigger). The
-// set was fixed at enqueue; a tile a promote or sync creates is not in it.
-// Written at once: ParkIfRunning writes the payload only, Finish a copy.
-func (o *Orchestrator) lockEnvTiles(ctx context.Context, r *jobs.Run, envID string) {
-	ts, err := o.tiles.List(ctx, envID)
-	if err != nil {
-		return
+// lockLog is the log a promote or env sync writes to: each "deploying <slug>"
+// line first adds that tile to the job's lock set, so the tile's Deployments
+// tab lists the job (job_tiles follows lock_set by trigger) and a tile the job
+// created holds queued jobs. Only tiles the job deployed or attempted get in;
+// the set was fixed at enqueue and a created tile is not in it.
+type lockLog struct {
+	ctx   context.Context
+	o     *Orchestrator
+	r     *jobs.Run
+	envID string
+}
+
+func (l lockLog) Write(p []byte) (int, error) {
+	if slug, ok := strings.CutPrefix(strings.TrimSuffix(string(p), "\n"), "deploying "); ok {
+		if t, err := l.o.tiles.GetBySlug(l.ctx, l.envID, slug); err == nil {
+			if err := l.r.Lock(l.ctx, t.ID); err != nil {
+				slog.Error("recording the job's tile", "job", l.r.Job.ID, "error", err)
+			}
+		}
 	}
-	ids := make([]string, len(ts))
-	for i, t := range ts {
-		ids[i] = t.ID
+	return l.r.Log.Write(p)
+}
+
+// StoppedAt is the slug of the tile a failed promote stopped at, "" when it
+// recorded none.
+func StoppedAt(j Job) string {
+	var p struct {
+		StoppedAt string `json:"stopped_at"`
 	}
-	if err := r.Lock(ctx, ids...); err != nil {
-		slog.Error("recording the job's tiles", "job", r.Job.ID, "error", err)
-	}
+	_ = json.Unmarshal([]byte(j.Payload), &p)
+	return p.StoppedAt
 }
