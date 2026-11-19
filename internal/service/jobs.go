@@ -903,17 +903,13 @@ func (o *Orchestrator) annotate(ctx context.Context, js []Job) ([]Job, error) {
 }
 
 // parkedWaits is what a job parked on a value (or an approval) waits for, ""
-// for a job that is not parked. A job back queued or running for its
-// re-check has no waiting_param on its row: the runner remembers it.
+// for a job that is not waiting: a resumed one is queued or running again and
+// waits for nothing.
 func (o *Orchestrator) parkedWaits(j Job) string {
-	p := o.jobs.ParkedParam(j.ID)
-	if j.WaitingParam != nil {
-		p = *j.WaitingParam
-	}
-	if p == "" || (j.State != job.Waiting && j.State != job.Queued && j.State != job.Running) {
+	if j.State != job.Waiting || j.WaitingParam == nil {
 		return ""
 	}
-	return "Waits for " + p
+	return "Waits for " + *j.WaitingParam
 }
 
 // jobScope names the stack, or stack/env, a job's payload is about, "" for a

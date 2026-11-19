@@ -96,7 +96,7 @@ func (o *Orchestrator) ParkedOn(ctx context.Context, stackID, envID string) []Pa
 		var m map[string]any
 		_ = json.Unmarshal([]byte(pj.Job.Payload), &m)
 		id := o.jobEnv(ctx, m)
-		if id == "" || (envID != "" && id != envID) || !o.stillUnset(ctx, pj, id) {
+		if id == "" || (envID != "" && id != envID) {
 			continue
 		}
 		e, err := o.envs.Get(ctx, id)
