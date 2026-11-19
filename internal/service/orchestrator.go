@@ -914,6 +914,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				have, err := orch.hostgrant.Of(ctx, p.HostAccess.Stack)
 				return err == nil && len(ask.Missing(have)) == 0, err
 			},
+			// A job parked on an unset value re-runs once a param changes
+			// (no git, no plan, no log line in between).
+			Stamp:   orch.params.Stamp,
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true, kindBucketRestore: true},

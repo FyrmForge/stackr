@@ -466,3 +466,16 @@ func TestReadOutputsHaveTheirOwnTarget(t *testing.T) {
 		}
 	}
 }
+
+// The stamp changes on every write, so a parked job re-runs once a value lands.
+func TestStampChangesOnWrite(t *testing.T) {
+	l := params.New(servicetest.Store(t).Params)
+	a, err := l.Stamp(ctx)
+	must(t, err)
+	must(t, l.Set(ctx, env, params.Entry{Collection: "app", Name: "k", Kind: params.Secret, Value: "v"}))
+	b, err := l.Stamp(ctx)
+	must(t, err)
+	if a == b {
+		t.Fatalf("stamp unchanged after a write: %q", a)
+	}
+}
