@@ -409,8 +409,19 @@ class GraphCanvas extends HTMLElement {
                     break;
             }
             placed.push(r);
+            this.backing(label, r);
         }
         this.lanes();
+    }
+    backing(label, r) {
+        let bg = label.previousElementSibling;
+        if (!bg?.matches("rect[data-edge-label-bg]")) {
+            bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            bg.setAttribute("data-edge-label-bg", "");
+            label.before(bg);
+        }
+        for (const [k, v] of Object.entries({ x: r.x - r.w * 0.08, y: r.y - r.h * 0.2, width: r.w * 1.16, height: r.h * 1.4 }))
+            bg.setAttribute(k, String(v));
     }
     wrap() {
         for (const c of this.querySelectorAll(":scope > [data-world] > graph-node[members]")) {

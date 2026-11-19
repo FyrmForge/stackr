@@ -116,10 +116,6 @@ templ Canvas(v View) {
 				<marker id="tunnel-arrow" viewBox="0 0 8 8" refX="8" refY="4" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto" fill="context-stroke">
 					<path d="M0 0 L8 4 L0 8 z"></path>
 				</marker>
-				<filter id="edge-label-bg" x="-0.08" y="-0.2" width="1.16" height="1.4">
-					<feFlood></feFlood>
-					<feMerge><feMergeNode></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
-				</filter>
 			</defs>
 			if v.Walled {
 				@divider(v)

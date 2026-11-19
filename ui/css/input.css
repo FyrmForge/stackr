@@ -847,10 +847,9 @@ svg[data-edges] path[data-edge-hit] { stroke: transparent; stroke-width: 16; fil
    backing so no line shows between its words. */
 graph-canvas svg[data-edges] text[data-edge-label] {
     font: 500 11px ui-monospace, monospace; fill: rgb(var(--rw-text));
-    filter: url(#edge-label-bg);
     text-anchor: middle; pointer-events: none;
 }
-graph-canvas svg[data-edges] #edge-label-bg feFlood { flood-color: var(--rw-edge-label-halo); }
+graph-canvas svg[data-edges] rect[data-edge-label-bg] { fill: var(--rw-edge-label-halo); pointer-events: none; }
 /* The server boundary. */
 graph-canvas svg[data-edges] [data-divider] line { stroke: rgb(var(--rw-strong)); stroke-width: 1; stroke-dasharray: 3 3; }
 graph-canvas svg[data-edges] [data-divider] text {

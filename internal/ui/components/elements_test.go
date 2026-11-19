@@ -15,7 +15,7 @@ import (
 var elements = map[string]int{
 	"confirm-dialog":  150,
 	"flash-toast":     150,
-	"graph-canvas":    460, // the world layer and its dot grid
+	"graph-canvas":    470, // the world layer, its dot grid and the label backings
 	"graph-node":      150,
 	"local-time":      150,
 	"log-pane":        150,

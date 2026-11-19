@@ -395,8 +395,19 @@ class GraphCanvas extends HTMLElement {
         if (!placed.some((q) => touches(q, r))) break;
       }
       placed.push(r);
+      this.backing(label, r);
     }
     this.lanes();
+  }
+  // The solid backing behind a label, so no line shows between its words: a rect on the label's box, 8 % wider and 20 % taller each side (an SVG filter did this once, per label, on every redraw).
+  private backing(label: SVGTextElement, r: Box): void {
+    let bg = label.previousElementSibling;
+    if (!bg?.matches("rect[data-edge-label-bg]")) {
+      bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bg.setAttribute("data-edge-label-bg", "");
+      label.before(bg);
+    }
+    for (const [k, v] of Object.entries({ x: r.x - r.w * 0.08, y: r.y - r.h * 0.2, width: r.w * 1.16, height: r.h * 1.4 })) bg.setAttribute(k, String(v));
   }
   // Each container to its cards' extent plus its pad, no narrower than
   // min-w. Only changed values are written: the observer re-runs repath.
