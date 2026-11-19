@@ -152,3 +152,27 @@ func TestParkedElsewhere(t *testing.T) {
 		t.Error("only a waiting job is ignored")
 	}
 }
+
+// A promote that stopped marks the failed tile and the ones never deployed,
+// but never hides a worse word (error, unhealthy, offline) under a milder one.
+func TestStoppedKeepsWorseWords(t *testing.T) {
+	v := &View{Nodes: []Node{
+		{Slug: "a", Status: "running"},
+		{Slug: "b", Status: "unhealthy"},
+		{Slug: "c", Status: "error"},
+		{Slug: "d", Status: "running"},
+		{Slug: "e", Status: "offline"},
+	}}
+	(&Flow{}).stopped(v, Stopped{Tile: "d", Pending: []string{"a", "b", "c", "e"}})
+	want := map[string]string{"a": "notdeployed", "b": "unhealthy", "c": "error", "d": "failed", "e": "offline"}
+	for _, n := range v.Nodes {
+		if n.Status != want[n.Slug] {
+			t.Errorf("%s = %q, want %q", n.Slug, n.Status, want[n.Slug])
+		}
+	}
+	v = &View{Nodes: []Node{{Slug: "x", Status: "error"}}}
+	(&Flow{}).stopped(v, Stopped{Tile: "x"})
+	if v.Nodes[0].Status != "error" {
+		t.Errorf("failed tile hid error: %q", v.Nodes[0].Status)
+	}
+}

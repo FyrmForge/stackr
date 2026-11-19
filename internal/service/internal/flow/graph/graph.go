@@ -1189,11 +1189,17 @@ func (f *Flow) stopped(v *View, st Stopped) {
 		}
 		switch {
 		case st.Tile != "" && n.Slug == st.Tile && n.Kind != KindVolume:
+			if rank[n.Status] > rank["failed"] {
+				continue // error, unhealthy, offline say more than failed
+			}
 			n.Status = "failed"
 			if n.Fail == "" {
 				n.Fail = st.Error
 			}
 		case slices.Contains(st.Pending, n.Slug) && n.Kind != KindVolume:
+			if rank[n.Status] > rank["running"] {
+				continue // a worse word (error, unhealthy, offline, degraded) stays
+			}
 			n.Status, n.Stop, n.StopJob = "notdeployed", st.Tile, st.JobID
 		}
 	}
