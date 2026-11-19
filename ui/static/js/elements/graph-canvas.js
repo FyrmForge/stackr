@@ -48,7 +48,7 @@ class GraphCanvas extends HTMLElement {
             [this, "pointerdown", this.onDown], [this, "mousedown", this.onMouseDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
             [this, "change", this.onChange], [this, "pointerover", this.onOver], [this, "pointerleave", this.onOver],
             [window, "pointermove", this.onMove], [window, "pointerup", this.onUp], [window, "pointercancel", this.onUp],
-            [window, "resize", this.onResize], [document, "keydown", this.onKey], [document, "htmx:beforeRequest", this.onRefresh],
+            [window, "resize", this.onResize], [document, "keydown", this.onKey], [document, "htmx:beforeRequest", this.onRefresh], [document, "htmx:sseBeforeMessage", this.onRefresh],
         ];
         for (const [t, name, fn] of pairs)
             (on ? t.addEventListener : t.removeEventListener).call(t, name, fn, { passive: false });

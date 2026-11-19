@@ -41,7 +41,6 @@ type View struct {
 	EmptyLink string
 	Create    []Create        // the level's create dialogs the viewer may open
 	Lanes     []cards.Lane    // env traffic at the last sample; nil = no lanes layer
-	Banner    *Banner         // the strip over the canvas; nil = none
 	DNS       string          // GET …/-/dns-banner, loaded on page load (env); "" = no slot
 	SyncBar   *SyncBar        // the env sync review's strip; nil = none
 	Over      templ.Component // drawn over the canvas with the chrome (the Cluster map's legend); nil = none
@@ -57,13 +56,6 @@ type SyncBar struct {
 	Text           string
 	Review, Cancel string // URLs
 	Deploy         *c.ConfirmView
-}
-
-// Banner is v0's orgPlanBanner: a strip over the canvas linking to what
-// it is about, warning tone unless Danger.
-type Banner struct {
-	Text, Href string
-	Danger     bool
 }
 
 // Create opens a create dialog in the drawer, or with Nav goes to URL (the

@@ -15,6 +15,7 @@ const (
 	RowRelease  = "release"
 	RowFailed   = "failed"   // a push that failed: no release was cut
 	RowBuilding = "building" // a queued or running push: its release is not cut yet
+	RowPlan     = "plan"     // a config plan of the org file or the server file
 
 	StateWaiting    = "waiting"
 	StateDeploying  = "deploying"
@@ -22,6 +23,8 @@ const (
 	StateFailed     = "failed"
 	StateSuperseded = "superseded"
 	StateUndeployed = "not deployed"
+	StateApplied    = "applied" // a config plan
+	StateRejected   = "rejected"
 )
 
 // WindowReview is one env's way into a release's plan.
@@ -41,7 +44,9 @@ type WindowJob struct {
 type WindowRow struct {
 	Kind    string
 	ID      string // the release
-	Number  int    // 0 = none (a failed push, a building one)
+	Number  int    // 0 = none (a failed push, a building one, a plan)
+	StackID string // the stack a release row belongs to
+	PlanID  string // RowPlan: the plan
 	Commit  string
 	Message string
 	By      string // Release.CreatedBy
@@ -68,7 +73,13 @@ type ReleaseWindow struct {
 	Rows            []WindowRow
 	Waiting, Failed int
 	Stack           string // the stack's name
+	Slug            string // and its slug
+	Envs            []WindowEnv
+	Bound           bool // a config window: its file is bound
 }
+
+// WindowEnv is one env of the stack in ladder order.
+type WindowEnv struct{ ID, Name, Slug, Color string }
 
 // windowOlder is how many releases beyond what waits, fails or runs the
 // window lists.
@@ -83,7 +94,7 @@ func (o *Orchestrator) ReleaseWindow(ctx context.Context, stackID, envID string)
 	if err != nil {
 		return w, err
 	}
-	w.Stack = st.Name
+	w.Stack, w.Slug = st.Name, st.Slug
 	rs, err := o.releases.List(ctx, stackID)
 	if err != nil {
 		return w, err
@@ -101,6 +112,7 @@ func (o *Orchestrator) ReleaseWindow(ctx context.Context, stackID, envID string)
 	)
 	for _, r := range rungs {
 		envs[r.EnvID] = r.Name
+		w.Envs = append(w.Envs, WindowEnv{ID: r.EnvID, Name: r.Name, Slug: r.Slug, Color: r.Color})
 		runsByEn[r.EnvID] = r.Release
 		if r.Release > 0 {
 			runs[r.Release] = append(runs[r.Release], r.EnvID)
@@ -255,6 +267,12 @@ func (o *Orchestrator) ReleaseWindow(ctx context.Context, stackID, envID string)
 	w.Waiting, w.Failed = len(waiting), len(failedRows)
 	for _, g := range [][]WindowRow{building, failedRows, waiting, running, older} {
 		w.Rows = append(w.Rows, g...)
+	}
+	for i := range w.Rows {
+		w.Rows[i].StackID = stackID
+		if r := &w.Rows[i]; r.Kind == RowRelease && r.Message == "" && r.By == "image-watch" {
+			r.Message = o.releases.MovedOf(ctx, r.ID) // "immich-server 3.4.1 to 3.4.2"
+		}
 	}
 	return w, nil
 }

@@ -1,6 +1,7 @@
 package components
 
 import (
+	"cmp"
 	"strconv"
 	"time"
 )
@@ -15,7 +16,22 @@ type RelWindow struct {
 	Rows            []RelRow
 	Err             bool // the rows could not be read
 	Open            bool // ?rel=1; main.js keeps the rest
+	// Title is the bar's word, "Releases" when "" (the cluster chart's is
+	// "Server config").
+	Title string
+	// Switch draws the org chart's two-way switch: "Org config" and "All".
+	// View is the one shown ("all" | "org"); the counts of the first are
+	// OrgWaiting and OrgFailed, rows of a stack are OfStack.
+	Switch                bool
+	View                  string
+	OrgWaiting, OrgFailed int
+	// Note stands where a config file has nothing to list (not bound: with
+	// its link; bound: no plans yet).
+	Note RelNote
 }
+
+// RelNote is a line with an optional link after it.
+type RelNote struct{ Text, Link, Href string }
 
 // RelEnv is one env link of the bar.
 type RelEnv struct{ Name, Color, Href string }
@@ -31,9 +47,15 @@ type RelJob struct {
 
 // RelRow is one line: a release, a failed push or a build under way.
 type RelRow struct {
-	Kind    string // release | failed | building
+	Kind    string // release | failed | building | plan
 	ID            string
 	Number        string // "" = none
+	// Scope stands in place of Number on the org chart: where the row belongs
+	// ("org config", "media 15").
+	Scope string
+	// OfStack marks a row of a stack: the org chart's "Org config" view
+	// leaves it out.
+	OfStack bool
 	Commit        string // short
 	Message       string // the headline; the source when the cut had none
 	State, Tone   string // one word, a Chip tone
@@ -59,10 +81,52 @@ templ RelBody(w RelWindow) {
 	</div>
 }
 
+// RelUpdate is what the "releases" event swaps: the list, and the bar's
+// counts alongside (an out-of-band swap, so the bar is patched in place).
+templ RelUpdate(w RelWindow) {
+	@relRows(w)
+	<span id="rel-counts" hx-swap-oob="outerHTML" class="contents">
+		@relCounts(w)
+	</span>
+}
+
+// relCounts are the bar's markers: a word and a number, never a colour alone.
+// The org chart's switch holds one set per view, the style sheet shows one.
+templ relCounts(w RelWindow) {
+	if w.Switch {
+		<span data-for="all" class="flex items-center gap-2">
+			@relChips(w.Waiting, w.Failed)
+		</span>
+		<span data-for="org" class="flex items-center gap-2">
+			@relChips(w.OrgWaiting, w.OrgFailed)
+		</span>
+	} else {
+		@relChips(w.Waiting, w.Failed)
+	}
+}
+
+templ relChips(waiting, failed int) {
+	if waiting > 0 {
+		@Chip(strconv.Itoa(waiting)+" waiting", "accent")
+	}
+	if failed > 0 {
+		@Chip(strconv.Itoa(failed)+" failed", "danger")
+	}
+}
+
+templ relNote(n RelNote) {
+	{ n.Text }
+	if n.Link != "" {
+		{ " " }<a href={ templ.SafeURL(n.Href) } class="link">{ n.Link }</a>
+	}
+}
+
 templ relRows(w RelWindow) {
 	switch {
 		case w.Err:
 			<p class="px-3 py-2 text-sm text-rw-muted">Releases could not be loaded.</p>
+		case len(w.Rows) == 0 && w.Note.Text != "":
+			<p class="px-3 py-2 text-sm text-rw-muted">@relNote(w.Note)</p>
 		case len(w.Rows) == 0:
 			<p class="px-3 py-2 text-sm text-rw-muted">No releases yet. A push or a first deploy makes one.</p>
 		default:
@@ -71,11 +135,14 @@ templ relRows(w RelWindow) {
 					@relRow(r)
 				}
 			</ul>
+			if w.Switch && w.Note.Text != "" {
+				<p data-for="org" class="border-t border-rw-border px-3 py-2 text-sm text-rw-muted">@relNote(w.Note)</p>
+			}
 	}
 }
 
 templ relRow(r RelRow) {
-	<li>
+	<li data-stack?={ r.OfStack }>
 		if r.Kind == "release" {
 			<details data-id={ r.ID } class="group">
 				<summary class="flex min-h-9 cursor-pointer list-none items-center gap-2 px-3 py-1 text-sm hover:bg-rw-inset [&::-webkit-details-marker]:hidden">
@@ -97,7 +164,11 @@ templ relRow(r RelRow) {
 }
 
 templ relHead(r RelRow) {
-	<span class="w-7 shrink-0 font-mono text-xs text-rw-faint">{ r.Number }</span>
+	if r.Scope != "" {
+		<span class="w-24 shrink-0 truncate text-xs text-rw-faint" title={ r.Scope }>{ r.Scope }</span>
+	} else if r.Kind != "plan" {
+		<span class="w-7 shrink-0 font-mono text-xs text-rw-faint">{ r.Number }</span>
+	}
 	if r.Kind == "building" {
 		<span class="min-w-0 flex-1 truncate text-rw-text">
 			if r.Queued {
@@ -159,25 +230,37 @@ templ relOpen(r RelRow) {
 // reloads and the open rows across the stream's patches). The env links sit
 // in the bar like the pill's did; a click on one goes there, not open.
 templ RelWindowView(w RelWindow) {
-	<details id="rel-window" class="env-compare group absolute bottom-4 left-4 z-10 open:w-[34rem] open:max-w-[calc(100%-2rem)]" open?={ w.Open }>
+	<details
+		id="rel-window"
+		if w.Switch {
+			data-view={ cmp.Or(w.View, "all") }
+		}
+		class="env-compare group absolute bottom-4 left-4 z-10 open:w-[34rem] open:max-w-[calc(100%-2rem)]"
+		open?={ w.Open }
+	>
 		<summary class="flex h-9 cursor-pointer list-none items-center gap-2 whitespace-nowrap px-3 text-sm [&::-webkit-details-marker]:hidden">
-			<span class="font-semibold text-rw-text">Releases</span>
-			if w.Waiting > 0 {
-				@Chip(strconv.Itoa(w.Waiting)+" waiting", "accent")
+			<span class="font-semibold text-rw-text">{ cmp.Or(w.Title, "Releases") }</span>
+			<span id="rel-counts" class="contents">
+				@relCounts(w)
+			</span>
+			if len(w.Envs) > 0 {
+				<span class="h-4 w-px bg-rw-border"></span>
+				<nav aria-label="Environments" class="flex items-center gap-3 text-xs">
+					for _, e := range w.Envs {
+						<a href={ templ.SafeURL(e.Href) } hx-get={ e.Href } hx-target="#main" hx-push-url="true" class="flex items-center gap-1.5 text-rw-text transition-colors hover:text-rw-accentHi">
+							<span class={ "env-dot", envClass(e.Color) }></span>
+							{ e.Name }
+						</a>
+					}
+				</nav>
 			}
-			if w.Failed > 0 {
-				@Chip(strconv.Itoa(w.Failed)+" failed", "danger")
-			}
-			<span class="h-4 w-px bg-rw-border"></span>
-			<nav aria-label="Environments" class="flex items-center gap-3 text-xs">
-				for _, e := range w.Envs {
-					<a href={ templ.SafeURL(e.Href) } hx-get={ e.Href } hx-target="#main" hx-push-url="true" class="flex items-center gap-1.5 text-rw-text transition-colors hover:text-rw-accentHi">
-						<span class={ "env-dot", envClass(e.Color) }></span>
-						{ e.Name }
-					</a>
-				}
-			</nav>
 			<span class="flex-1"></span>
+			if w.Switch {
+				<span role="group" aria-label="Show" class="flex items-center rounded-md border border-rw-border p-px text-xs">
+					<button type="button" data-view-set="org" class="rounded px-2 py-0.5 text-rw-muted hover:text-rw-text">Org config</button>
+					<button type="button" data-view-set="all" class="rounded px-2 py-0.5 text-rw-muted hover:text-rw-text">All</button>
+				</span>
+			}
 			<span aria-hidden="true" class="text-rw-faint group-open:rotate-180">&#9652;</span>
 		</summary>
 		@RelBody(w)

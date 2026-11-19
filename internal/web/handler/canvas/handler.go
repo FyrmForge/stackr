@@ -46,6 +46,7 @@ type level struct {
 	base  string // "" on home
 	title string
 	empty string // v0's line for a canvas with nothing on it yet
+	plans bool   // org canvas: the viewer may read the org's config plans (its window lists them)
 }
 
 func where(c echo.Context) level {
@@ -72,6 +73,7 @@ func where(c echo.Context) level {
 			base:  "/" + sc.Org.Slug,
 			title: sc.Org.Name,
 			empty: "This organization has no stacks yet. Create one to get started.",
+			plans: can(c, sc, "org.owner.read"),
 		}
 	}
 	p := middleware.Principal(c)
@@ -107,6 +109,9 @@ func (h *handler) view(c echo.Context) (ui.View, error) {
 	v, err := h.build(c.Request().Context(), where(c), show(c), c.QueryParam("focus"), q)
 	if v.Releases != nil {
 		v.Releases.Open = c.QueryParam("rel") == "1"
+		if v.Releases.Switch && c.QueryParam("relview") == "org" {
+			v.Releases.View = "org"
+		}
 	}
 	if v.SyncBar != nil && !can(c, middleware.ScopeOf(c), "env.write") { // the review is for anyone; deploying it is not
 		v.SyncBar.Deploy = nil
@@ -224,9 +229,6 @@ func (h *handler) Page(c echo.Context) error {
 		if cs = append(cs, sync...); len(cs) > 0 {
 			actions = ui.Actions(cs)
 		}
-	}
-	if v.Banner, err = h.planBanner(c); err != nil {
-		return middleware.HTTPError(err)
 	}
 	if where(c).scope.Kind == service.CanvasEnv {
 		v.DNS = v.Base + "/-/dns-banner"
@@ -409,7 +411,7 @@ func (h *handler) Poll(c echo.Context) producer {
 		}
 		var out []stream.Msg
 		if v.Releases != nil {
-			body, err := render.Event(ctx, comp.RelBody(*v.Releases))
+			body, err := render.Event(ctx, comp.RelUpdate(*v.Releases))
 			if err != nil {
 				return nil, err
 			}

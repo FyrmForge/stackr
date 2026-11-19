@@ -160,7 +160,7 @@ func TestReleasesWindow(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(time.Second, cancel)
-	if body := s.DoCtx(ctx, t, "GET", "/acme/shop/dev/-/events", nil).Body.String(); !strings.Contains(body, "event: releases\ndata: <div") {
+	if body := s.DoCtx(ctx, t, "GET", "/acme/shop/dev/-/events", nil).Body.String(); !strings.Contains(body, "event: releases\ndata: <ul") || !strings.Contains(body, `id="rel-counts" hx-swap-oob="outerHTML"`) {
 		t.Errorf("no releases event:\n%s", body)
 	}
 }

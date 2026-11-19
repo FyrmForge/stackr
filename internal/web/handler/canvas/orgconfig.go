@@ -15,7 +15,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
-	ui "github.com/FyrmForge/stackr/internal/ui/graph"
 	"github.com/FyrmForge/stackr/internal/web/handler/setup"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -125,29 +124,6 @@ func planRow(p service.OrgPlan) comp.PlanRow {
 		Commit:  p.Commit[:min(8, len(p.Commit))],
 		Error:   p.Error,
 	}
-}
-
-// planBanner is v0's org canvas strip while the latest plan waits
-// (pending) or failed (error); nil otherwise, and for anyone who cannot
-// read the plans it leads to.
-// ponytail: drawn at page load; the canvas stream does not repaint it.
-func (h *handler) planBanner(c echo.Context) (*ui.Banner, error) {
-	s := middleware.ScopeOf(c)
-	if s.Org == nil || s.Stack != nil || !can(c, s, "org.owner.read") {
-		return nil, nil
-	}
-	ps, err := h.orch.OrgPlans(c.Request().Context(), s.Org.ID, 1)
-	if err != nil || len(ps) == 0 {
-		return nil, err
-	}
-	href := "/" + s.Org.Slug + "?drawer=org:" + s.Org.ID + "&tab=config"
-	switch ps[0].Status {
-	case "pending":
-		return &ui.Banner{Text: "Config plan pending: " + ps[0].Summary + ". View", Href: href}, nil
-	case "error":
-		return &ui.Banner{Text: "Config invalid. View details", Href: href, Danger: true}, nil
-	}
-	return nil, nil
 }
 
 func (h *handler) mountOrgConfig(site *echo.Group, a *middleware.Access) {

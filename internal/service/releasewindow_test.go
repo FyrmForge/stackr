@@ -139,3 +139,115 @@ func TestReleaseWindowWaitingAndNewest(t *testing.T) {
 		t.Error("release 3 was never held and is not an ancestor: a plan, not a roll back")
 	}
 }
+
+// The org window lists the org file's waiting plan with the stacks' open
+// releases (all in one list, grouped by need), counts both and the plans
+// alone; the server window lists the server file's plans, a plan that
+// failed counted apart.
+func TestOrgAndServerWindow(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	now := time.Now()
+	// the stored summary is counts; the window names the items from the plan's changes
+	const named = `{"changes":[{"kind":"route-delete","tile":"auth.vulpe.dev","optional":true}]}`
+	plan := func(org, status, summary string, age time.Duration) {
+		t.Helper()
+		var err error
+		if org != "" {
+			err = w.e.Store.OrgPlans.Create(ctx, store.OrgPlan{ID: uuid.NewString(), OrgID: org, Status: status, Summary: summary, Plan: named, Ticked: []string{}, CreatedAt: now.Add(-age)})
+		} else {
+			err = w.e.Store.ServerPlans.Create(ctx, store.ServerPlan{ID: uuid.NewString(), Source: "repo", Status: status, Summary: summary, Plan: named, Ticked: []string{}, CreatedAt: now.Add(-age)})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan(w.acme, "applied", "2 applied", 2*time.Hour)
+	plan(w.acme, "pending", "1 to add: stack dashy", time.Minute)
+	win, err := w.e.Orch.OrgReleaseWindow(ctx, w.acme, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range win.Rows {
+		got = append(got, r.Kind+" "+r.State)
+	}
+	// waiting plan and waiting release first (the plan, newest first, ahead), then what runs, then the applied plan
+	if len(got) < 3 || got[0] != "plan waiting" || got[len(got)-1] != "plan applied" || win.OrgWaiting != 1 || win.Waiting != 2 {
+		t.Errorf("org rows = %v, window %+v", got, win)
+	}
+	if st := win.Stacks[w.shop]; st.Slug == "" || len(st.Envs) == 0 {
+		t.Errorf("stacks = %+v", win.Stacks)
+	}
+	if win, _ = w.e.Orch.OrgReleaseWindow(ctx, w.acme, false); win.OrgWaiting != 0 || win.Waiting != 1 {
+		t.Errorf("a viewer who cannot read plans: %+v", win)
+	}
+
+	if sw, err := w.e.Orch.ServerReleaseWindow(ctx); err != nil || sw.Bound || len(sw.Rows) != 0 {
+		t.Errorf("no file: %+v, %v", sw, err)
+	}
+	plan("", "error", "", 3*time.Hour)
+	plan("", "applied", "2 applied: routes nas", 2*time.Hour)
+	plan("", "pending", "1 removal to review", time.Minute)
+	sw, err := w.e.Orch.ServerReleaseWindow(ctx)
+	if err != nil || !sw.Bound || sw.Waiting != 1 || sw.Failed != 0 || len(sw.Rows) != 2 || sw.Rows[0].Message != "1 removal to review: route auth.vulpe.dev" {
+		t.Errorf("server window = %+v, %v", sw, err)
+	}
+	plan("", "error", "", 0)
+	if sw, _ = w.e.Orch.ServerReleaseWindow(ctx); sw.Failed != 1 || sw.Rows[0].State != service.StateFailed {
+		t.Errorf("a failed newest plan: %+v", sw)
+	}
+}
+
+// An image watch release has no commit message: its row reads what moved
+// against the release it was built on, "immich-server 3.4.1 to 3.4.2".
+func TestReleaseWindowImageWatchHeadline(t *testing.T) {
+	t.Parallel()
+	e := servicetest.New(t)
+	ctx := context.Background()
+	st, err := e.Orch.CreateStack(ctx, e.Org(t, "acme"), "immich", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := func(n int, builtOn, by, tag string) {
+		t.Helper()
+		id := uuid.NewString()
+		r := store.Release{ID: id, StackID: st.ID, Number: n, CreatedAt: time.Now(), CreatedBy: by}
+		if builtOn != "" {
+			line := "branch:main"
+			r.BuiltOn, r.Line = &builtOn, &line
+		}
+		if err := e.Store.Releases.Create(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.Store.ReleaseTiles.Create(ctx, store.ReleaseTile{ID: uuid.NewString(), ReleaseID: id, Slug: "immich-server", Repo: "ghcr.io/immich-app/immich-server:" + tag, Digest: "sha256:" + tag}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rel(1, "", "push", "3.4.1")
+	var first store.Release
+	if rs, _ := e.Store.Releases.ListByStack(ctx, st.ID); len(rs) == 1 {
+		first = rs[0]
+	}
+	rel(2, first.ID, "image-watch", "3.4.2")
+	win, err := e.Orch.ReleaseWindow(ctx, st.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := false
+	for _, r := range win.Rows {
+		if r.Number == 2 {
+			seen = true
+		}
+		if r.Number == 2 && r.Message != "immich-server 3.4.1 to 3.4.2" {
+			t.Errorf("image watch headline = %q", r.Message)
+		}
+		if r.Number == 1 && r.Message != "" {
+			t.Errorf("a push release without a message grew %q", r.Message)
+		}
+	}
+	if !seen {
+		t.Errorf("release 2 is not in the window: %+v", win.Rows)
+	}
+}
