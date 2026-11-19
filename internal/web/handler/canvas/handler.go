@@ -8,6 +8,7 @@ package canvas
 
 import (
 	"context"
+	"errors"
 	"hash/fnv"
 	"net/http"
 	"net/url"
@@ -25,6 +26,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
 	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
@@ -412,13 +414,25 @@ func (h *handler) Poll(c echo.Context) producer {
 	l, sh, drawn := where(c), show(c), c.QueryParam("n")
 	sent := map[string]stream.HTML{}
 	var last time.Time
+	over := false           // the page moved or its subject is gone: nothing more to draw
 	var keep comp.RelKeeper // a failed read of the window keeps its last counts
 	return func(ctx context.Context) ([]stream.Msg, error) {
 		if time.Since(last) < Every {
 			return nil, nil
 		}
 		last = time.Now()
+		if over {
+			return nil, nil
+		}
+		if body, ok, err := h.subjectGone(ctx, l); err != nil || ok {
+			over = ok
+			return []stream.Msg{{Name: "graph", Body: body}}, err
+		}
 		v, err := h.build(ctx, l, sh, "", syncQ{})
+		if errors.Is(err, errs.ErrNotFound) { // deleted between the check and the read
+			last = time.Time{}
+			return nil, nil
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -452,6 +466,25 @@ func (h *handler) Poll(c echo.Context) producer {
 		}
 		return out, nil
 	}
+}
+
+// subjectGone answers an env or stack page whose subject was renamed (the
+// page at its new URL) or deleted (a line and a way up), once.
+func (h *handler) subjectGone(ctx context.Context, l level) (stream.HTML, bool, error) {
+	to, err := h.orch.CanvasPath(ctx, l.scope)
+	switch {
+	case errors.Is(err, errs.ErrNotFound):
+		what, up := "stack", "org"
+		if l.scope.Kind == service.CanvasEnv {
+			what, up = "environment", "stack"
+		}
+		body, err := render.Event(ctx, ui.Gone("This "+what+" was deleted.", "Back to the "+up, path.Dir(l.base)))
+		return body, true, err
+	case err != nil || to == "" || to == l.base:
+		return "", false, err
+	}
+	body, err := render.Event(ctx, ui.Moved(to))
+	return body, true, err
 }
 
 // Sig names what the canvas draws apart from positions and footers: a

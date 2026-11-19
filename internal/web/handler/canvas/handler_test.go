@@ -234,3 +234,34 @@ func TestDrillCardExposure(t *testing.T) {
 		t.Errorf("stack level = %+v, want a.dev +1", f)
 	}
 }
+
+// An env or stack page whose subject is renamed follows to the new URL; one
+// whose subject is deleted says so with a way up (item 55).
+func TestCanvasEventsFollowRenameAndDelete(t *testing.T) {
+	stream.PollEvery, canvas.Every = 10*time.Millisecond, 0
+	bg := context.Background()
+	for _, tc := range []struct {
+		page, want string
+		add        func(*webtest.Site) string // makes the empty subject to delete, returns its id
+		act        func(*webtest.Site, string)
+	}{
+		{"/acme/shop/dev", `hx-get="/acme/shop/staging"`, nil, func(s *webtest.Site, _ string) { _, _, _ = s.Orch.RenameEnv(bg, s.Tile.Env, "staging") }},
+		{"/acme/shop", `hx-get="/acme/store"`, nil, func(s *webtest.Site, _ string) { _, _, _ = s.Orch.RenameStack(bg, s.Tile.Stack, "store") }},
+		{"/acme/shop/staging", "This environment was deleted.", func(s *webtest.Site) string { return stagingOf(t, s).ID }, func(s *webtest.Site, id string) { _ = s.Orch.DeleteEnv(bg, id) }},
+		{"/acme/blog", "This stack was deleted.", func(s *webtest.Site) string { st, _ := s.Orch.CreateStack(bg, s.Org, "blog", ""); return st.ID }, func(s *webtest.Site, id string) { _ = s.Orch.DeleteStack(bg, id) }},
+	} {
+		s := webtest.New(t)
+		id := ""
+		if tc.add != nil {
+			id = tc.add(s)
+		}
+		events := html.UnescapeString(regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(get(t, s, tc.page))[1])
+		ctx, cancel := context.WithCancel(bg)
+		time.AfterFunc(60*time.Millisecond, func() { tc.act(s, id) })
+		time.AfterFunc(400*time.Millisecond, cancel)
+		body := s.DoCtx(ctx, t, "GET", events, nil).Body.String()
+		if !strings.Contains(body, "event: graph\n") || !strings.Contains(body, tc.want) {
+			t.Errorf("%s: want %q in\n%s", tc.page, tc.want, body)
+		}
+	}
+}

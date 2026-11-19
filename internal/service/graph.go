@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/graph"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/canvas"
@@ -92,4 +93,34 @@ func (o *Orchestrator) SetAnnotation(
 
 func (o *Orchestrator) DeleteAnnotation(ctx context.Context, s CanvasScope, id string) error {
 	return o.canvas.Delete(ctx, s, id)
+}
+
+// CanvasPath is the page path of an env or stack canvas as it is now
+// (renames follow), or errs.ErrNotFound once the subject is deleted.
+func (o *Orchestrator) CanvasPath(ctx context.Context, s CanvasScope) (string, error) {
+	var st Stack
+	var parts []string
+	switch s.Kind {
+	case canvas.Env:
+		e, err := o.envs.Get(ctx, s.ID)
+		if err != nil {
+			return "", err
+		}
+		if st, err = o.stacks.Get(ctx, e.StackID); err != nil {
+			return "", err
+		}
+		parts = []string{e.Slug}
+	case canvas.Stack:
+		var err error
+		if st, err = o.stacks.Get(ctx, s.ID); err != nil {
+			return "", err
+		}
+	default:
+		return "", nil
+	}
+	og, err := o.orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return "", err
+	}
+	return "/" + strings.Join(append([]string{og.Slug, st.Slug}, parts...), "/"), nil
 }

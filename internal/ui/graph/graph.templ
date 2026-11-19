@@ -40,6 +40,20 @@ templ Page(v View) {
 	</div>
 }
 
+// Moved is the canvas stream's answer when its page was renamed: the new
+// page loads in the place of the old one.
+templ Moved(href string) {
+	<div hx-get={ href } hx-trigger="load" hx-target="#main" hx-push-url="true"></div>
+}
+
+// Gone is the canvas stream's answer when its subject was deleted.
+templ Gone(text, label, href string) {
+	<div role="status" class="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-rw-muted">
+		<p>{ text }</p>
+		<a href={ templ.SafeURL(href) } hx-get={ href } hx-target="#main" hx-push-url="true" class="btn btn-ghost btn-sm">{ label }</a>
+	</div>
+}
+
 // DrawerOOB is a drawer answered along with a page: an htmx navigation
 // leaves the drawer to its own GET, so a review that moves the canvas
 // (Drop, Undo) sends the open drawer's new body with it.
