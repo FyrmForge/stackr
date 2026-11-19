@@ -55,29 +55,34 @@ type Access struct {
 // stream re-sends it as event "footer:<card id>" whenever one of its facts
 // moves.
 type FooterView struct {
-	Kind       string    // the card's kind: which strip it is
-	Status     string    // tile word (running, degraded, waiting, ...); "" = idle
-	Waiting    string    // the param a "waiting" tile misses
-	Under      string    // building/queued over a running tile: "running", the word beneath
-	Since      time.Time // that job's start; zero = none, the line reads as the word alone
-	Phase      string    // that job's step ("Pulling image"); "" = the word
-	Fail       string    // the last deploy's error while it failed; "" = none
-	FailHref   string    // a stack card: the failed push's job log; "" = none
-	StoppedAt  string    // a tile the failed promote never reached: the tile it stopped at
-	StopHref   string    // that promote's job log
-	Wait       int       // env card: the release waiting to be promoted here; 0 = none
-	Up, Want   int       // replica roll-up, drawn when Want > 1
-	LastRun    string    // cron/function: "ok · ", "never run", "running · since ", LastAt follows
-	LastAt     time.Time // the last run's start; zero = none
-	LastFmt    string    // LastAt's layout: "15:04" while running, else "Jan 2 15:04"
-	NextRun    time.Time // cron: the next tick; zero = paused
-	Trigger    string    // function: "manual" / "on deploy", where a cron's next run goes
-	Domain     string    // exposure: the first domain
-	More       int       // exposure: how many other domains
-	Domains    int       // org canvas: "N domains" in place of the hosts (v0 DomainCount)
-	Nav        bool      // the card is itself a link: the host is text, never a nested <a>
-	Consumers  int       // slice: the tiles that reach it
-	ExtUpdates int       // operated postgres: packages with a newer build; 0 = none
+	Kind     string    // the card's kind: which strip it is
+	Status   string    // tile word (running, degraded, waiting, ...); "" = idle
+	Waiting  string    // the param a "waiting" tile misses
+	Under    string    // building/queued over a running tile: "running", the word beneath
+	Since    time.Time // that job's start; zero = none, the line reads as the word alone
+	Phase    string    // that job's step ("Pulling image"); "" = the word
+	Fail     string    // the last deploy's error while it failed; "" = none
+	FailHref string    // a stack card: the failed push's job log; "" = none
+	// Note is the work in progress on a stack card ("Building at f9cdc50,
+	// started "); NoteAt follows it, NoteHref is the link after it, NoteLink
+	// its word. "" = none.
+	Note, NoteLink, NoteHref string
+	NoteAt                   time.Time
+	StoppedAt                string    // a tile the failed promote never reached: the tile it stopped at
+	StopHref                 string    // that promote's job log
+	Wait                     int       // env card: the release waiting to be promoted here; 0 = none
+	Up, Want                 int       // replica roll-up, drawn when Want > 1
+	LastRun                  string    // cron/function: "ok · ", "never run", "running · since ", LastAt follows
+	LastAt                   time.Time // the last run's start; zero = none
+	LastFmt                  string    // LastAt's layout: "15:04" while running, else "Jan 2 15:04"
+	NextRun                  time.Time // cron: the next tick; zero = paused
+	Trigger                  string    // function: "manual" / "on deploy", where a cron's next run goes
+	Domain                   string    // exposure: the first domain
+	More                     int       // exposure: how many other domains
+	Domains                  int       // org canvas: "N domains" in place of the hosts (v0 DomainCount)
+	Nav                      bool      // the card is itself a link: the host is text, never a nested <a>
+	Consumers                int       // slice: the tiles that reach it
+	ExtUpdates               int       // operated postgres: packages with a newer build; 0 = none
 }
 
 // SubView is a sub-tile: the strip of a card dealt under its card, with
@@ -240,6 +245,8 @@ func replica(state string) string {
 		return "success"
 	case "exited", "dead":
 		return "danger"
+	case "old", "new": // a deploy's overlap, never red
+		return "neutral"
 	}
 	return "warn"
 }

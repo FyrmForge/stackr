@@ -620,7 +620,7 @@ func reviewHead(p PlanView, c ChangeView, opens bool) templ.Component {
 			}
 		}
 		if c.Optional && p.Ticks {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<label class=\"flex cursor-pointer items-center gap-2 rounded border border-rw-warn/40 bg-rw-warn/10 px-2 py-1 text-rw-warn\"><input type=\"checkbox\" name=\"ticked\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<label class=\"flex cursor-pointer items-center gap-2 rounded border border-rw-warn/60 bg-rw-warn/10 px-3 py-1.5 text-sm font-medium text-rw-warn\"><input type=\"checkbox\" name=\"ticked\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -633,7 +633,7 @@ func reviewHead(p PlanView, c ChangeView, opens bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "\" class=\"h-4 w-4 accent-rw-accent\" aria-label=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "\" class=\"h-5 w-5 accent-rw-accent\" aria-label=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -646,7 +646,7 @@ func reviewHead(p PlanView, c ChangeView, opens bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "\"> remove?</label> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "\"> Remove</label> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

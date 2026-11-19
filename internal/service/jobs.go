@@ -170,6 +170,21 @@ func withStopped(payload string, st *promote.Stopped) string {
 	return string(b)
 }
 
+// withSkipped records the envs a push did not make and why, keeping every
+// other key: PushState reads it for a stack with no environments.
+func withSkipped(payload string, skipped []string) string {
+	if len(skipped) == 0 {
+		return payload
+	}
+	var m map[string]any
+	if json.Unmarshal([]byte(payload), &m) != nil || m == nil {
+		m = map[string]any{}
+	}
+	m["skipped"] = skipped
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
 // withOwed sets owed in a job payload, keeping every other key (org_id).
 func withOwed(payload string, owed []string) string {
 	var m map[string]any
@@ -245,6 +260,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if errors.As(err, &st) {
 				r.Job.Payload = withStopped(r.Job.Payload, st)
 			}
+			o.lockEnvTiles(ctx, r, p.EnvID)
 			return o.parkOnApproval(ctx, r, err)
 		}),
 		kindEnvSync: payload(func(ctx context.Context, r *jobs.Run, p envSyncJob) error {
@@ -269,6 +285,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
+			o.lockEnvTiles(ctx, r, p.EnvID)
 			return o.parkOnApproval(ctx, r, err)
 		}),
 		kindRun: payload(func(ctx context.Context, r *jobs.Run, p runJob) error {
@@ -286,9 +303,12 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if err != nil {
 				return err
 			}
-			if err := o.ladderEnvs(ctx, p, r.Log); err != nil {
+			skipped, err := o.ladderEnvs(ctx, p, r.Log)
+			if err != nil {
 				return err
 			}
+			// the reasons outlive the log: the empty stack page says them
+			r.Job.Payload = withSkipped(r.Job.Payload, skipped)
 			return o.runPush(ctx, p.StackID, p.Event, r.Log)
 		}),
 		kindPR:            payload(o.runPR),
@@ -528,20 +548,20 @@ func (o *Orchestrator) runPush(ctx context.Context, stackID string, ev promote.E
 // lacks, bottom rung first, on a push to the config repo's branch (DECIDE
 // 189), then puts the ladder in the file's order. It never deletes one. A
 // file that does not load is logged and the push goes on; the promote plan
-// reports it.
-func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer) error {
+// reports it. skipped is why each env the file names was not made.
+func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer) (skipped []string, err error) {
 	st, err := o.stacks.Get(ctx, p.StackID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ev := p.Event
 	if st.ConfigRepo == "" || promote.NormalizeRepo(st.ConfigRepo) != promote.NormalizeRepo(ev.Repo) ||
 		ev.Branch != cmp.Or(st.ConfigBranch, p.DefaultBranch) {
-		return nil
+		return nil, nil
 	}
 	org, err := o.orgs.Get(ctx, st.OrgID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	data, fetch, err := o.stackFile(ctx, st, ev.Commit, log)
 	var file *promote.Resolved
@@ -550,11 +570,11 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(log, "stack file: %v; no envs made\n", err)
-		return nil
+		return []string{"the stack file does not load: " + strings.SplitN(err.Error(), "\n", 2)[0]}, nil
 	}
 	have, err := o.envs.Ladder(ctx, st.ID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	made := false
 	for _, name := range file.Order {
@@ -564,12 +584,14 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 		re := file.Envs[name]
 		if re.FromKind == "" {
 			_, _ = fmt.Fprintf(log, "env %s: the file gives it no branch or promote; not made\n", name)
+			skipped = append(skipped, name+": the file gives it no branch or promote")
 			continue
 		}
 		if t, in, err := o.tiers.Of(ctx, st.OrgID, name); err != nil {
-			return err
+			return nil, err
 		} else if in && t.Locked {
 			_, _ = fmt.Fprintf(log, "env %s: joins locked tier %s; an org owner makes it in the panel; not made\n", name, name)
+			skipped = append(skipped, name+": it joins a locked tier, an org owner makes it in the panel")
 			continue
 		}
 		e, err := o.envs.Create(ctx, st.ID, name, environment.Spec{
@@ -581,10 +603,11 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 		})
 		if bad, ok := errs.IsInvalid(err); ok {
 			_, _ = fmt.Fprintf(log, "env %s: %s; not made\n", name, bad.Msg)
+			skipped = append(skipped, name+": "+bad.Msg)
 			continue
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		have = append(have, e)
 		made = true
@@ -592,7 +615,7 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 		_, _ = fmt.Fprintf(log, "env %s made from the stack file (%s)\n", e.Slug, from)
 	}
 	if !made {
-		return nil
+		return skipped, nil
 	}
 	var ids []string
 	for _, name := range file.Order {
@@ -604,14 +627,14 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 		// ponytail: a ladder with rungs the file does not name keeps the new
 		// ones on top; reorder by hand, or name every rung in the file.
 		_, _ = fmt.Fprintf(log, "the ladder has envs the file does not name; new envs stay on top\n")
-		return nil
+		return skipped, nil
 	}
 	err = o.envs.Reorder(ctx, st.ID, ids)
 	if bad, ok := errs.IsInvalid(err); ok {
 		_, _ = fmt.Fprintf(log, "ladder order: %s; left as made\n", bad.Msg)
-		return nil
+		return skipped, nil
 	}
-	return err
+	return skipped, err
 }
 
 // runPR makes, refreshes or removes the pr-<n> env of one stack.
@@ -865,9 +888,34 @@ func (o *Orchestrator) annotate(ctx context.Context, js []Job) ([]Job, error) {
 	for i := range js {
 		js[i].Scope = o.jobScope(ctx, js[i])
 		js[i].Waits = job.Waits(js[i], live, held)
+		if js[i].Waits == "" {
+			js[i].Waits = o.parkedWaits(js[i])
+		}
 		js[i].Line = jobLine(js[i])
+		if js[i].Kind == string(kindPromote) {
+			var p promoteJob
+			if json.Unmarshal([]byte(js[i].Payload), &p) == nil {
+				if r, err := o.releases.Get(ctx, p.ReleaseID); err == nil {
+					js[i].Line = fmt.Sprintf("promote of release %d", r.Number)
+				}
+			}
+		}
 	}
 	return js, nil
+}
+
+// parkedWaits is what a job parked on a value (or an approval) waits for, ""
+// for a job that is not parked. A job back queued or running for its
+// re-check has no waiting_param on its row: the runner remembers it.
+func (o *Orchestrator) parkedWaits(j Job) string {
+	p := o.jobs.ParkedParam(j.ID)
+	if j.WaitingParam != nil {
+		p = *j.WaitingParam
+	}
+	if p == "" || (j.State != job.Waiting && j.State != job.Queued && j.State != job.Running) {
+		return ""
+	}
+	return "Waits for " + p
 }
 
 // jobScope names the stack, or stack/env, a job's payload is about, "" for a
@@ -962,4 +1010,28 @@ func (o *Orchestrator) TileJobs(ctx context.Context, tileIDs []string, limit int
 // Conflict, and so is an already finished job.
 func (o *Orchestrator) CancelJob(ctx context.Context, id string) error {
 	return o.jobs.Cancel(ctx, id)
+}
+
+// lockEnvTiles adds the env's tiles the job created to its lock set, so the
+// tile's Deployments tab lists it (job_tiles follows lock_set by trigger). The
+// set was fixed at enqueue; a tile a promote or sync creates is not in it.
+// Written at once: ParkIfRunning writes the payload only, Finish a copy.
+func (o *Orchestrator) lockEnvTiles(ctx context.Context, r *jobs.Run, envID string) {
+	ts, err := o.tiles.List(ctx, envID)
+	if err != nil {
+		return
+	}
+	n := len(r.Job.LockSet)
+	for _, t := range ts {
+		if !slices.Contains(r.Job.LockSet, t.ID) {
+			r.Job.LockSet = append(r.Job.LockSet, t.ID)
+		}
+	}
+	if len(r.Job.LockSet) == n {
+		return
+	}
+	slices.Sort(r.Job.LockSet)
+	if err := o.store.Jobs.Update(context.WithoutCancel(ctx), r.Job); err != nil {
+		slog.Error("recording the job's tiles", "job", r.Job.ID, "error", err)
+	}
 }

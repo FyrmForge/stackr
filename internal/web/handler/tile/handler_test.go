@@ -531,3 +531,43 @@ func TestStorageMounts(t *testing.T) {
 		t.Errorf("stored = %+v %v", ts, err)
 	}
 }
+
+// A domain row shows its certificate state and Check again now, which
+// probes the host and draws the row again.
+func TestDomainRowCertState(t *testing.T) {
+	s := webtest.New(t)
+	d, err := s.Orch.AttachDomain(context.Background(), s.Tile.ID, service.DomainSpec{Host: "app.acme.dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String()
+	if !strings.Contains(body, "Certificate not checked yet.") || !strings.Contains(body, "/domains/"+d.ID+"/recheck") {
+		t.Fatalf("settings lacks the cert line\n%s", body)
+	}
+	rec := s.Do(t, "POST", drawer+"/domains/"+d.ID+"/recheck?open=network", nil)
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "not checked yet") {
+		t.Errorf("recheck = %d\n%s", rec.Code, rec.Body)
+	}
+}
+
+// The add form's gate part: the password is picked from the env's names and
+// saved as a reference; a typed value is refused. The row then reads "gate: user".
+func TestAddDomainGate(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	if _, err := s.Orch.SetParams(ctx, service.ParamScope{Kind: "env", ID: s.Tile.Env}, []service.ParamEntry{{Collection: "gate", Name: "pw", Kind: "secret", Value: "s3cret"}}); err != nil {
+		t.Fatal(err)
+	}
+	body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String()
+	if !strings.Contains(body, `name="gate_user"`) || !strings.Contains(body, "params.gate.pw") || strings.Contains(body, "s3cret") {
+		t.Fatalf("form lacks the gate part\n%s", body)
+	}
+	rec := s.Do(t, "POST", drawer+"/domains?open=network", url.Values{"host": {"app.acme.dev"}, "port": {"80"}, "gate_user": {"alice"}, "gate_pw": {"hunter2"}})
+	if rec.Code != 422 {
+		t.Fatalf("a typed password = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.Do(t, "POST", drawer+"/domains?open=network", url.Values{"host": {"app.acme.dev"}, "port": {"80"}, "gate_user": {"alice"}, "gate_pw": {"${{ params.gate.pw }}"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "gate: alice") || strings.Contains(rec.Body.String(), "s3cret") {
+		t.Fatalf("gated add = %d\n%s", rec.Code, rec.Body)
+	}
+}

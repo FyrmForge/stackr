@@ -565,6 +565,11 @@ side-drawer[full] > aside {
 @media (min-width: 640px) {
   side-drawer[full] > aside { left: 3.5rem; bottom: 0; }
 }
+/* Full screen: a body is centred at 64rem (drawer_view.templ) and its fields
+   stop at a reading width. Only the variables grid (data-grid) lifts both, and
+   a grid inside a closed section does not count. */
+side-drawer[full] #drawer-view:has([data-grid]):not(:has(details:not([open]) [data-grid])) { max-width: none; }
+side-drawer[full] #drawer-view .input:not([data-grid] *) { max-width: 36rem; }
 /* the shell stays undimmed; a click on it still closes the drawer */
 side-drawer[full][open] [data-backdrop] { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {

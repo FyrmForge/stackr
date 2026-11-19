@@ -126,6 +126,9 @@ func Shell(c echo.Context, title string) components.Shell {
 		if pf, ok := c.Get(pushFailKey).(func() *components.PushFailView); ok {
 			s.PushFailed = pf()
 		}
+		if ls, ok := c.Get(linesKey).(func() []components.LiveLine); ok {
+			s.Lines = ls()
+		}
 		if st, ok := c.Get(stopKey).(func() *components.StopView); ok {
 			s.Stopped = st()
 		}
@@ -206,6 +209,7 @@ const ingressDownKey = "env_ingress_down"
 const diskDownKey = "env_disk_down"
 const upgradingKey = "panel_upgrading"
 const pushFailKey = "stack_push_failed"
+const linesKey = "stack_live_lines"
 const stopKey = "env_promote_stopped"
 
 // RolloutStop is the line for the env's last promote when it failed, nil
@@ -236,6 +240,29 @@ func PushFailure(c echo.Context, orch *service.Orchestrator) *components.PushFai
 	}
 	v := components.NewPushFail(f.Error, EnvURL(c)+"/-/jobs/"+f.JobID)
 	return &v
+}
+
+// LiveLines are the lines for work in progress on the request's stack: its
+// push building, then each value a parked job waits for (of this env on an
+// env page). The Releases tab and the env page's banners share them.
+func LiveLines(c echo.Context, orch *service.Orchestrator) []components.LiveLine {
+	s := middleware.ScopeOf(c)
+	if s.Stack == nil || s.Org == nil {
+		return nil
+	}
+	ctx := c.Request().Context()
+	jobs, envID := "/"+s.Org.Slug+"/-/jobs/", "" // a stack's job log is the org's
+	if s.Env != nil {
+		jobs, envID = EnvURL(c)+"/-/jobs/", s.Env.ID
+	}
+	var out []components.LiveLine
+	if b, ok := orch.Building(ctx, s.Stack.ID); ok {
+		out = append(out, components.NewBuilding(s.Stack.Name, b.Sha, b.Started, b.Queued, jobs+b.JobID))
+	}
+	for _, p := range orch.ParkedOn(ctx, s.Stack.ID, envID) {
+		out = append(out, components.NewParkedOn(p.Param, p.Href))
+	}
+	return out
 }
 
 // NodeDown lets the shell show the offline banner on env and tile pages. It
@@ -285,6 +312,7 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 			})
 			c.Set(pushFailKey, func() *components.PushFailView { return PushFailure(c, orch) })
 			c.Set(stopKey, func() *components.StopView { return RolloutStop(c, orch) })
+			c.Set(linesKey, func() []components.LiveLine { return LiveLines(c, orch) })
 			return next(c)
 		}
 	}

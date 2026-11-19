@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -34,8 +35,12 @@ type Flow struct {
 	Domains  *domain.Leaf
 	Operated *operated.Leaf
 	Traffic  *ltraffic.Leaf
-	Path     string           // the conntrack file
-	Now      func() time.Time // nil = time.Now
+	// Out remembers which tiles reached the internet and when; nil = not kept.
+	// ponytail: the flow holds the store itself, there is no leaf for one
+	// table of two columns.
+	Out  store.TileOutboundStore
+	Path string           // the conntrack file
+	Now  func() time.Time // nil = time.Now
 	// Remote is every worker's GET /v1/traffic by node id; a node that did
 	// not answer is absent. nil = the controller alone.
 	Remote func(ctx context.Context) map[string]worker.Traffic
@@ -113,8 +118,35 @@ func (f *Flow) Tick(ctx context.Context) error {
 	for _, ip := range append(proxy, gws...) {
 		ips[ip] = ltraffic.Proxy
 	}
-	f.Traffic.Sample(ips, data, now())
+	at := now()
+	f.Traffic.Sample(ips, data, at)
+	return f.recordOutbound(ctx, at)
+}
+
+// recordOutbound adds this tick's bytes to every tile that talked to the
+// internet. ponytail: rate x tick length, so the total is an estimate that
+// drifts with a missed tick; exact counters would need the conntrack bytes.
+func (f *Flow) recordOutbound(ctx context.Context, at time.Time) error {
+	if f.Out == nil {
+		return nil
+	}
+	for p, bps := range f.Traffic.Snapshot() {
+		if p.To != ltraffic.Internet || p.From == ltraffic.Proxy || p.From == ltraffic.Internet {
+			continue
+		}
+		if err := f.Out.Add(ctx, p.From, int64(bps*ltraffic.Every.Seconds()), at); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// Outbound is the env's tiles that ever reached the internet, newest first.
+func (f *Flow) Outbound(ctx context.Context, envID string) ([]store.TileOutbound, error) {
+	if f.Out == nil {
+		return nil, nil
+	}
+	return f.Out.ListByEnv(ctx, envID)
 }
 
 // remote is this tick's worker tables, a missed one standing in with its

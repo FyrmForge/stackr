@@ -95,6 +95,25 @@ func TestVolumeAndProxyDrawers(t *testing.T) {
 	}
 }
 
+// A route shows its certificate state, and Check again now probes that host.
+func TestProxyCertState(t *testing.T) {
+	s := webtest.New(t)
+	if _, err := s.Orch.AttachDomain(context.Background(), s.Tile.ID, service.DomainSpec{Host: "shop.acme.dev"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := s.Do(t, "GET", "/acme/shop/dev/-/proxy", nil)
+	if !strings.Contains(rec.Body.String(), "Certificate not checked yet.") || !strings.Contains(rec.Body.String(), "/-/proxy/recheck?tile=") {
+		t.Fatalf("proxy drawer = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/proxy/recheck?tile="+s.Tile.ID+"&host=shop.acme.dev", nil)
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "not checked yet") {
+		t.Errorf("recheck = %d\n%s", rec.Code, rec.Body)
+	}
+	if rec = s.Do(t, "POST", "/acme/shop/dev/-/proxy/recheck?tile="+s.Tile.ID+"&host=other.dev", nil); rec.Code != 404 {
+		t.Errorf("recheck of a foreign host = %d", rec.Code)
+	}
+}
+
 // The instance drawer draws v0's four tabs; Settings is the allow list
 // and the env pairs, the add input pre-filled with the org.
 func TestInstanceDrawer(t *testing.T) {
@@ -528,6 +547,7 @@ func TestEnvDrawersLoadInShell(t *testing.T) {
 	for path, want := range map[string]string{
 		env + "/-/new-tile":                           env,
 		env + "/-/proxy":                              env + "?drawer=proxy",
+		env + "/-/internet":                           env + "?drawer=internet",
 		env + "/-/volumes/" + v.ID:                    env + "?drawer=" + v.ID,
 		env + "/-/instances/api?tab=logs":             env + "?drawer=" + s.Tile.ID + "&tab=logs",
 		env + "/-/slices/api":                         env + "?drawer=" + s.Tile.ID,
@@ -544,6 +564,9 @@ func TestEnvDrawersLoadInShell(t *testing.T) {
 	}
 	if rec := s.Do(t, "GET", env+"/-/proxy", nil); rec.Code != 200 {
 		t.Errorf("htmx proxy drawer = %d", rec.Code)
+	}
+	if rec := s.Do(t, "GET", env+"/-/internet", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), "No tile has reached out yet.") {
+		t.Errorf("htmx internet drawer = %d", rec.Code)
 	}
 }
 

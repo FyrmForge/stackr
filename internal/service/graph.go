@@ -35,6 +35,12 @@ var ShowAll = graph.All
 
 func (o *Orchestrator) graphIn(ctx context.Context, s CanvasScope, show GraphShow, status bool) (graph.In, error) {
 	in := graph.In{Show: show, Status: status}
+	if s.Kind == canvas.Env {
+		var err error
+		if in.Outbound, err = o.sample.Outbound(ctx, s.ID); err != nil {
+			return in, err
+		}
+	}
 	if s.Kind == canvas.Env && show.Traffic {
 		var err error
 		if in.Traffic, err = o.sample.Edges(ctx, s.ID); err != nil {

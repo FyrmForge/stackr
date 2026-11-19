@@ -16,6 +16,8 @@ type ConfirmView struct {
 	Quiet   bool   // the opener is a ghost button (a header Stop / Restart)
 	Vals    string // hx-vals JSON posted with the action; "" = none
 	Include string // hx-include selector, searched inside the dialog (the plan's ticks)
+	Yes     string // the yes button's words; "" = Button
+	Cancel  string // the no button's words; "" = Cancel
 	Label   string // aria-label of the opener when its text is not enough
 
 	Open    bool            // asked on arrival, no opener (the promote question)
@@ -39,6 +41,13 @@ func disinherit(v ConfirmView) string {
 		return "hx-include"
 	}
 	return ""
+}
+
+func or(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 func swapOf(target string) string {
@@ -112,9 +121,9 @@ templ confirm(v ConfirmView, swap string) {
 					}
 				</div>
 				<div class="modal-foot">
-					<button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+					<button type="button" class="btn btn-ghost btn-sm" data-cancel>{ or(v.Cancel, "Cancel") }</button>
 					if v.Action != "" {
-						<button type="button" class={ "btn btn-sm", templ.KV("btn-primary", v.Primary), templ.KV("btn-danger", !v.Primary) } data-confirm>{ v.Button }</button>
+						<button type="button" class={ "btn btn-sm", templ.KV("btn-primary", v.Primary), templ.KV("btn-danger", !v.Primary) } data-confirm>{ or(v.Yes, v.Button) }</button>
 					}
 				</div>
 			</dialog>

@@ -124,7 +124,7 @@ func TestOrgTieredGrid(t *testing.T) {
 func TestStackGrid(t *testing.T) {
 	s := webtest.New(t)
 	body := get(t, s, "/acme/shop/-/vars")
-	for _, w := range []string{"data-wide", `name="add_value.env:` + s.Tile.Env + `"`, `name="add_value.stack_pr"`, "+ Add group"} {
+	for _, w := range []string{"data-wide data-grid", `name="add_value.env:` + s.Tile.Env + `"`, `name="add_value.stack_pr"`, "+ Add group"} {
 		if !strings.Contains(body, w) {
 			t.Errorf("no %q in stack grid", w)
 		}

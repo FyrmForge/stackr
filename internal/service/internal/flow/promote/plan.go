@@ -695,12 +695,13 @@ func (f *Flow) planResources(ctx context.Context, p *Plan, w *work, r *Resolved)
 		case have.StackID == nil || *have.StackID != w.st.ID:
 			p.block("domains: %s is already a domain resource", row.Host)
 		case have.IncludeEnvOnDefault != row.IncludeEnvOnDefault || have.ACMEEmail != row.ACMEEmail:
+			det, note := resDiff(have, row)
 			p.add(Change{
-				Kind:  "stack",
-				Field: "domains",
-				Old:   row.Host,
-				New:   row.Host,
-				Note:  "settings change",
+				Kind:    "stack",
+				Field:   "domains",
+				New:     row.Host,
+				Note:    note,
+				Details: det,
 			})
 			have.IncludeEnvOnDefault = row.IncludeEnvOnDefault
 			have.ACMEEmail = row.ACMEEmail
@@ -834,12 +835,16 @@ func (f *Flow) planDomains(
 			p.add(Change{Kind: "domain", Tile: name, New: key, Note: notes})
 			dw.add = append(dw.add, sp)
 		case sigOf(sp) != sigRow(row):
+			det, what := domainDiff(row, sp)
+			if what == "" {
+				what = "settings change"
+			}
 			p.add(Change{
-				Kind: "domain",
-				Tile: name,
-				Old:  key,
-				New:  key,
-				Note: strings.TrimSuffix("settings change; "+notes, "; "),
+				Kind:    "domain",
+				Tile:    name,
+				New:     key,
+				Note:    strings.TrimSuffix(what+"; "+notes, "; "),
+				Details: det,
 			})
 			dw.update[row.ID] = sp
 		}

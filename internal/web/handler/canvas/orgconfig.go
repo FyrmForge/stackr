@@ -2,8 +2,11 @@ package canvas
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/url"
+	"strings"
 
+	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
@@ -13,6 +16,7 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
+	"github.com/FyrmForge/stackr/internal/web/handler/setup"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -29,6 +33,7 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 	v := orgui.ConfigView{
 		Export:    "/api/v1/orgs/" + og.Slug + "/config/export",
 		Canvas:    "/" + og.Slug,
+		Picker:    f.Base + "/config/picker",
 		Connector: og.ConfigConnectorID,
 		Repo:      og.ConfigRepo,
 		Branch:    og.ConfigBranch,
@@ -169,6 +174,14 @@ func (h *handler) mountOrgConfig(site *echo.Group, a *middleware.Access) {
 		return "Config file saved and planned.", err
 	}), bind)
 	site.POST(o+"/unbind", h.orgAction("config", unbind), bind)
+	// the guided bind: the dialog's body loads when it opens, its lookups are the wizard's
+	site.GET(o+"/config/picker", h.orgPicker, bind)
+	setup.PickerRoutes(site, h.orch, o+"/config/connector/:connector", bind)
+	site.POST(o+"/config/bind", h.orgAction("config", func(c echo.Context, og *service.Org) (string, error) {
+		f := c.FormValue
+		_, err := h.orch.SetOrgConfigRepo(c.Request().Context(), og.ID, f("connector_id"), strings.TrimSpace(f("repo")), f("branch"), f("path"), false)
+		return "Config file saved and planned.", err
+	}), bind)
 	site.POST(o+"/plan", h.orgAction("config", func(c echo.Context, og *service.Org) (string, error) {
 		p, err := h.orch.PlanOrgConfig(c.Request().Context(), og.ID)
 		return "Planned: " + p.Summary + ".", err
@@ -212,4 +225,31 @@ func (h *handler) mountOrgConfig(site *echo.Group, a *middleware.Access) {
 	}
 	site.GET("/:org/-/jobs/:job", orgLog, a.Require("deployment.read"))
 	site.GET("/:org/-/jobs/:job/log", orgLog, a.Require("deployment.read"))
+}
+
+// orgPicker is the bind dialog's body: the org's connectors and every repo
+// they can read, as the setup wizard lists them.
+func (h *handler) orgPicker(c echo.Context) error {
+	og, ctx := middleware.ScopeOf(c).Org, c.Request().Context()
+	cs, err := h.orch.ConnectedConnectors(ctx, og.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	rs, err := h.orch.OrgRepos(ctx, og.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	base := "/" + og.Slug + "/-/drawer"
+	v := orgui.PickerView{Action: base + "/config/bind", Base: base + "/config/connector"}
+	for _, k := range cs {
+		label := k.Name + " (" + k.Host + ")"
+		if k.OrgID == nil {
+			label += ", server"
+		}
+		v.Connectors = append(v.Connectors, orgui.Option{Value: k.ID, Label: label})
+	}
+	for _, r := range rs {
+		v.Repos = append(v.Repos, comp.RepoOption{FullName: r.FullName, DefaultBranch: r.DefaultBranch})
+	}
+	return respond.HTML(c, http.StatusOK, orgui.Picker(v))
 }

@@ -51,11 +51,7 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 	if err != nil {
 		return nil, err
 	}
-	vars, err := h.vars(c, cd.s, "", "")
-	if err != nil {
-		return nil, err
-	}
-	set, secret, err := h.varCounts(c, cd.s)
+	set, secret, err := h.varCounts(c, cd.s, es)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +69,7 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 		Path:          st.ConfigPath,
 		Vars:          comp.VarsSummary(set, secret),
 		VarsSet:       set > 0,
-		VarsBody:      vars,
+		VarsBody:      varsLoad(cd.s),
 		Placement:     stackui.PlacementSummary(pv.Pin, pv.PinName, pv.Ingress),
 		PlacementSet:  placementui.Changed(service.ScopeStack, pv.Pin, pv.Ingress, pv.Inherited, len(pv.Rungs)),
 		PlacementBody: placementui.Load(urlOf(cd.s) + "/-/placement"),

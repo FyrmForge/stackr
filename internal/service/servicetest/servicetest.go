@@ -459,6 +459,35 @@ func (e *Env) PushJob(t *testing.T, stackID, state, errMsg string, at time.Time)
 	return id
 }
 
+// LivePushJob records a push job of the stack in state (queued, running...)
+// with payload (JSON), locked as enqueuePush locks it, and returns its id.
+func (e *Env) LivePushJob(t *testing.T, stackID, state, payload string) string {
+	t.Helper()
+	id := uuid.NewString()
+	now := time.Now()
+	j := store.Job{ID: id, Kind: "push", State: state, LockSet: store.StringList{"push:" + stackID, "push:" + stackID + ":acme/shop@main"}, Payload: payload, CreatedAt: now}
+	if state == "running" {
+		j.StartedAt = &now
+	}
+	must(t, e.Store.Jobs.Create(context.Background(), j))
+	return id
+}
+
+// EndJob moves a job to a finished state with an error and a payload (JSON,
+// "" = keep it).
+func (e *Env) EndJob(t *testing.T, id, state, errMsg, payload string) {
+	t.Helper()
+	ctx := context.Background()
+	j, err := e.Store.Jobs.Get(ctx, id)
+	must(t, err)
+	now := time.Now()
+	j.State, j.Error, j.FinishedAt = state, errMsg, &now
+	if payload != "" {
+		j.Payload = payload
+	}
+	must(t, e.Store.Jobs.Update(ctx, j))
+}
+
 // PromoteJob records a promote job of env in state at at (errMsg is its
 // error, payload its JSON, releaseID the release it takes), the way the
 // runner leaves one, and returns its id.

@@ -10,6 +10,7 @@ package cluster
 import (
 	"fmt"
 	"math"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strconv"
@@ -131,6 +132,19 @@ type Egress struct {
 type Backup struct {
 	ID, Name string
 	Nodes    []string
+	Addr     string // the endpoint's IP; "" = unknown, drawn outside the boxes
+}
+
+// drawn: some node on the map backs up to b, so its card is drawn.
+func (b Backup) drawn(byID map[string]Node) bool {
+	return slices.ContainsFunc(b.Nodes, func(id string) bool { _, ok := byID[id]; return ok })
+}
+
+// in: b's address lies inside the network c.
+func (b Backup) in(c Net) bool {
+	a, err := netip.ParseAddr(b.Addr)
+	p, perr := netip.ParsePrefix(c.CIDR)
+	return err == nil && perr == nil && p.Contains(a)
 }
 
 // Geometry, in world pixels.
@@ -239,6 +253,7 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 	// between boxes then cross only the gap; each internet card sits above
 	// its own card, outside the box.
 	by := 0
+	placedIn := map[string]bool{} // backup ids drawn inside a box
 	for _, c := range m.Nets {
 		var members []string
 		var rs []rect
@@ -279,6 +294,13 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		for _, n := range ns {
 			add(nodeID(n.ID), rect{x, rowY, cardW, cardH(n)}, graph.Node{Kind: "node", Name: n.Name, Card: nodeCard(n)})
 			x += cardW + gapX
+		}
+		for _, b := range m.Backups { // a destination inside this network sits in its box
+			if b.drawn(byID) && b.in(c) && !placedIn[b.ID] {
+				placedIn[b.ID] = true
+				add(s3ID(b.ID), rect{x, rowY + (faceH-sideH)/2, sideW, sideH}, graph.Node{Kind: "s3", Name: b.Name, Card: sideCard("S3 · "+b.Name, "bucket", nil)})
+				x += sideW + gapX
+			}
 		}
 		if len(members) == 0 {
 			continue
@@ -404,7 +426,7 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 	// Backup stores below the boxes, when an edge reaches them.
 	sx := netLeft
 	for _, b := range m.Backups {
-		if !slices.ContainsFunc(edges, func(e graph.Edge) bool { return e.To == s3ID(b.ID) }) {
+		if placedIn[b.ID] || !slices.ContainsFunc(edges, func(e graph.Edge) bool { return e.To == s3ID(b.ID) }) {
 			continue
 		}
 		r := place(s3ID(b.ID), rect{sx, bottom + 120, sideW, sideH})

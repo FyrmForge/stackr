@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 
@@ -33,15 +34,19 @@ type View struct {
 	Empty   string
 	// EmptyNote is the second line under Empty, EmptyHref the "Review plan" link after it.
 	EmptyNote, EmptyHref string
-	Releases             *c.RelWindow    // stack and env canvas: the releases window, which holds the env links; nil = none
-	Create               []Create        // the level's create dialogs the viewer may open
-	Lanes                []cards.Lane    // env traffic at the last sample; nil = no lanes layer
-	Banner               *Banner         // the strip over the canvas; nil = none
-	DNS                  string          // GET …/-/dns-banner, loaded on page load (env); "" = no slot
-	SyncBar              *SyncBar        // the env sync review's strip; nil = none
-	Over                 templ.Component // drawn over the canvas with the chrome (the Cluster map's legend); nil = none
-	Review               string          // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
-	FanGap               int             // px between edge ends fanned out on one card side; 0 = the canvas default
+	Releases             *c.RelWindow // stack and env canvas: the releases window, which holds the env links; nil = none
+	// EmptyAt follows Empty as a time (a build's start); EmptyLink is the
+	// word of the EmptyHref link, "Review plan" when "".
+	EmptyAt   time.Time
+	EmptyLink string
+	Create    []Create        // the level's create dialogs the viewer may open
+	Lanes     []cards.Lane    // env traffic at the last sample; nil = no lanes layer
+	Banner    *Banner         // the strip over the canvas; nil = none
+	DNS       string          // GET …/-/dns-banner, loaded on page load (env); "" = no slot
+	SyncBar   *SyncBar        // the env sync review's strip; nil = none
+	Over      templ.Component // drawn over the canvas with the chrome (the Cluster map's legend); nil = none
+	Review    string          // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
+	FanGap    int             // px between edge ends fanned out on one card side; 0 = the canvas default
 }
 
 // SyncBar is the strip under the banner while an env sync is under review:
@@ -79,8 +84,11 @@ type Node struct {
 	Status                 string // one word, "" = nothing to show
 	Fail                   string // the error under a failed status, "" = none
 	FailHref               string // the failed push's job log: the error line links to it, the card is then no anchor
-	Wait                   int    // env card: a release waits to be promoted here; 0 = none
-	X, Y, W, H             int    // the card's own box; sub-tiles hang below it
+	NoteHref               string // a stack card's note link (the build's job log, or where to set a value): like FailHref, the card is then no anchor
+	Note, NoteLink         string // the work in progress under a stack card, and its link's word
+	NoteAt                 time.Time
+	Wait                   int // env card: a release waits to be promoted here; 0 = none
+	X, Y, W, H             int // the card's own box; sub-tiles hang below it
 	// Members makes the card a container (the Cluster map's network box):
 	// the canvas keeps it wrapped around these cards, Pad (top right bottom
 	// left) out and at least MinW wide, and it drags them along.
@@ -142,7 +150,8 @@ func (n Node) Foot() templ.Component {
 	if n.Footer != nil {
 		return n.Footer
 	}
-	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status, Fail: n.Fail, FailHref: n.FailHref, Wait: n.Wait})
+	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status, Fail: n.Fail, FailHref: n.FailHref, Wait: n.Wait,
+		Note: n.Note, NoteLink: n.NoteLink, NoteHref: n.NoteHref, NoteAt: n.NoteAt})
 }
 
 // Toggle is the page URL with one show param flipped.

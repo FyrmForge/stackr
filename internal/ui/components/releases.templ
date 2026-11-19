@@ -14,6 +14,8 @@ type ReleasesView struct {
 	Live   string       // the tab's own GET, polled while no question is open; "" = static
 	// PushFail is the line over the list after a failed push; nil = none.
 	PushFail *PushFailView
+	// Lines is the work in progress: the push building, a value a job waits for.
+	Lines []LiveLine
 }
 
 // EnvRun is one env and the release it runs ("" = nothing deployed).
@@ -45,6 +47,11 @@ templ Releases(v ReleasesView) {
 		if v.PushFail != nil {
 			<div class="mb-4">
 				@PushFailed(*v.PushFail)
+			</div>
+		}
+		if len(v.Lines) > 0 {
+			<div class="mb-4">
+				@LiveLines(v.Lines)
 			</div>
 		}
 		@JobSlot(v.Job, "promote,deploy")

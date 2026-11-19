@@ -823,7 +823,7 @@ func TestReservationRows(t *testing.T) {
 	w.files["c2"] = autoFile("auto: true", "host: shop.io\n    include_env_on_default: true")
 	r2 := w.release(t, "c2")
 	p = planOK(t, w, w.dev, r2)
-	if got := kinds(p); !strings.Contains(got, "stack:domainsshop.ioshop.io") {
+	if got := kinds(p); !strings.Contains(got, "stack:domainsshop.io") {
 		t.Errorf("plan = %s", got)
 	}
 	_, err = w.f.Apply(ctx, w.dev.ID, r2.ID, io.Discard, nil)

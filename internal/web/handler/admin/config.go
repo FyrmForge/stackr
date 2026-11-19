@@ -78,7 +78,7 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 	}
 	if f := refill(c, ui.Base+"/config"); f != nil {
 		v.Connector, v.Repo, v.Branch, v.Path = f.Get("connector"), f.Get("repo"), f.Get("branch"), f.Get("path")
-		v.Auto = f.Get("auto") != ""
+		v.Auto, v.Refused = f.Get("auto") != "", true
 	}
 	if v.Vars, err = h.params(c, "", ""); err != nil {
 		return nil, err

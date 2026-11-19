@@ -18,6 +18,7 @@ type SettingsView struct {
 	InstallURL string // the provider's install page; "" = setup not finished
 	Shared     bool   // a server connector: read-only here
 	Admin      bool   // the viewer is a server admin: Server settings changes it
+	MakeServer c.ConfirmView // a server admin's, on the org's own connector; Action "" = not offered
 	Delete     c.ConfirmView
 }
 
@@ -65,6 +66,12 @@ templ Settings(v SettingsView) {
 			</form>
 			if v.Shared && v.Admin {
 				<a href="/-/admin/connectors" class="link text-sm mt-3 inline-block">Open Server settings, Connectors</a>
+			}
+			if v.MakeServer.Action != "" {
+				<div class="mt-5 space-y-2">
+					<p class="text-xs text-rw-faint">One connector can serve the whole server and this organization.</p>
+					@c.Confirm(v.MakeServer)
+				</div>
 			}
 		}
 		if v.Base != "" {

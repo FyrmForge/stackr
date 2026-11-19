@@ -12,6 +12,7 @@ import (
 	"maps"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,6 +31,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	envui "github.com/FyrmForge/stackr/internal/ui/drawer/env"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/instance"
+	"github.com/FyrmForge/stackr/internal/ui/drawer/outbound"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/proxy"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/slice"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/volume"
@@ -115,6 +117,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/volumes/:volume/discard-copy", h.DiscardCopy, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/discard-object", h.DiscardObject, a.Require("tile.write"))
 	g.GET(e+"/proxy", h.Proxy, a.Require("tile.read"))
+	g.GET(e+"/internet", h.Internet, a.Require("tile.read"))
+	g.POST(e+"/proxy/recheck", h.ProxyRecheck, a.Require("domain.write"))
 	g.GET(e+"/logs", h.Logs, a.Require("tile.read"))
 	g.GET(e+"/dns-banner", h.DNSBanner, a.Require("tile.read"))
 }
@@ -1425,14 +1429,40 @@ func (h *handler) Proxy(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	return respond.HTML(c, http.StatusOK, proxy.Routes(h.proxyView(c, rs)))
+}
+
+// POST …/-/proxy/recheck (tile, host): probe one route's certificate now.
+func (h *handler) ProxyRecheck(c echo.Context) error {
+	ctx := c.Request().Context()
+	rs, err := h.orch.Routes(ctx, scope(c).Env.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	if !slices.ContainsFunc(rs, func(r service.Route) bool { return r.TileID == c.FormValue("tile") && r.Host == c.FormValue("host") }) {
+		return middleware.HTTPError(errs.ErrNotFound)
+	}
+	if _, err := h.orch.RecheckCert(ctx, c.FormValue("tile"), c.FormValue("host")); err != nil {
+		return middleware.HTTPError(err)
+	}
+	return respond.HTML(c, http.StatusOK, proxy.Routes(h.proxyView(c, rs)))
+}
+
+func (h *handler) proxyView(c echo.Context, rs []service.Route) proxy.View {
 	ids := make([]string, len(rs))
 	for i, r := range rs {
 		ids[i] = r.ID
 	}
 	gates := h.orch.DomainGates(c.Request().Context(), ids)
-	var v proxy.View
+	v := proxy.View{Live: render.EnvURL(c) + "/-/proxy"}
 	for _, r := range rs {
+		cs, ok := h.orch.CertState(r.Host)
+		rc := ""
+		if can(c, scope(c), "domain.write") {
+			rc = render.EnvURL(c) + "/-/proxy/recheck?tile=" + url.QueryEscape(r.TileID) + "&host=" + url.QueryEscape(r.Host)
+		}
 		v.Rows = append(v.Rows, proxy.Route{
+			Cert:  render.Cert(cs, ok, rc),
 			Gate:  gates[r.ID].User,
 			Lock:  gates[r.ID].Locked,
 			Host:  r.Host,
@@ -1444,7 +1474,24 @@ func (h *handler) Proxy(c echo.Context) error {
 			Raw:   r.RawCaddy != "",
 		})
 	}
-	return respond.HTML(c, http.StatusOK, proxy.Routes(v))
+	return v
+}
+
+// GET …/-/internet
+func (h *handler) Internet(c echo.Context) error {
+	if ok, err := render.ToShell(c, "internet"); ok {
+		return err
+	}
+	sc := scope(c)
+	rows, err := h.orch.Outbound(c.Request().Context(), sc.Env.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	v := outbound.View{Live: c.Request().URL.Path}
+	for _, r := range rows {
+		v.Rows = append(v.Rows, outbound.Row{Name: r.Name, LastSeen: r.LastSeen, Bytes: r.Bytes, Live: r.Live})
+	}
+	return respond.HTML(c, http.StatusOK, outbound.Drawer(v))
 }
 
 // ---- volume ----

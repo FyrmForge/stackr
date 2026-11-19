@@ -5,6 +5,7 @@
 package graph
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/canvas"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
@@ -68,6 +70,11 @@ type Flow struct {
 	PushFail func(ctx context.Context, stackID string) (jobID, msg string, failed bool)
 	// Stop is the env's last promote when it failed at a tile; nil = none asked.
 	Stop func(ctx context.Context, envID string) (Stopped, bool)
+	// Building is the stack's push job that is queued or running; nil = none asked.
+	Building func(ctx context.Context, stackID string) (jobID, sha string, at time.Time, queued, ok bool)
+	// Parked is the first value a job of the stack (of one env when envID is
+	// not "") waits for, and where to set it; nil = none asked.
+	Parked func(ctx context.Context, stackID, envID string) (param, href string, ok bool)
 }
 
 // Node kinds besides the tile kinds (service, image, operated, cron,
@@ -158,11 +165,40 @@ type Node struct {
 	Phase          string     // the live job's step, "" = the word alone
 	Fail           string     // the failed deploy's error, whole; "" = none
 	FailJob        string     // stack card: the failed push's job; "" = none
+	// Stack card: the work in progress under its name, "" = none. NoteAt
+	// follows the text (a start time); NoteJob is the job whose log it links
+	// to, NoteSet where to set a value; one of them is set with a note.
+	Note, NoteJob, NoteSet string
+	NoteAt                 time.Time
 	Stop, StopJob  string     // a tile the failed promote never reached: the tile it stopped at, and that job
 	Wait           int        // env card: the release the rung below runs and this one does not; 0 = none
 	// Vars card counts; never a value.
 	Params, Secrets int
 	Consumers       int // slice: the tiles that ref it, name it in slice_access or hold a cred on it
+}
+
+// note puts the stack's build in flight, or else the value a parked job
+// waits for, on its card.
+func (f *Flow) note(ctx context.Context, n *Node, stackID string) {
+	if f.Building != nil {
+		if id, sha, at, queued, ok := f.Building(ctx, stackID); ok {
+			n.NoteJob, n.NoteAt = id, at
+			at := ""
+			if sha != "" {
+				at = " at " + sha
+			}
+			n.Note = "Building" + at + ", started "
+			if queued {
+				n.Note = "Waiting to build" + at + ", queued "
+			}
+			return
+		}
+	}
+	if f.Parked != nil {
+		if param, href, ok := f.Parked(ctx, stackID, ""); ok {
+			n.Note, n.NoteSet = "Waiting for "+param, href
+		}
+	}
 }
 
 // Sub is a sub-tile (an attached volume, a replica); Detail is the strip's
@@ -211,8 +247,11 @@ type In struct {
 	Show    Show
 	Status  bool
 	Traffic []ltraffic.Edge
-	Sync    map[string]string // env canvas: tile slug -> new | edited | removed; nil = no overlay
-	New     []store.Tile      // env canvas: the rows a sync would create, drawn as ghosts
+	// Outbound is the env's tiles that ever reached the internet; their box
+	// and line stay, whether or not traffic flows now.
+	Outbound []store.TileOutbound
+	Sync     map[string]string // env canvas: tile slug -> new | edited | removed; nil = no overlay
+	New      []store.Tile      // env canvas: the rows a sync would create, drawn as ghosts
 }
 
 // Build is the canvas at s.
@@ -355,6 +394,11 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 		v.Nodes = append(v.Nodes, vars)
 	}
 	proxied := false
+	inOrg := map[string]bool{}
+	for _, st := range sts {
+		inOrg[st.ID] = true
+	}
+	used := map[[2]string]bool{} // stack pairs already joined by a reference
 	for _, st := range sts {
 		es, err := f.Envs.List(ctx, st.ID)
 		if err != nil {
@@ -363,6 +407,21 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 		ts, err := f.Tiles.ListByStack(ctx, st.ID)
 		if err != nil {
 			return err
+		}
+		// One reference per stack pair: a slice here is cut from an operated
+		// tile of another stack.
+		for _, t := range ts {
+			if t.Kind != tile.Slice {
+				continue
+			}
+			it, ok, err := f.sliceTarget(ctx, t)
+			if err != nil {
+				return err
+			}
+			if pair := [2]string{st.ID, it.StackID}; ok && it.StackID != st.ID && inOrg[it.StackID] && !used[pair] {
+				used[pair] = true
+				v.Edges = append(v.Edges, Edge{EdgeRef, "stack:" + st.ID, "stack:" + it.StackID})
+			}
 		}
 		n := card("stack:"+st.ID, KindStack, st.Name)
 		n.Slug, n.Detail, n.Deck = st.Slug, plural(len(es), "environment"), deck(len(es))
@@ -378,6 +437,9 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 					}
 				}
 			}
+		}
+		if in.Status {
+			f.note(ctx, &n, st.ID)
 		}
 		if n.Domains, err = f.hosts(ctx, ts); err != nil {
 			return err
@@ -707,17 +769,25 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		}
 		s.word = s.state.Word
 		// v0 deals replicas 2 to 4 under the card (the card is replica 1).
-		for i, c := range s.state.Replicas {
+		// Mid-deploy extras are the outgoing and incoming containers, not
+		// replicas: they are dealt too, with their generation as the name.
+		cs, tags := Generations(s.state.Replicas, t.Replicas, j, hasJob)
+		n := 0 // real replicas seen
+		for i, c := range cs {
 			if c.State == "running" {
 				up++
 			}
-			if i == 0 || i >= 4 {
+			if tag := tagAt(tags, i); tag != "" {
+				s.replicas = append(s.replicas, Sub{ID: fmt.Sprintf("replica:%s:%s", t.ID, c.ID), Kind: KindReplica, Name: tag, Status: tagState(tag, c.State)})
+				continue
+			}
+			if n++; n == 1 || n >= 5 {
 				continue
 			}
 			s.replicas = append(s.replicas, Sub{
-				ID:     fmt.Sprintf("replica:%s:%d", t.ID, i+1),
+				ID:     fmt.Sprintf("replica:%s:%d", t.ID, n),
 				Kind:   KindReplica,
-				Name:   fmt.Sprintf("replica %d", i+1),
+				Name:   fmt.Sprintf("replica %d", n),
 				Status: c.State,
 			})
 		}
@@ -749,7 +819,29 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			}
 		}
 	}
+	// a first promote parked on a value has made no job of this tile yet
+	if s.word == "none" && f.Parked != nil && !tile.RunToCompletion(t.Kind) {
+		if param, _, ok := f.Parked(ctx, t.StackID, t.EnvironmentID); ok {
+			s.word, s.waiting = "waiting", param
+		}
+	}
 	return s, nil
+}
+
+// tagState is a generation's dot word: the outgoing one is neutral whatever
+// it is doing, the incoming one shows its container's state.
+func tagState(tag, state string) string {
+	if tag == "old" {
+		return tag
+	}
+	return state
+}
+
+func tagAt(tags []string, i int) string {
+	if i < len(tags) {
+		return tags[i]
+	}
+	return ""
 }
 
 // RunWord is a cron's or function's word from its runs, newest first: the
@@ -811,6 +903,33 @@ func LayerJob(word string, up int, runKind bool, j store.Job) string {
 		}
 	}
 	return word
+}
+
+// Generations tells which containers of a tile are the outgoing and the
+// incoming generation while a deploy of it runs and it holds more containers
+// than it wants (the overlap, where both share labels). It returns the
+// containers oldest first and a tag each: "old" for the oldest extras,
+// "new" for the newest extras, "" for a real replica. No live deploy or no
+// extras: the containers as they came, no tags.
+// ponytail: tells generations by creation time only; a deploy that
+// replaces replicas one by one reads the same as an overlap.
+func Generations(cs []docker.Container, want int, j store.Job, hasJob bool) ([]docker.Container, []string) {
+	extra := len(cs) - max(want, 1)
+	if !hasJob || !rollout[j.Kind] || (j.State != job.Running && j.State != job.Queued) || extra <= 0 {
+		return cs, nil
+	}
+	cs = slices.Clone(cs)
+	slices.SortStableFunc(cs, func(a, b docker.Container) int { return cmp.Compare(a.Created, b.Created) })
+	tags := make([]string, len(cs))
+	for i := range cs {
+		switch {
+		case i < extra:
+			tags[i] = "old"
+		case i >= len(cs)-extra:
+			tags[i] = "new"
+		}
+	}
+	return cs, tags
 }
 
 // rollout are the job kinds whose failure says the tile is unwell (service's
@@ -968,12 +1087,21 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	}
 
 	// The system column: the proxy when anything is proxied, the internet
-	// when a tile talked to it in the last sample.
+	// when a tile ever reached it. The line and the box stay; the markers
+	// (rates, pulses) come from the live lanes only.
 	egress := map[string]bool{}
-	for _, l := range in.Traffic {
-		if t, ok := byID[l.From]; ok && l.To == ltraffic.Internet && !egress[t.Slug] {
+	reach := func(id string) {
+		if t, ok := byID[id]; ok && !egress[t.Slug] {
 			egress[t.Slug] = true
 			v.Edges = append(v.Edges, Edge{EdgeEgress, t.ID, KindInternet})
+		}
+	}
+	for _, o := range in.Outbound {
+		reach(o.TileID)
+	}
+	for _, l := range in.Traffic {
+		if l.To == ltraffic.Internet {
+			reach(l.From)
 		}
 	}
 	if proxied {
@@ -1233,9 +1361,6 @@ func filter(v *View, s Show) {
 			}
 		}
 	}
-	if !s.Traffic {
-		drop[KindInternet] = true
-	}
 	if !s.Operated {
 		for _, n := range v.Nodes {
 			if n.Kind == KindRef {
@@ -1253,7 +1378,7 @@ func filter(v *View, s Show) {
 	edges := v.Edges[:0]
 	for _, e := range v.Edges {
 		off := drop[e.From] || drop[e.To] || (!s.Refs && e.Kind == EdgeRef) ||
-			(!s.Startup && e.Kind == EdgeStartup) || (!s.Traffic && e.Kind == EdgeEgress)
+			(!s.Startup && e.Kind == EdgeStartup)
 		if !off {
 			edges = append(edges, e)
 		}

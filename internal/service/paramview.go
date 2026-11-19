@@ -147,36 +147,50 @@ func (o *Orchestrator) stillUnset(ctx context.Context, pj parkedJob, envID strin
 // ("collection.name" to tile slugs). A declared secret stores no row, so the
 // parked deploys are where the declaration shows.
 func (o *Orchestrator) UnsetParams(ctx context.Context, s ParamScope) (map[string][]string, error) {
-	if s.Kind != "env" {
-		return nil, nil
-	}
-	have, err := o.params.Values(ctx, s, false)
+	out, err := o.UnsetParamsOf(ctx, []ParamScope{s})
 	if err != nil {
 		return nil, err
 	}
+	return out[0], nil
+}
+
+// UnsetParamsOf is UnsetParams for several scopes with the parked jobs read
+// once (a grid asks for one per env column); the answer is in scope order.
+func (o *Orchestrator) UnsetParamsOf(ctx context.Context, ss []ParamScope) ([]map[string][]string, error) {
 	pjs, err := o.parkedJobs(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string][]string{}
-	for _, pj := range pjs {
-		k := pj.Param
-		if strings.ContainsAny(k, "[:") || strings.Count(k, ".") != 1 {
+	res := make([]map[string][]string, len(ss))
+	for i, s := range ss {
+		if s.Kind != "env" {
 			continue
 		}
-		if _, ok := have[k]; ok {
-			continue
+		have, err := o.params.Values(ctx, s, false)
+		if err != nil {
+			return nil, err
 		}
-		for _, id := range parkedTiles(pj.Job) {
-			if t, err := o.tiles.Get(ctx, id); err == nil && t.EnvironmentID == s.ID && !slices.Contains(out[k], t.Slug) {
-				out[k] = append(out[k], t.Slug)
+		out := map[string][]string{}
+		for _, pj := range pjs {
+			k := pj.Param
+			if strings.ContainsAny(k, "[:") || strings.Count(k, ".") != 1 {
+				continue
+			}
+			if _, ok := have[k]; ok {
+				continue
+			}
+			for _, id := range parkedTiles(pj.Job) {
+				if t, err := o.tiles.Get(ctx, id); err == nil && t.EnvironmentID == s.ID && !slices.Contains(out[k], t.Slug) {
+					out[k] = append(out[k], t.Slug)
+				}
 			}
 		}
+		for _, v := range out {
+			slices.Sort(v)
+		}
+		res[i] = out
 	}
-	for _, v := range out {
-		slices.Sort(v)
-	}
-	return out, nil
+	return res, nil
 }
 
 // SetParamsLater is SetParams that leaves the readers running: it names the

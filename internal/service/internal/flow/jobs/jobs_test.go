@@ -3,6 +3,7 @@ package jobs_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -610,5 +611,38 @@ func TestFailKeepsPayload(t *testing.T) {
 	waitState(t, l, id, job.Failed)
 	if j, _ := l.Get(ctx, id); j.Payload != `{"stopped_at":"api"}` {
 		t.Errorf("payload = %q", j.Payload)
+	}
+}
+
+// A job parked on an unset param is not re-run while the stamp holds, and
+// logs nothing; a changed stamp runs it once.
+func TestParkedRechecksQuietly(t *testing.T) {
+	var calls atomic.Int32
+	var stamp atomic.Int32
+	h := func(context.Context, *jobs.Run) error {
+		if calls.Add(1) == 1 {
+			return errs.Unset{Param: "app.db_url"}
+		}
+		return nil
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{
+		Stamp: func(context.Context) (string, error) { return fmt.Sprint(stamp.Load()), nil },
+	})
+	start(t, r)
+	id := enqueue(t, r, "a", "t1")
+	waitState(t, l, id, job.Waiting)
+	time.Sleep(200 * time.Millisecond)
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("handler ran %d times while parked", n)
+	}
+	stamp.Add(1)
+	waitState(t, l, id, job.Done)
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("handler ran %d times", n)
+	}
+	j, _ := l.Get(ctx, id)
+	b, _ := os.ReadFile(j.LogPath)
+	if string(b) != "waiting: param app.db_url is not set; the job resumes once it is\n" {
+		t.Errorf("log = %q", b)
 	}
 }

@@ -125,7 +125,8 @@ type StatusView struct {
 	Access   []access.Perm // elevated access held or waiting, strongest first
 }
 
-type ReplicaView struct{ ID, Name, State, Health string }
+// Tag is "old" or "new" while a deploy overlaps the tile's containers; "" = a replica.
+type ReplicaView struct{ ID, Name, State, Health, Tag string }
 
 type LogsView struct {
 	Replicas  []ReplicaView
@@ -152,6 +153,9 @@ type DomainsView struct {
 	NoIP    *NoIPRefusal      // an add refused on an ingress node with no public IP
 	Kept    map[string]string // a refused add's form, drawn again open; nil = none
 	Port    string            // the tile's container port: the add form's prefill
+	// GateRefs are the env's variable and secret names as `${{ params.c.n }}`
+	// references: the gate password is picked from them, never typed.
+	GateRefs []string
 	// AutoHost is the generated name the auto button would attach, "" = not known.
 	AutoHost string
 }
@@ -197,6 +201,7 @@ type DomainRow struct {
 	// Gate is the basic-auth user ("" = none); Locked is why the address
 	// answers nobody ("" = not locked).
 	Gate, Locked string
+	Cert         c.CertView // an HTTPS host's certificate state
 	// Records is the host's custom DNS records; nil = no managed domain
 	// covers it.
 	Records *dnsui.RecordsView
@@ -252,6 +257,7 @@ type JobsView struct {
 // job has not started; "" = none. Href is the job's log page.
 type JobRow struct {
 	Kind, Line, State, Error, Cancel, Waits, Href string
+	Retry                                         string // POST target: the tile's normal deploy, on a failed row
 	When                                          time.Time
 }
 

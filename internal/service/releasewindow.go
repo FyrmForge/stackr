@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 	"strings"
 	"time"
@@ -191,19 +190,15 @@ func (o *Orchestrator) ReleaseWindow(ctx context.Context, stackID, envID string)
 	if err != nil {
 		return w, err
 	}
-	var building, deploying = []WindowRow{}, map[string]bool{}
+	var building []WindowRow
+	deploying := map[string]bool{}
+	if b, ok := o.Building(ctx, stackID); ok { // the push job whose release is not cut yet
+		building = append(building, WindowRow{Kind: RowBuilding, Commit: b.Sha, At: b.Started, JobID: b.JobID, Queued: b.Queued})
+	}
 	byRelease := map[string][]WindowJob{}
 	for _, j := range js { // newest first
 		live := j.State == "queued" || j.State == "running"
 		switch {
-		case j.Kind == string(kindPush) && live:
-			var p pushJob
-			_ = json.Unmarshal([]byte(j.Payload), &p)
-			row := WindowRow{Kind: RowBuilding, Commit: p.Event.Commit, Message: p.Event.Message, At: j.CreatedAt, JobID: j.ID, Queued: j.State == "queued"}
-			if j.StartedAt != nil {
-				row.At = *j.StartedAt
-			}
-			building = append(building, row)
 		case j.ReleaseID != nil:
 			if live && j.Kind == string(kindPromote) {
 				deploying[*j.ReleaseID] = true

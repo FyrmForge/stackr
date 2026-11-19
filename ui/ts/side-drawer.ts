@@ -31,6 +31,27 @@ class SideDrawer extends HTMLElement {
     this.querySelector<HTMLElement>("[data-close]")?.focus({ preventScroll: true });
   };
 
+  // A card's request into the closed drawer opens it at once on a loading
+  // body, so a slow answer never looks like nothing happened.
+  private onBefore = (e: Event): void => {
+    const body = this.body();
+    if (!body || (e as CustomEvent<{ target?: Element }>).detail?.target !== body || this.hasAttribute("open")) return;
+    const was = document.activeElement as HTMLElement | null;
+    if (was && !this.contains(was)) this.opener = was;
+    const p = document.createElement("p");
+    p.className = "p-6 text-sm text-rw-muted";
+    p.setAttribute("aria-busy", "true");
+    p.dataset.loading = "";
+    p.textContent = "Loading…";
+    body.replaceChildren(p);
+    this.setAttribute("open", "");
+  };
+
+  // The request never got an answer: nothing but the loading text is in the drawer.
+  private onLost = (): void => {
+    if (this.body()?.querySelector("[data-loading]")) this.close(true);
+  };
+
   private onClick = (e: Event): void => {
     const el = e.target as Element;
     if (el.closest("[data-expand]")) return this.expand(!this.hasAttribute("full"));
@@ -68,6 +89,7 @@ class SideDrawer extends HTMLElement {
     if (!this.hasAttribute("open") || !body || !d?.target || !body.contains(d.target)) return;
     e.preventDefault();
     if (d.xhr?.status === 404) return this.close(true);
+    body.querySelector("[data-loading]")?.remove();
     body.querySelector("[data-request-error]")?.remove();
     const p = document.createElement("p");
     p.className = "banner banner-danger";
@@ -93,6 +115,9 @@ class SideDrawer extends HTMLElement {
   };
 
   connectedCallback(): void {
+    document.addEventListener("htmx:beforeRequest", this.onBefore);
+    document.addEventListener("htmx:sendError", this.onLost);
+    document.addEventListener("htmx:timeout", this.onLost);
     document.addEventListener("htmx:afterSwap", this.onSwap);
     document.addEventListener("htmx:afterSettle", this.onSettle);
     document.addEventListener("htmx:responseError", this.onError, true);
@@ -103,6 +128,9 @@ class SideDrawer extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    document.removeEventListener("htmx:beforeRequest", this.onBefore);
+    document.removeEventListener("htmx:sendError", this.onLost);
+    document.removeEventListener("htmx:timeout", this.onLost);
     document.removeEventListener("htmx:afterSwap", this.onSwap);
     document.removeEventListener("htmx:afterSettle", this.onSettle);
     document.removeEventListener("htmx:responseError", this.onError, true);

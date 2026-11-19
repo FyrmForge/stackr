@@ -164,3 +164,60 @@ func TestReleasesWindow(t *testing.T) {
 		t.Errorf("no releases event:\n%s", body)
 	}
 }
+
+// A running push shows where its release will show: the env page, its
+// Releases tab and the stack's card; a finished one takes the line away. A
+// stack with no environments says it on its own page, and says why a done push
+// made none.
+func TestRunningPushShows(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	id := s.LivePushJob(t, s.Tile.Stack, "running", `{"stack_id":"`+s.Tile.Stack+`","event":{"Commit":"f9cdc50abc"}}`)
+	for _, path := range []string{"/acme/shop/dev", "/acme/shop/dev/-/drawer?tab=releases"} {
+		body := get(t, s, path)
+		if !strings.Contains(body, "Building shop at f9cdc50, started ") || !strings.Contains(body, `href="/acme/shop/dev/-/jobs/`+id+`"`) {
+			t.Errorf("%s lacks the build line:\n%s", path, body)
+		}
+	}
+	if body := get(t, s, "/acme"); !strings.Contains(body, "Building at f9cdc50, started ") || !strings.Contains(body, `href="/acme/-/jobs/`+id+`"`) {
+		t.Errorf("stack card:\n%s", body)
+	}
+	s.EndJob(t, id, "done", "", "")
+	if body := get(t, s, "/acme/shop/dev/-/drawer?tab=releases"); strings.Contains(body, "Building shop") {
+		t.Errorf("a finished push left the line:\n%s", body)
+	}
+
+	empty, err := s.Orch.CreateStack(ctx, s.Org, "huginn", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := s.LivePushJob(t, empty.ID, "running", `{"event":{"Commit":"abc1234def"}}`)
+	if body := get(t, s, "/acme/huginn"); !strings.Contains(body, "Building huginn at abc1234, started ") || !strings.Contains(body, `href="/acme/-/jobs/`+pid+`"`) {
+		t.Errorf("empty stack, running:\n%s", body)
+	}
+	s.EndJob(t, pid, "done", "", `{"skipped":["prod: the file gives it no branch or promote"]}`)
+	if body := get(t, s, "/acme/huginn"); !strings.Contains(body, "This stack has no environments yet.") || !strings.Contains(body, "prod: the file gives it no branch or promote") {
+		t.Errorf("empty stack, done:\n%s", body)
+	}
+	s.EndJob(t, pid, "failed", "buildx build: exit status 1", "")
+	if body := get(t, s, "/acme/huginn"); !strings.Contains(body, "The last push failed: buildx build: exit status 1.") {
+		t.Errorf("empty stack, failed:\n%s", body)
+	}
+}
+
+// A job parked on an unset value says so with a link to set it: over the env
+// page and its Releases tab, on the stack's card, and on the tile that never
+// deployed.
+func TestParkedValueShows(t *testing.T) {
+	s := webtest.New(t)
+	s.WaitingJob(t, "huginn.oidc_secret", `{"env_id":"`+s.Tile.Env+`"}`)
+	for _, path := range []string{"/acme/shop/dev", "/acme/shop/dev/-/drawer?tab=releases"} {
+		body := get(t, s, path)
+		if !strings.Contains(body, "Waiting for huginn.oidc_secret") || !strings.Contains(body, "&amp;tab=variables") || !strings.Contains(body, ">Set it<") {
+			t.Errorf("%s lacks the parked line:\n%s", path, body)
+		}
+	}
+	if body := get(t, s, "/acme"); !strings.Contains(body, "Waiting for huginn.oidc_secret") || !strings.Contains(body, ">Set it<") {
+		t.Errorf("stack card:\n%s", body)
+	}
+}

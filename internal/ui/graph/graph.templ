@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"cmp"
 	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -141,8 +142,9 @@ templ Canvas(v View) {
 			<div class="absolute inset-0 flex flex-col items-center justify-center gap-1 text-rw-faint text-sm pointer-events-none">
 				<p class={ templ.KV("text-rw-text", v.EmptyHref != "") }>
 					{ v.Empty }
+					@c.Time(v.EmptyAt, "15:04")
 					if v.EmptyHref != "" {
-						{ " " }<a href={ templ.SafeURL(v.EmptyHref) } class="link pointer-events-auto">Review plan</a>
+						{ " " }<a href={ templ.SafeURL(v.EmptyHref) } class="link pointer-events-auto">{ cmp.Or(v.EmptyLink, "Review plan") }</a>
 					}
 				</p>
 				if v.EmptyNote != "" {
@@ -222,7 +224,7 @@ templ node(v View, n Node) {
 // card with a level below is a link to it, a deck with its env's colour;
 // the rest open their drawer.
 templ face(n Node) {
-	if n.Href != "" && n.FailHref == "" {
+	if n.Href != "" && n.FailHref == "" && n.NoteHref == "" {
 		<a
 			href={ templ.SafeURL(n.Href) }
 			hx-get={ n.Href }

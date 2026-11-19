@@ -68,6 +68,15 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 		if n.FailJob != "" {
 			u.FailHref = l.base + "/-/jobs/" + n.FailJob
 		}
+		if n.Note != "" {
+			u.Note, u.NoteAt = n.Note, n.NoteAt
+			switch {
+			case n.NoteJob != "":
+				u.NoteHref, u.NoteLink = l.base+"/-/jobs/"+n.NoteJob, "Job log"
+			case n.NoteSet != "":
+				u.NoteHref, u.NoteLink = n.NoteSet, "Set it"
+			}
+		}
 		switch n.Kind {
 		case "org":
 			u.Href = "/" + n.Slug
@@ -88,7 +97,9 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 		if l.scope.Kind == service.CanvasEnv {
 			envCard(&u, n, l.base, g)
 		} else if len(n.Domains) > 0 {
-			u.Footer = cards.Footer(n.ID, exposed(n, l.scope.Kind, u.FailHref))
+			f := exposed(n, l.scope.Kind, u.FailHref)
+			f.Note, f.NoteLink, f.NoteHref, f.NoteAt = u.Note, u.NoteLink, u.NoteHref, u.NoteAt
+			u.Footer = cards.Footer(n.ID, f)
 		}
 		v.Nodes = append(v.Nodes, u)
 	}
@@ -174,6 +185,8 @@ func envDrawer(base, kind, id, slug string) (url, tab string) {
 		return base + "/-/volumes/" + id, "backups"
 	case "proxy":
 		return base + "/-/proxy", "routes"
+	case "internet":
+		return base + "/-/internet", "outbound"
 	case "vars":
 		return base + "/-/vars", "editor"
 	}

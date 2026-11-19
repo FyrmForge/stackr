@@ -31,6 +31,17 @@ func (h *handler) connectorTab(c echo.Context, cd card, f *comp.DrawerView) (tem
 	}
 	if can(c, cd.s, "connector.write") && !cd.conn.Shared {
 		v.Base = f.Base
+		if v.Admin {
+			v.MakeServer = comp.ConfirmView{
+				Button:  "Make this a server connector",
+				Title:   "Make this a server connector?",
+				Warning: "It moves up to the server and stays shared with this organization. Everything bound to it keeps working.",
+				Action:  f.Base + "/make-server",
+				Target:  "#" + comp.DrawerRoot,
+				Primary: true,
+				Quiet:   true,
+			}
+		}
 		v.Delete = dialog.DeleteConnector(cd.conn.Name, h.kindLabel(cd.conn.Kind), f.Base+"/delete", "#"+comp.DrawerRoot)
 	}
 	return connui.Settings(v), nil
@@ -87,6 +98,17 @@ func (h *handler) mountConnector(site *echo.Group, a *middleware.Access) {
 			cd, _ = h.cardOf(c, "connector")
 		}
 		return h.after(c, cd, "settings", "Renamed.", err)
+	}, write)
+	site.POST(k+"/make-server", func(c echo.Context) error {
+		cd, err := h.cardOf(c, "connector")
+		if err == nil {
+			_, err = h.orch.MakeServerConnector(c.Request().Context(), middleware.Principal(c), cd.s.Org.ID, cd.conn.ID)
+		}
+		if err != nil {
+			return h.after(c, cd, "settings", "", err)
+		}
+		cd, _ = h.cardOf(c, "connector")
+		return h.after(c, cd, "settings", "It is a server connector now, shared with this organization.", nil)
 	}, write)
 	site.POST(k+"/delete", func(c echo.Context) error {
 		cd, err := h.cardOf(c, "connector")

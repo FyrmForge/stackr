@@ -248,9 +248,9 @@ templ reviewHead(p PlanView, c ChangeView, opens bool) {
 		<span class="h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
 	}
 	if c.Optional && p.Ticks {
-		<label class="flex cursor-pointer items-center gap-2 rounded border border-rw-warn/40 bg-rw-warn/10 px-2 py-1 text-rw-warn">
-			<input type="checkbox" name="ticked" value={ c.Key } class="h-4 w-4 accent-rw-accent" aria-label={ "Remove " + c.Field }/>
-			remove?
+		<label class="flex cursor-pointer items-center gap-2 rounded border border-rw-warn/60 bg-rw-warn/10 px-3 py-1.5 text-sm font-medium text-rw-warn">
+			<input type="checkbox" name="ticked" value={ c.Key } class="h-5 w-5 accent-rw-accent" aria-label={ "Remove " + c.Field }/>
+			Remove
 		</label>
 	} else if c.Optional {
 		@Chip("remove?", "warn")

@@ -2,6 +2,7 @@ package cluster_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -301,5 +302,26 @@ func TestTunnelArrows(t *testing.T) {
 	}
 	if cluster.TunnelPush("b", "a") != "?drawer=tunnel:a:b" {
 		t.Errorf("tunnel push = %s", cluster.TunnelPush("b", "a"))
+	}
+}
+
+// A destination whose address is inside a drawn network is a member of its box;
+// one outside, or with no address, stands below the boxes.
+func TestBackupInsideItsNetwork(t *testing.T) {
+	member := func(addr string) (in, drawn bool) {
+		m := sample()
+		m.Backups[0].Addr = addr
+		for _, n := range cluster.Build(m, cluster.Base, nil, nil).Nodes {
+			if n.ID == "net:192.168.1.0/24" {
+				in = slices.Contains(n.Members, "s3:b")
+			}
+			drawn = drawn || n.ID == "s3:b"
+		}
+		return
+	}
+	for addr, want := range map[string]bool{"192.168.1.50": true, "8.8.8.8": false, "": false} {
+		if in, drawn := member(addr); in != want || !drawn {
+			t.Errorf("addr %q: in box %v (want %v), drawn %v", addr, in, want, drawn)
+		}
 	}
 }
