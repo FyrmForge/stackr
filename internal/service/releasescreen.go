@@ -43,7 +43,8 @@ type ScreenRow struct {
 	Org        string // slug
 	OrgID      string
 	StackSlug  string
-	CanPromote bool // the viewer may take it into an env
+	LogEnv     string // the env slug the stack's job logs are addressed under
+	CanPromote bool   // the viewer may take it into an env
 }
 
 // ReleaseScreen is the screen's tree, rows (newest first) and the sources
@@ -100,7 +101,7 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		if err != nil {
 			return sc, err
 		}
-		rows := planRows("server config", "", "", planIn(ps, func(p ServerPlan) planFields {
+		rows := planRows("server config", "", "", true, planIn(ps, func(p ServerPlan) planFields {
 			return planFields{p.ID, p.Commit, p.Summary, p.Status, p.Error, p.Source, p.CreatedAt, p.DecidedAt != nil}
 		}))
 		add(ScopeServer, rows...)
@@ -118,7 +119,7 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		if err != nil {
 			return sc, err
 		}
-		rows := planRows("org config", og.Slug, og.ID, planIn(ps, func(p OrgPlan) planFields {
+		rows := planRows("org config", og.Slug, og.ID, authz.Can(p.Access, "orgplan.approve", authz.Resource{OrgID: og.ID}) == nil, planIn(ps, func(p OrgPlan) planFields {
 			return planFields{p.ID, p.Commit, p.Summary, p.Status, p.Error, "push", p.CreatedAt, p.DecidedAt != nil}
 		}))
 		add(og.Slug+"/"+ScopeOrgConfig, rows...)
@@ -137,7 +138,7 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 			can := authz.Can(p.Access, "env.write", authz.Resource{OrgID: og.ID, StackID: st.ID}) == nil
 			var rows []ScreenRow
 			for _, r := range w.Rows {
-				rows = append(rows, ScreenRow{WindowRow: r, Scope: st.Name, Org: og.Slug, OrgID: og.ID, StackSlug: st.Slug, CanPromote: can})
+				rows = append(rows, ScreenRow{WindowRow: r, Scope: st.Name, Org: og.Slug, OrgID: og.ID, StackSlug: st.Slug, LogEnv: w.LogEnv, CanPromote: can})
 			}
 			add(og.Slug+"/"+st.Slug, rows...)
 			add(og.Slug, rows...)
@@ -226,11 +227,11 @@ func planIn[T any](ps []T, f func(T) planFields) []planFields {
 // decided), an error is a failure a later applied or clean plan fixed, and
 // plans that were superseded or found nothing to change say so. ps is newest
 // first.
-func planRows(scope, org, orgID string, ps []planFields) []ScreenRow {
+func planRows(scope, org, orgID string, can bool, ps []planFields) []ScreenRow {
 	var out []ScreenRow
 	cured := false // a newer plan applied or had nothing to do
 	for _, p := range ps {
-		row := ScreenRow{Scope: scope, Org: org, OrgID: orgID, CanPromote: true,
+		row := ScreenRow{Scope: scope, Org: org, OrgID: orgID, CanPromote: can,
 			WindowRow: WindowRow{Kind: RowPlan, ID: p.ID, Commit: p.Commit, Message: p.Summary, At: p.At, By: SourceKeyOf(p.Source), Err: p.Err}}
 		switch p.Status {
 		case orgplan.Pending:

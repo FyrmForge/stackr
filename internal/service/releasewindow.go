@@ -73,6 +73,7 @@ type ReleaseWindow struct {
 	Rows            []WindowRow
 	Waiting, Failed int
 	Stack           string // the stack's name
+	LogEnv          string // the slug of an env whose address holds the job logs
 }
 
 // windowOlder is how many releases beyond what waits, fails or runs the
@@ -114,6 +115,9 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 	)
 	for _, r := range rungs {
 		envs[r.EnvID], slugs[r.EnvID] = r.Name, r.Slug
+		if w.LogEnv == "" {
+			w.LogEnv = r.Slug
+		}
 		runsByEn[r.EnvID] = r.Release
 		if r.Release > 0 {
 			runs[r.Release] = append(runs[r.Release], r.EnvID)
