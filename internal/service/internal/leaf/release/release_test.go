@@ -202,11 +202,11 @@ func TestNewest(t *testing.T) {
 	if got := newest(runs.ID, main, dev); got != runs.ID {
 		t.Errorf("no waiting release: %s, want what runs", got)
 	}
-	r2, err := l.Derive(ctx, stack, runs.ID, "push", main, pin)
+	r2, err := l.Derive(ctx, stack, runs.ID, "push", main, release.Pin{Slug: "api", Digest: "sha256:b"})
 	must(t, err)
-	r3, err := l.Derive(ctx, stack, r2.ID, "image-watch", dev, pin) // built on a waiting one
+	r3, err := l.Derive(ctx, stack, r2.ID, "image-watch", dev, release.Pin{Slug: "api", Digest: "sha256:c"}) // built on a waiting one
 	must(t, err)
-	other, err := l.Derive(ctx, stack, runs.ID, "push", feat, pin) // another branch's, higher number
+	other, err := l.Derive(ctx, stack, runs.ID, "push", feat, release.Pin{Slug: "api", Digest: "sha256:d"}) // another branch's, higher number
 	must(t, err)
 	if got := newest(runs.ID, main, dev); got != r3.ID {
 		t.Errorf("chain through a waiting release: %s, want %s", got, r3.ID)
@@ -304,7 +304,7 @@ func TestCarry(t *testing.T) {
 	}
 
 	// An image digest clash: the fresh digest wins.
-	w3, err := l.Derive(ctx, stack, was.ID, "image-watch", release.EnvLine("e"), img("db", "d2"))
+	w3, err := l.Derive(ctx, stack, was.ID, "image-watch", release.EnvLine("e"), img("db", "d2"), cfg("c5"))
 	must(t, err)
 	now3 := cut("deploy", img("db", "d3"))
 	must(t, l.Carry(ctx, stack, was.ID, now3.ID, release.EnvLine("e")))
@@ -327,6 +327,36 @@ func TestCarry(t *testing.T) {
 	}
 }
 
+func TestCarryNoop(t *testing.T) {
+	st := servicetest.Store(t)
+	org, stack := uuid.NewString(), uuid.NewString()
+	now := time.Now()
+	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
+	must(t, st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "s", Slug: "s", Settings: "{}", CreatedAt: now}))
+	l := release.New(st.Releases, st.ReleaseTiles)
+	env := release.EnvLine("e")
+	db := func(d string) release.Pin { return release.Pin{Slug: "db", Digest: "sha256:" + d} }
+	was, err := l.Create(ctx, stack, "apply", []release.Pin{db("d1")})
+	must(t, err)
+	// The watch cut a release the env never took; a deploy then cut the same pins.
+	_, err = l.Derive(ctx, stack, was.ID, "image-watch", env, db("d2"))
+	must(t, err)
+	now1, err := l.Derive(ctx, stack, was.ID, "deploy", env, db("d2"))
+	must(t, err)
+	must(t, l.Carry(ctx, stack, was.ID, now1.ID, env))
+	rs, err := l.List(ctx, stack)
+	must(t, err)
+	if len(rs) != 3 {
+		t.Errorf("releases %d, want 3: Carry cut a copy of the env's own cut", len(rs))
+	}
+	// A waiting release that pins what the env runs is not waiting.
+	noop, err := l.Derive(ctx, stack, now1.ID, "push", env, db("d2"))
+	must(t, err)
+	if got, err := l.Newest(ctx, stack, now1.ID, env); err != nil || got != now1.ID {
+		t.Errorf("Newest = %s %v, want what runs, not no-op %s", got, err, noop.ID)
+	}
+}
+
 func TestRollbackNewestAndWaits(t *testing.T) {
 	st := servicetest.Store(t)
 	org, stack := uuid.NewString(), uuid.NewString()
@@ -338,9 +368,9 @@ func TestRollbackNewestAndWaits(t *testing.T) {
 	pin := release.Pin{Slug: "api", Digest: "sha256:a"}
 	r3, err := l.Derive(ctx, stack, "", "push", main, pin)
 	must(t, err)
-	r4, err := l.Derive(ctx, stack, r3.ID, "push", main, pin)
+	r4, err := l.Derive(ctx, stack, r3.ID, "push", main, release.Pin{Slug: "api", Digest: "sha256:x"})
 	must(t, err)
-	r5, err := l.Derive(ctx, stack, r4.ID, "push", main, pin)
+	r5, err := l.Derive(ctx, stack, r4.ID, "push", main, release.Pin{Slug: "api", Digest: "sha256:y"})
 	must(t, err)
 	// The env left 4 and 5 by a rollback to 3: they wait again, on purpose.
 	if got, err := l.Newest(ctx, stack, r3.ID, main); err != nil || got != r5.ID {

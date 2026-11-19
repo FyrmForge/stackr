@@ -267,6 +267,20 @@ func (l *Leaf) newest(ctx context.Context, stackID, runs, skip string, lines []s
 	if best.ID == "" {
 		return runs, nil
 	}
+	// A waiting release that pins what the env runs holds nothing back.
+	if runs != "" {
+		a, err := l.Pins(ctx, runs)
+		if err != nil {
+			return "", err
+		}
+		b, err := l.Pins(ctx, best.ID)
+		if err != nil {
+			return "", err
+		}
+		if len(Diff(a, b)) == 0 {
+			return runs, nil
+		}
+	}
 	return best.ID, nil
 }
 
@@ -314,6 +328,9 @@ func (l *Leaf) Carry(ctx context.Context, stackID, was, now string, lines ...str
 			continue
 		}
 		pins[c.Slug] = fresh[c.Slug]
+	}
+	if len(Diff(fresh, pins)) == 0 {
+		return nil // the env's cut already holds everything that waited
 	}
 	list := make([]Pin, 0, len(pins))
 	for _, p := range pins {
