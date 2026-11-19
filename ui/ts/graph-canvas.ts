@@ -1,15 +1,10 @@
-// <graph-canvas scale snap straight fan-out arrows hover-focus nooverlap
-// badges boundary legend focus divider>: pan, zoom (wheel, pinch,
-// [data-zoom]) about the cursor, fit, shift+drag marquee, hover focus,
-// "focus" centring, <svg data-edges> re-path (a text[data-edge-label] right
-// after a path rides its middle, clear of other labels; fan-gap="px" spaces
-// fanned ends), <svg data-lanes> traffic lanes, and
-// containers: a graph-node[members] (ids) with pad="top right bottom left"
-// and min-w is kept wrapped around the cards it names.
-// Writes --px/--py/--s on itself (CSS makes the transforms), "selected"/"lit"
-// on nodes, "data-lit" on paths and lanes; fires "selection-changed"
-// (detail.ids). Look attributes follow [data-look] inputs (a checkbox, or
-// radios valued 1/0), kept in localStorage.
+// <graph-canvas scale snap straight fan-out arrows hover-focus nooverlap badges boundary legend focus divider>:
+// pan, zoom (wheel, pinch, [data-zoom]) about the cursor, fit, shift+drag marquee, hover focus, "focus" centring,
+// <svg data-edges> re-path (a text[data-edge-label] right after a path rides its middle, clear of other labels;
+// fan-gap="px" spaces fanned ends), <svg data-lanes> traffic lanes, and containers: a graph-node[members] (ids)
+// with pad="top right bottom left" and min-w is kept wrapped around the cards it names. Cards, notes and lines
+// live in a [data-world] child that one transform moves; "selected"/"lit" on nodes, "data-lit" on paths and lanes;
+// fires "selection-changed" (detail.ids). Look attributes follow [data-look] inputs (a checkbox, or radios valued 1/0), kept in localStorage.
 const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP, FLOOR] = [0.3, 2.5, 24, 220, 96, 14, 0.05];
 const TEXT = "input, textarea, select, [contenteditable]";
 const LOOKS = ["snap", "straight", "fan-out", "arrows", "hover-focus", "nooverlap", "badges", "boundary", "legend"];
@@ -55,10 +50,12 @@ class GraphCanvas extends HTMLElement {
   private pinch: { dist: number; mid: Pt } | null = null;
   private sizing: { box: Element; p: Pt; w: number; h: number } | null = null;
   private frame = 0;
+  private grid = Object.assign(document.createElement("div"), { className: "graph-grid" });
+  private gridAt = [0, 0, 0, 0, 0]; // scale and world rect of the grid
   private labels = new WeakMap<Element, SVGTextElement>();
-  private observer = new MutationObserver(() => {
-    cancelAnimationFrame(this.frame);
-    this.frame = requestAnimationFrame(() => this.repath());
+  private observer = new MutationObserver((rs) => { // repath's own SVG writes (label x/y, lane text) must not run it again, or it never stops
+    if (rs.every((r) => r.target instanceof SVGElement)) return;
+    cancelAnimationFrame(this.frame); this.frame = requestAnimationFrame(() => this.repath());
   });
   private sizer = new ResizeObserver(() => !this.touched && this.fit()); // the canvas may connect before layout sizes it: fit when it has one
   // Listeners are arrow fields, so wire(false) removes the same functions.
@@ -77,6 +74,7 @@ class GraphCanvas extends HTMLElement {
     this.querySelectorAll<HTMLInputElement>("input[data-look]").forEach((i) => {
       i.checked = this.hasAttribute(i.dataset.look ?? "") === (i.type !== "radio" || i.value === "1");
     });
+    this.querySelector(":scope > [data-world]")?.prepend(this.grid);
     this.wire(true); this.sizer.observe(this);
     this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h", "user-w", "user-h"] });
     this.repath();
@@ -98,7 +96,7 @@ class GraphCanvas extends HTMLElement {
   private onRefresh = (e: Event): void => {
     if ((e.target as Element | null)?.id === "graph" && this.querySelector("textarea:focus")) e.preventDefault();
   };
-  private nodes = (): HTMLElement[] => [...this.querySelectorAll<HTMLElement>(":scope > graph-node")];
+  private nodes = (): HTMLElement[] => [...this.querySelectorAll<HTMLElement>(":scope > [data-world] > graph-node")];
   private cards = (): HTMLElement[] => this.nodes().filter((n) => !idOf(n).startsWith("note:"));
   private ids = (): string => this.cards().map(idOf).join(" ");
   private node = (id: string): HTMLElement | null => this.querySelector<HTMLElement>(`graph-node[node-id="${CSS.escape(id)}"]`);
@@ -142,9 +140,19 @@ class GraphCanvas extends HTMLElement {
       this.px = Math.max(Math.min(this.px, this.clientWidth - kx - b.x * this.s), kx - (b.x + b.w) * this.s);
       this.py = Math.max(Math.min(this.py, this.clientHeight - ky - b.y * this.s), ky - (b.y + b.h) * this.s);
     }
-    this.style.setProperty("--px", `${this.px}px`);
-    this.style.setProperty("--py", `${this.py}px`);
-    this.style.setProperty("--s", String(this.s));
+    // One transform on one layer moves every card and line. The dot grid lives in it too, a rect of three screens
+    // (22-snapped, world units) laid out again only when the view leaves it or the zoom changes: a pan step repaints nothing.
+    const w = this.querySelector<HTMLElement>(":scope > [data-world]");
+    if (!w) return;
+    w.style.transform = `translate(${this.px}px, ${this.py}px) scale(${this.s})`;
+    const [vw, vh, vx, vy] = [this.clientWidth / this.s, this.clientHeight / this.s, -this.px / this.s, -this.py / this.s];
+    const [gs, gx, gy, gw, gh] = this.gridAt;
+    if (gs === this.s && vx >= gx && vy >= gy && vx + vw <= gx + gw && vy + vh <= gy + gh) return;
+    const q = (v: number): number => Math.floor(v / 22) * 22;
+    this.gridAt = [this.s, q(vx - vw), q(vy - vh), q(3 * vw) + 22, q(3 * vh) + 22];
+    const [, x, y, gw2, gh2] = this.gridAt;
+    Object.assign(this.grid.style, { left: `${x}px`, top: `${y}px`, width: `${gw2}px`, height: `${gh2}px` });
+    this.grid.style.setProperty("--s", String(this.s));
   }
   // The whole graph, clear of the controls and legends; zooming out then goes as far as this.
   private fit(): void {
@@ -387,13 +395,24 @@ class GraphCanvas extends HTMLElement {
         if (!placed.some((q) => touches(q, r))) break;
       }
       placed.push(r);
+      this.backing(label, r);
     }
     this.lanes();
+  }
+  // The solid backing behind a label, so no line shows between its words: a rect on the label's box, 8 % wider and 20 % taller each side (an SVG filter did this once, per label, on every redraw).
+  private backing(label: SVGTextElement, r: Box): void {
+    let bg = label.previousElementSibling;
+    if (!bg?.matches("rect[data-edge-label-bg]")) {
+      bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bg.setAttribute("data-edge-label-bg", "");
+      label.before(bg);
+    }
+    for (const [k, v] of Object.entries({ x: r.x - r.w * 0.08, y: r.y - r.h * 0.2, width: r.w * 1.16, height: r.h * 1.4 })) bg.setAttribute(k, String(v));
   }
   // Each container to its cards' extent plus its pad, no narrower than
   // min-w. Only changed values are written: the observer re-runs repath.
   private wrap(): void {
-    for (const c of this.querySelectorAll(":scope > graph-node[members]")) {
+    for (const c of this.querySelectorAll(":scope > [data-world] > graph-node[members]")) {
       const bs = (c.getAttribute("members") ?? "").split(" ").map((id) => this.node(id)).filter((n): n is HTMLElement => n !== null).map((n) => this.box(n));
       if (bs.length === 0) continue;
       const [t, r, b, l] = (c.getAttribute("pad") ?? "").split(" ").map(Number);

@@ -35,7 +35,7 @@ class GraphNode extends HTMLElement {
   }
   private num = (name: string): number => Number(this.getAttribute(name)) || 0;
   private members = (): GraphNode[] => (this.getAttribute("members") ?? "").split(" ").filter(Boolean)
-    .map((id) => this.canvas()?.querySelector(`:scope > graph-node[node-id="${CSS.escape(id)}"]`)).filter((n): n is GraphNode => n instanceof GraphNode);
+    .map((id) => this.canvas()?.querySelector(`:scope > [data-world] > graph-node[node-id="${CSS.escape(id)}"]`)).filter((n): n is GraphNode => n instanceof GraphNode);
   private canvas = (): Element | null => this.closest("graph-canvas");
   // Links and images inside a card must not start a native drag.
   private onNativeDrag = (e: Event): void => e.preventDefault();
@@ -57,9 +57,9 @@ class GraphNode extends HTMLElement {
   private onDown = (e: PointerEvent): void => {
     this.swallow = false;
     const canvas = this.canvas();
-    if (e.button !== 0 || e.shiftKey || this.hasAttribute("static") || this.drag || this.parentElement !== canvas || (e.target as Element).closest("[data-resize]")) return;
+    if (e.button !== 0 || e.shiftKey || this.hasAttribute("static") || this.drag || !this.parentElement?.matches("graph-canvas > [data-world]") || (e.target as Element).closest("[data-resize]")) return;
     const picked = this.hasAttribute("selected") && canvas
-      ? [...canvas.querySelectorAll<GraphNode>(":scope > graph-node[selected]:not([static])")]
+      ? [...canvas.querySelectorAll<GraphNode>(":scope > [data-world] > graph-node[selected]:not([static])")]
       : [this];
     const group = [...new Set(picked.flatMap((n) => [n, ...n.members()]))];
     this.drag = {
@@ -95,7 +95,7 @@ class GraphNode extends HTMLElement {
     for (const [n] of d.start) n.commit();
     // A card pushed past its box's edge grew the box: save its corner too, once re-wrapped.
     const moved = new Set(d.start.map(([n]) => n.getAttribute("node-id")));
-    const boxes = [...(this.canvas()?.querySelectorAll(":scope > graph-node[members]") ?? [])]
+    const boxes = [...(this.canvas()?.querySelectorAll(":scope > [data-world] > graph-node[members]") ?? [])]
       .filter((b): b is GraphNode => b instanceof GraphNode && !moved.has(b.getAttribute("node-id")) && b.members().some((m) => moved.has(m.getAttribute("node-id"))));
     if (boxes.length > 0) queueMicrotask(() => requestAnimationFrame(() => boxes.forEach((b) => b.commit())));
   };

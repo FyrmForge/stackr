@@ -59,6 +59,7 @@ templ gallery() {
 		@section("Graph canvas") {
 			<p class="text-sm text-rw-muted">Drag cards (the proxy stays left of the divider), shift+drag to select, wheel to zoom, click a card for its drawer.</p>
 			<graph-canvas scale="1" divider="240" fan-out arrows hover-focus boundary class="h-[28rem] rounded-lg border border-rw-border bg-rw-bg">
+				<div data-world>
 				<svg data-edges aria-hidden="true">
 					<defs>
 						<marker id="edge-arrow" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="5" markerHeight="5" orient="auto" fill="context-stroke" fill-opacity="0.8">
@@ -80,6 +81,7 @@ templ gallery() {
 					</graph-node>
 				}
 				@galleryNode("tile:db", "db", "operated · postgres 16", "620", "220", false)
+				</div>
 				<div class="absolute right-2 top-2 flex items-center gap-2 text-xs">
 					<label class="flex items-center gap-1"><input type="checkbox" data-look="snap"/> snap</label>
 					<label class="flex items-center gap-1"><input type="checkbox" data-look="straight"/> straight</label>
@@ -97,6 +99,7 @@ templ gallery() {
 		@section("Env canvas cards") {
 			<p class="text-sm text-rw-muted">One card of every env kind (task 9), with sub-tiles and traffic lanes.</p>
 			<graph-canvas scale="1" divider="240" badges class="h-[36rem] rounded-lg border border-rw-border bg-rw-bg">
+				<div data-world>
 				<svg data-edges aria-hidden="true">
 					<path data-edge-kind="ingress" data-from="proxy" data-to="t-api" d="M0,0" { graph.EdgeAttrs("ingress")... }></path>
 					<path data-edge-kind="ref" data-from="t-api" data-to="p-shopdb" d="M0,0" { graph.EdgeAttrs("ref")... }></path>
@@ -107,6 +110,7 @@ templ gallery() {
 				for _, p := range envCards() {
 					@envNode(p)
 				}
+				</div>
 			</graph-canvas>
 		}
 		@section("Confirm") {

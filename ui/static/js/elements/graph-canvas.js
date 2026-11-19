@@ -37,8 +37,12 @@ class GraphCanvas extends HTMLElement {
     pinch = null;
     sizing = null;
     frame = 0;
+    grid = Object.assign(document.createElement("div"), { className: "graph-grid" });
+    gridAt = [0, 0, 0, 0, 0];
     labels = new WeakMap();
-    observer = new MutationObserver(() => {
+    observer = new MutationObserver((rs) => {
+        if (rs.every((r) => r.target instanceof SVGElement))
+            return;
         cancelAnimationFrame(this.frame);
         this.frame = requestAnimationFrame(() => this.repath());
     });
@@ -62,6 +66,7 @@ class GraphCanvas extends HTMLElement {
         this.querySelectorAll("input[data-look]").forEach((i) => {
             i.checked = this.hasAttribute(i.dataset.look ?? "") === (i.type !== "radio" || i.value === "1");
         });
+        this.querySelector(":scope > [data-world]")?.prepend(this.grid);
         this.wire(true);
         this.sizer.observe(this);
         this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h", "user-w", "user-h"] });
@@ -89,7 +94,7 @@ class GraphCanvas extends HTMLElement {
         if (e.target?.id === "graph" && this.querySelector("textarea:focus"))
             e.preventDefault();
     };
-    nodes = () => [...this.querySelectorAll(":scope > graph-node")];
+    nodes = () => [...this.querySelectorAll(":scope > [data-world] > graph-node")];
     cards = () => this.nodes().filter((n) => !idOf(n).startsWith("note:"));
     ids = () => this.cards().map(idOf).join(" ");
     node = (id) => this.querySelector(`graph-node[node-id="${CSS.escape(id)}"]`);
@@ -132,9 +137,19 @@ class GraphCanvas extends HTMLElement {
             this.px = Math.max(Math.min(this.px, this.clientWidth - kx - b.x * this.s), kx - (b.x + b.w) * this.s);
             this.py = Math.max(Math.min(this.py, this.clientHeight - ky - b.y * this.s), ky - (b.y + b.h) * this.s);
         }
-        this.style.setProperty("--px", `${this.px}px`);
-        this.style.setProperty("--py", `${this.py}px`);
-        this.style.setProperty("--s", String(this.s));
+        const w = this.querySelector(":scope > [data-world]");
+        if (!w)
+            return;
+        w.style.transform = `translate(${this.px}px, ${this.py}px) scale(${this.s})`;
+        const [vw, vh, vx, vy] = [this.clientWidth / this.s, this.clientHeight / this.s, -this.px / this.s, -this.py / this.s];
+        const [gs, gx, gy, gw, gh] = this.gridAt;
+        if (gs === this.s && vx >= gx && vy >= gy && vx + vw <= gx + gw && vy + vh <= gy + gh)
+            return;
+        const q = (v) => Math.floor(v / 22) * 22;
+        this.gridAt = [this.s, q(vx - vw), q(vy - vh), q(3 * vw) + 22, q(3 * vh) + 22];
+        const [, x, y, gw2, gh2] = this.gridAt;
+        Object.assign(this.grid.style, { left: `${x}px`, top: `${y}px`, width: `${gw2}px`, height: `${gh2}px` });
+        this.grid.style.setProperty("--s", String(this.s));
     }
     fit() {
         const max = clamp(Number(this.getAttribute("scale")) || 0.8);
@@ -394,11 +409,22 @@ class GraphCanvas extends HTMLElement {
                     break;
             }
             placed.push(r);
+            this.backing(label, r);
         }
         this.lanes();
     }
+    backing(label, r) {
+        let bg = label.previousElementSibling;
+        if (!bg?.matches("rect[data-edge-label-bg]")) {
+            bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            bg.setAttribute("data-edge-label-bg", "");
+            label.before(bg);
+        }
+        for (const [k, v] of Object.entries({ x: r.x - r.w * 0.08, y: r.y - r.h * 0.2, width: r.w * 1.16, height: r.h * 1.4 }))
+            bg.setAttribute(k, String(v));
+    }
     wrap() {
-        for (const c of this.querySelectorAll(":scope > graph-node[members]")) {
+        for (const c of this.querySelectorAll(":scope > [data-world] > graph-node[members]")) {
             const bs = (c.getAttribute("members") ?? "").split(" ").map((id) => this.node(id)).filter((n) => n !== null).map((n) => this.box(n));
             if (bs.length === 0)
                 continue;
