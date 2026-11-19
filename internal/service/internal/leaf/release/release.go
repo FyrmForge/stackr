@@ -237,7 +237,10 @@ func (l *Leaf) Derive(ctx context.Context, stackID, baseID, by, line string, swa
 // runs (what the env runs); else runs itself. With runs "" (the env runs
 // nothing yet) a line's own root counts as built on it. A release cut before
 // migration 019 has no base or line, so it is never on a line: the first cut
-// after the upgrade builds on runs, as before.
+// after the upgrade builds on runs, as before. After a rollback the releases
+// the env left chain to what it runs again, so they count as waiting, on
+// purpose: a push is the branch head, and the branch still holds what they
+// built. Waits is the safety for an auto promotion.
 func (l *Leaf) Newest(ctx context.Context, stackID, runs string, lines ...string) (string, error) {
 	return l.newest(ctx, stackID, runs, "", lines)
 }
