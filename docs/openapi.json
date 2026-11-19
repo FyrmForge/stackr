@@ -370,6 +370,9 @@
           "confirm": {
             "type": "boolean"
           },
+          "keep": {
+            "type": "boolean"
+          },
           "ticked": {
             "items": {
               "type": "string"
@@ -379,7 +382,8 @@
         },
         "required": [
           "ticked",
-          "confirm"
+          "confirm",
+          "keep"
         ],
         "type": "object"
       },
