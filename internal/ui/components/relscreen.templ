@@ -117,7 +117,7 @@ templ RelScreenView(v RelScreen) {
 					<div class="flex flex-col items-start gap-2 p-4 text-sm text-rw-muted">
 						<p>{ v.Empty }</p>
 						if v.Clear != "" {
-							<a href={ templ.SafeURL(v.Clear) } hx-get={ v.Clear } hx-target="#main" hx-push-url="true" class="link">Clear filters</a>
+							<a href={ templ.SafeURL(v.Clear) } hx-get={ v.Clear } hx-target="#main" hx-push-url="true" data-rel-clear class="link">Clear filters</a>
 						}
 					</div>
 				} else {

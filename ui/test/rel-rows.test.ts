@@ -30,3 +30,13 @@ test("open release rows reopen after an SSE swap", () => {
   handlers["htmx:afterSwap"].forEach((f) => f({ target: body, detail: {} }));
   assert.equal(row.open, true);
 });
+
+test("Clear filters empties the preserved search box", () => {
+  const box = { value: "stale" };
+  g.document = Object.assign(g.document as object, { getElementById: (id: string) => (id === "rel-q" ? box : null) });
+  const link = { closest: (sel: string) => (sel === "[data-rel-clear]" ? link : null) };
+  for (const f of handlers["click"] ?? []) {
+    try { f({ target: link, preventDefault: noop }); } catch { /* other click handlers need a real DOM */ }
+  }
+  assert.equal(box.value, "");
+});

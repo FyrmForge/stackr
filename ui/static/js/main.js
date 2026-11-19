@@ -465,6 +465,11 @@ document.addEventListener('input', function (evt) {
         if (open !== null) w.open = open === '1';
         if ('view' in w.dataset) w.dataset.view = saved('relview', VIEW) === 'org' ? 'org' : 'all';
     });
+    // #rel-q is hx-preserve'd across the screen's swaps; Clear filters drops q, so empty the box with it.
+    document.addEventListener('click', function (evt) {
+        var q = evt.target.closest && evt.target.closest('[data-rel-clear]') && document.getElementById('rel-q');
+        if (q) q.value = '';
+    });
     document.addEventListener('htmx:sseBeforeMessage', function (evt) {
         if (evt.target.id !== 'rel-body') return;
         held = Array.prototype.map.call(evt.target.querySelectorAll('details[open][data-id]'), function (d) { return d.dataset.id; });
