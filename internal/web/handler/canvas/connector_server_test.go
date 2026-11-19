@@ -15,7 +15,7 @@ func TestOrgConfigPickerServerConnector(t *testing.T) {
 	r := newConfigRig(t)
 	env := r.owner.env
 	srv := env.ServerConnector(t, "main", "srvsec")
-	const tab = "/acme/-/drawer?tab=config"
+	const tab = "/acme/-/drawer/config/picker"
 
 	if body := r.owner.do(t, "GET", tab, nil, true).Body.String(); strings.Contains(body, `value="`+srv+`"`) {
 		t.Fatalf("an unshared server connector is in the picker:\n%s", body)
