@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -644,5 +645,22 @@ func TestParkedRechecksQuietly(t *testing.T) {
 	b, _ := os.ReadFile(j.LogPath)
 	if string(b) != "waiting: param app.db_url is not set; the job resumes once it is\n" {
 		t.Errorf("log = %q", b)
+	}
+}
+
+// A handler that grows its job's lock set and then fails keeps the growth:
+// Finish writes the whole row.
+func TestFinishKeepsLockSetGrowth(t *testing.T) {
+	h := func(_ context.Context, r *jobs.Run) error {
+		r.Job.LockSet = append(r.Job.LockSet, "t2")
+		return errors.New("boom")
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{})
+	start(t, r)
+	id := enqueue(t, r, "a", "t1")
+	waitState(t, l, id, job.Failed)
+	j, _ := l.Get(ctx, id)
+	if !slices.Contains(j.LockSet, "t2") {
+		t.Fatalf("lock set %v lost t2", j.LockSet)
 	}
 }

@@ -487,7 +487,7 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 		delete(r.phase, j.ID)
 		delete(r.tilePhase, j.ID)
 		// rn.Job, not j: a handler may have rewritten its payload.
-		j.Payload = rn.Job.Payload
+		j.Payload, j.LockSet = rn.Job.Payload, rn.Job.LockSet
 		err = r.jobs.Finish(fresh, j, state, reason)
 		selfmetrics.Job(j.Kind, state, time.Since(start))
 		if err == nil {
