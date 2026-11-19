@@ -647,22 +647,29 @@ func TestParkedRechecksQuietly(t *testing.T) {
 	}
 }
 
-// A failing param read requeues its job, so the handler re-checks the param
-// itself instead of the job staying parked on a read that never answers.
-func TestParkedReadErrorRequeuesTheJob(t *testing.T) {
+// A failing param read parks only its own job; the others of the tick go on.
+func TestParkedReadErrorSkipsOnlyThatJob(t *testing.T) {
 	var calls atomic.Int32
-	h := func(context.Context, *jobs.Run) error {
-		if calls.Add(1) == 1 {
-			return errs.Unset{Param: "p.bad"}
+	h := func(_ context.Context, r *jobs.Run) error {
+		if calls.Add(1) <= 2 {
+			return errs.Unset{Param: "p." + r.Job.LockSet[0]}
 		}
 		return nil
 	}
 	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{
-		ParamSet: func(context.Context, store.Job) (bool, error) { return false, errors.New("read failed") },
+		ParamSet: func(_ context.Context, j store.Job) (bool, error) {
+			if *j.WaitingParam == "p.bad" {
+				return false, errors.New("read failed")
+			}
+			return true, nil
+		},
 	})
 	start(t, r)
 	bad := enqueue(t, r, "a", "bad")
-	waitState(t, l, bad, job.Done)
+	waitState(t, l, bad, job.Waiting)
+	good := enqueue(t, r, "a", "good")
+	waitState(t, l, good, job.Done)
+	waitState(t, l, bad, job.Waiting)
 }
 
 // A job parked behind another job's wait re-runs once that job is cancelled,

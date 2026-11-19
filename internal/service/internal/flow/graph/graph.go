@@ -678,11 +678,11 @@ func reads(ts []store.Tile, k params.Kind) bool {
 	return false
 }
 
-// ReadsParam is whether t reads the param "collection.name" (or
+// readsParam is whether t reads the param "collection.name" (or
 // "org.collection.name"): its own collection, or a ${{ params.* }} ref.
 // ponytail: env values and command only; a param read from another field of
 // the tile reads as unrelated.
-func ReadsParam(t store.Tile, param string) bool {
+func readsParam(t store.Tile, param string) bool {
 	if strings.HasPrefix(param, t.Slug+".") {
 		return true
 	}
@@ -862,7 +862,7 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 	// a first promote parked on a value has made no job of this tile yet
 	if s.word == "none" && f.Parked != nil && !tile.RunToCompletion(t.Kind) {
 		// only a tile that reads the value waits; the rest keep their word
-		if param, _, ok := f.Parked(ctx, t.StackID, t.EnvironmentID); ok && ReadsParam(t, param) {
+		if param, _, ok := f.Parked(ctx, t.StackID, t.EnvironmentID); ok && readsParam(t, param) {
 			s.word, s.waiting = "waiting", param
 		}
 	}
@@ -877,7 +877,7 @@ func parkedElsewhere(t store.Tile, j store.Job) bool {
 		return false
 	}
 	_, approval := hostgrant.Parse(*j.WaitingParam)
-	return !approval && !ReadsParam(t, *j.WaitingParam)
+	return !approval && !readsParam(t, *j.WaitingParam)
 }
 
 // tagState is a generation's dot word: the outgoing one is neutral whatever

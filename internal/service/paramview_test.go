@@ -268,13 +268,11 @@ func TestParamResolvesReadsTheJobsOwnParam(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	j := Job{Payload: `{"env_id":"` + w.env + `"}`}
-	_, err := w.orch.CreateTile(ctx, Tile{StackID: w.stack, EnvironmentID: w.env, Name: "app", Kind: "image", ImageRef: "nginx:1", ContainerPort: 80, Command: "run ${{ org.params.app.k }}"})
-	must(t, err)
 	for _, c := range []struct {
 		param string
 		scope ParamScope
 	}{{"app.k", ParamScope{Kind: "env", ID: w.env}}, {"org.app.k", ParamScope{Kind: "org", ID: w.org}}} {
-		_, err = w.orch.SetParams(ctx, ParamScope{Kind: "env", ID: w.env}, []ParamEntry{{Collection: "app", Name: "other", Kind: "param", Value: "x"}})
+		_, err := w.orch.SetParams(ctx, ParamScope{Kind: "env", ID: w.env}, []ParamEntry{{Collection: "app", Name: "other", Kind: "param", Value: "x"}})
 		must(t, err)
 		if ok, err := w.orch.paramResolves(ctx, j, c.param); err != nil || ok {
 			t.Fatalf("%s before it is set: %v, %v", c.param, ok, err)
@@ -284,16 +282,5 @@ func TestParamResolvesReadsTheJobsOwnParam(t *testing.T) {
 		if ok, err := w.orch.paramResolves(ctx, j, c.param); err != nil || !ok {
 			t.Fatalf("%s after it is set: %v, %v", c.param, ok, err)
 		}
-	}
-}
-
-// A job parked on a param no tile of the env reads any more is let through,
-// so its handler decides instead of the job waiting for a value for good.
-func TestParamResolvesWhenNoTileReadsIt(t *testing.T) {
-	t.Parallel()
-	w := newWorld(t)
-	j := Job{Payload: `{"env_id":"` + w.env + `"}`}
-	if ok, err := w.orch.paramResolves(context.Background(), j, "gone.k"); err != nil || !ok {
-		t.Fatalf("unread param: %v, %v; want true", ok, err)
 	}
 }

@@ -363,11 +363,7 @@ func (r *Runner) unpark(ctx context.Context) {
 				continue
 			}
 		case r.opt.ParamSet != nil && j.WaitingParam != nil:
-			ok, err := r.opt.ParamSet(ctx, j)
-			if err != nil {
-				// Requeue: the handler re-checks and parks again if it must.
-				slog.Warn("jobs: param check failed; requeuing", "job", j.ID, "param", *j.WaitingParam, "err", err)
-			} else if !ok {
+			if ok, err := r.opt.ParamSet(ctx, j); err != nil || !ok {
 				continue
 			}
 		}
