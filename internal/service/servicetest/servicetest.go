@@ -506,8 +506,14 @@ func (e *Env) EndJob(t *testing.T, id, state, errMsg, payload string) {
 func (e *Env) PromoteJob(t *testing.T, envID, state, errMsg, payload, releaseID string, at time.Time) string {
 	t.Helper()
 	id := uuid.NewString()
+	lock := store.StringList{"env:" + envID} // like enqueuePromote: the env and every tile in it
+	ts, err := e.Store.Tiles.ListByEnv(context.Background(), envID)
+	must(t, err)
+	for _, tl := range ts {
+		lock = append(lock, tl.ID)
+	}
 	must(t, e.Store.Jobs.Create(context.Background(), store.Job{
-		ID: id, Kind: "promote", State: state, Error: errMsg, LockSet: store.StringList{"env:" + envID},
+		ID: id, Kind: "promote", State: state, Error: errMsg, LockSet: lock,
 		Payload: payload, ReleaseID: &releaseID, CreatedAt: at, FinishedAt: &at,
 	}))
 	return id

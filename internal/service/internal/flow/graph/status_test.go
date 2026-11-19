@@ -154,7 +154,9 @@ func TestParkedElsewhere(t *testing.T) {
 }
 
 // A promote that stopped marks the failed tile and the ones never deployed,
-// but never hides a worse word (error, unhealthy, offline) under a milder one.
+// but never hides a container word (unhealthy, offline, degraded) under a
+// milder one. The job layer's error and failed are not worse: a failed first
+// promote makes every locked tile one of them.
 func TestStoppedKeepsWorseWords(t *testing.T) {
 	v := &View{Nodes: []Node{
 		{Slug: "a", Status: "running"},
@@ -164,15 +166,28 @@ func TestStoppedKeepsWorseWords(t *testing.T) {
 		{Slug: "e", Status: "offline"},
 	}}
 	(&Flow{}).stopped(v, Stopped{Tile: "d", Pending: []string{"a", "b", "c", "e"}})
-	want := map[string]string{"a": "notdeployed", "b": "unhealthy", "c": "error", "d": "failed", "e": "offline"}
+	want := map[string]string{"a": "notdeployed", "b": "unhealthy", "c": "notdeployed", "d": "failed", "e": "offline"}
 	for _, n := range v.Nodes {
 		if n.Status != want[n.Slug] {
 			t.Errorf("%s = %q, want %q", n.Slug, n.Status, want[n.Slug])
 		}
 	}
-	v = &View{Nodes: []Node{{Slug: "x", Status: "error"}}}
+	// failed first promote: the job layer made every tile error or failed
+	v = &View{Nodes: []Node{{Slug: "x", Status: "error"}, {Slug: "y", Status: "failed"}, {Slug: "z", Status: "error"}}}
+	(&Flow{}).stopped(v, Stopped{Tile: "x", Error: "boom", JobID: "j", Pending: []string{"y"}})
+	if n := v.Nodes[0]; n.Status != "failed" || n.Fail != "boom" {
+		t.Errorf("failed tile = %q %q", n.Status, n.Fail)
+	}
+	if n := v.Nodes[1]; n.Status != "notdeployed" || n.Stop != "x" || n.StopJob != "j" {
+		t.Errorf("pending tile = %q %q %q", n.Status, n.Stop, n.StopJob)
+	}
+	if v.Nodes[2].Status != "error" {
+		t.Errorf("tile outside the stop = %q", v.Nodes[2].Status)
+	}
+	// a tile that crashed (container word) keeps it
+	v = &View{Nodes: []Node{{Slug: "x", Status: "unhealthy"}}}
 	(&Flow{}).stopped(v, Stopped{Tile: "x"})
-	if v.Nodes[0].Status != "error" {
-		t.Errorf("failed tile hid error: %q", v.Nodes[0].Status)
+	if v.Nodes[0].Status != "unhealthy" {
+		t.Errorf("failed tile hid unhealthy: %q", v.Nodes[0].Status)
 	}
 }

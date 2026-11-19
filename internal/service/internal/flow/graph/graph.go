@@ -1179,7 +1179,9 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 
 // stopped marks the tiles of a failed promote: the one it stopped at failed,
 // the ones after it were never deployed. A tile with a live job of its own
-// keeps that word.
+// keeps that word. Only container words (unhealthy, offline, degraded) beat
+// these: the job layer makes every locked tile error or failed on a failed
+// first promote.
 func (f *Flow) stopped(v *View, st Stopped) {
 	for i := range v.Nodes {
 		n := &v.Nodes[i]
@@ -1189,16 +1191,17 @@ func (f *Flow) stopped(v *View, st Stopped) {
 		}
 		switch {
 		case st.Tile != "" && n.Slug == st.Tile && n.Kind != KindVolume:
-			if rank[n.Status] > rank["failed"] {
-				continue // error, unhealthy, offline say more than failed
+			if n.Status == "unhealthy" || n.Status == "offline" {
+				continue // a container word says more than failed
 			}
 			n.Status = "failed"
 			if n.Fail == "" {
 				n.Fail = st.Error
 			}
 		case slices.Contains(st.Pending, n.Slug) && n.Kind != KindVolume:
-			if rank[n.Status] > rank["running"] {
-				continue // a worse word (error, unhealthy, offline, degraded) stays
+			switch n.Status {
+			case "unhealthy", "offline", "degraded":
+				continue // a worse container word stays; the job layer's error/failed does not
 			}
 			n.Status, n.Stop, n.StopJob = "notdeployed", st.Tile, st.JobID
 		}
