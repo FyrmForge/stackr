@@ -66,8 +66,9 @@ type Create struct {
 	Nav        bool
 }
 
-// Show is what the server draws; each off flag is a "=0" query param.
-type Show struct{ System, Refs, Startup, Traffic bool }
+// Show is what the server draws; each off flag is a "=0" query param,
+// except Operated, off by default and "operated=1" when on.
+type Show struct{ System, Refs, Startup, Traffic, Operated bool }
 
 // Node is one card.
 type Node struct {
@@ -157,6 +158,8 @@ func (v View) Toggle(name string) string {
 		s.Startup = !s.Startup
 	case "traffic":
 		s.Traffic = !s.Traffic
+	case "operated":
+		s.Operated = !s.Operated
 	}
 	path := v.Base
 	if path == "" {
@@ -180,6 +183,9 @@ func (s Show) Query() string {
 		if !f.on {
 			q += "&" + f.name + "=0"
 		}
+	}
+	if s.Operated {
+		q += "&operated=1"
 	}
 	if q == "" {
 		return ""

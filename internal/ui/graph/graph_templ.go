@@ -1905,6 +1905,10 @@ func viewPanel(v View) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+			templ_7745c5c3_Err = toggle(v, "operated", v.Show.Operated, "Show operated tiles from other stacks").Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		}
 		templ_7745c5c3_Err = look("legend", "Show legend").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
@@ -1947,7 +1951,7 @@ func viewPanel(v View) templ.Component {
 		var templ_7745c5c3_Var100 string
 		templ_7745c5c3_Var100, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Route("reset")).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 397, Col: 88}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 398, Col: 88}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var100)
 		if templ_7745c5c3_Err != nil {
@@ -1986,7 +1990,7 @@ func look(name, label string) templ.Component {
 		var templ_7745c5c3_Var102 string
 		templ_7745c5c3_Var102, templ_7745c5c3_Err = templruntime.NewAttributeExpression(name).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 407, Col: 41}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 408, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var102)
 		if templ_7745c5c3_Err != nil {
@@ -1999,7 +2003,7 @@ func look(name, label string) templ.Component {
 		var templ_7745c5c3_Var103 string
 		templ_7745c5c3_Var103, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 408, Col: 9}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 409, Col: 9}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var103))
 		if templ_7745c5c3_Err != nil {
@@ -2049,7 +2053,7 @@ func toggle(v View, name string, on bool, label string) templ.Component {
 		var templ_7745c5c3_Var105 string
 		templ_7745c5c3_Var105, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Toggle(name)).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 419, Col: 26}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 420, Col: 26}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var105)
 		if templ_7745c5c3_Err != nil {
@@ -2062,7 +2066,7 @@ func toggle(v View, name string, on bool, label string) templ.Component {
 		var templ_7745c5c3_Var106 string
 		templ_7745c5c3_Var106, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 424, Col: 9}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 425, Col: 9}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var106))
 		if templ_7745c5c3_Err != nil {
@@ -2166,7 +2170,7 @@ func legend(v View) templ.Component {
 				var templ_7745c5c3_Var108 string
 				templ_7745c5c3_Var108, templ_7745c5c3_Err = templ.JoinStringErrs(r.label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 441, Col: 14}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 442, Col: 14}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var108))
 				if templ_7745c5c3_Err != nil {
@@ -2230,7 +2234,7 @@ func compare(rs []Rung) templ.Component {
 			var templ_7745c5c3_Var110 string
 			templ_7745c5c3_Var110, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(r.Href)).ResolveURL(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 464, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 465, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var110)
 			if templ_7745c5c3_Err != nil {
@@ -2243,7 +2247,7 @@ func compare(rs []Rung) templ.Component {
 			var templ_7745c5c3_Var111 string
 			templ_7745c5c3_Var111, templ_7745c5c3_Err = templruntime.NewAttributeExpression(r.Href).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 464, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 465, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var111)
 			if templ_7745c5c3_Err != nil {
@@ -2296,7 +2300,7 @@ func compare(rs []Rung) templ.Component {
 			var templ_7745c5c3_Var114 string
 			templ_7745c5c3_Var114, templ_7745c5c3_Err = templ.JoinStringErrs(r.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 466, Col: 13}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 467, Col: 13}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var114))
 			if templ_7745c5c3_Err != nil {
@@ -2314,7 +2318,7 @@ func compare(rs []Rung) templ.Component {
 				var templ_7745c5c3_Var115 string
 				templ_7745c5c3_Var115, templ_7745c5c3_Err = templruntime.NewAttributeExpression(behindTitle(r)).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 468, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 469, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var115)
 				if templ_7745c5c3_Err != nil {

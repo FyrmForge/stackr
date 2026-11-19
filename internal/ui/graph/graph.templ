@@ -365,6 +365,7 @@ templ viewPanel(v View) {
 			if v.Toggles {
 				@toggle(v, "refs", v.Show.Refs, "Show reference edges")
 				@toggle(v, "startup", v.Show.Startup, "Show startup order")
+				@toggle(v, "operated", v.Show.Operated, "Show operated tiles from other stacks")
 			}
 			@look("legend", "Show legend")
 			if v.Toggles {

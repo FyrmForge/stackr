@@ -37,10 +37,11 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 		Walled:  gv.Walled,
 		Divider: gv.Divider,
 		Show: ui.Show{
-			System:  sh.System,
-			Refs:    sh.Refs,
-			Startup: sh.Startup,
-			Traffic: sh.Traffic,
+			System:   sh.System,
+			Refs:     sh.Refs,
+			Startup:  sh.Startup,
+			Traffic:  sh.Traffic,
+			Operated: sh.Operated,
 		},
 	}
 	v.Query = v.Show.Query()

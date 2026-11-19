@@ -363,3 +363,25 @@ document.addEventListener('input', function (evt) {
     if (m && f.domain.value) m.textContent = f.domain.value;
     f.querySelector('[data-preview]').textContent = 'http' + (f.https.checked ? 's' : '') + '://' + h;
 });
+
+// The canvas View panel (#graph-view, a popover inside the canvas) stays open
+// while its switches are used: a server switch reloads #main and the canvas
+// stream redraws #graph, both replacing the panel closed. Remember it was
+// open before the swap and reopen the new one after, so the graph behind it
+// updates while the panel stays put.
+(function () {
+    var wasOpen = false;
+    function open() {
+        var p = document.getElementById('graph-view');
+        return !!(p && p.matches && p.matches(':popover-open'));
+    }
+    document.addEventListener('htmx:beforeSwap', function () {
+        wasOpen = wasOpen || open();
+    });
+    document.addEventListener('htmx:afterSettle', function () {
+        if (!wasOpen) return;
+        wasOpen = false;
+        var p = document.getElementById('graph-view');
+        if (p && p.showPopover && !open()) p.showPopover();
+    });
+})();
