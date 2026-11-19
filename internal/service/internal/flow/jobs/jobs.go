@@ -174,6 +174,8 @@ type Runner struct {
 	// Via): it re-runs once that job is no longer waiting. In memory only,
 	// like parked: after a restart a parked job re-runs once.
 	via map[string]string
+	// warned holds the jobs whose ParamSet read failed and was logged once.
+	warned map[string]bool
 
 	// deployed holds the "deploying <tile>" lines each job's log already
 	// has, so a parked job re-run every poll logs each tile's line once.
@@ -257,6 +259,7 @@ func New(jobs *job.Leaf, handlers map[Kind]Handler, dataDir string, opt Options)
 		running:  map[string]*active{},
 		parked:   map[string]string{},
 		via:      map[string]string{},
+		warned:   map[string]bool{},
 		deployed: map[string]map[string]bool{},
 		wake:     make(chan struct{}, 1),
 	}
@@ -363,7 +366,17 @@ func (r *Runner) unpark(ctx context.Context) {
 				continue
 			}
 		case r.opt.ParamSet != nil && j.WaitingParam != nil:
-			if ok, err := r.opt.ParamSet(ctx, j); err != nil || !ok {
+			ok, err := r.opt.ParamSet(ctx, j)
+			if err != nil {
+				r.mu.Lock()
+				first := !r.warned[j.ID]
+				r.warned[j.ID] = true
+				r.mu.Unlock()
+				if first {
+					slog.Warn("param read failed; job stays parked", "job", j.ID, "param", *j.WaitingParam, "err", err)
+				}
+			}
+			if err != nil || !ok {
 				continue
 			}
 		}
