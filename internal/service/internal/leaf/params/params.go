@@ -80,6 +80,9 @@ func (l *Leaf) Values(ctx context.Context, s Scope, secrets bool) (map[string]Va
 	return out, err
 }
 
+// Stamp changes whenever any entry does; see store.ParamStore.
+func (l *Leaf) Stamp(ctx context.Context) (string, error) { return l.params.Stamp(ctx) }
+
 // Set writes one entry.
 func (l *Leaf) Set(ctx context.Context, s Scope, e Entry) error { return l.Merge(ctx, s, []Entry{e}) }
 

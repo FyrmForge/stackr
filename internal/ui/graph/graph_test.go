@@ -177,4 +177,8 @@ func TestStackCardNoNestedAnchor(t *testing.T) {
 	if strings.Contains(out, `<a href="/acme/shop"`) || !strings.Contains(out, `href="/acme/-/jobs/j1"`) {
 		t.Error("failing stack card nests or lacks the log link")
 	}
+	n.FailHref, n.Fail, n.Status, n.NoteHref = "", "", "running", "/acme/-/jobs/j2"
+	if out := render(n); strings.Contains(out, `<a href="/acme/shop"`) {
+		t.Error("a stack card with a note link nests it in an anchor")
+	}
 }

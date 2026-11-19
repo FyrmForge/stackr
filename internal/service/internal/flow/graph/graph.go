@@ -70,6 +70,11 @@ type Flow struct {
 	PushFail func(ctx context.Context, stackID string) (jobID, msg string, failed bool)
 	// Stop is the env's last promote when it failed at a tile; nil = none asked.
 	Stop func(ctx context.Context, envID string) (Stopped, bool)
+	// Building is the stack's push job that is queued or running; nil = none asked.
+	Building func(ctx context.Context, stackID string) (jobID, sha string, at time.Time, queued, ok bool)
+	// Parked is the first value a job of the stack (of one env when envID is
+	// not "") waits for, and where to set it; nil = none asked.
+	Parked func(ctx context.Context, stackID, envID string) (param, href string, ok bool)
 }
 
 // Node kinds besides the tile kinds (service, image, operated, cron,
@@ -160,11 +165,40 @@ type Node struct {
 	Phase          string     // the live job's step, "" = the word alone
 	Fail           string     // the failed deploy's error, whole; "" = none
 	FailJob        string     // stack card: the failed push's job; "" = none
+	// Stack card: the work in progress under its name, "" = none. NoteAt
+	// follows the text (a start time); NoteJob is the job whose log it links
+	// to, NoteSet where to set a value; one of them is set with a note.
+	Note, NoteJob, NoteSet string
+	NoteAt                 time.Time
 	Stop, StopJob  string     // a tile the failed promote never reached: the tile it stopped at, and that job
 	Wait           int        // env card: the release the rung below runs and this one does not; 0 = none
 	// Vars card counts; never a value.
 	Params, Secrets int
 	Consumers       int // slice: the tiles that ref it, name it in slice_access or hold a cred on it
+}
+
+// note puts the stack's build in flight, or else the value a parked job
+// waits for, on its card.
+func (f *Flow) note(ctx context.Context, n *Node, stackID string) {
+	if f.Building != nil {
+		if id, sha, at, queued, ok := f.Building(ctx, stackID); ok {
+			n.NoteJob, n.NoteAt = id, at
+			at := ""
+			if sha != "" {
+				at = " at " + sha
+			}
+			n.Note = "Building" + at + ", started "
+			if queued {
+				n.Note = "Waiting to build" + at + ", queued "
+			}
+			return
+		}
+	}
+	if f.Parked != nil {
+		if param, href, ok := f.Parked(ctx, stackID, ""); ok {
+			n.Note, n.NoteSet = "Waiting for "+param, href
+		}
+	}
 }
 
 // Sub is a sub-tile (an attached volume, a replica); Detail is the strip's
@@ -403,6 +437,9 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 					}
 				}
 			}
+		}
+		if in.Status {
+			f.note(ctx, &n, st.ID)
 		}
 		if n.Domains, err = f.hosts(ctx, ts); err != nil {
 			return err
@@ -761,6 +798,12 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			if s.word == "error" && under == "none" { // never ran: nothing crashed
 				s.word = "failed"
 			}
+		}
+	}
+	// a first promote parked on a value has made no job of this tile yet
+	if s.word == "none" && f.Parked != nil && !tile.RunToCompletion(t.Kind) {
+		if param, _, ok := f.Parked(ctx, t.StackID, t.EnvironmentID); ok {
+			s.word, s.waiting = "waiting", param
 		}
 	}
 	return s, nil

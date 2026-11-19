@@ -191,3 +191,13 @@ func TestFooterFailJobLog(t *testing.T) {
 		t.Errorf("footer = %s", out)
 	}
 }
+
+// A stack card's note says the build in flight with its job log link.
+func TestFooterNote(t *testing.T) {
+	out := render(t, Footer("stack:1", FooterView{Kind: "stack", Status: "running", Note: "Building at f9cdc50, started ", NoteAt: time.Now(), NoteHref: "/acme/-/jobs/j1", NoteLink: "Job log"}))
+	for _, want := range []string{"Building at f9cdc50, started ", `href="/acme/-/jobs/j1"`, "Job log"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %s", want, out)
+		}
+	}
+}

@@ -31,6 +31,9 @@ type ParamStore interface {
 	ListBlankByKind(ctx context.Context, scopeKind, scopeID, kind string) ([]Param, error)
 	Update(ctx context.Context, p Param) error
 	Delete(ctx context.Context, id string) error
+	// Stamp changes whenever any row is written or deleted; one cheap read,
+	// no value decrypted.
+	Stamp(ctx context.Context) (string, error)
 }
 
 var paramsT = newTable("params", func(p *Param) []*string { return []*string{&p.Value} })
@@ -56,4 +59,10 @@ func (s params) ListBlankByKind(ctx context.Context, scopeKind, scopeID, kind st
 		"SELECT id, scope_kind, scope_id, collection, name, kind, '' AS value, created_at, updated_at FROM params "+
 			"WHERE scope_kind = ? AND scope_id = ? AND kind = ?", scopeKind, scopeID, kind)
 	return rows, mapErr(err)
+}
+
+func (s params) Stamp(ctx context.Context) (string, error) {
+	var st string
+	err := s.q.GetContext(ctx, &st, "SELECT COUNT(*) || '/' || COALESCE(MAX(updated_at), '') FROM params")
+	return st, mapErr(err)
 }

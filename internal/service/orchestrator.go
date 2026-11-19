@@ -895,6 +895,16 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				return f.JobID, f.Error, ok
 			},
 			Stop: orch.RolloutStop,
+			Building: func(ctx context.Context, stackID string) (string, string, time.Time, bool, bool) {
+				b, ok := orch.Building(ctx, stackID)
+				return b.JobID, b.Sha, b.Started, b.Queued, ok
+			},
+			Parked: func(ctx context.Context, stackID, envID string) (string, string, bool) {
+				if ps := orch.ParkedOn(ctx, stackID, envID); len(ps) > 0 {
+					return ps[0].Param, ps[0].Href, true
+				}
+				return "", "", false
+			},
 		}
 	})
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {
@@ -916,6 +926,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				have, err := orch.hostgrant.Of(ctx, p.HostAccess.Stack)
 				return err == nil && len(ask.Missing(have)) == 0, err
 			},
+			// A job parked on an unset value re-runs once a param changes
+			// (no git, no plan, no log line in between).
+			Stamp:   orch.params.Stamp,
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true, kindBucketRestore: true},
