@@ -115,6 +115,12 @@ func (o *Orchestrator) ReleaseHistory(ctx context.Context, stackID, envID string
 // jobs are the stack's job rows when the caller already holds them (the
 // screen reads them once for every stack); nil = read them here.
 func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string, history bool, jobs *[]Job) (ReleaseWindow, error) {
+	return o.releaseWindowOf(ctx, stackID, envID, history, jobs, nil)
+}
+
+// releaseWindowOf is releaseWindow with the stack's releases too (newest
+// first) when the caller holds them; nil = read them here.
+func (o *Orchestrator) releaseWindowOf(ctx context.Context, stackID, envID string, history bool, jobs *[]Job, held []store.Release) (ReleaseWindow, error) {
 	var w ReleaseWindow
 	var envs = map[string]string{} // env id -> name
 	slugs := map[string]string{}   // env id -> slug
@@ -123,9 +129,11 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 		return w, err
 	}
 	w.Stack, w.Slug = st.Name, st.Slug
-	rs, err := o.releases.List(ctx, stackID)
-	if err != nil {
-		return w, err
+	rs := held
+	if rs == nil {
+		if rs, err = o.releases.List(ctx, stackID); err != nil {
+			return w, err
+		}
 	}
 	rungs, err := o.graph.Rungs(ctx, stackID)
 	if err != nil {
@@ -243,7 +251,22 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 	}
 	failed := map[int][]promoteFail{}
 	for _, id := range scoped {
-		if s, ok := o.RolloutStop(ctx, id); ok && s.Release > 0 {
+		var s RolloutStop
+		var ok bool
+		if jobs != nil { // the newest promotes of the env out of the jobs held
+			var mine []Job
+			for _, j := range js {
+				if j.Kind == string(kindPromote) && slices.Contains(j.LockSet, "env:"+id) {
+					if mine = append(mine, j); len(mine) == 10 {
+						break
+					}
+				}
+			}
+			s, ok = o.rolloutStop(ctx, id, mine)
+		} else {
+			s, ok = o.RolloutStop(ctx, id)
+		}
+		if ok && s.Release > 0 {
 			failed[s.Release] = append(failed[s.Release], promoteFail{id, s.JobID, s.Error, s.At})
 		}
 	}

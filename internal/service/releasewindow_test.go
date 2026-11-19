@@ -396,3 +396,45 @@ func TestReleaseHistoryFixedByTheFixingPush(t *testing.T) {
 	}
 	t.Error("no fixed failure in the history")
 }
+
+// The org window reads the org's jobs and releases once and places each by
+// the real payloads (a promote has an env_id and no stack_id or org_id):
+// a promote under way on one stack makes that stack's release deploying and
+// leaks into no other.
+func TestOrgReleaseWindowPlacesJobsAndReleasesPerStack(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	other, err := w.e.Orch.CreateStack(ctx, w.acme, "blog", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blogRel := w.e.Release(t, other.ID, 7)
+	shopRel := uuid.NewString()
+	if err := w.e.Store.Releases.Create(ctx, store.Release{ID: shopRel, StackID: w.shop, Number: 3, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.e.Store.Jobs.Create(ctx, store.Job{
+		ID: uuid.NewString(), Kind: "promote", State: "running", ReleaseID: &shopRel,
+		LockSet: store.StringList{"env:" + w.prod}, Payload: `{"env_id":"` + w.prod + `","release_id":"` + shopRel + `"}`,
+		CreatedAt: time.Now(), StartedAt: new(time.Now()),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	win, err := w.e.Orch.OrgReleaseWindow(ctx, w.acme, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deploying := false
+	for _, r := range win.Rows {
+		switch {
+		case r.ID == shopRel:
+			deploying = r.State == service.StateDeploying
+		case r.ID == blogRel && (r.State == service.StateDeploying || r.StackID != other.ID):
+			t.Errorf("blog release 7 = %+v", r)
+		}
+	}
+	if !deploying {
+		t.Errorf("shop release 3 is not deploying: %+v", win.Rows)
+	}
+}
