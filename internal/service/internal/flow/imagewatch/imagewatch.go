@@ -182,15 +182,11 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 		return nil, err
 	}
 	logf(log, "%s: wrote release #%d\n", e.Slug, r.Number)
-	if auto {
-		on, held, err := f.Releases.Waits(ctx, e.StackID, base, deref(e.ReleaseID), e.Auto)
-		if err != nil {
-			return nil, err
-		}
-		if held {
-			auto = false
-			logf(log, "%s: release #%d builds on #%d which waits; not promoted automatically\n", e.Slug, r.Number, on.Number)
-		}
+	// Only a release that builds on what the env runs goes out unattended;
+	// after a rollback the newest release can be the bad one.
+	if auto && base != deref(e.ReleaseID) {
+		auto = false
+		logf(log, "%s: release #%d builds on a release the env does not run; not promoted automatically\n", e.Slug, r.Number)
 	}
 	return &Update{EnvID: e.ID, Env: e.Slug, ReleaseID: r.ID, Number: r.Number, Auto: auto}, nil
 }

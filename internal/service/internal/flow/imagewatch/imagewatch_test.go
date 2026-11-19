@@ -251,8 +251,8 @@ func TestPick(t *testing.T) {
 	}
 }
 
-// A cut built on a waiting release is not auto unless it is only pushes
-// stacking up on an auto env.
+// A cut built on a release the env does not run (a waiting push or watch, or
+// one a rollback left ahead) is never auto.
 func TestAutoBehindAWaitingRelease(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -262,7 +262,7 @@ func TestAutoBehindAWaitingRelease(t *testing.T) {
 	}{
 		{"nothing waits", false, "", true},
 		{"push waits, env not auto", false, "push", false},
-		{"push waits, env auto", true, "push", true},
+		{"push waits, env auto", true, "push", false},
 		{"watch waits, env auto", true, "image-watch", false},
 	}
 	for _, c := range cases {
@@ -310,7 +310,7 @@ func TestAutoBehindAWaitingRelease(t *testing.T) {
 			if len(ups) != 1 || ups[0].Auto != c.want {
 				t.Fatalf("updates = %+v, want Auto %v", ups, c.want)
 			}
-			if held := strings.Contains(log.String(), "which waits; not promoted automatically"); held == c.want {
+			if held := strings.Contains(log.String(), "does not run; not promoted automatically"); held == c.want {
 				t.Errorf("log = %q", log.String())
 			}
 		})
