@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/netip"
 	"slices"
@@ -212,20 +213,39 @@ type CertState struct {
 }
 
 // CertState is the last probe of host; false = not checked yet. States are
-// kept per (node, host); a host on several ingress nodes shows its worst.
+// kept per (node, host); a host on several ingress nodes shows its worst:
+// the highest severity, then the earliest expiry, then the lowest node id,
+// so the same states always give the same answer.
 func (o *Orchestrator) CertState(host string) (CertState, bool) {
 	var out CertState
+	var outNode string
 	var found bool
-	rank := map[string]int{CertValid: 0, CertWaiting: 1, CertFailed: 2}
 	o.certStates.Range(func(k, v any) bool {
-		if _, h, _ := strings.Cut(k.(string), "\x00"); h == host {
-			if st := v.(CertState); !found || rank[st.Status] > rank[out.Status] {
-				out, found = st, true
-			}
+		node, h, _ := strings.Cut(k.(string), "\x00")
+		if h != host {
+			return true
+		}
+		if st := v.(CertState); !found || worseCert(st, node, out, outNode) {
+			out, outNode, found = st, node, true
 		}
 		return true
 	})
 	return out, found
+}
+
+// worseCert says state a (on node an) outranks b (on node bn).
+func worseCert(a CertState, an string, b CertState, bn string) bool {
+	rank := map[string]int{CertValid: 0, CertWaiting: 1, CertFailed: 2}
+	if ra, rb := rank[a.Status], rank[b.Status]; ra != rb {
+		return ra > rb
+	}
+	if !a.NotAfter.Equal(b.NotAfter) { // no certificate read (zero) ends last
+		if a.NotAfter.IsZero() || b.NotAfter.IsZero() {
+			return b.NotAfter.IsZero()
+		}
+		return a.NotAfter.Before(b.NotAfter)
+	}
+	return an < bn
 }
 
 // checkCert probes one host on node n, keeps the state and raises or clears
@@ -264,7 +284,12 @@ func (o *Orchestrator) RecheckCert(ctx context.Context, tileID, host string) (Ce
 		return CertState{}, fmt.Errorf("domain %s: %w", host, errs.ErrNotFound)
 	}
 	inv, _ := o.certHosts(ctx)
-	for nodeID, hosts := range inv {
+	var out CertState
+	var outNode string
+	var probed bool
+	noAddr := false
+	for _, nodeID := range slices.Sorted(maps.Keys(inv)) {
+		hosts := inv[nodeID]
 		i := slices.IndexFunc(hosts, func(h certHost) bool { return h.Host == host })
 		if i < 0 {
 			continue
@@ -275,9 +300,19 @@ func (o *Orchestrator) RecheckCert(ctx context.Context, tileID, host string) (Ce
 		}
 		addr := o.certAddr(ctx, n)
 		if addr == "" {
-			return CertState{}, errs.Refusedf("The node has no public address to check.")
+			noAddr = true
+			continue
 		}
-		return o.checkCert(ctx, n, addr, hosts[i], time.Now()), nil
+		st := o.checkCert(ctx, n, addr, hosts[i], time.Now())
+		if !probed || worseCert(st, nodeID, out, outNode) {
+			out, outNode, probed = st, nodeID, true
+		}
+	}
+	switch {
+	case probed:
+		return out, nil
+	case noAddr:
+		return CertState{}, errs.Refusedf("The node has no public address to check.")
 	}
 	return CertState{}, fmt.Errorf("domain %s: %w", host, errs.ErrNotFound)
 }

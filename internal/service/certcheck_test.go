@@ -276,3 +276,31 @@ func TestCertBootProbe(t *testing.T) {
 		t.Errorf("after boot = %+v, %v", s, ok)
 	}
 }
+
+// A host on several ingress nodes shows its worst state: failed over
+// waiting over valid, then the earliest expiry, then the lowest node id,
+// whatever order the map is walked in.
+func TestCertStateWorstIsDeterministic(t *testing.T) {
+	soon, later := time.Now().Add(10*24*time.Hour), time.Now().Add(60*24*time.Hour)
+	for _, c := range []struct {
+		name   string
+		states map[string]CertState
+		want   string // node id whose state wins
+	}{
+		{"severity", map[string]CertState{"a": {Status: CertValid, NotAfter: soon}, "b": {Status: CertFailed}, "c": {Status: CertWaiting}}, "b"},
+		{"expiry", map[string]CertState{"a": {Status: CertValid, NotAfter: later}, "b": {Status: CertValid, NotAfter: soon}, "c": {Status: CertValid, NotAfter: later}}, "b"},
+		{"node id", map[string]CertState{"c": {Status: CertFailed, NotAfter: soon}, "b": {Status: CertFailed, NotAfter: soon}, "d": {Status: CertFailed, NotAfter: soon}}, "b"},
+		{"no cert ends last", map[string]CertState{"a": {Status: CertWaiting}, "b": {Status: CertWaiting, NotAfter: soon}}, "b"},
+	} {
+		w := newWorld(t)
+		for id, st := range c.states {
+			st.Reason = id
+			w.orch.certStates.Store(id+"\x00h.acme.dev", st)
+		}
+		for range 20 {
+			if s, _ := w.orch.CertState("h.acme.dev"); s.Reason != c.want {
+				t.Fatalf("%s: shows node %s, want %s", c.name, s.Reason, c.want)
+			}
+		}
+	}
+}
