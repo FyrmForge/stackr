@@ -243,15 +243,17 @@ func (o *Orchestrator) UnsetParamsOf(ctx context.Context, ss []ParamScope) ([]ma
 // tiles the change reaches and marks them redeploy pending (RestartPending)
 // until a deploy that recreates them has succeeded (a plain restart does not
 // apply a value). Parked deploys that the value would resume are cancelled
-// first, so a tile that waits stays stopped; waiting names those tiles.
+// right after the save (never before: a refused save leaves them alone), so a
+// tile that waits stays stopped; waiting names those tiles.
 // ponytail: the mark lives in memory and is lost when the panel restarts; a
 // column on tiles when that hurts.
 func (o *Orchestrator) SetParamsLater(ctx context.Context, s ParamScope, es []ParamEntry) (redeploy, waiting []string, err error) {
 	if err := o.refuseTieredOrg(ctx, s); err != nil {
 		return nil, nil, err
 	}
-	// Before the write: once the value is there the runner's next poll resumes them.
-	waitTiles, err := o.cancelParked(ctx, s, es)
+	// Picked before the write (it reads what is unset), cancelled right after
+	// it, ahead of the runner's next poll that would resume them.
+	cancel, err := o.cancelParked(ctx, s, es)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -263,6 +265,10 @@ func (o *Orchestrator) SetParamsLater(ctx context.Context, s ParamScope, es []Pa
 		names[i] = e.Collection + "/" + e.Name
 	}
 	if err = o.noted(ctx, err, securitylog.ParamSet, s.Kind, s.ID, "set "+strings.Join(names, ", ")); err != nil {
+		return nil, nil, err
+	}
+	waitTiles, err := cancel()
+	if err != nil {
 		return nil, nil, err
 	}
 	for _, t := range waitTiles {
@@ -282,10 +288,12 @@ func (o *Orchestrator) SetParamsLater(ctx context.Context, s ParamScope, es []Pa
 	return redeploy, waiting, nil
 }
 
-// cancelParked cancels the deploys parked on a value es gives s (whichever
-// state the runner has them in right now), and returns the tiles that waited.
-// A job that cannot be stopped (mid-swap) refuses the save.
-func (o *Orchestrator) cancelParked(ctx context.Context, s ParamScope, es []ParamEntry) ([]Tile, error) {
+// cancelParked picks the deploys parked on a value es gives s (whichever
+// state the runner has them in right now) and returns the func that cancels
+// them and reports the tiles that waited. A job that cannot be stopped
+// (mid-swap) fails that func.
+func (o *Orchestrator) cancelParked(ctx context.Context, s ParamScope, es []ParamEntry) (func() ([]Tile, error), error) {
+	none := func() ([]Tile, error) { return nil, nil }
 	have, err := o.params.Values(ctx, s, false)
 	if err != nil {
 		return nil, err
@@ -305,7 +313,7 @@ func (o *Orchestrator) cancelParked(ctx context.Context, s ParamScope, es []Para
 		}
 	}
 	if len(keys) == 0 {
-		return nil, nil
+		return none, nil
 	}
 	pjs, err := o.parkedJobs(ctx)
 	if err != nil {
@@ -313,7 +321,7 @@ func (o *Orchestrator) cancelParked(ctx context.Context, s ParamScope, es []Para
 	}
 	pjs = slices.DeleteFunc(pjs, func(pj parkedJob) bool { return !want[pj.Param] })
 	if len(pjs) == 0 {
-		return nil, nil
+		return none, nil
 	}
 	ts, err := o.scopeTiles(ctx, s)
 	if err != nil {
@@ -325,6 +333,10 @@ func (o *Orchestrator) cancelParked(ctx context.Context, s ParamScope, es []Para
 	if ts, err = o.readers(ctx, s, ts, keys, false); err != nil {
 		return nil, err
 	}
+	return func() ([]Tile, error) { return o.cancelPicked(ctx, pjs, ts) }, nil
+}
+
+func (o *Orchestrator) cancelPicked(ctx context.Context, pjs []parkedJob, ts []Tile) ([]Tile, error) {
 	in := func(id string) bool { return slices.ContainsFunc(ts, func(t Tile) bool { return t.ID == id }) }
 	var out []Tile
 	for _, pj := range pjs {

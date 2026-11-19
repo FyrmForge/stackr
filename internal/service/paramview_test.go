@@ -222,7 +222,7 @@ func TestOnlyWaitingRowsWait(t *testing.T) {
 				t.Errorf("waiting = %v", waiting)
 			}
 			if j = w.wait(t, j.ID); j.State != job.Cancelled {
-				t.Errorf("deploy = %s, want cancelled before the value was written", j.State)
+				t.Errorf("deploy = %s, want cancelled", j.State)
 			}
 		})
 	}
@@ -282,5 +282,36 @@ func TestParamResolvesReadsTheJobsOwnParam(t *testing.T) {
 		if ok, err := w.orch.paramResolves(ctx, j, c.param); err != nil || !ok {
 			t.Fatalf("%s after it is set: %v, %v", c.param, ok, err)
 		}
+	}
+}
+
+// A save that fails leaves the parked deploy alone: it is cancelled only
+// after the value is written.
+func TestFailedSaveKeepsParkedDeploy(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	s := ParamScope{Kind: "env", ID: w.env}
+	_, err := w.orch.SetParams(ctx, s, []ParamEntry{{Collection: "c", Name: "key", Kind: "secret", Value: "x"}})
+	must(t, err)
+	tl, err := w.orch.CreateTile(ctx, Tile{StackID: w.stack, EnvironmentID: w.env, Name: "bazarr", Kind: "image", ImageRef: "nginx:1", ContainerPort: 80})
+	must(t, err)
+	_, err = w.st.DB().ExecContext(ctx, `UPDATE tiles SET env_json = ? WHERE id = ?`, `{"P":"${{ params.gate.password }}"}`, tl.ID)
+	must(t, err)
+	j, err := w.orch.Deploy(ctx, tl.ID)
+	must(t, err)
+	if j = w.waiting(t, j.ID); j.State != job.Waiting {
+		t.Fatalf("deploy = %s %q, want parked", j.State, j.Error)
+	}
+	// the second entry turns a secret into a param: the whole save is refused
+	_, _, err = w.orch.SetParamsLater(ctx, s, []ParamEntry{
+		{Collection: "gate", Name: "password", Kind: "secret", Value: "pw"},
+		{Collection: "c", Name: "key", Kind: "param", Value: "y"},
+	})
+	if err == nil {
+		t.Fatal("the save was accepted")
+	}
+	if got, err := w.orch.jobs.Get(ctx, j.ID); err != nil || got.State != job.Waiting {
+		t.Fatalf("deploy = %v %v, want still waiting", got.State, err)
 	}
 }
