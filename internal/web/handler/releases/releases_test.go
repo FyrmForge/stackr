@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -16,20 +17,21 @@ func TestReleasesScreen(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	r1, r2 := s.Release(t, s.Tile.Stack, 1), s.Release(t, s.Tile.Stack, 2)
-	envs, err := s.Orch.Ladder(ctx, s.Tile.Stack)
-	if err != nil || len(envs) == 0 {
-		t.Fatalf("ladder = %v, %v", envs, err)
-	}
-	// the one env runs release 1, so release 2 waits for it
-	row, err := s.Store.Environments.Get(ctx, s.Tile.Env)
+	// dev runs release 2, staging release 1: release 2 waits for staging
+	staging, err := s.Orch.CreateEnv(ctx, s.Tile.Stack, "staging", service.EnvSpec{Type: "static", FromKind: "promote"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	row.ReleaseID = &r1
-	if err := s.Store.Environments.Update(ctx, row); err != nil {
-		t.Fatal(err)
+	for env, rid := range map[string]string{s.Tile.Env: r2, staging.ID: r1} {
+		row, err := s.Store.Environments.Get(ctx, env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		row.ReleaseID = &rid
+		if err := s.Store.Environments.Update(ctx, row); err != nil {
+			t.Fatal(err)
+		}
 	}
-	_ = r2
 
 	rec := s.Do(t, "GET", "/-/releases", nil)
 	body := rec.Body.String()
@@ -50,8 +52,14 @@ func TestReleasesScreen(t *testing.T) {
 	}
 	viewer := s.User(t, "viewer@acme.test", false)
 	s.Member(t, s.Org, viewer, "viewer")
+	if !strings.Contains(body, ">Review plan<") || !strings.Contains(body, `hx-get="/acme/shop/staging/-/drawer?tab=releases&amp;plan=`+r2+`"`) || !strings.Contains(body, "data-full") {
+		t.Errorf("owner's waiting row:\n%s", body)
+	}
+	if d := s.Do(t, "GET", "/acme/shop/staging/-/drawer?tab=releases&plan="+r2, nil).Body.String(); !strings.Contains(d, "Release 2 for staging") {
+		t.Errorf("the drawer the link asks for:\n%s", d)
+	}
 	vb := s.As(t, s.Session(t, viewer), "GET", "/-/releases?state=waiting", nil).Body.String()
-	if strings.Contains(vb, "Review plan") {
+	if strings.Contains(vb, "Review plan") || !strings.Contains(vb, ">View plan<") {
 		t.Errorf("viewer sees Review plan:\n%s", vb)
 	}
 }

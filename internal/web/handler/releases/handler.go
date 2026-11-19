@@ -120,42 +120,21 @@ func (h *handler) Page(c echo.Context) error {
 	return render.Page(c, http.StatusOK, "Releases", components.RelScreenView(v))
 }
 
-// row is a screen row as the window's row shape, with the screen's columns.
+// row is a screen row: the window's row, with the screen's columns.
 func row(r service.ScreenRow, who map[string]string) components.RelRow {
-	out := components.RelRow{
-		Kind: r.Kind, ID: r.ID, Commit: render.ShortSHA(r.Commit), Message: r.Message, State: r.State, Tone: render.StateTone[r.State],
-		Newest: r.Newest, At: r.At, CommitURL: r.CommitURL, Scope: r.Scope, Plan: r.Kind == service.RowPlan, Fixed: r.Fixed,
-		By: render.SourceWord(r.By, who),
-	}
-	if out.By == "" { // a release cut before its source was kept
-		out.By = "git push"
-	}
-	out.Source = out.By
-	if r.Number > 0 {
-		out.Number = strconv.Itoa(r.Number)
-	}
-	if r.Lacks > 0 {
-		out.Lacks = strconv.Itoa(r.Lacks)
-	}
-	if out.Message == "" && r.Kind == service.RowRelease {
-		out.Message = strings.ToUpper(out.By[:1]) + out.By[1:]
-	}
 	base := "/" + r.Org + "/" + r.StackSlug
 	jobHref := func(id string) string { return base + "/" + r.LogEnv + "/-/jobs/" + id }
+	envs := map[string]components.EnvRun{}
+	for _, e := range r.Envs {
+		envs[e.ID] = components.EnvRun{Name: e.Name, Color: e.Color}
+	}
+	out := render.RelRowOf(r.WindowRow, r.Scope, who, envs, jobHref)
+	out.Scope, out.Source, out.Plan = r.Scope, out.By, r.Kind == service.RowPlan
 	verb := "Review"
 	if !r.CanPromote {
 		verb = "View" // the review says who can promote
 	}
-	switch r.Kind {
-	case service.RowFailed:
-		out.Message = "Push failed: " + strings.TrimRight(render.ErrTail(r.Err), ".")
-		if r.FailEnv != "" {
-			out.Message = "Release " + out.Number + " failed in " + r.FailEnv + ": " + strings.TrimRight(render.ErrTail(r.Err), ".")
-		}
-		out.Link = components.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
-	case service.RowBuilding:
-		out.Link = components.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
-	case service.RowPlan:
+	if r.Kind == service.RowPlan {
 		out.Message = strings.TrimRight(out.Message, ".")
 		if r.State == service.StateWaiting || r.State == service.StateFailed || r.State == "applying" {
 			out.Link = components.RelLink{Label: verb + " plan", Href: "/-/admin/config"}
@@ -164,30 +143,19 @@ func row(r service.ScreenRow, who map[string]string) components.RelRow {
 			}
 		}
 	}
-	names := map[string]components.EnvRun{}
-	for _, e := range r.Envs {
-		names[e.ID] = components.EnvRun{Name: e.Name, Color: e.Color}
-	}
-	for _, id := range r.Runs {
-		out.Envs = append(out.Envs, names[id])
-	}
 	switch {
 	case r.Fixed && r.FixedBy > 0:
 		out.State, out.Tone = "failed, fixed by release "+strconv.Itoa(r.FixedBy), ""
 	case r.Fixed:
 		out.State, out.Tone = "failed, fixed", ""
-	case r.State == service.StateFailed && r.Kind == service.RowRelease:
-		out.Link = components.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
-		out.State = "failed in " + r.FailEnv
 	}
 	for _, rv := range r.Reviews {
 		label := verb + " plan"
 		if rv.Rollback {
 			label = verb + " rollback"
 		}
-		label += " for " + rv.Env
 		out.Reviews = append(out.Reviews, components.RelLink{
-			Label: label,
+			Label: label + " for " + rv.Env,
 			Href:  base + "/" + rv.EnvSlug + "?drawer=" + url.QueryEscape("env:"+rv.EnvID) + "&tab=releases&plan=" + r.ID,
 			Ask:   base + "/" + rv.EnvSlug + "/-/drawer?tab=releases&plan=" + r.ID,
 		})
@@ -197,13 +165,6 @@ func row(r service.ScreenRow, who map[string]string) components.RelRow {
 		if len(out.Reviews) == 1 {
 			out.Link.Label = strings.TrimSuffix(out.Link.Label, " for "+r.Reviews[0].Env)
 		}
-	}
-	for _, j := range r.Jobs {
-		t := j.Kind + ", " + j.State
-		if j.Took > 0 {
-			t += " in " + j.Took.Round(1e9).String()
-		}
-		out.Jobs = append(out.Jobs, components.RelJob{Text: t, Href: jobHref(j.ID)})
 	}
 	return out
 }

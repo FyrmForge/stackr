@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/url"
 	"path"
-	"strconv"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service"
@@ -66,59 +65,24 @@ func (h *handler) relWindow(ctx context.Context, l level, gv service.GraphView) 
 		}
 		return comp.RelLink{Label: label, Href: l.base + q}
 	}
+	envs := map[string]comp.EnvRun{}
+	for _, r := range gv.Compare {
+		envs[r.EnvID] = comp.EnvRun{Name: r.Name, Color: r.Color}
+	}
 	for _, r := range win.Rows {
-		row := comp.RelRow{
-			Kind: r.Kind, ID: r.ID, Commit: short(r.Commit), Message: r.Message, State: r.State,
-			Tone: stateTone[r.State], Newest: r.Newest, At: r.At, Stack: win.Stack, Queued: r.Queued,
-			CommitURL: r.CommitURL,
-		}
-		if r.Number > 0 {
-			row.Number = strconv.Itoa(r.Number)
-		}
-		if r.Lacks > 0 {
-			row.Lacks = strconv.Itoa(r.Lacks)
-		}
 		if strings.HasPrefix(r.By, "user:") && who == nil {
 			who, _ = h.who(ctx)
 		}
-		row.By = byWord(r.By, who)
-		if row.Message == "" && r.Kind == service.RowRelease && row.By != "" {
-			row.Message = strings.ToUpper(row.By[:1]) + row.By[1:]
-		}
-		switch r.Kind {
-		case service.RowFailed:
-			row.Message = "Push failed: " + strings.TrimRight(errTail(r.Err), ".")
-			row.Link = comp.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
-		case service.RowBuilding:
-			row.Link = comp.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
-		}
-		for _, id := range r.Runs {
-			row.Envs = append(row.Envs, comp.EnvRun{Name: names[id], Color: hues[id]})
-		}
-		if r.State == service.StateFailed && r.Kind == service.RowRelease {
-			row.Link = comp.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
-			row.State = "failed in " + r.FailEnv
-		}
+		row := render.RelRowOf(r, win.Stack, who, envs, jobHref)
 		for _, rv := range r.Reviews {
 			row.Reviews = append(row.Reviews, review(r.ID, rv))
 		}
 		if r.State == service.StateWaiting && len(row.Reviews) > 0 {
 			row.Link = row.Reviews[0]
 		}
-		for _, j := range r.Jobs {
-			t := j.Kind + ", " + j.State
-			if j.Took > 0 {
-				t += " in " + j.Took.Round(1e9).String()
-			}
-			row.Jobs = append(row.Jobs, comp.RelJob{Text: t, Href: jobHref(j.ID)})
-		}
 		w.Rows = append(w.Rows, row)
 	}
 	return w
 }
 
-var stateTone = render.StateTone
-
 func short(sha string) string { return render.ShortSHA(sha) }
-
-func errTail(err string) string { return render.ErrTail(err) }

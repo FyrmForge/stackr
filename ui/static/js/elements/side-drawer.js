@@ -2,6 +2,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 class SideDrawer extends HTMLElement {
     opener = null;
     dirty = false;
+    fullByLink = false;
     onSwap = (e) => {
         const d = e.detail;
         const target = d?.target;
@@ -13,8 +14,8 @@ class SideDrawer extends HTMLElement {
         if (!this.hasAttribute("open") && was && !this.contains(was))
             this.opener = was;
         this.setAttribute("open", "");
-        if (d.requestConfig?.elt?.closest("[data-full]"))
-            this.expand(true);
+        if (d.requestConfig?.elt?.closest("[data-full]") && !this.hasAttribute("full"))
+            this.expand(true, true);
         const tab = new URLSearchParams(location.search).get("tab");
         if (tab)
             this.setAttribute("tab", tab);
@@ -44,17 +45,18 @@ class SideDrawer extends HTMLElement {
     onClick = (e) => {
         const el = e.target;
         if (el.closest("[data-expand]"))
-            return this.expand(!this.hasAttribute("full"));
+            return this.expand(!this.hasAttribute("full"), false);
         if (el.closest("[data-close], [data-backdrop]"))
             this.close();
     };
-    expand(on) {
+    expand(on, byLink = false) {
+        this.fullByLink = byLink;
         this.toggleAttribute("full", on);
         const top = document.getElementById("shell-header")?.getBoundingClientRect().bottom ?? 0;
         this.style.setProperty("--shell-top", `${top}px`);
         this.querySelector("[data-expand]")?.setAttribute("aria-pressed", String(on));
     }
-    onSettle = () => this.expand(this.hasAttribute("full"));
+    onSettle = () => this.expand(this.hasAttribute("full"), this.fullByLink);
     onEdit = (e) => {
         const el = e.target;
         if (el.closest("form") && !el.closest("dialog") && this.body()?.contains(el))
@@ -127,6 +129,8 @@ class SideDrawer extends HTMLElement {
         if (this.dirty && !force && !window.confirm("Discard your unsaved changes?"))
             return;
         this.dirty = false;
+        if (this.fullByLink)
+            this.expand(false);
         this.removeAttribute("open");
         this.removeAttribute("tab");
         this.body()?.replaceChildren();

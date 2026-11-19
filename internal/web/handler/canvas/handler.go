@@ -154,6 +154,9 @@ func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focu
 			v.Empty = "Release " + strconv.Itoa(rel.Number) + " is waiting."
 			v.EmptyNote = "Nothing runs here until it is promoted."
 			v.EmptyHref = l.base + "?drawer=" + url.QueryEscape("env:"+l.scope.ID) + "&tab=releases&plan=" + rel.ID
+			if l.viewOnly {
+				v.EmptyLink = "View plan"
+			}
 		}
 	}
 	if v.Empty != "" && l.scope.Kind == service.CanvasStack {
