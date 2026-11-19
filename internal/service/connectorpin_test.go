@@ -200,3 +200,74 @@ func TestPinConnectorsRepolessOrg(t *testing.T) {
 		}
 	}
 }
+
+// A repo-less org whose tiles span two hosts is left unpinned; the tiles on
+// each host that now have no connector are counted in a problem the admin
+// sees, and setting the org's connector clears it.
+func TestPinConnectorsTwoHostsProblem(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	orch, _, _ := newPinRig(t)
+	org := "o5"
+	if err := orch.store.Orgs.Create(ctx, store.Org{
+		ID: org, Name: "five", Slug: "five", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for id, host := range map[string]string{"h-gh": "github.com", "h-bb": "bitbucket.org"} {
+		c := store.Connector{
+			ID: id, Kind: "github", Capabilities: store.StringList{"git"}, Name: id, Host: host,
+			Settings: `{"app":{"id":1,"slug":"x","webhook_secret":"s"}}`, CreatedAt: time.Now(),
+		}
+		if id == "h-gh" {
+			c.OrgID = &org
+		} else {
+			c.ShareAll = true
+		}
+		if err := orch.store.Connectors.Create(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := orch.stacks.Create(ctx, org, "web", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := store.Environment{ID: "e5", StackID: st.ID, Name: "Dev", Slug: "dev", Type: "static", Settings: "{}", Network: "n", FromKind: "branch", CreatedAt: time.Now()}
+	if err := orch.store.Environments.Create(ctx, env); err != nil {
+		t.Fatal(err)
+	}
+	for id, url := range map[string]string{"t1": "https://github.com/five/a", "t2": "https://bitbucket.org/five/b"} {
+		if err := orch.store.Tiles.Create(ctx, store.Tile{
+			ID: id, StackID: st.ID, EnvironmentID: env.ID, Name: id, Slug: id, Kind: "service", GitURL: url,
+			EnvJSON: "{}", BuildArgs: "{}", Replicas: 1, UpdatePolicy: "manual", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := orch.store.Settings.Delete(ctx, keyConnectorPin); err != nil {
+		t.Fatal(err)
+	}
+	orch.pinConnectors(ctx)
+	if og, _ := orch.orgs.Get(ctx, org); og.ConfigConnectorID != "" {
+		t.Errorf("two hosts were pinned to %q", og.ConfigConnectorID)
+	}
+	ps, err := orch.Problems(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	for _, p := range ps {
+		if p.Key == "config.connector."+org {
+			got = p.Message
+		}
+	}
+	if !strings.Contains(got, "2 tiles") || !strings.Contains(got, "no connector") {
+		t.Fatalf("problem = %q", got)
+	}
+	if _, err := orch.SetOrgConnector(ctx, org, "h-gh"); err != nil {
+		t.Fatal(err)
+	}
+	if orch.hasProblem(ctx, "alert.config.connector."+org) {
+		t.Error("the problem stayed after the org got a connector")
+	}
+}

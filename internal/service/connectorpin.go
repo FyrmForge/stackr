@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
@@ -55,10 +56,11 @@ func (o *Orchestrator) pinConnectorsPass(ctx context.Context) error {
 			return err
 		}
 		if og.ConfigRepo == "" && og.ConfigConnectorID == "" {
-			if err := o.pinRepolessOrg(ctx, og, sts, conns); err != nil {
+			if og, err = o.pinRepolessOrg(ctx, og, sts, conns); err != nil {
 				return err
 			}
 		}
+		lost := 0
 		for _, st := range sts {
 			if st.ConfigRepo != "" && st.ConfigConnectorID == "" {
 				if c, err := connector.LegacyByHost(conns, connector.Host(st.ConfigRepo)); err == nil {
@@ -68,9 +70,17 @@ func (o *Orchestrator) pinConnectorsPass(ctx context.Context) error {
 					}
 				}
 			}
-			if err := o.warnTileSwitch(ctx, og, st, conns); err != nil {
+			n, err := o.warnTileSwitch(ctx, og, st, conns)
+			if err != nil {
 				return err
 			}
+			lost += n
+		}
+		if lost > 0 {
+			// cleared when the org's connector is set (SetOrgConnector); naming one on the stack
+			// instead leaves it until then. ponytail: no recount, add one if that matters.
+			o.openProblem(ctx, "alert.config.connector."+og.ID, SevWarning, fmt.Sprintf(
+				"%d tiles of %s have no connector after the upgrade: name one on the stack or set the organization's connector.", lost, og.Name))
 		}
 	}
 	return nil
@@ -79,7 +89,7 @@ func (o *Orchestrator) pinConnectorsPass(ctx context.Context) error {
 // pinRepolessOrg gives an org with no config repo the connector its tiles and
 // stacks cloned through by host, when they all used one host and it picks one
 // connector; else it is left empty, as it did not clone before either.
-func (o *Orchestrator) pinRepolessOrg(ctx context.Context, og store.Org, sts []store.Stack, conns []store.Connector) error {
+func (o *Orchestrator) pinRepolessOrg(ctx context.Context, og store.Org, sts []store.Stack, conns []store.Connector) (store.Org, error) {
 	hosts := map[string]bool{}
 	for _, st := range sts {
 		if st.ConfigRepo != "" {
@@ -87,7 +97,7 @@ func (o *Orchestrator) pinRepolessOrg(ctx context.Context, og store.Org, sts []s
 		}
 		ts, err := o.tiles.ListByStack(ctx, st.ID)
 		if err != nil {
-			return err
+			return og, err
 		}
 		for _, t := range ts {
 			if t.GitURL != "" {
@@ -96,24 +106,27 @@ func (o *Orchestrator) pinRepolessOrg(ctx context.Context, og store.Org, sts []s
 		}
 	}
 	if len(hosts) != 1 {
-		return nil
+		return og, nil // several hosts: no pick by host; warnTileSwitch reports what is left without
 	}
 	for h := range hosts {
 		if c, err := connector.LegacyByHost(conns, h); err == nil {
 			og.ConfigConnectorID = c.ID
-			return o.store.Orgs.Update(ctx, og)
+			return og, o.store.Orgs.Update(ctx, og)
 		}
 	}
-	return nil
+	return og, nil
 }
 
 // warnTileSwitch logs each tile of st that now clones through another
-// connector than the host pick it used before. A tile has no connector to pin.
-func (o *Orchestrator) warnTileSwitch(ctx context.Context, og store.Org, st store.Stack, conns []store.Connector) error {
+// connector than the host pick it used before, and those that now have none
+// (counted). A tile has no connector to pin. A stack never loses one here: it
+// was pinned by the same host pick just before.
+func (o *Orchestrator) warnTileSwitch(ctx context.Context, og store.Org, st store.Stack, conns []store.Connector) (int, error) {
 	ts, err := o.tiles.ListByStack(ctx, st.ID)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	lost := 0
 	for _, t := range ts {
 		if t.GitURL == "" {
 			continue
@@ -124,8 +137,13 @@ func (o *Orchestrator) warnTileSwitch(ctx context.Context, og store.Org, st stor
 			slog.Warn("connectors: a tile now clones through another connector",
 				"tile", t.ID, "was", was.Name, "now", now.Name)
 		}
+		if werr == nil && nerr != nil {
+			lost++
+			slog.Warn("connectors: a tile has no connector after the upgrade",
+				"org", og.Slug, "stack", st.Slug, "tile", t.ID, "host", connector.Host(t.GitURL), "was", was.Name)
+		}
 	}
-	return nil
+	return lost, nil
 }
 
 // repoWarning is the plan and Used by line for a repo the connector in use

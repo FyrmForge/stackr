@@ -471,6 +471,9 @@ func (o *Orchestrator) SetOrgConnector(ctx context.Context, orgID, connectorID s
 			}
 		}
 	}
+	if connectorID != "" {
+		o.clearProblem(ctx, "alert.config.connector."+og.ID) // the upgrade's "no connector" problem
+	}
 	return o.orgs.SetConnector(ctx, og, connectorID)
 }
 
