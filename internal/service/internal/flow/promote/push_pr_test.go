@@ -2,6 +2,7 @@ package promote
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"strings"
 	"testing"
@@ -134,5 +135,25 @@ func TestSecondPRPushBuildsOnTheFirst(t *testing.T) {
 	must(t, err)
 	if r2.BuiltOn == nil || *r2.BuiltOn != r1.ID {
 		t.Errorf("second PR release built on %v, want the first", r2.BuiltOn)
+	}
+}
+
+// The first push of a PR env always pins the config at its head, even when it
+// changed no stack file since the base env's commit.
+func TestFirstPRPushPinsConfigWithoutAFileChange(t *testing.T) {
+	w := setup(t)
+	prEnv(t, w)
+	w.files["c1"], w.files["c2"] = xyFile, xyFile
+	w.f.FileID = func(context.Context, store.Stack, string, string) (string, error) { return "same", nil }
+	w.runs(t, w.dev, release.Pin{Slug: release.ConfigSlug, Repo: w.st.ConfigRepo, CommitSHA: "c1"})
+	r, _, err := w.f.Push(ctx, w.st.ID, Event{Repo: pushRepo, Branch: "feat", Commit: "c2", PR: true, PRNumber: 1}, io.Discard)
+	must(t, err)
+	if r.ID == "" {
+		t.Fatal("no release for the first PR push")
+	}
+	pins, err := w.f.D.Releases.Pins(ctx, r.ID)
+	must(t, err)
+	if pins[release.ConfigSlug].CommitSHA != "c2" {
+		t.Errorf("config pin = %+v, want c2", pins[release.ConfigSlug])
 	}
 }

@@ -95,7 +95,7 @@ func (f *Flow) Push(
 	// A config push moves the config pin only when the stack's own files
 	// changed since the base release; a push that touched other stacks'
 	// files makes no release here.
-	pinned := isConfig && f.configMoved(ctx, st, built[release.ConfigSlug].CommitSHA, ev.Commit, log)
+	pinned := isConfig && (from[0].ReleaseID == nil || f.configMoved(ctx, st, built[release.ConfigSlug].CommitSHA, ev.Commit, log))
 	if isConfig && !pinned {
 		logf(log, "%s: the push changed none of the stack's files; no config pin\n", st.Slug)
 	}
