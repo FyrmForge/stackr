@@ -17,7 +17,9 @@ type ReviewView struct {
 	By     string
 	When   time.Time
 	Commit string
-	Plan   PlanView
+	// Message is the commit's first line; it leads the review with the hash.
+	Message string
+	Plan    PlanView
 	// Notes are plain warn lines under the summary (a skipped rung, what a
 	// rollback removes).
 	Notes []string
@@ -294,27 +296,25 @@ templ Review(v ReviewView) {
 			if v.Chip != "" {
 				@Chip(v.Chip, v.Tone)
 			}
-			<span class="ml-auto text-xs text-rw-faint">
+		</div>
+		<p class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
+			if v.Commit != "" {
+				<span class="font-mono text-xs whitespace-nowrap text-rw-text">{ v.Commit[:min(7, len(v.Commit))] }</span>
+			}
+			if v.Message != "" {
+				<span class="min-w-0 break-words text-rw-text">{ v.Message }</span>
+			}
+			<span class="text-xs text-rw-faint">
 				if v.By != "" {
 					{ "pushed by " + v.By + ", " }
 				}
 				@When(v.When)
-				if v.Commit != "" {
-					{ ", " + v.Commit[:min(7, len(v.Commit))] }
-				}
 			</span>
-		</div>
-		<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-			if add > 0 {
-				<span class="text-rw-success">{ strconv.Itoa(add) } to add</span>
-			}
-			if change > 0 {
-				<span class="text-rw-warn">{ strconv.Itoa(change) } to change</span>
-			}
-			if remove > 0 {
-				<span class="text-rw-danger">{ strconv.Itoa(remove) } to remove</span>
-			}
-		</div>
+		</p>
+		<p class="text-sm text-rw-muted">
+			What changes:
+			{ " " + strconv.Itoa(add) + " to add, " + strconv.Itoa(change) + " to change, " + strconv.Itoa(remove) + " to remove" }
+		</p>
 		if v.Running != nil {
 			<div class="banner banner-danger" role="status">
 				<p class="font-medium">Cannot promote yet</p>

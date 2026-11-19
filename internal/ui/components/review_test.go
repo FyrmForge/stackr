@@ -107,3 +107,20 @@ func TestStopChip(t *testing.T) {
 		t.Errorf("chip = %s", b.String())
 	}
 }
+
+// The review leads with the commit (hash, message), then who and when; the
+// summary line always names all three counts; a blocked plan keeps the
+// plain, disabled "Promote to prod" with a short hint.
+func TestReviewHeadlineSummaryAndBlocked(t *testing.T) {
+	v := ReviewView{Title: "Release 15 for prod", Commit: "0d1e1e9aaaa", Message: "fix login", By: "git push", Button: "Promote to prod", Action: "/go",
+		Plan: PlanView{Blockers: []string{"auth.vulpe.dev is an external route."}, Fix: map[string]BlockerFix{"auth.vulpe.dev is an external route.": {Hint: "Remove the route first."}}}}
+	body := renderReview(t, v)
+	for _, want := range []string{">0d1e1e9<", "fix login", "pushed by git push", "What changes:", "0 to add, 0 to change, 0 to remove", ">Promote to prod<", "disabled", "Remove the route first."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("review lacks %q:\n%s", want, body)
+		}
+	}
+	if strings.Index(body, "fix login") > strings.Index(body, "pushed by") || strings.Contains(body, "Promote anyway") {
+		t.Errorf("message must lead, no override:\n%s", body)
+	}
+}
