@@ -90,10 +90,14 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		return sc, err
 	}
 	var all []ScreenRow
+	waits := map[string]map[string]bool{} // scope key -> what waits in it, one per env
 	add := func(key string, rs ...ScreenRow) {
 		for _, r := range rs {
-			if r.State == StateWaiting {
-				sc.Waiting[key]++
+			for _, k := range waitKeys(r) {
+				if waits[key] == nil {
+					waits[key] = map[string]bool{}
+				}
+				waits[key][k] = true
 			}
 		}
 	}
@@ -149,14 +153,17 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 			all = append(all, rows...)
 		}
 		for i := start; i < len(sc.Scopes); i++ {
+			sc.Waiting[sc.Scopes[i].Key] = len(waits[sc.Scopes[i].Key])
 			sc.Scopes[i].Waiting = sc.Waiting[sc.Scopes[i].Key]
 		}
 	}
 	if len(sc.Scopes) > 0 && sc.Scopes[0].Key == ScopeServer {
+		sc.Waiting[ScopeServer] = len(waits[ScopeServer])
 		sc.Scopes[0].Waiting = sc.Waiting[ScopeServer]
 	}
 	slices.SortStableFunc(all, func(a, b ScreenRow) int { return b.At.Compare(a.At) })
 	srcs := map[string]bool{}
+	waiting := map[string]bool{}
 	needle := strings.ToLower(strings.TrimSpace(q.Q))
 	for _, r := range all {
 		if !inScope(r, q.Scope) {
@@ -169,8 +176,8 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		if needle != "" && !strings.Contains(strings.ToLower(r.Commit+" "+r.Message+" "+r.Err), needle) {
 			continue
 		}
-		if r.State == StateWaiting {
-			sc.Counts[StateWaiting]++
+		for _, k := range waitKeys(r) {
+			waiting[k] = true
 		}
 		if r.State == StateFailed && !r.Fixed {
 			sc.Counts[StateFailed]++
@@ -182,6 +189,7 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 			sc.Rows = append(sc.Rows, r)
 		}
 	}
+	sc.Counts[StateWaiting] = len(waiting)
 	sc.Sources = slices.Sorted(func(yield func(string) bool) {
 		for k := range srcs {
 			if !yield(k) {
@@ -190,6 +198,22 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		}
 	})
 	return sc, nil
+}
+
+// waitKeys are what a waiting row stands for in the "N waiting" counts: a
+// plan is one, a release one per env it is the newest waiting release of.
+func waitKeys(r ScreenRow) []string {
+	switch {
+	case r.State != StateWaiting:
+		return nil
+	case r.Kind == RowPlan:
+		return []string{"plan " + r.PlanID + r.ID}
+	}
+	var ks []string
+	for _, e := range r.WaitEnvs {
+		ks = append(ks, r.StackID+" "+e)
+	}
+	return ks
 }
 
 // inScope says a row belongs under the scope key.

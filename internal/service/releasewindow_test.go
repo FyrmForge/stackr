@@ -118,7 +118,7 @@ func TestReleaseWindowWaitingAndNewest(t *testing.T) {
 	for _, r := range win.Rows {
 		by[r.Number] = r
 	}
-	if win.Waiting != 2 || by[3].State != "waiting" || by[4].State != "waiting" || by[1].State != "running" {
+	if win.Waiting != 1 || by[3].State != "waiting" || by[4].State != "waiting" || by[1].State != "running" {
 		t.Fatalf("window = %+v", win)
 	}
 	if !by[4].Newest || by[3].Newest || by[4].Lacks != 3 || by[3].Lacks != 0 {
@@ -126,6 +126,17 @@ func TestReleaseWindowWaitingAndNewest(t *testing.T) {
 	}
 	if e.Orch.IsRollback(ctx, prod.ID, r3) || e.Orch.IsRollback(ctx, prod.ID, r4) {
 		t.Error("a release newer than what runs is a roll back")
+	}
+	// prod runs 1 and two releases wait for it; the screen counts the env once
+	u := e.User(t, "o@x.io", false)
+	e.Member(t, org, u, "owner")
+	pr, err := e.Orch.SessionPrincipal(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc, err := e.Orch.ReleaseScreen(ctx, pr, service.ScreenQuery{})
+	if err != nil || sc.Counts[service.StateWaiting] != 1 || sc.Waiting["acme/immich"] != 1 {
+		t.Errorf("screen waiting = %d, tree %v (%v), want 1 for prod's one waiting head", sc.Counts[service.StateWaiting], sc.Waiting, err)
 	}
 	// the env takes 4: 1 is an ancestor, 3 is a sibling it never held
 	row.ReleaseID = &r4

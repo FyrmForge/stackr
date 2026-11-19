@@ -57,7 +57,10 @@ type WindowRow struct {
 	// FailEnvID is that env's id: a release that failed in two envs is one
 	// row for each.
 	FailEnvID string
-	Newest    bool
+	// WaitEnvs are the envs for which this release is the newest waiting one
+	// (the actionable one); only these count as "waiting".
+	WaitEnvs []string
+	Newest   bool
 	// Lacks is the number of a waiting release this one does not hold; 0 = none.
 	Lacks   int
 	Reviews []WindowReview
@@ -173,7 +176,8 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 	for _, r := range rs {
 		byID[r.ID] = r
 	}
-	heads := map[string]string{} // env id -> the release it runs
+	heads := map[string]string{}  // env id -> the release it runs
+	headOf := map[string]string{} // env id -> the newest release waiting for it
 	for _, e := range ladder {
 		if e.ReleaseID != nil {
 			heads[e.ID] = *e.ReleaseID
@@ -196,6 +200,7 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 			continue
 		}
 		newest[head] = true
+		headOf[e.ID] = head
 		for _, r := range rs {
 			if r.Line == nil || !slices.Contains(lines, *r.Line) || r.ID == runsID || r.Number <= runsByEn[e.ID] {
 				continue
@@ -295,6 +300,11 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 			running = append(running, row)
 		case len(waitFor[r.Number]) > 0:
 			row.State, row.Newest, row.Lacks = StateWaiting, newest[r.ID], lacks[r.ID]
+			for _, id := range waitFor[r.Number] {
+				if h := headOf[id]; h == r.ID || h == "" { // "" = only the rung says it waits
+					row.WaitEnvs = append(row.WaitEnvs, id)
+				}
+			}
 			waiting = append(waiting, row)
 		case len(row.Runs) > 0:
 			row.State = StateRunning
@@ -319,7 +329,7 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 		failedRows = append(failedRows, row)
 	}
 	slices.SortStableFunc(failedRows, func(a, b WindowRow) int { return b.At.Compare(a.At) }) // when each failed, newest first
-	w.Waiting, w.Failed = len(waiting), len(failedRows)
+	w.Waiting, w.Failed = waitingCount(waiting), len(failedRows)
 	var fixed []WindowRow
 	if history {
 		skip := map[string]bool{pf.JobID: true}
@@ -338,6 +348,18 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 		}
 	}
 	return w, nil
+}
+
+// waitingCount is how many envs have something waiting: the actionable
+// newest release of each counts once, however many older ones are listed.
+func waitingCount(rows []WindowRow) int {
+	envs := map[string]bool{}
+	for _, r := range rows {
+		for _, id := range r.WaitEnvs {
+			envs[id] = true
+		}
+	}
+	return len(envs)
 }
 
 // commitBase is the git host's commit URL up to the sha, "" when the stack
