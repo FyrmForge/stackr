@@ -38,7 +38,9 @@ class GraphCanvas extends HTMLElement {
     sizing = null;
     frame = 0;
     labels = new WeakMap();
-    observer = new MutationObserver(() => {
+    observer = new MutationObserver((rs) => {
+        if (rs.every((r) => r.target instanceof SVGElement))
+            return;
         cancelAnimationFrame(this.frame);
         this.frame = requestAnimationFrame(() => this.repath());
     });

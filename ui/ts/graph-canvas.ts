@@ -56,9 +56,9 @@ class GraphCanvas extends HTMLElement {
   private sizing: { box: Element; p: Pt; w: number; h: number } | null = null;
   private frame = 0;
   private labels = new WeakMap<Element, SVGTextElement>();
-  private observer = new MutationObserver(() => {
-    cancelAnimationFrame(this.frame);
-    this.frame = requestAnimationFrame(() => this.repath());
+  private observer = new MutationObserver((rs) => { // repath's own SVG writes (label x/y, lane text) must not run it again, or it never stops
+    if (rs.every((r) => r.target instanceof SVGElement)) return;
+    cancelAnimationFrame(this.frame); this.frame = requestAnimationFrame(() => this.repath());
   });
   private sizer = new ResizeObserver(() => !this.touched && this.fit()); // the canvas may connect before layout sizes it: fit when it has one
   // Listeners are arrow fields, so wire(false) removes the same functions.
