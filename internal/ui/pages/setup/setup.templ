@@ -399,7 +399,7 @@ func repoCount(n int) string {
 func repoOptions(rs []Repo) []c.RepoOption {
 	out := make([]c.RepoOption, len(rs))
 	for i, r := range rs {
-		out[i] = c.RepoOption(r)
+		out[i] = c.RepoOption{FullName: r.FullName, DefaultBranch: r.DefaultBranch}
 	}
 	return out
 }

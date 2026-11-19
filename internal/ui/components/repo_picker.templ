@@ -4,6 +4,7 @@ package components
 type RepoOption struct {
 	FullName      string // owner/name
 	DefaultBranch string
+	ConnectorID   string // "" = offered to every connector
 }
 
 // RepoPickerView is the repository, branch and file-path trio. ID prefixes
@@ -49,7 +50,7 @@ templ RepoPicker(v RepoPickerView) {
 				/>
 				<ul id={ v.ID + "-repo-list" } role="listbox" aria-label="Repositories" hidden data-combo-list class="combo-list">
 					for _, r := range v.Repos {
-						<li role="option" aria-selected="false" data-value={ r.FullName } data-branch={ r.DefaultBranch } class="combo-option">{ r.FullName }</li>
+						<li role="option" aria-selected="false" data-value={ r.FullName } data-branch={ r.DefaultBranch } data-connector={ r.ConnectorID } class="combo-option">{ r.FullName }</li>
 					}
 				</ul>
 			</div>
