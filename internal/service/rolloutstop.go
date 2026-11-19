@@ -16,6 +16,12 @@ func (o *Orchestrator) RolloutStop(ctx context.Context, envID string) (RolloutSt
 	if err != nil {
 		return RolloutStop{}, false
 	}
+	return o.rolloutStop(ctx, envID, js)
+}
+
+// rolloutStop is RolloutStop over the env's newest promote jobs (newest
+// first), for a caller that holds the stack's jobs already.
+func (o *Orchestrator) rolloutStop(ctx context.Context, envID string, js []Job) (RolloutStop, bool) {
 	for _, j := range js {
 		switch j.State {
 		case job.Superseded, job.Cancelled, job.Skipped:

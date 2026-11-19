@@ -87,6 +87,26 @@ func (l *Leaf) List(ctx context.Context, stackID string) ([]store.Release, error
 	return rs, err
 }
 
+// ListByOrg is List for every stack of the org at once, by stack id.
+func (l *Leaf) ListByOrg(ctx context.Context, orgID string) (map[string][]store.Release, error) {
+	all, err := l.releases.ListByOrg(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Number > all[j].Number })
+	ids := make([]string, len(all))
+	for i := range all {
+		ids[i] = all[i].ID
+	}
+	cs, err := l.tiles.ConfigCommits(ctx, ids)
+	out := map[string][]store.Release{}
+	for _, r := range all {
+		r.Commit = cs[r.ID]
+		out[r.StackID] = append(out[r.StackID], r)
+	}
+	return out, err
+}
+
 // SetMessage stores the first line of the commit message on r (capped), and
 // returns r with it. "" is a no-op.
 func (l *Leaf) SetMessage(ctx context.Context, r store.Release, msg string) (store.Release, error) {
