@@ -45,6 +45,11 @@ type Flow struct {
 	Digest func(ctx context.Context, ref, user, pass string) (string, error)
 	Tags   func(ctx context.Context, ref, user, pass string) ([]string, error)
 
+	// The panel's own registry, answered from its store (no HTTP, no
+	// credential: an org has none for it). nil = the HTTP calls above.
+	OwnDigest func(ctx context.Context, repo, tag string) (string, error)
+	OwnTags   func(ctx context.Context, repo string) ([]string, error)
+
 	last time.Time // the last timed sweep
 }
 
@@ -204,11 +209,24 @@ func (f *Flow) direct(ctx context.Context, e store.Environment) bool {
 func (f *Flow) ask(ctx context.Context, w watched) *answer {
 	a := &answer{}
 	// The panel's own registry is the one private host an org may watch.
-	if panel, _ := f.Settings.Get(ctx, "panel_domain"); panel != "" {
+	panel, _ := f.Settings.Get(ctx, "panel_domain")
+	if panel != "" {
 		ctx = registry.Allowing(ctx, "registry."+installspec.CleanHost(panel))
 	}
 	user, pass := "", ""
-	if c, ok, err := f.Cred(ctx, w.org, w.t.ImageRef); err != nil {
+	digest, tagsOf := f.digest(), f.tags()
+	if host, repo, _, ok := registry.ParseRef(w.t.ImageRef); ok && f.OwnDigest != nil && f.OwnTags != nil &&
+		panel != "" && strings.EqualFold(host, "registry."+installspec.CleanHost(panel)) {
+		digest = func(_ context.Context, ref, _, _ string) (string, error) {
+			_, _, tag, _ := registry.ParseRef(ref)
+			d, err := f.OwnDigest(ctx, repo, tag)
+			if err == nil && d == "" {
+				err = fmt.Errorf("%s:%s is not in the registry", repo, tag)
+			}
+			return d, err
+		}
+		tagsOf = func(context.Context, string, string, string) ([]string, error) { return f.OwnTags(ctx, repo) }
+	} else if c, ok, err := f.Cred(ctx, w.org, w.t.ImageRef); err != nil {
 		a.err = err
 	} else if ok {
 		user, pass = c.Username, c.Password
@@ -216,14 +234,14 @@ func (f *Flow) ask(ctx context.Context, w watched) *answer {
 	ref := w.t.ImageRef
 	if a.err == nil && w.t.TagPolicy != "" {
 		var tags []string
-		if tags, a.err = f.tags()(ctx, repoOf(ref), user, pass); a.err == nil {
+		if tags, a.err = tagsOf(ctx, repoOf(ref), user, pass); a.err == nil {
 			_, _, cur, _ := registry.ParseRef(ref)
 			a.tag, a.err = Pick(w.t.TagPolicy, cur, tags)
 			ref = repoOf(ref) + ":" + a.tag
 		}
 	}
 	if a.err == nil {
-		a.digest, a.err = f.digest()(ctx, ref, user, pass)
+		a.digest, a.err = digest(ctx, ref, user, pass)
 	}
 	if _, err := f.Images.Checked(ctx, w.t.ImageRef, a.digest, a.tag, a.err); err != nil && a.err == nil {
 		a.err = err

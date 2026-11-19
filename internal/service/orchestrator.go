@@ -825,14 +825,23 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.container = build("flow/container", func() *container.Flow { return &container.Flow{Tiles: orch.tiles} })
 	orch.watch = build("flow/imagewatch", func() *imagewatch.Flow {
 		return &imagewatch.Flow{
-			Orgs:     orch.orgs,
-			Stacks:   orch.stacks,
-			Envs:     orch.envs,
-			Tiles:    orch.tiles,
-			Images:   orch.images,
-			Releases: orch.releases,
-			Cred:     orch.pullCred,
-			Settings: orch.settings,
+			Orgs:      orch.orgs,
+			Stacks:    orch.stacks,
+			Envs:      orch.envs,
+			Tiles:     orch.tiles,
+			Images:    orch.images,
+			Releases:  orch.releases,
+			Cred:      orch.pullCred,
+			Settings:  orch.settings,
+			OwnDigest: orch.regs.Resolve,
+			OwnTags: func(ctx context.Context, repo string) ([]string, error) {
+				vs, err := orch.regs.Versions(ctx, repo)
+				tags := make([]string, 0, len(vs))
+				for _, v := range vs {
+					tags = append(tags, v.Tag)
+				}
+				return tags, err
+			},
 		}
 	})
 	orch.upgrade = build("flow/upgrade", func() *upgrade.Flow {

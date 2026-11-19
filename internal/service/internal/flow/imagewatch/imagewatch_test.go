@@ -316,3 +316,43 @@ func TestAutoBehindAWaitingRelease(t *testing.T) {
 		})
 	}
 }
+
+// An image on the panel's own registry is answered from the local hook (no
+// HTTP, no credential); any other host still goes over HTTP.
+func TestAskOwnRegistry(t *testing.T) {
+	s := storetest.Store(t)
+	reg := &fakeRegistry{digests: map[string]string{"nginx:1": "sha256:n1"}}
+	f := &Flow{
+		Images:   image.New(s.Images, dockerfake.New()),
+		Settings: settings.New(s.Settings, nil),
+		Cred: func(context.Context, string, string) (store.Credential, bool, error) {
+			t.Error("credential looked up for the own registry")
+			return store.Credential{}, false, nil
+		},
+		Digest: reg.Digest,
+		Tags:   reg.Tags,
+		OwnDigest: func(_ context.Context, repo, tag string) (string, error) {
+			return "sha256:" + repo + "@" + tag, nil
+		},
+		OwnTags: func(context.Context, string) ([]string, error) { return []string{"1.0.0", "1.2.0"}, nil },
+	}
+	must(t, f.Settings.Set(ctx, "panel_domain", "panel.example.com"))
+
+	w := func(ref, policy string) watched { return watched{t: store.Tile{ImageRef: ref, TagPolicy: policy}, org: "o"} }
+	a := f.ask(ctx, w("registry.panel.example.com/acme/shop/api:1.0.0", ""))
+	if a.err != nil || a.digest != "sha256:acme/shop/api@1.0.0" {
+		t.Errorf("own digest = %+v", a)
+	}
+	a = f.ask(ctx, w("registry.panel.example.com/acme/shop/api:1.0.0", "semver"))
+	if a.err != nil || a.tag != "1.2.0" || a.digest != "sha256:acme/shop/api@1.2.0" {
+		t.Errorf("own semver = %+v", a)
+	}
+	if len(reg.calls) != 0 {
+		t.Fatalf("HTTP calls for the own registry: %v", reg.calls)
+	}
+
+	f.Cred = func(context.Context, string, string) (store.Credential, bool, error) { return store.Credential{}, false, nil }
+	if a = f.ask(ctx, w("nginx:1", "")); a.err != nil || a.digest != "sha256:n1" || len(reg.calls) != 1 {
+		t.Errorf("other host: %+v calls %v", a, reg.calls)
+	}
+}
