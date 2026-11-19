@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -146,6 +147,15 @@ func (l *Leaf) Create(ctx context.Context, stackID, by string, pins []Pin) (stor
 func EnvLine(envID string) string   { return "env:" + envID }
 func BranchLine(name string) string { return "branch:" + name }
 
+// Lines are the lines a cut for env e builds on: its own, and its branch's
+// for a branch env.
+func Lines(e store.Environment) []string {
+	if e.FromKind == environment.FromBranch {
+		return []string{EnvLine(e.ID), BranchLine(e.FromBranch)}
+	}
+	return []string{EnvLine(e.ID)}
+}
+
 func (l *Leaf) create(ctx context.Context, stackID, by, builtOn, line string, pins []Pin) (store.Release, error) {
 	seen := map[string]bool{}
 	for _, p := range pins {
@@ -229,6 +239,11 @@ func (l *Leaf) Derive(ctx context.Context, stackID, baseID, by, line string, swa
 // migration 019 has no base or line, so it is never on a line: the first cut
 // after the upgrade builds on runs, as before.
 func (l *Leaf) Newest(ctx context.Context, stackID, runs string, lines ...string) (string, error) {
+	return l.newest(ctx, stackID, runs, "", lines)
+}
+
+// newest is Newest that never returns skip (the cut Carry runs after).
+func (l *Leaf) newest(ctx context.Context, stackID, runs, skip string, lines []string) (string, error) {
 	rs, err := l.releases.ListByStack(ctx, stackID)
 	if err != nil {
 		return "", err
@@ -240,7 +255,7 @@ func (l *Leaf) Newest(ctx context.Context, stackID, runs string, lines ...string
 	onLine := func(r store.Release) bool { return r.Line != nil && slices.Contains(lines, *r.Line) }
 	best := store.Release{}
 	for _, r := range rs {
-		if !onLine(r) || r.Number <= best.Number {
+		if !onLine(r) || r.ID == skip || r.Number <= best.Number {
 			continue
 		}
 		// Walk the base chain; a missing release or a loop ends it.
@@ -265,6 +280,64 @@ func (l *Leaf) Newest(ctx context.Context, stackID, runs string, lines ...string
 		return runs, nil
 	}
 	return best.ID, nil
+}
+
+// Carry keeps a waiting release in front after a cut that moved the env: was
+// is what the env ran before, now the release just cut on it. When a release
+// waited on was (Newest), one more is cut on now with the waiting release's
+// pins plus what the env's cut changed, and its line, creator and message; it
+// is never promoted by itself. On a clash the env's fresh pin wins, unless the
+// waiting release changed that tile to a different commit (newer code): then
+// the waiting pin stays. Image pins carry no commit, so a fresh digest wins.
+func (l *Leaf) Carry(ctx context.Context, stackID, was, now string, lines ...string) error {
+	wid, err := l.newest(ctx, stackID, was, now, lines)
+	if err != nil || wid == was {
+		return err
+	}
+	w, err := l.releases.Get(ctx, wid)
+	if err != nil {
+		return err
+	}
+	var old map[string]Pin
+	if was != "" {
+		if old, err = l.Pins(ctx, was); err != nil {
+			return err
+		}
+	}
+	waiting, err := l.Pins(ctx, wid)
+	if err != nil {
+		return err
+	}
+	fresh, err := l.Pins(ctx, now)
+	if err != nil {
+		return err
+	}
+	theirs := map[string]bool{}
+	for _, c := range Diff(old, waiting) {
+		theirs[c.Slug] = true
+	}
+	pins := waiting
+	for _, c := range Diff(old, fresh) {
+		if c.Kind == "removed" {
+			continue
+		}
+		wp := waiting[c.Slug]
+		if theirs[c.Slug] && wp.CommitSHA != "" && wp.CommitSHA != fresh[c.Slug].CommitSHA {
+			continue
+		}
+		pins[c.Slug] = fresh[c.Slug]
+	}
+	list := make([]Pin, 0, len(pins))
+	for _, p := range pins {
+		list = append(list, p)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Slug < list[j].Slug })
+	r, err := l.create(ctx, stackID, w.CreatedBy, now, *w.Line, list)
+	if err != nil {
+		return err
+	}
+	_, err = l.SetMessage(ctx, r, w.Message)
+	return err
 }
 
 // Change is one slug that differs between two snapshots.

@@ -956,3 +956,38 @@ func TestPlanProtectPair(t *testing.T) {
 		t.Error("new password did not diff")
 	}
 }
+
+// env on 5; 6 and 7 wait (7 built on 6); promoting 6 with a repin cuts 8 on
+// it, and 9 keeps 7's digest with the repin.
+func TestRepinKeepsAWaitingReleaseInFront(t *testing.T) {
+	w := setup(t)
+	w.fake.Digests = map[string]string{"nginx:1": "sha256:fresh"}
+	_, err := w.f.D.Tiles.Create(ctx, store.Tile{
+		StackID: w.st.ID, EnvironmentID: w.dev.ID, Name: "api", Kind: tile.Image, ImageRef: "nginx:1", ContainerPort: 80,
+	})
+	must(t, err)
+	r5 := w.release(t, "")
+	_, err = w.f.D.Envs.SetRelease(ctx, w.dev, r5.ID)
+	must(t, err)
+	line := release.EnvLine(w.dev.ID)
+	r6, err := w.f.D.Releases.Derive(ctx, w.st.ID, r5.ID, "push", line, release.Pin{Slug: "api", Repo: "nginx:1"})
+	must(t, err)
+	r7, err := w.f.D.Releases.Derive(ctx, w.st.ID, r6.ID, "image-watch", line, release.Pin{Slug: "db", Repo: "pg:16", Digest: "sha256:d7"})
+	must(t, err)
+	_, err = w.f.Apply(ctx, w.dev.ID, r6.ID, io.Discard, nil)
+	must(t, err)
+	e, err := w.f.D.Envs.Get(ctx, w.dev.ID)
+	must(t, err)
+	runs, err := w.f.D.Releases.Get(ctx, *e.ReleaseID)
+	must(t, err)
+	if runs.Number != r7.Number+1 {
+		t.Fatalf("env runs #%d, want #%d", runs.Number, r7.Number+1)
+	}
+	top, err := w.f.D.Releases.Newest(ctx, w.st.ID, runs.ID, line)
+	must(t, err)
+	pins, err := w.f.D.Releases.Pins(ctx, top)
+	must(t, err)
+	if top == runs.ID || pins["db"].Digest != "sha256:d7" || pins["api"].Digest != "sha256:fresh" {
+		t.Errorf("top %s pins %+v, want 7's digest and the repin", top, pins)
+	}
+}

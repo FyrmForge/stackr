@@ -234,3 +234,95 @@ func TestNewest(t *testing.T) {
 		t.Errorf("deleted link: %s, want what runs", got)
 	}
 }
+
+func TestCarry(t *testing.T) {
+	st := servicetest.Store(t)
+	org, stack := uuid.NewString(), uuid.NewString()
+	now := time.Now()
+	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
+	must(t, st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "s", Slug: "s", Settings: "{}", CreatedAt: now}))
+	l := release.New(st.Releases, st.ReleaseTiles)
+	main := release.BranchLine("main")
+	cfg := func(sha string) release.Pin { return release.Pin{Slug: release.ConfigSlug, CommitSHA: sha} }
+	api := func(sha, img string) release.Pin { return release.Pin{Slug: "api", CommitSHA: sha, ImageID: &img} }
+	img := func(slug, d string) release.Pin { return release.Pin{Slug: slug, Digest: "sha256:" + d} }
+	for _, id := range []string{"i1", "i2", "i3"} {
+		must(t, st.Images.Create(ctx, store.Image{ID: id, Ref: "r/" + id, Digest: "sha256:" + id, CreatedAt: now}))
+	}
+	was, err := l.Create(ctx, stack, "apply", []release.Pin{cfg("c1"), api("a1", "i1"), img("db", "d1")})
+	must(t, err)
+	// A cut on was, as a rebuild makes it.
+	cut := func(by string, swap ...release.Pin) store.Release {
+		r, err := l.Derive(ctx, stack, was.ID, by, release.EnvLine("e"), swap...)
+		must(t, err)
+		return r
+	}
+	count := func() int { rs, err := l.List(ctx, stack); must(t, err); return len(rs) }
+	now1 := cut("rebuild", api("a1", "i2"))
+	n := count()
+	must(t, l.Carry(ctx, stack, was.ID, now1.ID, main, release.EnvLine("e")))
+	if count() != n {
+		t.Fatal("Carry cut a release with none waiting")
+	}
+
+	w, err := l.Derive(ctx, stack, was.ID, "push", main, cfg("c2"), api("a2", "i3"))
+	must(t, err)
+	w, err = l.SetMessage(ctx, w, "waiting message")
+	must(t, err)
+	n = count()
+	must(t, l.Carry(ctx, stack, was.ID, now1.ID, main, release.EnvLine("e")))
+	if count() != n+1 {
+		t.Fatalf("releases %d, want %d", count(), n+1)
+	}
+	rs, err := l.List(ctx, stack)
+	must(t, err)
+	c := rs[0]
+	if c.Number != w.Number+1 || c.BuiltOn == nil || *c.BuiltOn != now1.ID || c.Line == nil || *c.Line != main ||
+		c.CreatedBy != "push" || c.Message != "waiting message" {
+		t.Errorf("carried release = %+v", c)
+	}
+	pins, err := l.Pins(ctx, c.ID)
+	must(t, err)
+	// The waiting release changed api to a newer commit: its pin stays. Its
+	// config pin is carried, and the untouched db pin too.
+	if pins["api"].CommitSHA != "a2" || *pins["api"].ImageID != "i3" || pins[release.ConfigSlug].CommitSHA != "c2" || pins["db"].Digest != "sha256:d1" {
+		t.Errorf("pins = %+v", pins)
+	}
+	if got, err := l.Newest(ctx, stack, now1.ID, main, release.EnvLine("e")); err != nil || got != c.ID {
+		t.Errorf("Newest on the new run = %s %v, want the carried release", got, err)
+	}
+
+	// Same commit, fresh image wins.
+	_, err = l.Derive(ctx, stack, was.ID, "push", main, cfg("c2"))
+	must(t, err)
+	now2 := cut("rebuild", api("a1", "i2"))
+	must(t, l.Carry(ctx, stack, was.ID, now2.ID, main, release.EnvLine("e")))
+	rs, _ = l.List(ctx, stack)
+	pins, _ = l.Pins(ctx, rs[0].ID)
+	if *pins["api"].ImageID != "i2" || pins[release.ConfigSlug].CommitSHA != "c2" {
+		t.Errorf("same commit: pins = %+v", pins)
+	}
+
+	// An image digest clash: the fresh digest wins.
+	w3, err := l.Derive(ctx, stack, was.ID, "image-watch", release.EnvLine("e"), img("db", "d2"))
+	must(t, err)
+	now3 := cut("deploy", img("db", "d3"))
+	must(t, l.Carry(ctx, stack, was.ID, now3.ID, release.EnvLine("e")))
+	rs, _ = l.List(ctx, stack)
+	pins, _ = l.Pins(ctx, rs[0].ID)
+	if rs[0].BuiltOn == nil || *rs[0].BuiltOn != now3.ID || pins["db"].Digest != "sha256:d3" || w3.ID == rs[0].ID {
+		t.Errorf("digest clash: %+v %+v", rs[0], pins)
+	}
+
+	// The env ran nothing before.
+	root, err := l.Derive(ctx, stack, "", "push", main, cfg("c9"))
+	must(t, err)
+	first, err := l.Derive(ctx, stack, "", "deploy", release.EnvLine("n"), img("db", "d9"))
+	must(t, err)
+	must(t, l.Carry(ctx, stack, "", first.ID, main, release.EnvLine("n")))
+	rs, _ = l.List(ctx, stack)
+	pins, _ = l.Pins(ctx, rs[0].ID)
+	if rs[0].BuiltOn == nil || *rs[0].BuiltOn != first.ID || pins[release.ConfigSlug].CommitSHA != "c9" || pins["db"].Digest != "sha256:d9" || root.ID == rs[0].ID {
+		t.Errorf("was empty: %+v %+v", rs[0], pins)
+	}
+}

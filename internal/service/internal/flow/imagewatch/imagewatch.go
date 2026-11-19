@@ -168,11 +168,7 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 	// Build on the release that waits for this env, if any (a push, an earlier
 	// watch), not on what the env runs; the digests above still compare to
 	// what it runs, so a registry that caught up makes no release.
-	lines := []string{release.EnvLine(e.ID)}
-	if e.FromKind == environment.FromBranch {
-		lines = append(lines, release.BranchLine(e.FromBranch))
-	}
-	base, err := f.Releases.Newest(ctx, e.StackID, deref(e.ReleaseID), lines...)
+	base, err := f.Releases.Newest(ctx, e.StackID, deref(e.ReleaseID), release.Lines(e)...)
 	if err != nil {
 		return nil, err
 	}

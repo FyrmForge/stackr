@@ -769,8 +769,10 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 	if err != nil {
 		return err
 	}
-	_, err = d.Envs.SetRelease(ctx, e, r.ID)
-	return err
+	if _, err = d.Envs.SetRelease(ctx, e, r.ID); err != nil {
+		return err
+	}
+	return d.Releases.Carry(ctx, e.StackID, w.rel.ID, r.ID, release.Lines(e)...)
 }
 
 // rolloutPass: operated tiles, then slices, then everything else.

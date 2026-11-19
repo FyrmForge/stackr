@@ -83,7 +83,7 @@ func (f *Flow) Push(
 	}
 	// Build on the newest release of this env's or the branch's line that is
 	// built on what the env runs: a waiting release is carried, not skipped.
-	if base, err = d.Releases.Newest(ctx, stackID, base, release.EnvLine(from[0].ID), release.BranchLine(ev.Branch)); err != nil {
+	if base, err = d.Releases.Newest(ctx, stackID, base, release.Lines(from[0])...); err != nil {
 		return store.Release{}, nil, err
 	}
 	built := map[string]release.Pin{}

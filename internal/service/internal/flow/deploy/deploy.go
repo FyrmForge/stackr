@@ -193,8 +193,10 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 	if err != nil {
 		return err
 	}
-	_, err = f.Envs.SetRelease(ctx, e, r.ID)
-	return err
+	if _, err = f.Envs.SetRelease(ctx, e, r.ID); err != nil {
+		return err
+	}
+	return f.Releases.Carry(ctx, t.StackID, deref(e.ReleaseID), r.ID, release.Lines(e)...)
 }
 
 // firstBuild builds the head of git tile t's branch, pins it in a new release
@@ -215,6 +217,9 @@ func (f *Flow) firstBuild(ctx context.Context, t store.Tile, e store.Environment
 		return "", false, err
 	}
 	if _, err = f.Envs.SetRelease(ctx, e, r.ID); err != nil {
+		return "", false, err
+	}
+	if err = f.Releases.Carry(ctx, t.StackID, deref(e.ReleaseID), r.ID, release.Lines(e)...); err != nil {
 		return "", false, err
 	}
 	im, err := f.Images.Get(ctx, id)
@@ -248,8 +253,10 @@ func (f *Flow) Rebuild(ctx context.Context, tileID string, log io.Writer) error 
 	if err != nil {
 		return err
 	}
-	_, err = f.Envs.SetRelease(ctx, e, r.ID)
-	return err
+	if _, err = f.Envs.SetRelease(ctx, e, r.ID); err != nil {
+		return err
+	}
+	return f.Releases.Carry(ctx, t.StackID, *e.ReleaseID, r.ID, release.Lines(e)...)
 }
 
 // RebuildLine is the message of the release a rebuild cuts.

@@ -110,3 +110,32 @@ func TestSecondPushOnAnEnvWithNoReleaseBuildsOnTheFirst(t *testing.T) {
 		t.Errorf("built %v, want x and y once, then y", built)
 	}
 }
+
+// The fault itself: a waiting push release, then a cut that moves the env
+// (a rebuild); the next push still builds on the waiting release's config pin.
+func TestPushAfterAnEnvCutHoldsTheWaitingConfigPin(t *testing.T) {
+	w := setup(t)
+	w.files["c3"] = xyFile
+	w.f.FileID = func(context.Context, store.Stack, string, string) (string, error) { return "same", nil }
+	var built []string
+	w.fakeBuild(&built)
+	cfg := func(c string) release.Pin {
+		return release.Pin{Slug: release.ConfigSlug, Repo: w.st.ConfigRepo, CommitSHA: c}
+	}
+	r5 := w.runs(t, w.dev, cfg("c1"))
+	d := w.f.D.Releases
+	r6, err := d.Derive(ctx, w.st.ID, r5.ID, "push", release.BranchLine("main"), cfg("c2"))
+	must(t, err)
+	r7, err := d.Derive(ctx, w.st.ID, r5.ID, "rebuild", release.EnvLine(w.dev.ID))
+	must(t, err)
+	_, err = w.f.D.Envs.SetRelease(ctx, w.dev, r7.ID)
+	must(t, err)
+	must(t, d.Carry(ctx, w.st.ID, r5.ID, r7.ID, release.Lines(w.dev)...))
+	r, _, err := w.f.Push(ctx, w.st.ID, Event{Repo: pushRepo, Branch: "main", Commit: "c3", Changed: []string{"y/main.go"}}, io.Discard)
+	must(t, err)
+	pins, err := d.Pins(ctx, r.ID)
+	must(t, err)
+	if pins[release.ConfigSlug].CommitSHA != "c2" || r6.ID == r.ID {
+		t.Errorf("config pin = %+v, want the waiting c2", pins[release.ConfigSlug])
+	}
+}

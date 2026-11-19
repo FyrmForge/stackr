@@ -531,3 +531,75 @@ func TestMissingBuildIsBuiltAgain(t *testing.T) {
 		t.Errorf("ran %q, want %q", got, ref)
 	}
 }
+
+// env on a release, a push release waits on it: a rebuild moves the env and
+// the waiting release is cut again on top, with the rebuilt image.
+func TestRebuildKeepsAWaitingReleaseInFront(t *testing.T) {
+	w := setup(t)
+	const sha = "abc1234def5678abc1234def5678abc1234def5"
+	web, err := w.f.Tiles.Create(ctx, store.Tile{
+		StackID: w.tile.StackID, EnvironmentID: w.env.ID, Name: "web", Kind: tile.Service,
+		GitURL: "https://github.com/acme/shop", ContainerPort: 80,
+	})
+	must(t, err)
+	old, err := w.f.Images.Built(ctx, "r/web:old", "sha256:old")
+	must(t, err)
+	fresh, err := w.f.Images.Built(ctx, "r/web:new", "sha256:new")
+	must(t, err)
+	cfg := func(c string) release.Pin { return release.Pin{Slug: release.ConfigSlug, CommitSHA: c} }
+	pin := release.Pin{Slug: "web", CommitSHA: sha, ImageID: &old.ID}
+	r5, err := w.f.Releases.Create(ctx, w.tile.StackID, "apply", []release.Pin{cfg("c1"), pin})
+	must(t, err)
+	_, err = w.f.Envs.SetRelease(ctx, w.env, r5.ID)
+	must(t, err)
+	lines := release.Lines(w.env)
+	r6, err := w.f.Releases.Derive(ctx, w.tile.StackID, r5.ID, "push", release.BranchLine("main"), cfg("c2"))
+	must(t, err)
+	w.f.Build = func(context.Context, store.Tile, string, string, io.Writer) (string, error) { return fresh.ID, nil }
+	must(t, w.f.Rebuild(ctx, web.ID, io.Discard))
+	e, err := w.f.Envs.Get(ctx, w.env.ID)
+	must(t, err)
+	runs, err := w.f.Releases.Get(ctx, *e.ReleaseID)
+	must(t, err)
+	if runs.Number != r6.Number+1 {
+		t.Fatalf("env runs #%d, want #%d", runs.Number, r6.Number+1)
+	}
+	newest, err := w.f.Releases.Newest(ctx, w.tile.StackID, runs.ID, lines...)
+	must(t, err)
+	top, err := w.f.Releases.Get(ctx, newest)
+	must(t, err)
+	if top.Number != runs.Number+1 || top.BuiltOn == nil || *top.BuiltOn != runs.ID {
+		t.Fatalf("newest = #%d built on %v, want one on #%d", top.Number, top.BuiltOn, runs.Number)
+	}
+	pins, err := w.f.Releases.Pins(ctx, top.ID)
+	must(t, err)
+	if pins[release.ConfigSlug].CommitSHA != "c2" || *pins["web"].ImageID != fresh.ID {
+		t.Errorf("pins = %+v, want the waiting config and the rebuilt image", pins)
+	}
+}
+
+// An image tile's first run pin leaves a waiting release in front as well.
+func TestFirstImageRunKeepsAWaitingReleaseInFront(t *testing.T) {
+	w := setup(t)
+	w.fake.Digests = map[string]string{"nginx:1": "sha256:now"}
+	cfg := func(c string) release.Pin { return release.Pin{Slug: release.ConfigSlug, CommitSHA: c} }
+	r1, err := w.f.Releases.Create(ctx, w.tile.StackID, "apply", []release.Pin{cfg("c1")})
+	must(t, err)
+	_, err = w.f.Envs.SetRelease(ctx, w.env, r1.ID)
+	must(t, err)
+	r2, err := w.f.Releases.Derive(ctx, w.tile.StackID, r1.ID, "push", release.BranchLine("main"), cfg("c2"))
+	must(t, err)
+	must(t, w.f.Redeploy(ctx, w.tile.ID, io.Discard, nil))
+	e, err := w.f.Envs.Get(ctx, w.env.ID)
+	must(t, err)
+	top, err := w.f.Releases.Newest(ctx, w.tile.StackID, *e.ReleaseID, release.Lines(w.env)...)
+	must(t, err)
+	if top == *e.ReleaseID {
+		t.Fatal("the waiting release was dropped")
+	}
+	pins, err := w.f.Releases.Pins(ctx, top)
+	must(t, err)
+	if pins[release.ConfigSlug].CommitSHA != "c2" || pins["api"].Digest != "sha256:now" || r2.ID == top {
+		t.Errorf("pins = %+v", pins)
+	}
+}
