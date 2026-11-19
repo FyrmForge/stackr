@@ -319,3 +319,82 @@ func TestStackConfigRepoSharedConnector(t *testing.T) {
 		t.Fatalf("bind to a shared server connector = %+v %v", st, err)
 	}
 }
+
+// An org's own connector moves up to the server, shared with that org: the
+// org file's binding still fetches and plans, a push on it still queues the
+// org plan, nothing new is asked of git, and only a server admin may do it.
+func TestMakeServerConnector(t *testing.T) {
+	ctx := context.Background()
+	r := newServerRig(t)
+	o := r.env.Orch
+	r.g.Commit(t, "acme/org", "main", map[string]string{"stackr-org.yml": "version: 1\norg: acme\n"})
+	own := r.env.Connector(t, r.acme, "whsec")
+	if _, err := o.SetOrgConfigRepo(ctx, r.acme, own, "acme/org", "", "", false); err != nil {
+		t.Fatal(err)
+	}
+	push := func() {
+		t.Helper()
+		body := []byte(`{"ref":"refs/heads/main","after":"abc","repository":{"clone_url":"https://github.com/acme/org.git","default_branch":"main"},"commits":[{"modified":["stackr-org.yml"]}]}`)
+		mac := hmac.New(sha256.New, []byte("whsec"))
+		mac.Write(body)
+		if err := o.Webhook(ctx, own, hook("push", "sha256="+hex.EncodeToString(mac.Sum(nil))), body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	push()
+	before := len(r.jobs(t))
+
+	admin := &service.Principal{Access: authz.User{ID: "u", Active: true, Admin: true}}
+	owner := &service.Principal{Access: authz.User{ID: "o", Active: true, Roles: map[string]string{r.acme: "owner"}}}
+	if _, err := o.MakeServerConnector(ctx, owner, r.acme, own); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("an org owner moving it up = %v", err)
+	}
+	if _, err := o.MakeServerConnector(ctx, admin, r.other, own); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("another org's connector = %v", err)
+	}
+	sc, err := o.MakeServerConnector(ctx, admin, r.acme, own)
+	if err != nil || sc.OrgID != nil || sc.ID != own || !slices.Equal(sc.OrgIDs, []string{r.acme}) || sc.Settings != "" {
+		t.Fatalf("move = %+v %v", sc, err)
+	}
+	if ss, _ := o.ServerConnectors(ctx); len(ss) != 2 {
+		t.Errorf("server connectors = %+v", ss)
+	}
+	if cs, _ := o.Connectors(ctx, r.acme); len(cs) != 1 || cs[0].ID != own || !cs[0].Shared {
+		t.Errorf("the org's list = %+v", cs)
+	}
+	if cs, _ := o.ConnectedConnectors(ctx, r.other); len(cs) != 0 {
+		t.Errorf("an org it is not shared with sees it: %+v", cs)
+	}
+	// the binding follows: it plans again through the moved connector
+	if og, err := o.PlanOrgConfig(ctx, r.acme); err != nil || og.Status == "error" {
+		t.Errorf("plan after the move = %+v %v", og, err)
+	}
+	push()
+	if after := len(r.jobs(t)); after <= before {
+		t.Errorf("a push after the move queued nothing (%d jobs before, %d after)", before, after)
+	}
+	// it is a server connector now: the org cannot write through it
+	if err := o.DeleteConnector(ctx, r.acme, own); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("org delete after the move = %v", err)
+	}
+	if _, err := o.MakeServerConnector(ctx, admin, r.acme, own); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("moving it twice = %v", err)
+	}
+}
+
+// A server connector of the same name stops the move, and leaves the
+// connector the org's.
+func TestMakeServerConnectorNameTaken(t *testing.T) {
+	ctx := context.Background()
+	r := newServerRig(t)
+	o := r.env.Orch
+	own := r.env.Connector(t, r.acme, "whsec") // named "github"
+	_ = r.env.ServerConnector(t, "github", "x")
+	admin := &service.Principal{Access: authz.User{ID: "u", Active: true, Admin: true}}
+	if _, err := o.MakeServerConnector(ctx, admin, r.acme, own); !isConflict(err) || !strings.Contains(err.Error(), "rename") {
+		t.Fatalf("move onto a taken name = %v", err)
+	}
+	if cs, _ := o.Connectors(ctx, r.acme); len(cs) != 1 || cs[0].ID != own || cs[0].Shared {
+		t.Errorf("the connector left the org: %+v", cs)
+	}
+}

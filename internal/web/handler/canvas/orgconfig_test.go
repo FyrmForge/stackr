@@ -73,7 +73,8 @@ func TestOrgConfigTab(t *testing.T) {
 	const tab = "/acme/-/drawer?tab=config"
 	body := r.owner.do(t, "GET", tab, nil, true).Body.String()
 	if !strings.Contains(body, `id="tab-config"`) || !strings.Contains(body, `href="/api/v1/orgs/acme/config/export"`) ||
-		!strings.Contains(body, "None (a public repository)") || !strings.Contains(body, `value="`+r.conn+`"`) {
+		!strings.Contains(body, "Bind a repository") || !strings.Contains(body, `hx-get="/acme/-/drawer/config/picker"`) ||
+		strings.Contains(body, `name="repo"`) {
 		t.Fatalf("unbound tab:\n%s", body)
 	}
 
@@ -318,5 +319,43 @@ func TestOrgPlanGapSecret(t *testing.T) {
 	rec := r.owner.do(t, "POST", post, url.Values{"secret.email.token": {"s3cret"}}, true)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Saved and planned") || strings.Contains(rec.Body.String(), "Secret email.token") {
 		t.Fatalf("fill = %d\n%s", rec.Code, rec.Body)
+	}
+}
+
+// The guided bind: the dialog's body lists the org's connectors with the
+// wizard's picker, only an owner reaches it, and its post binds and plans
+// (a public repo needs no connector) and then folds the form behind Change.
+func TestOrgConfigBindDialog(t *testing.T) {
+	r := newConfigRig(t)
+	const picker = "/acme/-/drawer/config/picker"
+	rec := r.owner.do(t, "GET", picker, nil, true)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `value="`+r.conn+`"`) || !strings.Contains(body, "None (a public repository)") ||
+		!strings.Contains(body, "data-repo-picker") || !strings.Contains(body, `data-picker-base="/acme/-/drawer/config/connector"`) ||
+		!strings.Contains(body, `hx-post="/acme/-/drawer/config/bind"`) ||
+		// the listing failed (no provider in a test): the empty state, not a blank
+		!strings.Contains(body, "No repositories found") {
+		t.Fatalf("picker = %d\n%s", rec.Code, body)
+	}
+	if strings.Contains(body, `placeholder="main"`) {
+		t.Errorf("the branch placeholder reads as a value:\n%s", body)
+	}
+	if rec := r.viewer.do(t, "GET", picker, nil, true); rec.Code != http.StatusForbidden {
+		t.Errorf("viewer picker = %d, want 403", rec.Code)
+	}
+	if rec := r.viewer.do(t, "POST", picker[:len(picker)-6]+"bind", url.Values{"repo": {"acme/org"}}, true); rec.Code != http.StatusForbidden {
+		t.Errorf("viewer bind = %d, want 403", rec.Code)
+	}
+
+	r.file(t, regionFile)
+	rec = r.owner.do(t, "POST", "/acme/-/drawer/config/bind", url.Values{"connector_id": {r.conn}, "repo": {" acme/org "}}, true)
+	body = rec.Body.String()
+	if rec.Code != http.StatusOK || r.latest(t).Status != "pending" || !strings.Contains(body, "Config file saved and planned.") ||
+		!strings.Contains(body, "<summary") || !strings.Contains(body, ">Change</summary>") {
+		t.Fatalf("bind = %d\n%s", rec.Code, body)
+	}
+	// bound: the facts and the waiting plan come before the folded form
+	if f, p, c := strings.Index(body, ">Repository</dt>"), strings.Index(body, ">Latest plan<"), strings.Index(body, ">Change</summary>"); p < 0 || f < 0 || c < 0 || !(p < f && f < c) {
+		t.Errorf("order plan %d facts %d change %d:\n%s", p, f, c, body)
 	}
 }

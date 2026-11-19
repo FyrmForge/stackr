@@ -292,6 +292,23 @@ func (l *Leaf) SetShares(ctx context.Context, id string, orgIDs []string, all bo
 	return c, l.conns.SetShareAll(ctx, id, all)
 }
 
+// MakeServer moves org orgID's own git connector id up to the server,
+// shared with that org. Nothing it holds changes, so no provider is asked.
+func (l *Leaf) MakeServer(ctx context.Context, orgID, id string) (store.Connector, error) {
+	c, err := l.Get(ctx, orgID, id)
+	if err != nil {
+		return c, err
+	}
+	if err := l.conns.MakeServer(ctx, id, orgID); err != nil {
+		if _, ok := errs.IsConflict(err); ok {
+			return c, errs.Conflictf("A server connector named %q exists; rename this one first.", c.Name)
+		}
+		return c, err
+	}
+	c.OrgID = nil
+	return c, nil
+}
+
 func (l *Leaf) Rename(ctx context.Context, orgID, id, name string) (store.Connector, error) {
 	c, err := l.Get(ctx, orgID, id)
 	if err != nil {

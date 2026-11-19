@@ -1,0 +1,48 @@
+package components
+
+// ConfigFactsView is what a bound config file is, in a few lines: the
+// facts the tab shows instead of its form. The org's and the server's tabs
+// draw the same lines.
+type ConfigFactsView struct {
+	Repo, Branch, Path string
+	File               string // the file read when Path is empty
+	Auto               bool
+	Last               *PlanRow // the latest plan, nil = none, or not the viewer's to read
+}
+
+templ ConfigFacts(v ConfigFactsView) {
+	<dl class="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm [&>dd]:[overflow-wrap:anywhere]">
+		<dt class="text-rw-muted">Repository</dt>
+		<dd class="text-rw-text font-mono">{ v.Repo }</dd>
+		<dt class="text-rw-muted">Branch</dt>
+		<dd class="text-rw-text font-mono">
+			if v.Branch == "" {
+				<span class="font-sans text-rw-faint">default branch</span>
+			} else {
+				{ v.Branch }
+			}
+		</dd>
+		<dt class="text-rw-muted">File</dt>
+		<dd class="text-rw-text font-mono">
+			if v.Path == "" {
+				{ v.File }
+			} else {
+				{ v.Path }
+			}
+		</dd>
+		<dt class="text-rw-muted">Auto apply</dt>
+		<dd class="text-rw-text">
+			if v.Auto {
+				On
+			} else {
+				Off
+			}
+		</dd>
+		if v.Last != nil {
+			<dt class="text-rw-muted">Last plan</dt>
+			<dd class="text-rw-text">
+				@PlanLine(*v.Last)
+			</dd>
+		}
+	</dl>
+}

@@ -75,6 +75,9 @@ type ConnectorStore interface {
 	ShareOrgs(ctx context.Context, id string) ([]string, error)
 	// SetShares replaces a connector's named orgs.
 	SetShares(ctx context.Context, id string, orgIDs []string) error
+	// MakeServer turns org orgID's connector id into a server one shared with
+	// that org, in one transaction: the id stays, so every binding follows.
+	MakeServer(ctx context.Context, id, orgID string) error
 	// SetShareAll, SetName and SetApp write the one thing that changed, so
 	// a stale read cannot put back columns another writer just set.
 	SetShareAll(ctx context.Context, id string, all bool) error
@@ -95,6 +98,16 @@ type connectors struct{ crud[Connector] }
 
 func (s connectors) GetByHost(ctx context.Context, orgID, host string) (Connector, error) {
 	return s.one(ctx, "org_id = ? AND host = ?", orgID, host)
+}
+
+func (s connectors) MakeServer(ctx context.Context, id, orgID string) error {
+	return inTx(ctx, s.q, func(q querier) error {
+		if err := affected(q.ExecContext(ctx, "UPDATE connectors SET org_id = NULL WHERE id = ? AND org_id = ?", id, orgID)); err != nil {
+			return err
+		}
+		_, err := q.ExecContext(ctx, "INSERT INTO connector_shares (connector_id, org_id) VALUES (?, ?)", id, orgID)
+		return mapErr(err)
+	})
 }
 
 func (s connectors) SetShareAll(ctx context.Context, id string, all bool) error {

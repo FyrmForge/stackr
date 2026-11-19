@@ -396,6 +396,14 @@ func repoCount(n int) string {
 	return strconv.Itoa(n) + " repositories"
 }
 
+func repoOptions(rs []Repo) []c.RepoOption {
+	out := make([]c.RepoOption, len(rs))
+	for i, r := range rs {
+		out[i] = c.RepoOption(r)
+	}
+	return out
+}
+
 // Config is the config step's frame; its body loads as the connector's.
 templ Config(v GitView) {
 	@shell(v.Frame) {
@@ -428,59 +436,11 @@ templ ConfigBody(v GitView) {
 						}
 					</select>
 				</div>
-				@repoPicker(v)
+				@c.RepoPicker(c.RepoPickerView{ID: "setup", Base: v.Base + "/config/connector", Repos: repoOptions(v.Repos), Repo: v.Repo, Branch: v.Branch, Path: v.Path, Placeholder: "you/serverconfig", File: "stackr-org.yml"})
 				<button type="submit" class="btn btn-primary w-full">Save and plan</button>
 			</form>
 			@switchTo(v.Base, "ui", "Fill it in here instead")
 		}
-	</div>
-}
-
-// repoPicker is the repository, branch and file-path trio. The repository
-// list is in the page (the install gate loaded it) and main.js filters it.
-// The field still accepts anything typed: an app installed seconds ago can
-// list nothing yet, and a plan that says "repo not found" beats refusing
-// it. The branch list and the repo's YAML files come from
-// data-picker-base/<connector>, so the path field filters like the repo one.
-templ repoPicker(v GitView) {
-	<div data-repo-picker data-picker-base={ v.Base + "/config/connector" } class="space-y-5">
-		<div>
-			<label class="label" for="setup-repo">Repository (owner/name)</label>
-			<div class="relative">
-				<input
-					type="text"
-					id="setup-repo"
-					name="repo"
-					value={ v.Repo }
-					required
-					placeholder="you/serverconfig"
-					autocomplete="off"
-					role="combobox"
-					aria-expanded="false"
-					aria-autocomplete="list"
-					aria-controls="setup-repo-list"
-					data-combo-input
-					class="input font-mono"
-				/>
-				<ul id="setup-repo-list" role="listbox" aria-label="Repositories" hidden data-combo-list class="combo-list">
-					for _, r := range v.Repos {
-						<li role="option" aria-selected="false" data-value={ r.FullName } data-branch={ r.DefaultBranch } class="combo-option">{ r.FullName }</li>
-					}
-				</ul>
-			</div>
-			<p class="mt-1.5 text-xs text-rw-faint">Type to filter what this connector can see.</p>
-		</div>
-		<div>
-			<label class="label" for="setup-branch">Branch</label>
-			<input type="text" id="setup-branch" name="branch" value={ v.Branch } list="setup-branch-list" autocomplete="off" data-branch-input class="input font-mono"/>
-			<datalist id="setup-branch-list" data-branch-list></datalist>
-		</div>
-		<div>
-			<label class="label" for="setup-path">File path</label>
-			<input type="text" id="setup-path" name="path" value={ v.Path } placeholder="stackr-org.yml" list="setup-path-list" autocomplete="off" data-path-input class="input font-mono"/>
-			<datalist id="setup-path-list" data-path-list></datalist>
-			<p data-path-note aria-live="polite" class="mt-1.5 text-xs text-rw-faint"></p>
-		</div>
 	</div>
 }
 

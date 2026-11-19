@@ -128,3 +128,38 @@ func TestGeneralRowsChanged(t *testing.T) {
 		}
 	}
 }
+
+// The Config tab: unbound it offers the guided dialog; bound it shows the
+// facts with the form folded; a waiting plan comes before the facts.
+func TestConfigTabStates(t *testing.T) {
+	unbound := html(t, Config(ConfigView{Base: "/acme/-/drawer", Picker: "/p", Export: "/x"}))
+	for _, w := range []string{"Bind a repository", `hx-get="/p"`, ">Export</summary>"} {
+		if !strings.Contains(unbound, w) {
+			t.Errorf("unbound lacks %q:\n%s", w, unbound)
+		}
+	}
+	if strings.Contains(unbound, `name="repo"`) || strings.Contains(unbound, "Last plan") {
+		t.Errorf("unbound draws the form or facts:\n%s", unbound)
+	}
+
+	bound := ConfigView{Base: "/acme/-/drawer", Export: "/x", Repo: "acme/org", Branch: "master", Auto: true}
+	b := html(t, Config(bound))
+	for _, w := range []string{">acme/org<", ">master", "stackr-org.yml", ">On", ">Change</summary>", ">Export</summary>", `name="repo"`} {
+		if !strings.Contains(b, w) {
+			t.Errorf("bound lacks %q:\n%s", w, b)
+		}
+	}
+	if strings.Contains(b, "Bind a repository") || strings.Index(b, "<details") > strings.Index(b, `name="repo"`) {
+		t.Errorf("bound: the form is not folded:\n%s", b)
+	}
+
+	bound.Latest = &PlanBox{Row: c.PlanRow{Status: "pending", Summary: "1 to add"}}
+	p := html(t, Config(bound))
+	if l, f := strings.Index(p, "Latest plan"), strings.Index(p, ">Repository</dt>"); l < 0 || f < 0 || l > f {
+		t.Errorf("a waiting plan is not first (plan %d, facts %d):\n%s", l, f, p)
+	}
+	bound.Latest.Row.Status = "applied"
+	if p := html(t, Config(bound)); strings.Index(p, "Latest plan") < strings.Index(p, ">Repository</dt>") {
+		t.Errorf("a decided plan comes before the facts:\n%s", p)
+	}
+}

@@ -136,6 +136,7 @@ type ConfigView struct {
 	Base       string // POST /config, /plan; "" = not an owner
 	Export     string // GET the stackr-org.yml
 	Canvas     string // the org's canvas, where its connectors are
+	Picker     string // GET the bind dialog's body
 	Connectors []Option
 	Connector  string
 	Repo       string
@@ -146,6 +147,14 @@ type ConfigView struct {
 	Job        *c.JobStatusView
 	Latest     *PlanBox    // nil = no plan, or the viewer may not read plans
 	Plans      []c.PlanRow // the last plans, newest first
+}
+
+// last is the latest plan's row, nil = no plan, or the viewer may not read plans.
+func (v ConfigView) last() *c.PlanRow {
+	if v.Latest == nil {
+		return nil
+	}
+	return &v.Latest.Row
 }
 
 type Option = c.Option
@@ -682,49 +691,39 @@ templ Config(v ConfigView) {
 		if v.Base != "" && (v.Job == nil || !v.Job.Live) {
 			@c.LiveTab(v.Base+"?tab=config", "tab-config")
 		}
-		@c.Section("Export", "organization", "This organization's live state as a stackr-org.yml, the way out of panel-first and into config-as-code. Secrets come out as declarations, never values.") {
-			<a href={ templ.SafeURL(v.Export) } download="stackr-org.yml" class="btn btn-ghost btn-sm">Download stackr-org.yml</a>
+		@c.JobSlot(v.Job, "org-plan,org-apply")
+		// a plan that waits comes first; one already decided reads after the facts
+		if v.Latest != nil && v.Latest.Row.Status == "pending" {
+			@latestPlan(v)
 		}
 		@c.Section("Config as code", "organization", "One file declares the whole organization. Its plans wait for an owner's approval unless Auto apply is on.") {
-			if len(v.Connectors) == 0 && v.Repo == "" {
-				<p class="text-sm text-rw-muted">Connect a git host first. The org file is fetched through a connector. <a href={ templ.SafeURL(v.Canvas) } class="link">Connectors</a></p>
-			} else {
-				<form novalidate hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
-					<fieldset disabled?={ v.Base == "" } class="space-y-4">
-						<legend class="sr-only">Config repository</legend>
-						if v.Base == "" {
-							<p class="text-xs text-rw-faint" data-hint>Only an owner can bind the org file.</p>
-						}
-						@c.ConfigRepoFields(c.ConfigRepoView{ID: "org-config", Connectors: v.Connectors, Connector: v.Connector, Repo: v.Repo, Branch: v.Branch, Path: v.Path, File: "stackr-org.yml", Placeholder: "acme/stackr-org", AutoApply: true, Auto: v.Auto})
-						if v.Base != "" {
-							<div class="flex flex-wrap items-center gap-2">
-								<button type="submit" class="btn btn-primary btn-sm">Save and plan</button>
-								if v.Repo != "" {
-									<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/plan" } hx-target={ target() } hx-swap="outerHTML">Plan now</button>
-								}
-							</div>
-						}
-					</fieldset>
-				</form>
+			switch {
+			case v.Repo != "":
+				@c.ConfigFacts(c.ConfigFactsView{Repo: v.Repo, Branch: v.Branch, Path: v.Path, File: "stackr-org.yml", Auto: v.Auto, Last: v.last()})
+				<details class="mt-4" open?={ c.RefusedHere(ctx) != nil }>
+					<summary class="cursor-pointer text-sm text-rw-muted hover:text-rw-text">Change</summary>
+					<div class="mt-3">
+						@configForm(v)
+					</div>
+				</details>
+			case v.Base == "":
+				<p class="text-sm text-rw-muted">Not bound. Only an owner can bind the org file.</p>
+			default:
+				if len(v.Connectors) == 0 {
+					<p class="text-sm text-rw-muted mb-3">A private repository needs a connector first. <a href={ templ.SafeURL(v.Canvas) } class="link">Connectors</a></p>
+				}
+				@c.Confirm(c.ConfirmView{Button: "Bind a repository", Title: "Bind the organization's file", Primary: true, Body: pickerSlot(v.Picker)})
 			}
-			if v.Unbind.Action != "" {
-				<div class="flex flex-wrap items-center gap-2 mt-5 pt-5 border-t border-rw-border">
-					@c.Confirm(v.Unbind)
+			<details class="mt-2">
+				<summary class="cursor-pointer text-sm text-rw-muted hover:text-rw-text">Export</summary>
+				<div class="mt-3 space-y-3">
+					<p class="text-xs text-rw-faint">This organization's live state as a stackr-org.yml. Secrets come out as declarations, never values.</p>
+					<a href={ templ.SafeURL(v.Export) } download="stackr-org.yml" class="btn btn-ghost btn-sm">Download stackr-org.yml</a>
 				</div>
-			}
+			</details>
 		}
-		@c.JobSlot(v.Job, "org-plan,org-apply")
-		if v.Latest != nil {
-			@c.Section("Latest plan", "organization", "") {
-				<div class="space-y-4">
-					@c.PlanLine(v.Latest.Row)
-					if v.Latest.Row.Error != "" {
-						<div class="banner banner-danger whitespace-pre-wrap font-mono text-xs" role="alert">{ v.Latest.Row.Error }</div>
-					} else {
-						@c.PlanReview(v.Latest.Review)
-					}
-				</div>
-			}
+		if v.Latest != nil && v.Latest.Row.Status != "pending" {
+			@latestPlan(v)
 		}
 		if len(v.Plans) > 0 {
 			<h2 class="text-sm font-medium text-rw-muted mb-2">Plans</h2>
@@ -737,4 +736,81 @@ templ Config(v ConfigView) {
 			</ul>
 		}
 	</div>
+}
+
+templ latestPlan(v ConfigView) {
+	@c.Section("Latest plan", "organization", "") {
+		<div class="space-y-4">
+			@c.PlanLine(v.Latest.Row)
+			if v.Latest.Row.Error != "" {
+				<div class="banner banner-danger whitespace-pre-wrap font-mono text-xs" role="alert">{ v.Latest.Row.Error }</div>
+			} else {
+				@c.PlanReview(v.Latest.Review)
+			}
+		</div>
+	}
+}
+
+// configForm is the binding as it was: the fields, Save and plan, Plan now,
+// and Unbind. Bound, it is folded behind "Change".
+templ configForm(v ConfigView) {
+	<form novalidate hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
+		<fieldset disabled?={ v.Base == "" } class="space-y-4">
+			<legend class="sr-only">Config repository</legend>
+			if v.Base == "" {
+				<p class="text-xs text-rw-faint" data-hint>Only an owner can bind the org file.</p>
+			}
+			@c.ConfigRepoFields(c.ConfigRepoView{ID: "org-config", Connectors: v.Connectors, Connector: v.Connector, Repo: v.Repo, Branch: v.Branch, Path: v.Path, File: "stackr-org.yml", Placeholder: "acme/stackr-org", AutoApply: true, Auto: v.Auto})
+			if v.Base != "" {
+				<div class="flex flex-wrap items-center gap-2">
+					<button type="submit" class="btn btn-primary btn-sm">Save and plan</button>
+					if v.Repo != "" {
+						<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/plan" } hx-target={ target() } hx-swap="outerHTML">Plan now</button>
+					}
+				</div>
+			}
+		</fieldset>
+	</form>
+	if v.Unbind.Action != "" {
+		<div class="flex flex-wrap items-center gap-2 mt-5 pt-5 border-t border-rw-border">
+			@c.Confirm(v.Unbind)
+		</div>
+	}
+}
+
+// pickerSlot loads the bind dialog's picker when the dialog opens: the
+// repository list is a GitHub round trip, not something a tab refresh pays.
+templ pickerSlot(url string) {
+	<div hx-get={ url } hx-trigger="intersect once" hx-swap="outerHTML">
+		<p class="text-xs text-rw-faint">Reading repositories.</p>
+	</div>
+}
+
+// PickerView is the bind dialog's body: the connector, then the repository,
+// branch and file pickers the setup wizard uses.
+type PickerView struct {
+	Action     string // POST: bind and plan
+	Base       string // the picker's branch and file lookups
+	Connectors []Option
+	Connector  string // preselected; "" = the first
+	Repos      []c.RepoOption
+}
+
+templ Picker(v PickerView) {
+	<form novalidate hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-5">
+		<div>
+			<label class="label" for="bind-conn">Connector</label>
+			<select id="bind-conn" name="connector_id" class="input">
+				<option value="">None (a public repository)</option>
+				for i, o := range v.Connectors {
+					<option value={ o.Value } selected?={ o.Value == v.Connector || (v.Connector == "" && i == 0) }>{ o.Label }</option>
+				}
+			</select>
+		</div>
+		if len(v.Connectors) > 0 && len(v.Repos) == 0 {
+			<p class="text-xs text-rw-faint">No repositories found through the connectors. Type one, or install the connector on it.</p>
+		}
+		@c.RepoPicker(c.RepoPickerView{ID: "bind", Base: v.Base, Repos: v.Repos, File: "stackr-org.yml"})
+		<button type="submit" class="btn btn-primary btn-sm">Save and plan</button>
+	</form>
 }

@@ -39,6 +39,7 @@ func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orc
 // Mount registers the wizard. Every step past the branch question is an
 // owner's: each one changes the org.
 func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
+	orch := h.orch
 	page := a.LoginFirst()
 	site.GET("/setup", h.start, page, a.Authed())
 	site.POST("/setup", h.create, a.Require("org.create"))
@@ -51,8 +52,7 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 	site.POST(s+"/discard", h.discard, step)
 	site.POST(s+"/domain", h.domain, a.Require("org.setup.domain"))
 	site.POST(s+"/config", h.bind, a.Require("org.config.bind"))
-	site.GET(s+"/config/connector/:connector/branches", h.branches, step)
-	site.GET(s+"/config/connector/:connector/files", h.files, step)
+	PickerRoutes(site, orch, s+"/config/connector/:connector", step)
 	site.POST(s+"/config/gaps/secret", h.fillGap, a.Require("org.config.bind"))
 	approve := a.Require("orgplan.approve")
 	site.POST(s+"/config/plan/:plan/approve", h.approve, approve)
@@ -444,36 +444,34 @@ func doneSubtitle(og *service.Org) string {
 	return "Nothing else in this organization opens until you do."
 }
 
+// PickerRoutes mounts the repo picker's two lookups under prefix (which
+// names :connector): the setup wizard's, and the org drawer's bind dialog's.
+// GET <prefix>/branches?repo= and <prefix>/files?repo=&ref=.
+func PickerRoutes(site *echo.Group, orch *service.Orchestrator, prefix string, mw ...echo.MiddlewareFunc) {
+	site.GET(prefix+"/branches", func(c echo.Context) error {
+		bs, err := orch.ConnectorBranches(c.Request().Context(), middleware.ScopeOf(c).Org.ID, c.Param("connector"), c.QueryParam("repo"))
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		return respond.JSON(c, http.StatusOK, bs)
+	}, mw...)
+	site.GET(prefix+"/files", func(c echo.Context) error {
+		fs, err := orch.ConnectorYAMLFiles(c.Request().Context(), middleware.ScopeOf(c).Org.ID, c.Param("connector"), c.QueryParam("repo"), c.QueryParam("ref"))
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		if fs == nil {
+			fs = []string{}
+		}
+		return respond.JSON(c, http.StatusOK, fs)
+	}, mw...)
+}
+
 // GET /:org/-/setup/config/plan?plan=&job=, the config step's second
 // screen. The plan in the query keeps the screen on its own plan while its
 // apply runs; without one it is the latest plan still waiting. The org is
 // addressed by id there: the apply renames it under the wait. While the
 // apply runs the banner polls this URL every 2s (v0's PlanBody).
-// GET /:org/-/setup/config/connector/:connector/branches?repo=, the repo
-// picker's branch list.
-func (h *handler) branches(c echo.Context) error {
-	og := middleware.ScopeOf(c).Org
-	bs, err := h.orch.ConnectorBranches(c.Request().Context(), og.ID, c.Param("connector"), c.QueryParam("repo"))
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	return respond.JSON(c, http.StatusOK, bs)
-}
-
-// GET /:org/-/setup/config/connector/:connector/files?repo=&ref=, the repo
-// picker's file list.
-func (h *handler) files(c echo.Context) error {
-	og := middleware.ScopeOf(c).Org
-	fs, err := h.orch.ConnectorYAMLFiles(c.Request().Context(), og.ID, c.Param("connector"), c.QueryParam("repo"), c.QueryParam("ref"))
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	if fs == nil {
-		fs = []string{}
-	}
-	return respond.JSON(c, http.StatusOK, fs)
-}
-
 func (h *handler) plan(c echo.Context) error {
 	og, ctx := middleware.ScopeOf(c).Org, c.Request().Context()
 	if og.SetupDoneAt != nil {

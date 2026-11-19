@@ -1,0 +1,70 @@
+package components
+
+// RepoOption is one repository a connector can read.
+type RepoOption struct {
+	FullName      string // owner/name
+	DefaultBranch string
+}
+
+// RepoPickerView is the repository, branch and file-path trio. ID prefixes
+// the field ids; Base is the URL the branch and file lookups hang on
+// (<Base>/<connector>/branches and /files).
+type RepoPickerView struct {
+	ID          string
+	Base        string
+	Repos       []RepoOption
+	Repo        string
+	Branch      string
+	Path        string
+	Placeholder string // the repository's example; "" = none
+	File        string // the file read when Path is empty
+}
+
+// RepoPicker is the trio the setup wizard and the Config tab's bind dialog
+// share. The repository list is in the page and main.js filters it. The
+// field still accepts anything typed: an app installed seconds ago can list
+// nothing yet, and a plan that says "repo not found" beats refusing it. The
+// branch list and the repo's YAML files come from data-picker-base/<connector>.
+templ RepoPicker(v RepoPickerView) {
+	<div data-repo-picker data-picker-base={ v.Base } class="space-y-5">
+		<div>
+			<label class="label" for={ v.ID + "-repo" }>Repository (owner/name)</label>
+			<div class="relative">
+				<input
+					type="text"
+					id={ v.ID + "-repo" }
+					name="repo"
+					value={ v.Repo }
+					required
+					if v.Placeholder != "" {
+						placeholder={ v.Placeholder }
+					}
+					autocomplete="off"
+					role="combobox"
+					aria-expanded="false"
+					aria-autocomplete="list"
+					aria-controls={ v.ID + "-repo-list" }
+					data-combo-input
+					class="input font-mono"
+				/>
+				<ul id={ v.ID + "-repo-list" } role="listbox" aria-label="Repositories" hidden data-combo-list class="combo-list">
+					for _, r := range v.Repos {
+						<li role="option" aria-selected="false" data-value={ r.FullName } data-branch={ r.DefaultBranch } class="combo-option">{ r.FullName }</li>
+					}
+				</ul>
+			</div>
+			<p class="mt-1.5 text-xs text-rw-faint">Type to filter what this connector can see.</p>
+		</div>
+		<div>
+			<label class="label" for={ v.ID + "-branch" }>Branch</label>
+			<input type="text" id={ v.ID + "-branch" } name="branch" value={ v.Branch } list={ v.ID + "-branch-list" } autocomplete="off" data-branch-input class="input font-mono"/>
+			<datalist id={ v.ID + "-branch-list" } data-branch-list></datalist>
+		</div>
+		<div>
+			<label class="label" for={ v.ID + "-path" }>File path</label>
+			<input type="text" id={ v.ID + "-path" } name="path" value={ v.Path } placeholder={ v.File } list={ v.ID + "-path-list" } autocomplete="off" data-path-input class="input font-mono"/>
+			<datalist id={ v.ID + "-path-list" } data-path-list></datalist>
+			<p data-path-note aria-live="polite" class="mt-1.5 text-xs text-rw-faint"></p>
+		</div>
+	</div>
+}
