@@ -364,7 +364,8 @@ func TestAskOwnRegistry(t *testing.T) {
 // A promote into the env that is queued or running holds the check for the
 // tick: no release is cut on top of the one it is landing.
 func TestCheckWaitsForAPromote(t *testing.T) {
-	for _, busy := range []bool{true, false} {
+	for _, again := range []bool{false, true} {
+		busy := true
 		s := storetest.Store(t)
 		fake := dockerfake.New()
 		reg := &fakeRegistry{digests: map[string]string{"nginx:1": "sha256:n2"}}
@@ -401,11 +402,14 @@ func TestCheckWaitsForAPromote(t *testing.T) {
 		var log strings.Builder
 		ups, err := f.Check(ctx, Scope{}, &log)
 		must(t, err)
-		if busy && (len(ups) != 0 || !strings.Contains(log.String(), "promote running; image check waits")) {
+		if len(ups) != 0 || !strings.Contains(log.String(), "promote running; image check waits") {
 			t.Fatalf("busy: updates %+v log %q", ups, log.String())
 		}
-		if !busy && len(ups) != 1 {
-			t.Fatalf("idle: updates %+v", ups)
+		if again { // the registry answer was recorded; the env must not lose it
+			busy = false
+			if ups, err = f.Check(ctx, Scope{}, &log); err != nil || len(ups) != 1 {
+				t.Fatalf("after the promote landed: updates %+v err %v", ups, err)
+			}
 		}
 	}
 }

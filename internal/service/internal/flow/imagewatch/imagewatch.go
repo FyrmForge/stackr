@@ -12,6 +12,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -53,6 +54,12 @@ type Flow struct {
 	// Promoting reports a promote into the env that is queued or running;
 	// nil = none. The env waits a tick: once it lands, the base is what runs.
 	Promoting func(ctx context.Context, envID string) (bool, error)
+
+	// held are the envs a sweep skipped for a promote: the registry answer
+	// is already recorded, so the next sweep must not read it as old news.
+	// ponytail: in memory; a restart loses it and the next registry move wins.
+	mu   sync.Mutex
+	held map[string]bool
 
 	last time.Time // the last timed sweep
 }
@@ -122,7 +129,7 @@ func (f *Flow) Check(ctx context.Context, sc Scope, log io.Writer) ([]Update, er
 		}
 		// Registry errors retry next round and never read as an update; an
 		// unchanged answer is not news either (the chip already shows it).
-		if a.err != nil || a.digest == a.prev {
+		if a.err != nil || (a.digest == a.prev && !f.isHeld(w.e.ID)) {
 			continue
 		}
 		if _, seen := byEnv[w.e.ID]; !seen {
@@ -178,10 +185,12 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 			return nil, err
 		}
 		if busy {
+			f.hold(e.ID, true)
 			logf(log, "%s: promote running; image check waits\n", e.Slug)
 			return nil, nil
 		}
 	}
+	f.hold(e.ID, false)
 	// ponytail: one release per env, auto only when every swapped tile is;
 	// a mixed env waits for the chip's button.
 	// Build on the release that waits for this env, if any (a push, an earlier
@@ -203,6 +212,25 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 		logf(log, "%s: release #%d builds on a release the env does not run; not promoted automatically\n", e.Slug, r.Number)
 	}
 	return &Update{EnvID: e.ID, Env: e.Slug, ReleaseID: r.ID, Number: r.Number, Auto: auto}, nil
+}
+
+func (f *Flow) isHeld(envID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.held[envID]
+}
+
+func (f *Flow) hold(envID string, on bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if on && f.held == nil {
+		f.held = map[string]bool{}
+	}
+	if on {
+		f.held[envID] = true
+	} else {
+		delete(f.held, envID)
+	}
 }
 
 // direct: a branch env or the bottom rung takes releases straight away;
