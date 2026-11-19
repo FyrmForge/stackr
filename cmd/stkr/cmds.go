@@ -1117,12 +1117,7 @@ func (a *app) jobs() *cobra.Command {
 			}
 			// the log can stop short of the reason: end it with the job's error
 			if jm, _ := m["job"].(map[string]any); jm["state"] == "failed" {
-				if e := strings.TrimSpace(str(jm["error"])); e != "" && !strings.Contains(text, e) {
-					if text != "" && !strings.HasSuffix(text, "\n") {
-						_, _ = fmt.Fprintln(a.out)
-					}
-					_, err = fmt.Fprintln(a.out, "error: "+e)
-				}
+				_, err = fmt.Fprint(a.out, errTail(text, str(jm["error"])))
 			}
 			return err
 		},
@@ -1511,4 +1506,18 @@ func (a *app) settingsCmd(op, short string, lv level) *cobra.Command {
 func str(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+// errTail is what ends a failed job's log with its error: nothing when the
+// trimmed log already ends with it, else a line break (if the log stops
+// mid-line) and "error: <e>".
+func errTail(log, e string) string {
+	e = strings.TrimSpace(e)
+	if e == "" || strings.HasSuffix(strings.TrimSpace(log), e) {
+		return ""
+	}
+	if log != "" && !strings.HasSuffix(log, "\n") {
+		return "\nerror: " + e + "\n"
+	}
+	return "error: " + e + "\n"
 }

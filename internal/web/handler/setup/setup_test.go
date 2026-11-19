@@ -585,3 +585,30 @@ func TestSetupOffers(t *testing.T) {
 		t.Errorf("media = %+v %v", p, err)
 	}
 }
+
+// A plan that is only removals is refused until the wizard's approve posts
+// keep, which the shared render.ApproveOpts reads.
+func TestApproveKeepFromWizard(t *testing.T) {
+	g := servicetest.NewGit(t)
+	s := webtest.NewWith(t, []service.Option{g.Option()})
+	uid, sess := admin(t, s)
+	og, _ := draft(t, s, uid, sess, "config")
+	b := "/" + og.Slug + "/-/setup"
+	conn := s.Connector(t, og.ID, "whsec")
+	if _, err := s.Orch.CreateShare(context.Background(), og.ID, service.ShareSpec{Slug: "media", Kind: "nfs", Source: "nas:/e"}); err != nil {
+		t.Fatal(err)
+	}
+	g.Commit(t, "acme/org", "main", map[string]string{"stackr-org.yml": "version: 1\norg: " + og.Name + "\nshares: {}\n"})
+	s.As(t, sess, "POST", b+"/config", url.Values{"connector_id": {conn}, "repo": {"acme/org"}, "branch": {"main"}, "path": {"stackr-org.yml"}})
+	plans, err := s.Orch.OrgPlans(context.Background(), og.ID, 1)
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("plans = %+v %v", plans, err)
+	}
+	approve := b + "/config/plan/" + plans[0].ID + "/approve"
+	if got := s.As(t, sess, "POST", approve, nil).Header().Get("HX-Redirect"); strings.Contains(got, "&job=") {
+		t.Fatalf("approve without keep went ahead: %q", got)
+	}
+	if got := s.As(t, sess, "POST", approve, url.Values{"keep": {"1"}}).Header().Get("HX-Redirect"); !strings.Contains(got, "&job=") {
+		t.Fatalf("approve with keep = %q, want a job", got)
+	}
+}

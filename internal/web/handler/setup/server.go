@@ -832,11 +832,9 @@ func (h *handler) serverFillGaps(c echo.Context) error {
 
 // POST …/config/plan/:plan/approve
 func (h *handler) serverApprove(c echo.Context) error {
-	vals, _ := c.FormParams()
-	if _, err := h.orch.ApproveServerPlan(c.Request().Context(), c.Param("plan"), service.ApproveOpts{
-		Ticked: vals["ticked"], Confirm: c.FormValue("confirm") != "",
-		ApproverID: middleware.Principal(c).User.ID, // owns the orgs the apply creates
-	}); err != nil {
+	opts := render.ApproveOpts(c)
+	opts.ApproverID = middleware.Principal(c).User.ID // owns the orgs the apply creates
+	if _, err := h.orch.ApproveServerPlan(c.Request().Context(), c.Param("plan"), opts); err != nil {
 		return back(c, err, ServerBase+"/config/plan")
 	}
 	return respond.Redirect(c, ServerBase+"/config/plan")

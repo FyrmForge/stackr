@@ -61,9 +61,10 @@ func (f *Flow) planFileChanges(ctx context.Context, p *Plan, w *work, to string)
 	if f.FileID == nil || w.e.ReleaseID == nil || to == "" {
 		return
 	}
-	cur, err := f.D.Releases.Pins(ctx, *w.e.ReleaseID)
+	cur, pinsErr := f.D.Releases.Pins(ctx, *w.e.ReleaseID)
 	from := cur[release.ConfigSlug].CommitSHA
-	if err != nil || from == "" || from == to {
+	// a Pins error means the running commit is unknown: count it as changed
+	if pinsErr == nil && (from == "" || from == to) {
 		return
 	}
 	made := map[string]bool{}
@@ -79,10 +80,12 @@ func (f *Flow) planFileChanges(ctx context.Context, p *Plan, w *work, to string)
 			if err != nil {
 				continue
 			}
-			a, errA := f.FileID(ctx, w.st, from, src)
-			b, errB := f.FileID(ctx, w.st, to, src)
-			if errA == nil && errB == nil && a == b {
-				continue
+			if pinsErr == nil {
+				a, errA := f.FileID(ctx, w.st, from, src)
+				b, errB := f.FileID(ctx, w.st, to, src)
+				if errA == nil && errB == nil && a == b {
+					continue
+				}
 			}
 			p.add(Change{Kind: "image", Tile: name, Note: "file changed: " + src})
 			w.redeploy[name] = true

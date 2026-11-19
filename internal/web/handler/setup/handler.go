@@ -739,11 +739,7 @@ func (h *handler) fillGap(c echo.Context) error {
 // the apply and moves on when it lands.
 func (h *handler) approve(c echo.Context) error {
 	og, id := middleware.ScopeOf(c).Org, c.Param("plan")
-	vals, _ := c.FormParams()
-	j, err := h.orch.ApproveOrgPlan(c.Request().Context(), id, service.ApproveOpts{
-		Ticked:  vals["ticked"],
-		Confirm: c.FormValue("confirm") != "",
-	})
+	j, err := h.orch.ApproveOrgPlan(c.Request().Context(), id, render.ApproveOpts(c))
 	if err != nil {
 		return back(c, err, planURL(og, id, ""))
 	}
