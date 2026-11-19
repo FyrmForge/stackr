@@ -46,6 +46,9 @@ type level struct {
 	base  string // "" on home
 	title string
 	empty string // v0's line for a canvas with nothing on it yet
+	// viewOnly: the viewer cannot promote here, so the window's links read
+	// "View plan".
+	viewOnly bool
 }
 
 func where(c echo.Context) level {
@@ -58,6 +61,8 @@ func where(c echo.Context) level {
 			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug,
 			title: sc.Env.Name,
 			empty: "No tiles in this environment yet.",
+
+			viewOnly: !can(c, sc, "env.write"),
 		}
 	case sc.Stack != nil:
 		return level{
@@ -65,6 +70,8 @@ func where(c echo.Context) level {
 			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug,
 			title: sc.Stack.Name,
 			empty: "This stack has no environments yet.",
+
+			viewOnly: !can(c, sc, "env.write"),
 		}
 	case sc.Org != nil:
 		return level{

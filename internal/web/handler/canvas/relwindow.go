@@ -27,7 +27,7 @@ func (h *handler) relWindow(ctx context.Context, l level, gv service.GraphView) 
 	if envID != "" {
 		stack = path.Dir(l.base) // the links are this env's siblings
 	}
-	w := &comp.RelWindow{}
+	w := &comp.RelWindow{All: "/-/releases?scope=" + url.QueryEscape(strings.TrimPrefix(stack, "/"))}
 	logEnv := ""
 	for _, r := range gv.Compare {
 		w.Envs = append(w.Envs, comp.RelEnv{Name: r.Name, Color: r.Color, Href: stack + "/" + r.Slug})
@@ -50,9 +50,13 @@ func (h *handler) relWindow(ctx context.Context, l level, gv service.GraphView) 
 	var who map[string]string // loaded when a row names a person
 	jobHref := func(id string) string { return stack + "/" + logEnv + "/-/jobs/" + id }
 	review := func(rel string, rv service.WindowReview) comp.RelLink {
-		label := "Review plan"
+		verb := "Review"
+		if l.viewOnly {
+			verb = "View" // the review says who can promote
+		}
+		label := verb + " plan"
 		if rv.Rollback {
-			label = "Review rollback"
+			label = verb + " rollback"
 		}
 		q := "?drawer=" + url.QueryEscape("env:"+rv.EnvID) + "&tab=releases&plan=" + rel
 		if envID == "" {
