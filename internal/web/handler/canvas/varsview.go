@@ -62,6 +62,11 @@ func entriesOf(form url.Values) []service.ParamEntry {
 func (h *handler) heldReply(c echo.Context, s service.Scope, cs []col, form url.Values, scope string, add []service.ParamEntry, open *vars.CellRef, openSecret bool, mods ...func(*vars.Grid)) error {
 	held := heldIn(form)
 	hs, msg := form.Get("held_scope"), ""
+	// an open input's typed value rides along on any redraw (typed_scope names
+	// its column; Cancel blanks it) and is held like a blur would have held it
+	if ts := form.Get("typed_scope"); add == nil && ts != "" && (scope == "" || scope == ts) && (hs == "" || hs == ts) {
+		add, scope = render.ParamEntries(form), ts
+	}
 	if len(held) > 0 && scope != "" && scope != hs && (len(add) > 0 || open != nil) {
 		msg = "Apply or cancel the held changes first."
 		add, open = nil, nil

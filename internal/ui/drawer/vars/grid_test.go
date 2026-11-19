@@ -71,7 +71,7 @@ func TestPendingFooter(t *testing.T) {
 		}
 	}
 	// every action that redraws the editor posts the held changes
-	if n := strings.Count(got, `hx-include="#vars-held"`); n < 3 {
+	if n := strings.Count(got, `hx-include="#vars-held, .vars-edit"`); n < 3 {
 		t.Errorf("only %d actions post the held changes:\n%s", n, got)
 	}
 	g.Held.Tiles, g.Held.Impact = 0, nil

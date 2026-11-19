@@ -182,3 +182,21 @@ func TestHeldChanges(t *testing.T) {
 		t.Errorf("apply saved %v", got)
 	}
 }
+
+// A value typed in an open input survives Show and every other redraw that
+// does not save: it is held, with its footer. Cancel (typed_scope blank)
+// drops it.
+func TestTypedValueSurvivesShow(t *testing.T) {
+	s := webtest.New(t)
+	seedSecret(t, s)
+	scope := "env:" + s.Tile.Env
+	f := url.Values{"scope": {scope}, "typed_scope": {scope}, "collection": {"app"}, "name": {"OTHER"}, "secret.app.API_KEY": {"sk_new"}}
+	body := s.Do(t, "POST", revealEnv+"/reveal", f).Body.String()
+	if !strings.Contains(body, "1 change not saved") || !strings.Contains(body, `name="held.secret.app.API_KEY"`) || !strings.Contains(body, "sk_live_2") {
+		t.Errorf("show lost the typed value or the footer:\n%s", body)
+	}
+	f.Set("typed_scope", "")
+	if body := s.Do(t, "POST", revealEnv+"/edit", f).Body.String(); strings.Contains(body, "not saved") {
+		t.Errorf("cancel held the typed value:\n%s", body)
+	}
+}

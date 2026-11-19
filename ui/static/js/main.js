@@ -118,6 +118,22 @@ document.addEventListener('htmx:beforeSwap', function (evt) {
     pollRetry(el);
 });
 
+// A change-triggered request (a field's blur) that would swap away the button
+// being pressed is dropped when the target says data-press-wins: the redraw
+// lands between mousedown and mouseup and the click is lost. The button's own
+// request carries the typed fields instead.
+var pressedBtn = null;
+document.addEventListener('pointerdown', function (evt) {
+    pressedBtn = evt.target && evt.target.closest ? evt.target.closest('button') : null;
+}, true);
+['pointerup', 'pointercancel'].forEach(function (n) {
+    document.addEventListener(n, function () { setTimeout(function () { pressedBtn = null; }, 0); }, true);
+});
+document.addEventListener('htmx:beforeRequest', function (evt) {
+    var d = evt.detail, t = d.target, ev = d.requestConfig && d.requestConfig.triggeringEvent;
+    if (pressedBtn && ev && ev.type === 'change' && t && t.hasAttribute('data-press-wins') && t.contains(pressedBtn)) evt.preventDefault();
+});
+
 // Re-validate a field while typing, but only once it is already showing an
 // error. Pairs with hx-trigger="blur, hamr:revalidate" on the input. The
 // condition lives here rather than in an hx-trigger [...] filter because htmx
