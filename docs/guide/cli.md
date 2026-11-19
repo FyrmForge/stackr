@@ -2979,7 +2979,7 @@ stkr release get <number> [flags]
 
 ### `stkr release ls`
 
-List releases, newest first
+List releases, newest first, with state and source
 
 ```
 stkr release ls [flags]

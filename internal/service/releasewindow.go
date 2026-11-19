@@ -74,7 +74,11 @@ type ReleaseWindow struct {
 	Waiting, Failed int
 	Stack           string // the stack's name
 	LogEnv          string // the slug of an env whose address holds the job logs
+	Envs            []WindowEnv
 }
+
+// WindowEnv is an env of the stack, for naming the ids a row runs in.
+type WindowEnv struct{ ID, Name, Slug, Color string }
 
 // windowOlder is how many releases beyond what waits, fails or runs the
 // window lists.
@@ -84,6 +88,12 @@ const windowOlder = 3
 // and the failure markers the canvas already shows.
 func (o *Orchestrator) ReleaseWindow(ctx context.Context, stackID, envID string) (ReleaseWindow, error) {
 	return o.releaseWindow(ctx, stackID, envID, false)
+}
+
+// ReleaseHistory is ReleaseWindow with every release and the failures fixed
+// since, for the lists that are the record (the Releases screen, the API).
+func (o *Orchestrator) ReleaseHistory(ctx context.Context, stackID, envID string) (ReleaseWindow, error) {
+	return o.releaseWindow(ctx, stackID, envID, true)
 }
 
 // releaseWindow is ReleaseWindow; history lists every release and the
@@ -118,6 +128,7 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 		if w.LogEnv == "" {
 			w.LogEnv = r.Slug
 		}
+		w.Envs = append(w.Envs, WindowEnv{r.EnvID, r.Name, r.Slug, r.Color})
 		runsByEn[r.EnvID] = r.Release
 		if r.Release > 0 {
 			runs[r.Release] = append(runs[r.Release], r.EnvID)

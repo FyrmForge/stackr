@@ -7388,6 +7388,52 @@
         ],
         "type": "object"
       },
+      "ReleaseRow": {
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "runs_in": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "stack_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "state",
+          "runs_in",
+          "id",
+          "stack_id",
+          "number",
+          "created_at",
+          "created_by"
+        ],
+        "type": "object"
+      },
       "RenewAnswer": {
         "properties": {
           "cert": {
@@ -9559,6 +9605,12 @@
       },
       "TileStatus": {
         "properties": {
+          "generation": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "last_job": {
             "oneOf": [
               {
@@ -29447,7 +29499,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Release"
+                    "$ref": "#/components/schemas/ReleaseRow"
                   },
                   "type": "array"
                 }
