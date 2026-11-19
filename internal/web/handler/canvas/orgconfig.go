@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
@@ -79,7 +80,9 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 	if len(ps) == 0 {
 		return orgui.Config(v), nil
 	}
-	latest := ps[0]
+	// ?plan= opens that plan's review, else the newest one
+	i := slices.IndexFunc(ps, func(p service.OrgPlan) bool { return p.ID == c.QueryParam("plan") })
+	latest := ps[max(i, 0)]
 	var pl service.OrgConfigPlan
 	if latest.Plan != "" {
 		if err := json.Unmarshal([]byte(latest.Plan), &pl); err != nil {
@@ -87,7 +90,7 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 		}
 	}
 	box := &orgui.PlanBox{
-		Row:    v.Plans[0],
+		Row:    v.Plans[max(i, 0)],
 		Review: comp.PlanReviewView{Plan: render.OrgPlanView(pl)},
 	}
 	switch {
@@ -112,7 +115,10 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 			box.Review.Plan.Gaps = append(box.Review.Plan.Gaps, gv)
 		}
 	}
-	v.Latest, v.Plans = box, v.Plans[1:]
+	if i > 0 {
+		box.Title = "Plan"
+	}
+	v.Latest, v.Plans = box, slices.Delete(v.Plans, max(i, 0), max(i, 0)+1)
 	return orgui.Config(v), nil
 }
 

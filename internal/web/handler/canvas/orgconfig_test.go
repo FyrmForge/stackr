@@ -120,6 +120,14 @@ func TestOrgConfigTab(t *testing.T) {
 	if rec.Code != http.StatusOK || second.ID == first.ID || !strings.Contains(rec.Body.String(), "Planned: 1 to add.") {
 		t.Fatalf("plan now = %d %+v\n%s", rec.Code, second, rec.Body)
 	}
+	// ?plan= opens that plan's review in place of the newest one's
+	old := r.owner.do(t, "GET", tab+"&plan="+first.ID, nil, true).Body.String()
+	if strings.Contains(old, ">Latest plan<") || !strings.Contains(old, ">Plan<") || !strings.Contains(old, "rejected") {
+		t.Errorf("?plan=<older> does not open that plan:\n%s", old)
+	}
+	if cur := r.owner.do(t, "GET", tab, nil, true).Body.String(); !strings.Contains(cur, ">Latest plan<") || !strings.Contains(cur, "/plans/"+second.ID+"/approve") {
+		t.Errorf("no ?plan= must open the newest:\n%s", cur)
+	}
 	rec = r.owner.do(t, "POST", "/acme/-/drawer/plans/"+second.ID+"/approve", nil, true)
 	body = rec.Body.String()
 	if rec.Code != http.StatusOK || !strings.Contains(body, "Approved: the apply is queued.") ||

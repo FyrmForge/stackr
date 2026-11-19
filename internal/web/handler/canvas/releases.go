@@ -2,6 +2,7 @@ package canvas
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -121,6 +122,9 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	}
 	// the question: one env, one release
 	plan, envID := c.QueryParam("plan"), c.QueryParam("env")
+	if c.Request().Method == http.MethodGet && c.Param("release") != "" { // the page of one release's review
+		plan = c.Param("release") // a promote's POST names one too, and answers with the tab
+	}
 	if cd.kind == "env" {
 		envID = cd.s.Env.ID
 	}
