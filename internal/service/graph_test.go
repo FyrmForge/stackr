@@ -764,3 +764,53 @@ func mustOperated(t *testing.T, o *service.Orchestrator, envID string) string {
 	}
 	return ms[0].TileID
 }
+
+// A one-replica tile whose deploy runs holds two containers: the oldest is
+// "old" (never red), the newest "new", neither is "replica 2". Once the
+// deploy is over the extra is a replica again.
+func TestCanvasDeployOverlapGenerations(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	tl := tileRow(w.shop, w.dev, "blue", "image", nil)
+	if err := w.e.Store.Tiles.Create(ctx, tl); err != nil {
+		t.Fatal(err)
+	}
+	for i, created := range []int64{20, 10} { // newest listed first: order must not matter
+		w.e.Docker.Containers = append(w.e.Docker.Containers, docker.Container{
+			ID: fmt.Sprintf("g%d", i), Name: fmt.Sprintf("blue-%d", i), State: "running", Created: created,
+			Labels: map[string]string{"stackr.tile": tl.ID, "stackr.role": "replica"},
+		})
+	}
+	jb := store.Job{ID: uuid.NewString(), Kind: "deploy", State: "running", LockSet: store.StringList{tl.ID}, Payload: "{}", CreatedAt: time.Now()}
+	if err := w.e.Store.Jobs.Create(ctx, jb); err != nil {
+		t.Fatal(err)
+	}
+	names := func() map[string]string {
+		v, err := w.e.Orch.Canvas(ctx, service.CanvasScope{Kind: service.CanvasEnv, ID: w.dev}, service.ShowAll)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for _, s := range nodes(v)[tl.ID].Subs {
+			out[s.Name] = s.Status
+		}
+		return out
+	}
+	got := names()
+	if len(got) != 2 || got["old"] != "old" || got["new"] != "running" {
+		t.Errorf("mid-deploy subs = %v, want old (neutral) and new", got)
+	}
+	st, err := w.e.Orch.TileStatus(ctx, tl.ID)
+	if err != nil || st.Generation["g1"] != "old" || st.Generation["g0"] != "new" || st.Replicas[0].ID != "g1" {
+		t.Errorf("drawer status = %+v, %v, want g1 old and g0 new, oldest first", st.Generation, err)
+	}
+	now := time.Now()
+	jb.State, jb.FinishedAt = "done", &now
+	if err := w.e.Store.Jobs.Update(ctx, jb); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(); len(got) != 1 || got["replica 2"] == "" {
+		t.Errorf("after the deploy subs = %v, want replica 2 only", got)
+	}
+}

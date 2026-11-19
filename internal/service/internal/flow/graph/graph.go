@@ -5,6 +5,7 @@
 package graph
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/canvas"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
@@ -711,17 +713,25 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		}
 		s.word = s.state.Word
 		// v0 deals replicas 2 to 4 under the card (the card is replica 1).
-		for i, c := range s.state.Replicas {
+		// Mid-deploy extras are the outgoing and incoming containers, not
+		// replicas: they are dealt too, with their generation as the name.
+		cs, tags := Generations(s.state.Replicas, t.Replicas, j, hasJob)
+		n := 0 // real replicas seen
+		for i, c := range cs {
 			if c.State == "running" {
 				up++
 			}
-			if i == 0 || i >= 4 {
+			if tag := tagAt(tags, i); tag != "" {
+				s.replicas = append(s.replicas, Sub{ID: fmt.Sprintf("replica:%s:%s", t.ID, c.ID), Kind: KindReplica, Name: tag, Status: tagState(tag, c.State)})
+				continue
+			}
+			if n++; n == 1 || n >= 5 {
 				continue
 			}
 			s.replicas = append(s.replicas, Sub{
-				ID:     fmt.Sprintf("replica:%s:%d", t.ID, i+1),
+				ID:     fmt.Sprintf("replica:%s:%d", t.ID, n),
 				Kind:   KindReplica,
-				Name:   fmt.Sprintf("replica %d", i+1),
+				Name:   fmt.Sprintf("replica %d", n),
 				Status: c.State,
 			})
 		}
@@ -754,6 +764,22 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		}
 	}
 	return s, nil
+}
+
+// tagState is a generation's dot word: the outgoing one is neutral whatever
+// it is doing, the incoming one shows its container's state.
+func tagState(tag, state string) string {
+	if tag == "old" {
+		return tag
+	}
+	return state
+}
+
+func tagAt(tags []string, i int) string {
+	if i < len(tags) {
+		return tags[i]
+	}
+	return ""
 }
 
 // RunWord is a cron's or function's word from its runs, newest first: the
@@ -815,6 +841,33 @@ func LayerJob(word string, up int, runKind bool, j store.Job) string {
 		}
 	}
 	return word
+}
+
+// Generations tells which containers of a tile are the outgoing and the
+// incoming generation while a deploy of it runs and it holds more containers
+// than it wants (the overlap, where both share labels). It returns the
+// containers oldest first and a tag each: "old" for the oldest extras,
+// "new" for the newest extras, "" for a real replica. No live deploy or no
+// extras: the containers as they came, no tags.
+// ponytail: tells generations by creation time only; a deploy that
+// replaces replicas one by one reads the same as an overlap.
+func Generations(cs []docker.Container, want int, j store.Job, hasJob bool) ([]docker.Container, []string) {
+	extra := len(cs) - max(want, 1)
+	if !hasJob || !rollout[j.Kind] || (j.State != job.Running && j.State != job.Queued) || extra <= 0 {
+		return cs, nil
+	}
+	cs = slices.Clone(cs)
+	slices.SortStableFunc(cs, func(a, b docker.Container) int { return cmp.Compare(a.Created, b.Created) })
+	tags := make([]string, len(cs))
+	for i := range cs {
+		switch {
+		case i < extra:
+			tags[i] = "old"
+		case i >= len(cs)-extra:
+			tags[i] = "new"
+		}
+	}
+	return cs, tags
 }
 
 // rollout are the job kinds whose failure says the tile is unwell (service's

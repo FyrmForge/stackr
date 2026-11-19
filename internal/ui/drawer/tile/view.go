@@ -125,7 +125,8 @@ type StatusView struct {
 	Access   []access.Perm // elevated access held or waiting, strongest first
 }
 
-type ReplicaView struct{ ID, Name, State, Health string }
+// Tag is "old" or "new" while a deploy overlaps the tile's containers; "" = a replica.
+type ReplicaView struct{ ID, Name, State, Health, Tag string }
 
 type LogsView struct {
 	Replicas  []ReplicaView

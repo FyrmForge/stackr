@@ -173,6 +173,9 @@ templ LiveStatus(v View, s StatusView) {
 	for _, r := range s.Replicas {
 		<div class="text-xs text-rw-faint mt-1.5">
 			<span class="font-mono">{ r.Name }</span> { r.State }
+			if r.Tag != "" {
+				· { r.Tag }
+			}
 			if r.Health != "" {
 				· { r.Health }
 			}
