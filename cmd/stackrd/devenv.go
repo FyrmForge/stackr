@@ -17,7 +17,8 @@ import (
 // devSettings reads <dataDir>/dev.env once at start: KEY=VALUE lines, #
 // comments and blank lines ignored. A missing file changes nothing. It is
 // the playground's way to point stackrd at a private ACME CA, a fake
-// Namecheap and a fake GitHub; production has no such file.
+// Namecheap and a fake GitHub; production has no such file. Keys: ACME_CA,
+// ACME_CA_ROOT, NAMECHEAP_API, GITHUB_URL, GITHUB_CA, EXTRA_CA_DIR.
 func devSettings(log *slog.Logger, dataDir string, cfg *service.Config) {
 	f, err := os.Open(filepath.Join(dataDir, "dev.env"))
 	if err != nil {
@@ -50,6 +51,11 @@ func devSettings(log *slog.Logger, dataDir string, cfg *service.Config) {
 			cfg.GitHubURL = v
 		case "GITHUB_CA": // a full path inside the panel container
 			cfg.GitHubCA = v
+		case "EXTRA_CA_DIR": // a dir of PEM roots inside the panel container, read once by Go at first TLS use
+			if err := os.Setenv("SSL_CERT_DIR", "/etc/ssl/certs:"+v); err != nil {
+				log.Warn("dev.env: EXTRA_CA_DIR not applied", "err", err)
+				continue
+			}
 		default:
 			log.Warn("dev.env: unknown key ignored", "key", k)
 			continue

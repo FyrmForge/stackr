@@ -9,7 +9,7 @@ stackr cluster inside it.
 
 Laptop (libvirt, needs Docker with /dev/kvm):
 
-    playground/vm.sh bundle     # builds this checkout into $PLAYGROUND_OUT (default ../stackr-playground-out)
+    playground/vm.sh bundle     # builds this checkout into $PLAYGROUND_OUT (default `<checkout>-playground-out` next to the checkout)
     playground/vm.sh create
 
 `bundle` runs `make release` for `v<latest tag, patch+1>-dev.<UTC stamp>` and
@@ -22,7 +22,7 @@ the VM's authorized keys (the repo copy of `ssh-keys` stays a placeholder),
 boots it (6 vCPU, 8 GB, 60 GB, MAC 52:54:00:77:00:01), copies this folder to
 `/etc/playground` and the bundle to `/root/out`, and runs `nodes.sh up`. The
 admin password is `UNIVERSAL_STACKR_PASSWORD` from `PLAYGROUND_ENV` (default
-the repo's `.env`), sent over ssh stdin into `/root/.playground.env`
+the repo's `.env`, else the main checkout's), sent over ssh stdin into `/root/.playground.env`
 for `up` and `reset` only, and removed afterwards. Staging files live in
 `~/.cache/stackr-playground`.
 
@@ -34,6 +34,13 @@ Dev loop: edit stackr, then
 `deploy` pushes the bundle to `/root/out`, loads the images on all three nodes
 and re-runs `stackr-install` on ctrl (its upgrade path; no password). After
 editing the NixOS files: `playground/vm.sh sync`.
+
+`vm.sh` takes a lock for everything that changes the VM (`create`, `deploy`,
+`sync`, `start`, `stop`, `delete`, and `nodes` with `up`, `upgrade`, `reset`,
+`trust`, `disk`, `dns`). A second one exits 75 and prints who holds it.
+`bundle`, `ssh`, `status`, `ip`, `console` and the read-only `nodes` commands
+(`stk`, `x`, `logs`, `hosts`, `status`, `pr`) stay free. Running `nodes.sh`
+directly over `vm.sh ssh` is not covered. Each checkout has its own bundle dir.
 
 The install prints a recovery key; it is saved to
 `/var/lib/playground/recovery.key` on the VM (mode 600) and never shown.
@@ -58,12 +65,23 @@ VM), `start stop status ip console`, `delete [--yes]`. On the VM, `nodes.sh`:
     x NODE CMD...               run a command in a node
     logs NODE [CONTAINER] [LINES]   a container's log; without CONTAINER, the list
     status                      one ok|FAIL line per check, exit 1 on any FAIL
+    dns [NAME NODE]             extra names under stackr.test (see DNS)
     hosts | pr ...              laptop /etc/hosts lines; fake pull_request events
 
 `status` checks the VM units, the three containers, DNS for the panel, panel
 health over https with the live Pebble root (no `-k`), that each node holds the
-current root, the panel image, `stk node ls`, the `dev.env` keys and mounted
-disks.
+current root (and that the panel's `dev-ca` dir has it), the panel image,
+`stk node ls`, the `dev.env` keys and mounted disks.
+
+Plain docker on ctrl against the cluster registry:
+`nodes.sh x ctrl env DOCKER_CONFIG=/var/lib/stackr/docker docker ...` (the
+panel's spec sets `DOCKER_CONFIG` there; `stk registry login` writes there).
+
+## Upgrade tests
+
+- Releases up to v0.8.30 do not read `dev.env`, so `up --version` of those cannot get certificates here.
+- Start from a dev build of any commit from 4be41636 on: `git worktree add ../stackr-old <commit>`, then `../stackr-old/playground/vm.sh bundle`, `vm.sh nodes reset`, then `bundle` + `deploy` from the new checkout. Build the old one first (the version stamp is the build time).
+- `up --version` works again from the first release that ships the seams.
 
 New nodes join with tags: `w1` builder, `ext` ingress. Tags apply to new joins
 only; an existing node keeps its tags until `reset` of that node.
@@ -94,7 +112,8 @@ Edit `playground/playground.nix` (mocks, ext latency), then:
 
     playground/vm.sh sync
 
-`dev.env` always points GitHub and Namecheap at the mocks, so a mock that is
+`dev.env` (`/var/lib/stackr/dev.env` on ctrl; keys `ACME_CA`, `ACME_CA_ROOT`,
+`NAMECHEAP_API`, `GITHUB_URL`, `GITHUB_CA`, `EXTRA_CA_DIR`) always points GitHub and Namecheap at the mocks, so a mock that is
 off makes its connector unavailable (it does not fall back to the real service).
 
 ## Laptop access
@@ -136,9 +155,8 @@ with `nodes.sh pr acme/app 1 opened my-branch [base]`
 
 A GitHub install with zero repos shows "not installed" until the first push.
 
-An existing playground needs `dev.env` rewritten (`GITHUB_URL`, `GITHUB_CA`)
-and the panel restarted:
-`incus exec ctrl -- sh -c 'docker restart $(docker ps -q --filter label=stackr.role=panel)'`.
+An existing playground needs `vm.sh sync`, then `vm.sh deploy` (between them
+stk has no trust until `nodes trust` or the deploy runs).
 
 ## S3
 
@@ -169,6 +187,13 @@ cannot manage it. Any API user and key work. Records land in
 `/var/lib/playground/namecheap/dnsmasq.conf`; check them with
 `dig @203.0.113.1 <name>.stackr.test`. `nodes.sh up` sets ctrl's public IP to
 203.0.113.1 so tile records have a target.
+
+## DNS
+
+`nodes.sh dns app.stackr.test ext` points one name at a node (list: `nodes.sh dns`;
+back to the default: `nodes.sh dns app.stackr.test ctrl`). The names live in
+`/var/lib/playground/dns.conf`, kept on reset and wiped by `reset --fakes`. A name
+moved to ext is reached from the laptop on ports 20080/20443.
 
 ## Notes
 
