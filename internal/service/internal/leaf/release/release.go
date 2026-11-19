@@ -251,6 +251,16 @@ func (l *Leaf) newest(ctx context.Context, stackID, runs, skip string, lines []s
 	if err != nil {
 		return "", err
 	}
+	return l.newestIn(ctx, rs, runs, skip, lines)
+}
+
+// NewestIn is Newest over a stack's releases the caller already holds, for a
+// loop over envs that would otherwise read the history once each.
+func (l *Leaf) NewestIn(ctx context.Context, rs []store.Release, runs string, lines ...string) (string, error) {
+	return l.newestIn(ctx, rs, runs, "", lines)
+}
+
+func (l *Leaf) newestIn(ctx context.Context, rs []store.Release, runs, skip string, lines []string) (string, error) {
 	byID := make(map[string]store.Release, len(rs))
 	for _, r := range rs {
 		byID[r.ID] = r
@@ -365,6 +375,12 @@ func chain(byID map[string]store.Release, r store.Release, runs string) ([]store
 		}
 	}
 	return path, false
+}
+
+// Chain is chain over releases the caller holds: the releases from r back to
+// runs (r first, runs left out) and whether r reaches it.
+func Chain(byID map[string]store.Release, r store.Release, runs string) ([]store.Release, bool) {
+	return chain(byID, r, runs)
 }
 
 // Between are the releases from base back to runs, base first and runs left

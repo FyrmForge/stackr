@@ -138,6 +138,19 @@ func TestReleaseWindowWaitingAndNewest(t *testing.T) {
 	if e.Orch.IsRollback(ctx, prod.ID, r3) {
 		t.Error("release 3 was never held and is not an ancestor: a plan, not a roll back")
 	}
+	// the window says the same from the one read of the lineage
+	win, err = e.Orch.ReleaseWindow(ctx, st.ID, prod.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range win.Rows {
+		want := r.ID == r1
+		for _, rv := range r.Reviews {
+			if rv.Rollback != want {
+				t.Errorf("release %d review rollback = %v, want %v", r.Number, rv.Rollback, want)
+			}
+		}
+	}
 }
 
 // The org window lists the org file's waiting plan with the stacks' open
