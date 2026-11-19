@@ -1043,6 +1043,9 @@ func (d *differ) orgs() {
 			{"connector", d.connectorName(cur.ConfigConnectorID), fo.Connector},
 			{"auto", strconv.FormatBool(cur.ConfigAuto), strconv.FormatBool(fo.Auto)},
 		} {
+			if f.name == "connector" && f.new == "" {
+				continue // an entry naming none keeps the org's own
+			}
 			if f.old != f.new {
 				d.add(Change{Kind: "org-bind", Tile: fo.Slug, Field: f.name, Old: f.old, New: f.new})
 			}

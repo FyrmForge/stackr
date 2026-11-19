@@ -78,3 +78,33 @@ func TestMakeServerConnectorAction(t *testing.T) {
 		t.Errorf("server connectors = %+v", cs)
 	}
 }
+
+// The Connectors tab's picker: an owner sees it and saves the org's connector,
+// with no config repo; a viewer sees no picker and cannot post.
+func TestOrgConnectorPicker(t *testing.T) {
+	r := newConfigRig(t)
+	const tab, pick = "/acme/-/drawer?tab=connectors", "/acme/-/drawer/connectors/pick"
+	body := r.owner.do(t, "GET", tab, nil, true).Body.String()
+	if !strings.Contains(body, "Connector for this organization&#39;s repositories") && !strings.Contains(body, "Connector for this organization's repositories") {
+		t.Fatalf("owner has no picker:\n%s", body)
+	}
+	if !strings.Contains(body, `value="`+r.conn+`"`) {
+		t.Errorf("the picker lacks the org's own connector")
+	}
+	if rec := r.owner.do(t, "POST", pick, url.Values{"connector": {r.conn}}, true); rec.Code != http.StatusOK {
+		t.Fatalf("save = %d\n%s", rec.Code, rec.Body)
+	}
+	og, _ := r.owner.env.Store.Orgs.Get(context.Background(), r.owner.org)
+	if og.ConfigConnectorID != r.conn || og.ConfigRepo != "" {
+		t.Errorf("org = connector %q repo %q", og.ConfigConnectorID, og.ConfigRepo)
+	}
+	if !strings.Contains(r.owner.do(t, "GET", tab, nil, true).Body.String(), `value="`+r.conn+`" selected`) {
+		t.Errorf("the saved connector is not selected")
+	}
+	if strings.Contains(r.viewer.do(t, "GET", tab, nil, true).Body.String(), "org-connector") {
+		t.Errorf("a viewer sees the picker")
+	}
+	if rec := r.viewer.do(t, "POST", pick, url.Values{"connector": {""}}, true); rec.Code != http.StatusForbidden {
+		t.Errorf("viewer save = %d, want 403", rec.Code)
+	}
+}

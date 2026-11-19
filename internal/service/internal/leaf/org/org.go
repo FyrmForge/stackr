@@ -243,7 +243,9 @@ func (l *Leaf) SetEnvColors(ctx context.Context, o store.Org, colors string) (st
 }
 
 // SetConfigRepo binds the org to its config file: repo as the
-// orchestrator spelled it (its connection), "" unbinds and clears the other four columns too.
+// orchestrator spelled it (its connection), "" unbinds and clears the other
+// three columns too. The org's connector is its own: a bind that names none
+// and an unbind keep it.
 func (l *Leaf) SetConfigRepo(
 	ctx context.Context,
 	o store.Org,
@@ -251,16 +253,23 @@ func (l *Leaf) SetConfigRepo(
 	auto bool,
 ) (store.Org, error) {
 	o.ConfigRepo = strings.TrimSpace(repo)
-	o.ConfigConnectorID = ""
 	o.ConfigBranch = ""
 	o.ConfigPath = ""
 	o.ConfigAuto = false
 	if o.ConfigRepo != "" {
-		o.ConfigConnectorID = connectorID
+		if connectorID != "" {
+			o.ConfigConnectorID = connectorID
+		}
 		o.ConfigBranch = branch
 		o.ConfigPath = path
 		o.ConfigAuto = auto
 	}
+	return o, l.orgs.Update(ctx, o)
+}
+
+// SetConnector sets the connector the org's repositories clone through ("" = none).
+func (l *Leaf) SetConnector(ctx context.Context, o store.Org, connectorID string) (store.Org, error) {
+	o.ConfigConnectorID = connectorID
 	return o, l.orgs.Update(ctx, o)
 }
 

@@ -182,7 +182,11 @@ func (o *Orchestrator) gitUsages(ctx context.Context, c store.Connector) ([]Usag
 			continue
 		}
 		if og.ConfigConnectorID == c.ID {
-			u, err := o.usageOf(ctx, ScopeOrg, og.ID, "config file from "+repoAt(og.ConfigRepo, og.ConfigBranch))
+			what := "its repositories"
+			if og.ConfigRepo != "" {
+				what = "config file from " + repoAt(og.ConfigRepo, og.ConfigBranch)
+			}
+			u, err := o.usageOf(ctx, ScopeOrg, og.ID, what)
 			if err != nil {
 				return nil, err
 			}

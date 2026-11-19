@@ -434,6 +434,21 @@ func (o *Orchestrator) ConnectedConnectors(ctx context.Context, orgID string) ([
 	return o.conns.ListConnected(ctx, orgID)
 }
 
+// SetOrgConnector picks the connector the org's repositories clone through
+// ("" = none): its own or a server one shared with it. It needs no config repo.
+func (o *Orchestrator) SetOrgConnector(ctx context.Context, orgID, connectorID string) (Org, error) {
+	og, err := o.orgs.Get(ctx, orgID)
+	if err != nil {
+		return og, err
+	}
+	if connectorID != "" {
+		if _, err := o.conns.Usable(ctx, og.ID, connectorID); err != nil {
+			return og, err // another org's connector is not there
+		}
+	}
+	return o.orgs.SetConnector(ctx, og, connectorID)
+}
+
 // OrgRepos is every repo the org's connected git connections can read, for
 // the setup wizard's install check and repo list. Two on one repo list it
 // once, and one its provider will not answer for is skipped, as v0 did: the

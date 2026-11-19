@@ -788,7 +788,7 @@ func (w *serverWalk) orgs() error {
 }
 
 // bindOrg binds the org to the repo the file gives it. A file that names no
-// connector keeps the org's own, and drops a server one.
+// connector keeps the org's.
 func (w *serverWalk) bindOrg(slug string) error {
 	i := slices.IndexFunc(w.f.Orgs, func(o serverconfig.Org) bool { return o.Slug == slug })
 	if i < 0 {
@@ -806,20 +806,9 @@ func (w *serverWalk) bindOrg(slug string) error {
 			return fmt.Errorf("no server connector named %s", fo.Connector)
 		}
 		connID = id
-	} else if w.connectorName(connID) != "" {
-		connID = ""
 	}
 	_, err = w.o.SetOrgConfigRepo(w.ctx, og.ID, connID, fo.Repo, fo.Branch, fo.Path, fo.Auto)
 	return err
-}
-
-// connectorName is a server connector's name by id; "" when it is not one.
-func (w *serverWalk) connectorName(id string) string {
-	i := slices.IndexFunc(w.live.Connectors, func(c serverconfig.ConnectorLive) bool { return c.Connector.ID == id })
-	if i < 0 {
-		return ""
-	}
-	return w.live.Connectors[i].Connector.Name
 }
 
 // removals applies the removal rows the approver ticked (the plan was cut to

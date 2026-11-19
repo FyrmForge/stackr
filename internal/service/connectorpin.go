@@ -15,7 +15,7 @@ const keyConnectorPin = "compat.connector_pin"
 // picking a connector by host. It writes today's host pick into the empty
 // connector id of each bound org and stack, so nothing clones through another
 // connector at the upgrade. Only empty ids, only that column (no plan is
-// queued), DB only. An org plan then shows a stack whose file names none and
+// queued), DB only. An org with no config repo gets the pick of its one host. An org plan then shows a stack whose file names none and
 // whose pin differs from what it inherits as a connector rebind. A failure is
 // logged and start goes on; the marker is set only after a clean pass.
 func (o *Orchestrator) pinConnectors(ctx context.Context) {
@@ -54,6 +54,11 @@ func (o *Orchestrator) pinConnectorsPass(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if og.ConfigRepo == "" && og.ConfigConnectorID == "" {
+			if err := o.pinRepolessOrg(ctx, og, sts, conns); err != nil {
+				return err
+			}
+		}
 		for _, st := range sts {
 			if st.ConfigRepo != "" && st.ConfigConnectorID == "" {
 				if c, err := connector.LegacyByHost(conns, connector.Host(st.ConfigRepo)); err == nil {
@@ -66,6 +71,37 @@ func (o *Orchestrator) pinConnectorsPass(ctx context.Context) error {
 			if err := o.warnTileSwitch(ctx, og, st, conns); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// pinRepolessOrg gives an org with no config repo the connector its tiles and
+// stacks cloned through by host, when they all used one host and it picks one
+// connector; else it is left empty, as it did not clone before either.
+func (o *Orchestrator) pinRepolessOrg(ctx context.Context, og store.Org, sts []store.Stack, conns []store.Connector) error {
+	hosts := map[string]bool{}
+	for _, st := range sts {
+		if st.ConfigRepo != "" {
+			hosts[connector.Host(st.ConfigRepo)] = true
+		}
+		ts, err := o.tiles.ListByStack(ctx, st.ID)
+		if err != nil {
+			return err
+		}
+		for _, t := range ts {
+			if t.GitURL != "" {
+				hosts[connector.Host(t.GitURL)] = true
+			}
+		}
+	}
+	if len(hosts) != 1 {
+		return nil
+	}
+	for h := range hosts {
+		if c, err := connector.LegacyByHost(conns, h); err == nil {
+			og.ConfigConnectorID = c.ID
+			return o.store.Orgs.Update(ctx, og)
 		}
 	}
 	return nil

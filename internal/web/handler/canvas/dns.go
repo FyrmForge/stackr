@@ -75,6 +75,10 @@ func (h *handler) mountDNS(site *echo.Group, a *middleware.Access) {
 		}
 		return owner
 	})
+	site.POST(conn+"/pick", h.orgAction("connectors", func(c echo.Context, og *service.Org) (string, error) {
+		_, err := h.orch.SetOrgConnector(c.Request().Context(), og.ID, c.FormValue("connector"))
+		return "", err
+	}), owner)
 	h.panel().MountDNS(site, "/:org/-/drawer/dns", a.Require("dns.manage"))
 	// the picker offers what the viewer may add (kinds)
 	site.GET(conn+"/new", h.newOrgConnector, write)
@@ -144,6 +148,17 @@ func (h *handler) connectorsTab(c echo.Context, og *service.Org) (templ.Componen
 			ID: k.ID, Kind: h.kindLabel(k.Kind), Name: k.Name, Summary: "Shared by the server",
 			Drawer: orgSlug(c) + "/-/connectors/" + k.ID, Push: "?drawer=connector:" + k.ID,
 		})
+	}
+	if can(c, middleware.ScopeOf(c), "connector.manage") {
+		p := &connectors.Pick{Action: orgSlug(c) + "/-/drawer/connectors/pick", Target: "#" + comp.DrawerRoot, Value: og.ConfigConnectorID}
+		for _, k := range shared {
+			label := k.Name + " (" + k.Host + ")"
+			if k.OrgID == nil {
+				label += ", server"
+			}
+			p.Options = append(p.Options, comp.Option{Value: k.ID, Label: label})
+		}
+		v.Pick = p
 	}
 	var open templ.Component
 	if c.QueryParam("add") != "" {

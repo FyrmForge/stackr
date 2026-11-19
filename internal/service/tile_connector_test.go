@@ -82,3 +82,33 @@ func TestTileConnectorFallsBackToStack(t *testing.T) {
 		t.Errorf("cloneEnv with no connector: %v", err)
 	}
 }
+
+// An org with no config repo and its own connector: a tile that names none
+// clones through it.
+func TestTileInRepolessOrgUsesOrgConnector(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	orch, _, _ := newPinRig(t)
+	if err := orch.store.Orgs.Create(ctx, store.Org{
+		ID: "o2", Name: "solo", Slug: "solo", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := orch.store.Connectors.Create(ctx, store.Connector{
+		ID: "own", Kind: "github", Capabilities: store.StringList{"git"}, Name: "own", Host: "github.com",
+		OrgID: new("o2"), Settings: `{"app":{"id":1,"slug":"own","webhook_secret":"s"}}`, CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	url := "https://github.com/solo/api"
+	if got := orch.tileConnector(ctx, store.Stack{OrgID: "o2"}, url); got != "" {
+		t.Errorf("before the pick the tile uses %q", got)
+	}
+	og, _ := orch.orgs.Get(ctx, "o2")
+	if _, err := orch.orgs.SetConnector(ctx, og, "own"); err != nil {
+		t.Fatal(err)
+	}
+	if got := orch.tileConnector(ctx, store.Stack{OrgID: "o2"}, url); got != "own" {
+		t.Errorf("tile uses %q, want the org's", got)
+	}
+}

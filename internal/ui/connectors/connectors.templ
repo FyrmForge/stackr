@@ -30,6 +30,14 @@ type ListView struct {
 	Live               string          // a GET whose answer holds #connectors-list, polled; "" = static
 	Bare               bool            // the rows sit straight in the page: no card, title or top button (the wizard)
 	Empty              templ.Component // Bare, with no rows: the choices that start one (nil = an Add button)
+	Pick               *Pick           // the org's connector for its repositories (nil = not shown)
+}
+
+// Pick is the org's connector picker: POST Action with connector=<id> on
+// change, the answer replacing Target. Value "" = none.
+type Pick struct {
+	Action, Target, Value string
+	Options               []c.Option
 }
 
 // Row is one connector, a card: Kind as its title, Name under it, a status
@@ -101,6 +109,9 @@ templ List(v ListView) {
 			}
 			@c.Section(v.Title, v.Scope, v.Help) {
 				@synced(v.Synced)
+				if v.Pick != nil {
+					@pick(*v.Pick)
+				}
 				if len(v.Rows) == 0 {
 					<p class="text-sm text-rw-faint mb-4">No connectors yet.</p>
 				} else {
@@ -129,6 +140,19 @@ templ bare(v ListView) {
 	if v.Add != "" && (len(v.Rows) > 0 || v.Empty == nil) {
 		<button type="button" class={ "btn btn-sm w-full", templ.KV("btn-ghost", len(v.Rows) > 0), templ.KV("btn-primary", len(v.Rows) == 0) } hx-get={ v.Add } hx-target={ "#" + SlotID }>{ addLabel(v) }</button>
 	}
+}
+
+templ pick(p Pick) {
+	<form hx-post={ p.Action } hx-trigger="change" hx-target={ p.Target } hx-swap="outerHTML" novalidate data-nosubmit class="pb-4 mb-4 border-b border-rw-border">
+		<label class="label" for="org-connector">Connector for this organization's repositories</label>
+		<select id="org-connector" name="connector" class="input">
+			<option value="" selected?={ p.Value == "" }>None</option>
+			for _, o := range p.Options {
+				<option value={ o.Value } selected?={ o.Value == p.Value }>{ o.Label }</option>
+			}
+		</select>
+		<p class="text-xs text-rw-faint mt-1">Used by stacks and tiles that name no connector.</p>
+	</form>
 }
 
 templ synced(msg string) {

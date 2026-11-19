@@ -139,11 +139,17 @@ func TestServerConnectorSharing(t *testing.T) {
 	if err := o.DeleteServerConnector(ctx, r.srv); !isConflict(err) {
 		t.Errorf("delete while an org binds it = %v", err)
 	}
-	if _, err := o.SetOrgConfigRepo(ctx, r.acme, "", "", "", "", false); err != nil {
+	if og, err := o.SetOrgConfigRepo(ctx, r.acme, "", "", "", "", false); err != nil || og.ConfigConnectorID != r.srv {
+		t.Fatalf("unbind = %+v %v; want the org's connector kept", og, err)
+	}
+	if _, err := o.ShareConnector(ctx, nil, r.srv, nil, false); !isConflict(err) {
+		t.Errorf("revoke after unbind = %v; the org's connector still names it", err)
+	}
+	if _, err := o.SetOrgConnector(ctx, r.acme, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := o.ShareConnector(ctx, nil, r.srv, nil, false); err != nil {
-		t.Errorf("revoke after unbind = %v", err)
+		t.Errorf("revoke after clearing = %v", err)
 	}
 	// a stack's config repo and the server file's binding count too
 	if err := o.SetSettings(ctx, map[string]string{"server_config_connector": r.srv}); err != nil {
@@ -394,5 +400,35 @@ func TestMakeServerConnectorNameTaken(t *testing.T) {
 	}
 	if cs, _ := o.Connectors(ctx, r.acme); len(cs) != 1 || cs[0].ID != own || cs[0].Shared {
 		t.Errorf("the connector left the org: %+v", cs)
+	}
+}
+
+// The org picks its connector with no config repo; another org's or a server
+// one not shared with it is not there; a bind or unbind that names none keeps it.
+func TestSetOrgConnector(t *testing.T) {
+	ctx := context.Background()
+	r := newServerRig(t)
+	o := r.env.Orch
+	own := r.env.Connector(t, r.acme, "whsec")
+	if og, err := o.SetOrgConnector(ctx, r.acme, own); err != nil || og.ConfigConnectorID != own {
+		t.Fatalf("pick = %+v %v", og, err)
+	}
+	if _, err := o.SetOrgConnector(ctx, r.other, own); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("another org's connector = %v", err)
+	}
+	if _, err := o.SetOrgConnector(ctx, r.acme, r.srv); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("a server connector not shared with it = %v", err)
+	}
+	if _, err := o.ShareConnector(ctx, nil, r.srv, []string{r.acme}, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.SetOrgConnector(ctx, r.acme, r.srv); err != nil {
+		t.Errorf("a shared server connector = %v", err)
+	}
+	if og, err := o.SetOrgConfigRepo(ctx, r.acme, "", "acme/org", "", "", false); err != nil || og.ConfigConnectorID != r.srv {
+		t.Errorf("a bind naming none = %+v %v; want the pick kept", og, err)
+	}
+	if og, err := o.SetOrgConnector(ctx, r.acme, ""); err != nil || og.ConfigConnectorID != "" {
+		t.Errorf("clear = %+v %v", og, err)
 	}
 }

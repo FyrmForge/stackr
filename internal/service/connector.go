@@ -241,7 +241,11 @@ func (o *Orchestrator) connectorBindings(ctx context.Context, id string) ([]bind
 	}
 	for _, og := range ogs {
 		if og.ConfigConnectorID == id {
-			out = append(out, binding{og.ID, fmt.Sprintf("The config file of organization %s", og.Slug)})
+			what := fmt.Sprintf("The config file of organization %s", og.Slug)
+			if og.ConfigRepo == "" {
+				what = fmt.Sprintf("The repositories of organization %s", og.Slug)
+			}
+			out = append(out, binding{og.ID, what})
 		}
 		sts, err := o.stacks.List(ctx, og.ID)
 		if err != nil {

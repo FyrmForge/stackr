@@ -157,3 +157,46 @@ func TestRepoWarning(t *testing.T) {
 		t.Errorf("failed list warned: %q", w)
 	}
 }
+
+// An org with no config repo gets the pick of the one host its stacks use; two
+// hosts leave it empty.
+func TestPinConnectorsRepolessOrg(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	orch, _, _ := newPinRig(t)
+	for _, id := range []string{"o2", "o3"} {
+		if err := orch.store.Orgs.Create(ctx, store.Org{
+			ID: id, Name: id, Slug: id, EnvColors: "{}", Settings: "{}", CreatedAt: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := orch.store.Connectors.Create(ctx, store.Connector{
+			ID: "gh-" + id, Kind: "github", Capabilities: store.StringList{"git"}, Name: id, Host: "github.com",
+			OrgID: new(id), Settings: `{"app":{"id":1,"slug":"x","webhook_secret":"s"}}`, CreatedAt: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stack := func(org, slug, repo string) {
+		st, err := orch.stacks.Create(ctx, org, slug, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.ConfigRepo = repo
+		if err := orch.store.Stacks.Update(ctx, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stack("o2", "a", "https://github.com/o2/a")
+	stack("o3", "a", "https://github.com/o3/a")
+	stack("o3", "b", "https://gitlab.com/o3/b")
+	if err := orch.store.Settings.Delete(ctx, keyConnectorPin); err != nil {
+		t.Fatal(err)
+	}
+	orch.pinConnectors(ctx)
+	for id, want := range map[string]string{"o2": "gh-o2", "o3": ""} {
+		if og, _ := orch.orgs.Get(ctx, id); og.ConfigConnectorID != want {
+			t.Errorf("org %s pin = %q, want %q", id, og.ConfigConnectorID, want)
+		}
+	}
+}

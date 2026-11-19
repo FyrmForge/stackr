@@ -433,6 +433,23 @@ orgs:
 		t.Errorf("replan = %+v, %v; want clean", again, err)
 	}
 
+	// an entry naming no connector keeps the org's: no row, and an apply that changes the branch keeps it
+	const bare = "version: 1\nconnectors:\n  - name: gh\n    share:\n      - acme\norgs:\n  - slug: acme\n    repo: acme/org\n"
+	if again, err := r.env.Orch.PlanServerFile(ctx, []byte(bare)); err != nil || again.Status != "clean" {
+		t.Errorf("entry without connector: = %+v, %v; want clean", again, err)
+	}
+	pl, err = r.env.Orch.PlanServerFile(ctx, []byte(bare+"    branch: dev\n"))
+	if err != nil || strings.Contains(pl.Plan, `"field":"connector"`) {
+		t.Fatalf("plan = %+v, %v; want no connector row", pl, err)
+	}
+	if _, err := r.env.Orch.ApproveServerPlan(ctx, pl.ID, service.ApproveOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	r.applied(t, pl.ID)
+	if og, _ = r.env.Store.Orgs.Get(ctx, acme); og.ConfigBranch != "dev" || og.ConfigConnectorID != r.conn {
+		t.Errorf("org = branch %q via %q; want dev through the kept connector", og.ConfigBranch, og.ConfigConnectorID)
+	}
+
 	// dropped from the file: unbinding is a removal row, kept unless ticked
 	pl, err = r.env.Orch.PlanServerFile(ctx, []byte("version: 1\norgs: []\n"))
 	if err != nil || !strings.Contains(pl.Plan, `"key":"org-binding:acme"`) {
@@ -442,8 +459,8 @@ orgs:
 		t.Fatal(err)
 	}
 	r.applied(t, pl.ID)
-	if og, _ = r.env.Store.Orgs.Get(ctx, acme); og.ConfigRepo != "" {
-		t.Errorf("org still bound to %q after the ticked removal", og.ConfigRepo)
+	if og, _ = r.env.Store.Orgs.Get(ctx, acme); og.ConfigRepo != "" || og.ConfigConnectorID != r.conn {
+		t.Errorf("org = %q via %q after the ticked removal; want unbound, connector kept", og.ConfigRepo, og.ConfigConnectorID)
 	}
 }
 
