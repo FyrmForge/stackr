@@ -164,14 +164,17 @@ type Rung struct {
 }
 
 // Show is what the server draws; the look toggles are the element's.
-type Show struct{ System, Refs, Startup, Traffic bool }
+// Operated draws the ghost card of an operated tile in another env that a
+// slice here is cut from (off by default).
+type Show struct{ System, Refs, Startup, Traffic, Operated bool }
 
 // All draws everything.
 var All = Show{
-	System:  true,
-	Refs:    true,
-	Startup: true,
-	Traffic: true,
+	System:   true,
+	Refs:     true,
+	Startup:  true,
+	Traffic:  true,
+	Operated: true,
 }
 
 // In is one build: status=false skips every Docker read (positions and the
@@ -1124,6 +1127,13 @@ func filter(v *View, s Show) {
 	}
 	if !s.Traffic {
 		drop[KindInternet] = true
+	}
+	if !s.Operated {
+		for _, n := range v.Nodes {
+			if n.Kind == KindRef {
+				drop[n.ID] = true
+			}
+		}
 	}
 	nodes := v.Nodes[:0]
 	for _, n := range v.Nodes {

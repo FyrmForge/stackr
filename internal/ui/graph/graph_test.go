@@ -54,6 +54,9 @@ func TestCanvasChrome(t *testing.T) {
 	if got := v.Toggle("refs"); got != "/acme/shop?refs=0" {
 		t.Errorf("Toggle(refs) = %q", got)
 	}
+	if got := v.Toggle("operated"); got != "/acme/shop?operated=1" {
+		t.Errorf("Toggle(operated) = %q", got)
+	}
 }
 
 // The compare pill's arrow says a rung with no release has none, not #0.

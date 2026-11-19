@@ -83,14 +83,16 @@ func where(c echo.Context) level {
 	return l
 }
 
-// show reads the query params: "<name>=0" turns a kind off.
+// show reads the query params: "<name>=0" turns a kind off; operated is
+// off unless "operated=1".
 func show(c echo.Context) service.GraphShow {
 	on := func(k string) bool { return c.QueryParam(k) != "0" }
 	return service.GraphShow{
-		System:  on("system"),
-		Refs:    on("refs"),
-		Startup: on("startup"),
-		Traffic: on("traffic"),
+		System:   on("system"),
+		Refs:     on("refs"),
+		Startup:  on("startup"),
+		Traffic:  on("traffic"),
+		Operated: c.QueryParam("operated") == "1",
 	}
 }
 
