@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
@@ -773,6 +774,7 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 	if err != nil {
 		return s, err
 	}
+	hasJob = hasJob && !parkedElsewhere(t, j)
 	up := 0
 	switch {
 	case tile.RunToCompletion(t.Kind):
@@ -865,6 +867,17 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		}
 	}
 	return s, nil
+}
+
+// parkedElsewhere: the job waits on a value this tile does not read (an
+// env-wide promote parked on another tile's param), so it says nothing of
+// this tile. A host-access approval is the tile's own.
+func parkedElsewhere(t store.Tile, j store.Job) bool {
+	if j.State != job.Waiting || j.WaitingParam == nil {
+		return false
+	}
+	_, approval := hostgrant.Parse(*j.WaitingParam)
+	return !approval && !readsParam(t, *j.WaitingParam)
 }
 
 // tagState is a generation's dot word: the outgoing one is neutral whatever

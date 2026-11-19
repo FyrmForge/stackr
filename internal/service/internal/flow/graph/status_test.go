@@ -136,3 +136,19 @@ func TestGenerationsJobs(t *testing.T) {
 		}
 	}
 }
+
+func TestParkedElsewhere(t *testing.T) {
+	param := "park.key"
+	parked := store.Job{Kind: "promote", State: "waiting", WaitingParam: &param}
+	reader := store.Tile{Slug: "app", EnvJSON: `{"K":"${{ params.park.key }}"}`}
+	other := store.Tile{Slug: "web", EnvJSON: `{}`}
+	if parkedElsewhere(reader, parked) {
+		t.Error("the tile that reads the param waits")
+	}
+	if !parkedElsewhere(other, parked) {
+		t.Error("a tile that does not read the param ignores the parked job")
+	}
+	if parkedElsewhere(other, store.Job{Kind: "deploy", State: "failed", WaitingParam: &param}) {
+		t.Error("only a waiting job is ignored")
+	}
+}
