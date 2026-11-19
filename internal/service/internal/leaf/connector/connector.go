@@ -459,6 +459,22 @@ func Resolve(conns []store.Connector, named, host string) (store.Connector, erro
 	}
 }
 
+// TieBreak is the connector id a clone of a repo on host names when several
+// shared server connectors serve it: the stack's config connector, if it is in
+// conns and serves the host too. "" lets Resolve pick by host.
+func TieBreak(conns []store.Connector, configID, host string) string {
+	if configID == "" {
+		return ""
+	}
+	if _, err := Resolve(conns, "", host); !errors.As(err, &Ambiguous{}) {
+		return ""
+	}
+	if i := slices.IndexFunc(conns, func(c store.Connector) bool { return c.ID == configID && c.Host == host }); i >= 0 {
+		return configID
+	}
+	return ""
+}
+
 // CloneEnv is the environment that authenticates a fetch of gitURL
 // through c. The credential never lands in argv or .git/config.
 func (l *Leaf) CloneEnv(ctx context.Context, c store.Connector, gitURL string) ([]string, error) {

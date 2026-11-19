@@ -383,6 +383,10 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 		}
 		v.Nodes = append(v.Nodes, n)
 	}
+	live, err := f.Conns.ListConnected(ctx, orgID)
+	if err != nil {
+		return err
+	}
 	ss, err := f.orgScopes(ctx, orgID)
 	if err != nil {
 		return err
@@ -453,7 +457,7 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 		// One source line per connector the stack reads: its stack file or a
 		// tile's build repo, usually the same repo.
 		for _, c := range cs {
-			if (c.ID == st.ConfigConnectorID && st.ConfigRepo != "") || buildsFrom(ts, c.Host) {
+			if (c.ID == st.ConfigConnectorID && st.ConfigRepo != "") || buildsVia(ts, live, st.ConfigConnectorID, c.ID) {
 				v.Edges = append(v.Edges, Edge{EdgeSource, "connector:" + c.ID, n.ID})
 			}
 		}
@@ -639,9 +643,17 @@ func envScope(e store.Environment) params.Scope {
 	return params.Scope{Kind: "env", ID: e.ID}
 }
 
-func buildsFrom(ts []store.Tile, host string) bool {
+// buildsVia: a tile of ts clones through connector id, resolved as a clone
+// does (connector.Resolve, the config connector breaking a shared tie). An
+// unresolved or ambiguous host draws no line.
+func buildsVia(ts []store.Tile, live []store.Connector, configID, id string) bool {
 	return slices.ContainsFunc(ts, func(t store.Tile) bool {
-		return t.GitURL != "" && connector.Host(t.GitURL) == host
+		if t.GitURL == "" {
+			return false
+		}
+		h := connector.Host(t.GitURL)
+		c, err := connector.Resolve(live, connector.TieBreak(live, configID, h), h)
+		return err == nil && c.ID == id
 	})
 }
 

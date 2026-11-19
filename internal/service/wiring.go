@@ -336,14 +336,11 @@ func (o *Orchestrator) tileConnector(ctx context.Context, st store.Stack, url st
 	if o.gitEnv != nil || st.ConfigConnectorID == "" {
 		return ""
 	}
-	if _, err := o.conns.For(ctx, st.OrgID, url); !errors.As(err, &connector.Ambiguous{}) {
+	cs, err := o.conns.ListConnected(ctx, st.OrgID)
+	if err != nil {
 		return ""
 	}
-	c, err := o.conns.Usable(ctx, st.OrgID, st.ConfigConnectorID)
-	if err != nil || !connector.Connected(c) || c.Host != connector.Host(url) {
-		return ""
-	}
-	return c.ID
+	return connector.TieBreak(cs, st.ConfigConnectorID, connector.Host(url))
 }
 
 // stackFile is promote's Config: the stack file at commit of the config repo,
