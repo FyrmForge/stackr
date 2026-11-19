@@ -201,3 +201,10 @@ func TestFooterNote(t *testing.T) {
 		}
 	}
 }
+
+// The internet box reads Live while its egress carries traffic.
+func TestFooterLive(t *testing.T) {
+	if out := render(t, Footer("n1", FooterView{Kind: "internet", Status: "live"})); !strings.Contains(out, ">Live<") {
+		t.Errorf("live internet footer: %s", out)
+	}
+}

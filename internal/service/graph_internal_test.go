@@ -68,6 +68,9 @@ func TestCanvasEgress(t *testing.T) {
 	var sys bool
 	for _, n := range v.Nodes {
 		sys = sys || (n.ID == "internet" && n.System)
+		if n.ID == "internet" && n.Status != "live" {
+			t.Errorf("the internet box with traffic flowing reads %q, want live", n.Status)
+		}
 	}
 	if !sys || len(v.Edges) != 1 || v.Edges[0] != (graph.Edge{Kind: "egress", From: tl.ID, To: "internet"}) ||
 		!v.Walled {
@@ -82,6 +85,11 @@ func TestCanvasEgress(t *testing.T) {
 	}
 	// A tile that reached out once and is quiet now keeps its box and line.
 	v, _ = orch.graph.Build(ctx, s, graph.In{Show: off, Outbound: []store.TileOutbound{{TileID: tl.ID, LastSeen: time.Now(), Bytes: 9}}})
+	for _, n := range v.Nodes {
+		if n.ID == "internet" && n.Status != "" {
+			t.Errorf("a quiet internet box reads %q, want idle (no status)", n.Status)
+		}
+	}
 	if len(v.Edges) != 1 || v.Edges[0] != (graph.Edge{Kind: "egress", From: tl.ID, To: "internet"}) || len(v.Nodes) != 2 {
 		t.Errorf("idle: nodes %+v edges %+v, want the egress edge and the box", v.Nodes, v.Edges)
 	}

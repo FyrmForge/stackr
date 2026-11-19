@@ -1123,9 +1123,11 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	for _, o := range in.Outbound {
 		reach(o.TileID)
 	}
+	flowing := false
 	for _, l := range in.Traffic {
 		if l.To == ltraffic.Internet {
 			reach(l.From)
+			flowing = flowing || l.BPS > 0
 		}
 	}
 	if proxied {
@@ -1134,6 +1136,9 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	if len(egress) > 0 {
 		n := card(KindInternet, KindInternet, "Internet")
 		n.Detail, n.System = "outbound", true
+		if flowing {
+			n.Status = "live" // its egress edge shows live rates, so the box says so
+		}
 		v.Nodes = append(v.Nodes, n)
 	}
 	return nil
