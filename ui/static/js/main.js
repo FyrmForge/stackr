@@ -470,8 +470,9 @@ document.addEventListener('input', function (evt) {
         held = Array.prototype.map.call(evt.target.querySelectorAll('details[open][data-id]'), function (d) { return d.dataset.id; });
     });
     document.addEventListener('htmx:afterSwap', function (evt) {
-        var b = evt.detail.target;
-        if (!b || b.id !== 'rel-body') return;
+        // an SSE swap sets no detail.target; the event's own target is the swapped node
+        var b = evt.target && evt.target.closest && evt.target.closest('#rel-body');
+        if (!b) return;
         held.forEach(function (id) {
             var d = b.querySelector('details[data-id="' + id + '"]');
             if (d) d.open = true;
