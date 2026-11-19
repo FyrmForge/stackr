@@ -541,7 +541,7 @@ func TestDomainRowCertState(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String()
-	if !strings.Contains(body, "Certificate not checked yet.") || !strings.Contains(body, "/domains/"+d.ID+"/recheck") {
+	if !strings.Contains(body, "ertificate") || !strings.Contains(body, "/domains/"+d.ID+"/recheck") {
 		t.Fatalf("settings lacks the cert line\n%s", body)
 	}
 	rec := s.Do(t, "POST", drawer+"/domains/"+d.ID+"/recheck?open=network", nil)

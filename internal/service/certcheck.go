@@ -170,6 +170,14 @@ func (o *Orchestrator) hostCertAlerts(ctx context.Context) {
 			id, host, _ := strings.Cut(rest, ".")
 			return slices.ContainsFunc(inv[id], func(h certHost) bool { return h.Host == host })
 		})
+		// a host that left the inventory (detached, node no longer ingress) has no state to show or to wait on
+		o.certStates.Range(func(k, _ any) bool {
+			id, host, _ := strings.Cut(k.(string), "\x00")
+			if !slices.ContainsFunc(inv[id], func(h certHost) bool { return h.Host == host }) {
+				o.certStates.Delete(k)
+			}
+			return true
+		})
 	}
 	for nodeID, hosts := range inv {
 		n, err := o.store.Nodes.Get(ctx, nodeID)
@@ -198,17 +206,26 @@ const (
 type CertState struct {
 	Status    string
 	Reason    string    // CertFailed: what is wrong
+	Soon      bool      // CertValid, inside the renewal warning window: it renews soon
 	NotAfter  time.Time // the certificate's end, when one was read
 	CheckedAt time.Time
 }
 
-// CertState is the last probe of host; false = not checked yet.
+// CertState is the last probe of host; false = not checked yet. States are
+// kept per (node, host); a host on several ingress nodes shows its worst.
 func (o *Orchestrator) CertState(host string) (CertState, bool) {
-	v, ok := o.certStates.Load(host)
-	if !ok {
-		return CertState{}, false
-	}
-	return v.(CertState), true
+	var out CertState
+	var found bool
+	rank := map[string]int{CertValid: 0, CertWaiting: 1, CertFailed: 2}
+	o.certStates.Range(func(k, v any) bool {
+		if _, h, _ := strings.Cut(k.(string), "\x00"); h == host {
+			if st := v.(CertState); !found || rank[st.Status] > rank[out.Status] {
+				out, found = st, true
+			}
+		}
+		return true
+	})
+	return out, found
 }
 
 // checkCert probes one host on node n, keeps the state and raises or clears
@@ -223,12 +240,15 @@ func (o *Orchestrator) checkCert(ctx context.Context, n store.Node, addr string,
 		st.NotAfter = c.NotAfter
 	}
 	switch {
+	case problem != "" && c != nil && err == nil && c.VerifyHostname(h.Host) == nil && now.Before(c.NotAfter) && !now.Before(c.NotBefore):
+		// only the renewal window (the alert below still fires): a good certificate, renewing
+		st.Soon = true
 	case problem != "":
 		st.Status = CertFailed
 	case err != nil || c.VerifyHostname(h.Host) != nil:
 		st.Status = CertWaiting
 	}
-	o.certStates.Store(h.Host, st)
+	o.certStates.Store(n.ID+"\x00"+h.Host, st)
 	o.certHostAlert(ctx, n, h.Host, problem)
 	return st
 }
@@ -271,7 +291,9 @@ func (o *Orchestrator) recheckFailingCerts(ctx context.Context) {
 	rows, err := o.store.Settings.ListPrefix(ctx, "alert.certfail.")
 	waiting := false
 	o.certStates.Range(func(_, v any) bool { waiting = waiting || v.(CertState).Status == CertWaiting; return !waiting })
-	if err != nil || (len(rows) == 0 && !waiting) || !o.certRecheck.CompareAndSwap(false, true) {
+	// the first call after boot probes too, so no row reads "not checked yet" for a day
+	boot := o.certBooted.CompareAndSwap(false, true)
+	if err != nil || (len(rows) == 0 && !waiting && !boot) || !o.certRecheck.CompareAndSwap(false, true) {
 		return
 	}
 	o.detach(ctx, func(ctx context.Context) {

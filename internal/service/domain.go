@@ -117,7 +117,12 @@ func (o *Orchestrator) AttachDomainReplace(ctx context.Context, tileID string, s
 	if err != nil {
 		return d, err
 	}
-	return redact(d), o.noted(ctx, o.syncWithDNS(ctx, zone, d.Host, replace), securitylog.DomainAttach, "domain", d.ID, "host="+d.Host)
+	err = o.syncWithDNS(ctx, zone, d.Host, replace)
+	if err == nil && d.HTTPS {
+		// probe now, so the row is not "not checked yet" until the next daily pass
+		o.detach(ctx, func(ctx context.Context) { _, _ = o.RecheckCert(ctx, tileID, d.Host) })
+	}
+	return redact(d), o.noted(ctx, err, securitylog.DomainAttach, "domain", d.ID, "host="+d.Host)
 }
 
 // checkManagedHost is the managed domain host sits in ("" = none) when the
