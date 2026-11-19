@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -134,6 +135,9 @@ type ClusterEgress struct {
 type ClusterBackup struct {
 	ID, Name string
 	Nodes    []string
+	// Addr is the endpoint's IP: the host itself when an address, else what
+	// the name resolves to; "" when it does not resolve.
+	Addr string
 }
 
 // clusterNodeIn is one node as gather saw it.
@@ -695,13 +699,31 @@ func (o *Orchestrator) clusterBackups(ctx context.Context, ctl string) ([]Cluste
 		if !ok {
 			i = len(out)
 			at[d.ID] = i
-			out = append(out, ClusterBackup{ID: d.ID, Name: d.Name})
+			out = append(out, ClusterBackup{ID: d.ID, Name: d.Name, Addr: endpointAddr(ctx, d.Endpoint)})
 		}
 		if !slices.Contains(out[i].Nodes, nodeID) {
 			out[i].Nodes = append(out[i].Nodes, nodeID)
 		}
 	}
 	return out, nil
+}
+
+// endpointAddr is the IP an S3 endpoint URL points at, so the map can put the
+// destination in the network that holds it; "" when there is none.
+func endpointAddr(ctx context.Context, endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	h := u.Hostname()
+	if a, err := netip.ParseAddr(h); err == nil {
+		return a.String()
+	}
+	as, err := resolveHost(ctx, h)
+	if err != nil || len(as) == 0 {
+		return ""
+	}
+	return as[0] // ponytail: first answer; a name with many addresses is placed by the first
 }
 
 // factsFor is what a node reported last and when; a node that is slow keeps

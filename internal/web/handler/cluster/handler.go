@@ -260,7 +260,7 @@ func mapMap(cm service.ClusterMap) cluster.Map {
 		m.Egress = append(m.Egress, cluster.Egress{From: e.From, To: e.To, Envs: e.Envs})
 	}
 	for _, b := range cm.Backups {
-		m.Backups = append(m.Backups, cluster.Backup{ID: b.ID, Name: b.Name, Nodes: b.Nodes})
+		m.Backups = append(m.Backups, cluster.Backup{ID: b.ID, Name: b.Name, Nodes: b.Nodes, Addr: b.Addr})
 	}
 	return m
 }
