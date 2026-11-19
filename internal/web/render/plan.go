@@ -56,5 +56,5 @@ func PlanOrigin(source string) string {
 // each), confirm is set once the approver said yes to the impact lines.
 func ApproveOpts(c echo.Context) service.ApproveOpts {
 	vals, _ := c.FormParams()
-	return service.ApproveOpts{Ticked: vals["ticked"], Confirm: c.FormValue("confirm") != ""}
+	return service.ApproveOpts{Ticked: vals["ticked"], Confirm: c.FormValue("confirm") != "", Keep: c.FormValue("keep") != ""}
 }

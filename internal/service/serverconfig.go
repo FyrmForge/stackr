@@ -153,7 +153,15 @@ func (o *Orchestrator) PlanServerFile(ctx context.Context, file []byte) (ServerP
 
 // ServerPlans is the newest server plans, newest first, at most limit.
 func (o *Orchestrator) ServerPlans(ctx context.Context, limit int) ([]ServerPlan, error) {
-	return o.serverPlans.Latest(ctx, limit)
+	ps, err := o.serverPlans.Latest(ctx, limit)
+	for i, p := range ps {
+		if p.Status == orgplan.Applied {
+			if s, ok := appliedPlanSummary(p.Plan, p.Ticked); ok {
+				ps[i].Summary = s
+			}
+		}
+	}
+	return ps, err
 }
 
 func (o *Orchestrator) ServerPlan(ctx context.Context, id string) (ServerPlan, error) {

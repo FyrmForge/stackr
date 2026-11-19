@@ -103,7 +103,15 @@ func (o *Orchestrator) PreviewOrgConfig(ctx context.Context, orgID string, file 
 
 // OrgPlans is the org's newest plans, newest first, at most limit.
 func (o *Orchestrator) OrgPlans(ctx context.Context, orgID string, limit int) ([]OrgPlan, error) {
-	return o.orgPlans.ForOrg(ctx, orgID, limit)
+	ps, err := o.orgPlans.ForOrg(ctx, orgID, limit)
+	for i, p := range ps {
+		if p.Status == orgplan.Applied {
+			if s, ok := appliedPlanSummary(p.Plan, p.Ticked); ok {
+				ps[i].Summary = s
+			}
+		}
+	}
+	return ps, err
 }
 
 func (o *Orchestrator) OrgPlan(ctx context.Context, id string) (OrgPlan, error) {
