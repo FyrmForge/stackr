@@ -6,6 +6,7 @@ package releases
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -45,15 +46,14 @@ func (h *handler) Page(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	who := map[string]string{} // ponytail: the whole user list per render, as the canvas does
-	if us, err := h.orch.Users(ctx); err == nil {
-		for _, u := range us {
-			who[u.ID] = u.Name
-			if u.Name == "" {
-				who[u.ID] = u.Email
-			}
+	// names of the members of the orgs the rows belong to; never an email
+	var orgs []string
+	for _, r := range sc.Rows {
+		if r.OrgID != "" && !slices.Contains(orgs, r.OrgID) {
+			orgs = append(orgs, r.OrgID)
 		}
 	}
+	who, _ := h.orch.MemberNames(ctx, orgs...)
 	v := components.RelScreen{
 		Action: path, Live: c.Request().URL.RequestURI(), Scope: q.Scope, State: q.State, Source: q.Source, Q: q.Q, Total: sc.Total,
 	}

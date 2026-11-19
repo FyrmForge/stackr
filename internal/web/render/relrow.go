@@ -13,8 +13,11 @@ import (
 // SourceWord is who or what cut a release, as a person reads it: names maps
 // a user id to a name.
 func SourceWord(by string, names map[string]string) string {
-	if id, ok := strings.CutPrefix(by, "user:"); ok && names[id] != "" {
-		return names[id]
+	if id, ok := strings.CutPrefix(by, "user:"); ok { // a person; an unnamed one is no email
+		if names[id] != "" {
+			return names[id]
+		}
+		return "a member"
 	}
 	switch by {
 	case "push":

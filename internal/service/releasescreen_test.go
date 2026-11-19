@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,5 +104,38 @@ func TestReleaseScreenPlansAreOwnersOnly(t *testing.T) {
 	w.e.Member(t, w.acme, m, "member")
 	if r, s := plans(m); r != 0 || s != 0 {
 		t.Errorf("member sees %d plan rows, %d scopes, want 0, 0", r, s)
+	}
+}
+
+// Names for a release's source come from the members of the org only, and a
+// member with no display name has none: never their email.
+func TestMemberNamesNeverFallBackToEmail(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	named := w.e.User(t, "named@x.io", false)
+	blank := w.e.User(t, "blank@x.io", false)
+	outsider := w.e.User(t, "out2@x.io", false)
+	w.e.Member(t, w.acme, named, "member")
+	w.e.Member(t, w.acme, blank, "member")
+	for id, name := range map[string]string{named: "Nia", blank: ""} {
+		u, err := w.e.Store.Users.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.Name = name
+		if err := w.e.Store.Users.Update(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := w.e.Orch.MemberNames(ctx, w.acme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[named] != "Nia" || got[blank] != "" || got[outsider] != "" {
+		t.Errorf("names = %v: want Nia for the named member only, no email, no outsider", got)
+	}
+	if strings.Contains(got[blank], "@") {
+		t.Errorf("blank member shows as %q", got[blank])
 	}
 }

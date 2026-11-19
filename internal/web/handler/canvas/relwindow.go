@@ -21,13 +21,13 @@ type rowEnv struct {
 }
 
 // relRows maps the service's rows; of says which stack a row is of.
-func (h *handler) relRows(ctx context.Context, rows []service.WindowRow, of func(service.WindowRow) rowEnv) []comp.RelRow {
+func (h *handler) relRows(ctx context.Context, orgID string, rows []service.WindowRow, of func(service.WindowRow) rowEnv) []comp.RelRow {
 	var who map[string]string // loaded when a row names a person
 	var out []comp.RelRow
 	for _, r := range rows {
 		e := of(r)
 		if strings.HasPrefix(r.By, "user:") && who == nil {
-			who, _ = h.who(ctx)
+			who, _ = h.who(ctx, orgID)
 		}
 		row := render.RelRowOf(r, e.stack, who, e.envs, e.jobHref)
 		for _, rv := range r.Reviews {
@@ -112,7 +112,7 @@ func (h *handler) stackWindow(ctx context.Context, l level, gv service.GraphView
 		jobHref: func(id string) string { return stack + "/" + logEnv + "/-/jobs/" + id },
 		review:  reviewLink(l.base, stackID, envID, false, l.viewOnly),
 	}
-	w.Rows = h.relRows(ctx, win.Rows, func(service.WindowRow) rowEnv { return e })
+	w.Rows = h.relRows(ctx, l.org, win.Rows, func(service.WindowRow) rowEnv { return e })
 	return w
 }
 
@@ -154,7 +154,7 @@ func (h *handler) orgWindow(ctx context.Context, l level) *comp.RelWindow {
 			out = append(out, render.RelPlanRow(r, "org config", cfg, l.viewOnly))
 			continue
 		}
-		row := h.relRows(ctx, []service.WindowRow{r}, func(r service.WindowRow) rowEnv { return envs[r.StackID] })[0]
+		row := h.relRows(ctx, l.org, []service.WindowRow{r}, func(r service.WindowRow) rowEnv { return envs[r.StackID] })[0]
 		row.OfStack, row.Scope = true, envs[r.StackID].stack
 		if row.Number != "" {
 			row.Scope += " " + row.Number

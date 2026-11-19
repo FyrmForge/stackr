@@ -15,3 +15,13 @@ func TestRelPlanRowViewOnly(t *testing.T) {
 		t.Fatalf("owner label = %q", got)
 	}
 }
+
+// An unnamed user shows as "a member", not as their id.
+func TestSourceWordUnnamedUser(t *testing.T) {
+	if got := SourceWord("user:abc", map[string]string{"x": "Nia"}); got != "a member" {
+		t.Errorf("got %q", got)
+	}
+	if got := SourceWord("user:x", map[string]string{"x": "Nia"}); got != "Nia" {
+		t.Errorf("got %q", got)
+	}
+}

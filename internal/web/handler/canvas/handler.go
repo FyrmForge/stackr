@@ -42,6 +42,7 @@ var Every = 3 * time.Second
 // level is the canvas the request is on.
 type level struct {
 	scope service.CanvasScope
+	org   string // the org's id ("" on home), to name the people in its window
 	stack string // the stack's id on an env canvas, for its elevated access
 	base  string // "" on home
 	title string
@@ -58,6 +59,7 @@ func where(c echo.Context) level {
 	case sc.Env != nil:
 		return level{
 			scope: service.CanvasScope{Kind: service.CanvasEnv, ID: sc.Env.ID},
+			org:   sc.Org.ID,
 			stack: sc.Stack.ID,
 			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug,
 			title: sc.Env.Name,
@@ -68,6 +70,7 @@ func where(c echo.Context) level {
 	case sc.Stack != nil:
 		return level{
 			scope: service.CanvasScope{Kind: service.CanvasStack, ID: sc.Stack.ID},
+			org:   sc.Org.ID,
 			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug,
 			title: sc.Stack.Name,
 			empty: "This stack has no environments yet.",
@@ -77,6 +80,7 @@ func where(c echo.Context) level {
 	case sc.Org != nil:
 		return level{
 			scope: service.CanvasScope{Kind: service.CanvasOrg, ID: sc.Org.ID},
+			org:   sc.Org.ID,
 			base:  "/" + sc.Org.Slug,
 			title: sc.Org.Name,
 			empty: "This organization has no stacks yet. Create one to get started.",
