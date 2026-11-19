@@ -278,6 +278,11 @@ templ Banners(s Shell) {
 				@PushFailed(*s.PushFailed)
 			</div>
 		}
+		if len(s.Lines) > 0 {
+			<div class="px-4 sm:px-6 pt-3">
+				@LiveLines(s.Lines)
+			</div>
+		}
 		if s.Upgrading {
 			<div id="upgrading" role="status" class="border-b border-rw-warn/40 bg-rw-warn/10 px-4 sm:px-6 py-2 text-sm text-rw-warn">
 				The panel is upgrading. New jobs wait until it is back.

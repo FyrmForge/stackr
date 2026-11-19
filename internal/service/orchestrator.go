@@ -893,6 +893,16 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				return f.JobID, f.Error, ok
 			},
 			Stop: orch.RolloutStop,
+			Building: func(ctx context.Context, stackID string) (string, string, time.Time, bool, bool) {
+				b, ok := orch.Building(ctx, stackID)
+				return b.JobID, b.Sha, b.Started, b.Queued, ok
+			},
+			Parked: func(ctx context.Context, stackID, envID string) (string, string, bool) {
+				if ps := orch.ParkedOn(ctx, stackID, envID); len(ps) > 0 {
+					return ps[0].Param, ps[0].Href, true
+				}
+				return "", "", false
+			},
 		}
 	})
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {

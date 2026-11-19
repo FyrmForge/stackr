@@ -36,6 +36,9 @@ type Shell struct {
 	// PushFailed is the env page's line after its stack's last push failed;
 	// nil = none.
 	PushFailed *PushFailView
+	// Lines is the env page's work in progress: the push building, the value
+	// a job waits for; nil = none.
+	Lines []LiveLine
 	// Stopped is the env page's line after its last promote failed; nil = none.
 	Stopped *StopView
 	// Upgrading is the panel upgrade banner: jobs queue until it is done.

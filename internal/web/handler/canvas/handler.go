@@ -11,6 +11,7 @@ import (
 	"hash/fnv"
 	"net/http"
 	"net/url"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
 	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -143,6 +145,9 @@ func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focu
 			v.EmptyHref = l.base + "?drawer=" + url.QueryEscape("env:"+l.scope.ID) + "&tab=releases&plan=" + rel.ID
 		}
 	}
+	if v.Empty != "" && l.scope.Kind == service.CanvasStack {
+		h.pushWhy(ctx, &v, l)
+	}
 	if v.Lanes != nil {
 		es, err := h.orch.Traffic(ctx, l.scope.ID)
 		if err != nil {
@@ -151,6 +156,31 @@ func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focu
 		v.Lanes = lanes(es)
 	}
 	return v, nil
+}
+
+// pushWhy says on an empty stack page what the last push did: building,
+// failed with its error, or done with why it made no env. The stack file's
+// push is the only thing that makes the first env.
+func (h *handler) pushWhy(ctx context.Context, v *ui.View, l level) {
+	p, ok := h.orch.PushState(ctx, l.scope.ID)
+	if !ok {
+		return
+	}
+	v.EmptyLink, v.EmptyHref = "Job log", path.Dir(l.base)+"/-/jobs/"+p.JobID // a stack's job log is the org's
+	switch {
+	case p.Failed:
+		short, _ := comp.ErrTail(p.Error, 80)
+		v.Empty = "The last push failed: " + strings.TrimRight(short, ".") + "."
+	case p.Done && len(p.Skipped) > 0:
+		v.EmptyNote = strings.Join(p.Skipped, "; ")
+	case p.Done:
+		v.EmptyLink, v.EmptyHref = "", ""
+	default:
+		v.Empty, v.EmptyAt = "Building "+l.title+comp.AtSha(p.Sha)+", started ", p.Started
+		if p.Queued {
+			v.Empty = "Waiting to build " + l.title + comp.AtSha(p.Sha) + ", queued "
+		}
+	}
 }
 
 func lanes(es []service.Edge) []cards.Lane {
@@ -393,9 +423,9 @@ func (h *handler) Poll(c echo.Context) producer {
 func Sig(v ui.View) string {
 	var parts []string
 	for _, n := range v.Nodes {
-		parts = append(parts, "n "+n.ID+" "+n.Name+" "+n.Detail+" "+n.Color+" "+strconv.FormatBool(n.Pending))
+		parts = append(parts, "n "+n.ID+" "+n.Name+" "+n.Detail+" "+n.Color+" "+strconv.FormatBool(n.Pending)+" "+n.FailHref+" "+n.NoteHref)
 	}
-	parts = append(parts, "empty "+v.Empty+" "+v.EmptyHref)
+	parts = append(parts, "empty "+v.Empty+" "+v.EmptyHref+" "+v.EmptyNote+" "+v.EmptyLink+" "+v.EmptyAt.String())
 	for _, e := range v.Edges {
 		parts = append(parts, "e "+e.Kind+" "+e.From+" "+e.To)
 	}

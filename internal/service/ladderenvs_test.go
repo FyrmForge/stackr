@@ -111,3 +111,34 @@ func eventually(t *testing.T, what string, ok func() bool) {
 	}
 	t.Fatalf("timed out waiting for %s", what)
 }
+
+// An env the file names with no branch or promote is not made, and the push
+// says why where the empty stack page reads it, not only in its log.
+func TestPushSaysWhyNoEnv(t *testing.T) {
+	ctx := context.Background()
+	g := servicetest.NewGit(t)
+	env := servicetest.NewWith(t, []service.Option{g.Option()})
+	org := env.Org(t, "acme")
+	conn := env.Connector(t, org, "whsec")
+	st, err := env.Orch.CreateStack(ctx, org, "shop", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.SetConfigRepo(ctx, st.ID, conn, "acme/shop", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	sha := g.Commit(t, "acme/shop", "main", map[string]string{"stackr-compose.yml": "version: 1\nstack: shop\nenvironments:\n  prod: {}\n"})
+	body := []byte(`{"ref":"refs/heads/main","after":"` + sha + `",` +
+		`"repository":{"clone_url":"https://github.com/acme/shop.git","default_branch":"main"},` +
+		`"commits":[{"modified":["stackr-compose.yml"]}]}`)
+	mac := hmac.New(sha256.New, []byte("whsec"))
+	mac.Write(body)
+	if err := env.Orch.Webhook(ctx, conn, hook("push", "sha256="+hex.EncodeToString(mac.Sum(nil))), body); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the push to finish", func() bool { p, ok := env.Orch.PushState(ctx, st.ID); return ok && p.Done })
+	p, _ := env.Orch.PushState(ctx, st.ID)
+	if !slices.Equal(p.Skipped, []string{"prod: the file gives it no branch or promote"}) {
+		t.Errorf("skipped = %q", p.Skipped)
+	}
+}
