@@ -371,4 +371,15 @@ func TestObjectID(t *testing.T) {
 	if _, err := r.ObjectID(ctx, "0123456789012345678901234567890123456789", "app"); err == nil {
 		t.Error("missing commit gave no error")
 	}
+	// any other git failure is an error, not an absent path: a commit whose
+	// tree object is missing
+	cmd := exec.Command("git", "-C", r.Dir, "hash-object", "-t", "commit", "--literally", "-w", "--stdin")
+	cmd.Stdin = strings.NewReader("tree 0123456789012345678901234567890123456789\nauthor a <a@a> 1 +0000\ncommitter a <a@a> 1 +0000\n\nx\n")
+	bad, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := r.ObjectID(ctx, strings.TrimSpace(string(bad)), "app"); err == nil {
+		t.Errorf("broken tree gave %q, nil; want an error", v)
+	}
 }
