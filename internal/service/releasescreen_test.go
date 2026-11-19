@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,5 +63,79 @@ func TestReleaseScreenKeepsFixedFailure(t *testing.T) {
 	po, _ := w.e.Orch.SessionPrincipal(ctx, out)
 	if n, err := w.e.Orch.ReleaseScreen(ctx, po, service.ScreenQuery{}); err != nil || len(n.Rows) != 0 || len(n.Scopes) != 0 {
 		t.Errorf("outsider: %+v, %v", n, err)
+	}
+}
+
+// Config plans are the owners' (org.owner.read, as the org canvas and the
+// API): a member sees the org's releases but not its plan rows or scope.
+func TestReleaseScreenPlansAreOwnersOnly(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	if err := w.e.Store.OrgPlans.Create(ctx, store.OrgPlan{ID: uuid.NewString(), OrgID: w.acme, Status: "pending", Summary: "1 change", Plan: "{}", Ticked: []string{}, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	plans := func(u string) (rows, scopes int) {
+		t.Helper()
+		p, err := w.e.Orch.SessionPrincipal(ctx, u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sc, err := w.e.Orch.ReleaseScreen(ctx, p, service.ScreenQuery{Scope: "acme"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range sc.Rows {
+			if r.Kind == service.RowPlan {
+				rows++
+			}
+		}
+		for _, s := range sc.Scopes {
+			if s.Key == "acme/"+service.ScopeOrgConfig {
+				scopes++
+			}
+		}
+		return
+	}
+	if r, s := plans(w.user); r != 1 || s != 1 {
+		t.Errorf("owner sees %d plan rows, %d scopes, want 1, 1", r, s)
+	}
+	m := w.e.User(t, "m@x.io", false)
+	w.e.Member(t, w.acme, m, "member")
+	if r, s := plans(m); r != 0 || s != 0 {
+		t.Errorf("member sees %d plan rows, %d scopes, want 0, 0", r, s)
+	}
+}
+
+// Names for a release's source come from the members of the org only, and a
+// member with no display name has none: never their email.
+func TestMemberNamesNeverFallBackToEmail(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	named := w.e.User(t, "named@x.io", false)
+	blank := w.e.User(t, "blank@x.io", false)
+	outsider := w.e.User(t, "out2@x.io", false)
+	w.e.Member(t, w.acme, named, "member")
+	w.e.Member(t, w.acme, blank, "member")
+	for id, name := range map[string]string{named: "Nia", blank: ""} {
+		u, err := w.e.Store.Users.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.Name = name
+		if err := w.e.Store.Users.Update(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := w.e.Orch.MemberNames(ctx, w.acme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[named] != "Nia" || got[blank] != "" || got[outsider] != "" {
+		t.Errorf("names = %v: want Nia for the named member only, no email, no outsider", got)
+	}
+	if strings.Contains(got[blank], "@") {
+		t.Errorf("blank member shows as %q", got[blank])
 	}
 }

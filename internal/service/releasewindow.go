@@ -54,7 +54,13 @@ type WindowRow struct {
 	State   string
 	Runs    []string // env ids that run it
 	FailEnv string   // StateFailed from a promote: the env it stopped in
-	Newest  bool
+	// FailEnvID is that env's id: a release that failed in two envs is one
+	// row for each.
+	FailEnvID string
+	// WaitEnvs are the envs for which this release is the newest waiting one
+	// (the actionable one); only these count as "waiting".
+	WaitEnvs []string
+	Newest   bool
 	// Lacks is the number of a waiting release this one does not hold; 0 = none.
 	Lacks   int
 	Reviews []WindowReview
@@ -94,19 +100,21 @@ const windowOlder = 3
 // ReleaseWindow reads the rows from releases, the ladder, the stack's jobs
 // and the failure markers the canvas already shows.
 func (o *Orchestrator) ReleaseWindow(ctx context.Context, stackID, envID string) (ReleaseWindow, error) {
-	return o.releaseWindow(ctx, stackID, envID, false)
+	return o.releaseWindow(ctx, stackID, envID, false, nil)
 }
 
 // ReleaseHistory is ReleaseWindow with every release and the failures fixed
 // since, for the lists that are the record (the Releases screen, the API).
 func (o *Orchestrator) ReleaseHistory(ctx context.Context, stackID, envID string) (ReleaseWindow, error) {
-	return o.releaseWindow(ctx, stackID, envID, true)
+	return o.releaseWindow(ctx, stackID, envID, true, nil)
 }
 
 // releaseWindow is ReleaseWindow; history lists every release and the
 // failures that were fixed since (the Releases screen's record), where the
 // window keeps a few older ones and drops a fixed failure.
-func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string, history bool) (ReleaseWindow, error) {
+// jobs are the stack's job rows when the caller already holds them (the
+// screen reads them once for every stack); nil = read them here.
+func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string, history bool, jobs *[]Job) (ReleaseWindow, error) {
 	var w ReleaseWindow
 	var envs = map[string]string{} // env id -> name
 	slugs := map[string]string{}   // env id -> slug
@@ -160,6 +168,25 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 		paths  = map[string]map[string]bool{} // env id + release id -> ids it holds
 		sets   = map[string][]store.Release{} // env id -> the releases waiting for it
 	)
+	// ponytail: scans the stack's job rows (ScopeJobs does); a SQL filter on
+	// release_id when an install holds enough jobs to feel it.
+	var js []Job
+	if jobs != nil {
+		js = *jobs
+	} else if js, err = o.ScopeJobs(ctx, st.OrgID, stackID, "", 0); err != nil {
+		return w, err
+	}
+	byID := make(map[string]store.Release, len(rs)) // the lineage, read once
+	for _, r := range rs {
+		byID[r.ID] = r
+	}
+	heads := map[string]string{}  // env id -> the release it runs
+	headOf := map[string]string{} // env id -> the newest release waiting for it
+	for _, e := range ladder {
+		if e.ReleaseID != nil {
+			heads[e.ID] = *e.ReleaseID
+		}
+	}
 	for _, e := range ladder {
 		if envID != "" && e.ID != envID {
 			continue
@@ -169,7 +196,7 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 			runsID = *e.ReleaseID
 		}
 		lines := release.Lines(e)
-		head, err := o.releases.Newest(ctx, stackID, runsID, lines...)
+		head, err := o.releases.NewestIn(ctx, rs, runsID, lines...)
 		if err != nil {
 			return w, err
 		}
@@ -177,14 +204,12 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 			continue
 		}
 		newest[head] = true
+		headOf[e.ID] = head
 		for _, r := range rs {
 			if r.Line == nil || !slices.Contains(lines, *r.Line) || r.ID == runsID || r.Number <= runsByEn[e.ID] {
 				continue
 			}
-			path, ok, err := o.releases.Between(ctx, stackID, r.ID, runsID)
-			if err != nil {
-				return w, err
-			}
+			path, ok := release.Chain(byID, r, runsID)
 			if !ok || len(path) == 0 {
 				continue
 			}
@@ -211,22 +236,30 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 			}
 		}
 	}
-	// failed promotes, by release number
-	failed := map[int]string{}
-	failedJob := map[int]string{}
+	// failed promotes: one per (release, env), each with its own error
+	type promoteFail struct {
+		env, job, err string
+		at            time.Time
+	}
+	failed := map[int][]promoteFail{}
 	for _, id := range scoped {
 		if s, ok := o.RolloutStop(ctx, id); ok && s.Release > 0 {
-			failed[s.Release], failedJob[s.Release] = id, s.JobID
+			failed[s.Release] = append(failed[s.Release], promoteFail{id, s.JobID, s.Error, s.At})
 		}
-	}
-	// ponytail: scans the stack's job rows (ScopeJobs does); a SQL filter on
-	// release_id when an install holds enough jobs to feel it.
-	js, err := o.ScopeJobs(ctx, st.OrgID, stackID, "", 0)
-	if err != nil {
-		return w, err
 	}
 	var building []WindowRow
 	deploying := map[string]bool{}
+	promoted := map[string]bool{} // env id + " " + release id the env was once promoted to
+	for _, j := range js {
+		if j.State != "done" || j.Kind != string(kindPromote) || j.ReleaseID == nil {
+			continue
+		}
+		for _, l := range j.LockSet {
+			if env, ok := strings.CutPrefix(l, "env:"); ok {
+				promoted[env+" "+*j.ReleaseID] = true
+			}
+		}
+	}
 	if b, ok := o.Building(ctx, stackID); ok { // the push job whose release is not cut yet
 		building = append(building, WindowRow{Kind: RowBuilding, Commit: b.Sha, At: b.Started, JobID: b.JobID, Queued: b.Queued})
 	}
@@ -256,18 +289,26 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 		}
 		for _, id := range scoped {
 			if n := runsByEn[id]; n != r.Number {
-				row.Reviews = append(row.Reviews, WindowReview{EnvID: id, Env: envs[id], EnvSlug: slugs[id], Rollback: r.Number < n && o.IsRollback(ctx, id, r.ID)})
+				row.Reviews = append(row.Reviews, WindowReview{EnvID: id, Env: envs[id], EnvSlug: slugs[id], Rollback: r.Number < n && isRollback(byID, heads[id], r, func() bool { return promoted[id+" "+r.ID] })})
 			}
 		}
 		switch {
-		case failed[r.Number] != "":
-			row.State, row.FailEnv, row.JobID = StateFailed, envs[failed[r.Number]], failedJob[r.Number]
-			failedRows = append(failedRows, row)
+		case len(failed[r.Number]) > 0:
+			for _, f := range failed[r.Number] {
+				fr := row
+				fr.State, fr.FailEnv, fr.FailEnvID, fr.JobID, fr.Err, fr.At = StateFailed, envs[f.env], f.env, f.job, f.err, f.at
+				failedRows = append(failedRows, fr)
+			}
 		case deploying[r.ID]:
 			row.State = StateDeploying
 			running = append(running, row)
 		case len(waitFor[r.Number]) > 0:
 			row.State, row.Newest, row.Lacks = StateWaiting, newest[r.ID], lacks[r.ID]
+			for _, id := range waitFor[r.Number] {
+				if h := headOf[id]; h == r.ID || h == "" { // "" = only the rung says it waits
+					row.WaitEnvs = append(row.WaitEnvs, id)
+				}
+			}
 			waiting = append(waiting, row)
 		case len(row.Runs) > 0:
 			row.State = StateRunning
@@ -285,14 +326,19 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 	}
 	pf, pushFailed := o.PushFailure(ctx, stackID)
 	if pushFailed {
-		failedRows = append([]WindowRow{{Kind: RowFailed, State: StateFailed, JobID: pf.JobID, Err: pf.Error}}, failedRows...)
+		row := WindowRow{Kind: RowFailed, State: StateFailed, JobID: pf.JobID, Err: pf.Error, Commit: pf.Sha, By: pf.Source, At: pf.At}
+		if pf.Sha != "" && commitBase != "" {
+			row.CommitURL = commitBase + pf.Sha
+		}
+		failedRows = append(failedRows, row)
 	}
-	w.Waiting, w.Failed = len(waiting), len(failedRows)
+	slices.SortStableFunc(failedRows, func(a, b WindowRow) int { return b.At.Compare(a.At) }) // when each failed, newest first
+	w.Waiting, w.Failed = waitingCount(waiting), len(failedRows)
 	var fixed []WindowRow
 	if history {
 		skip := map[string]bool{pf.JobID: true}
-		for _, id := range failedJob {
-			skip[id] = true
+		for _, fr := range failedRows {
+			skip[fr.JobID] = true
 		}
 		fixed = fixedFailures(js, rs, scoped, envs, skip)
 	}
@@ -306,6 +352,18 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 		}
 	}
 	return w, nil
+}
+
+// waitingCount is how many envs have something waiting: the actionable
+// newest release of each counts once, however many older ones are listed.
+func waitingCount(rows []WindowRow) int {
+	envs := map[string]bool{}
+	for _, r := range rows {
+		for _, id := range r.WaitEnvs {
+			envs[id] = true
+		}
+	}
+	return len(envs)
 }
 
 // commitBase is the git host's commit URL up to the sha, "" when the stack
@@ -335,25 +393,39 @@ func (o *Orchestrator) IsRollback(ctx context.Context, envID, releaseID string) 
 	if err != nil || e.ReleaseID == nil || *e.ReleaseID == releaseID {
 		return false
 	}
-	t, err := o.releases.Get(ctx, releaseID)
+	rs, err := o.releases.List(ctx, e.StackID)
 	if err != nil {
 		return false
 	}
-	cur, err := o.releases.Get(ctx, *e.ReleaseID)
-	if err != nil || t.Number >= cur.Number {
+	byID := make(map[string]store.Release, len(rs))
+	for _, r := range rs {
+		byID[r.ID] = r
+	}
+	t, ok := byID[releaseID]
+	if !ok {
+		return false
+	}
+	return isRollback(byID, *e.ReleaseID, t, func() bool {
+		js, err := o.store.Jobs.ListTouching(ctx, []string{"env:" + envID}, string(kindPromote), 50) // newest first
+		return err == nil && slices.ContainsFunc(js, func(j Job) bool { return j.State == "done" && j.ReleaseID != nil && *j.ReleaseID == releaseID })
+	})
+}
+
+// isRollback is IsRollback over the stack's releases the caller already
+// holds: curID is what the env runs, t the release taken into it, ranBefore
+// says the env was once promoted to t.
+func isRollback(byID map[string]store.Release, curID string, t store.Release, ranBefore func() bool) bool {
+	cur, ok := byID[curID]
+	if !ok || cur.ID == t.ID || t.Number >= cur.Number {
 		return false
 	}
 	if t.Line == nil {
 		return true
 	}
-	if _, ok, err := o.releases.Between(ctx, e.StackID, cur.ID, t.ID); err == nil && ok {
+	if _, ok := release.Chain(byID, cur, t.ID); ok {
 		return true // an ancestor of what it runs
 	}
-	js, err := o.store.Jobs.ListTouching(ctx, []string{"env:" + envID}, string(kindPromote), 50) // newest first
-	if err != nil {
-		return false
-	}
-	return slices.ContainsFunc(js, func(j Job) bool { return j.State == "done" && j.ReleaseID != nil && *j.ReleaseID == releaseID })
+	return ranBefore()
 }
 
 // fixedFailures are the failed pushes and promotes of a stack that a later
@@ -361,9 +433,7 @@ func (o *Orchestrator) IsRollback(ctx context.Context, envID, releaseID string) 
 // later job cured is the live one and is not listed again. js is newest
 // first.
 func fixedFailures(js []Job, rs []store.Release, scoped []string, envs map[string]string, skip map[string]bool) []WindowRow {
-	healed := map[string]int{} // lock -> the release number of the newest done job; -1 = cut none
-	var out []WindowRow
-	for _, j := range js {
+	lockKey := func(j Job) string {
 		key := ""
 		for _, l := range j.LockSet {
 			if strings.HasPrefix(l, "push:") && j.Kind == string(kindPush) {
@@ -373,50 +443,68 @@ func fixedFailures(js []Job, rs []store.Release, scoped []string, envs map[strin
 				key = l
 			}
 		}
-		if key == "" {
+		return key
+	}
+	finished := func(j Job) time.Time {
+		if j.FinishedAt != nil {
+			return *j.FinishedAt
+		}
+		return j.CreatedAt
+	}
+	numOf := func(id string) (int, bool) {
+		i := slices.IndexFunc(rs, func(r store.Release) bool { return r.ID == id })
+		if i < 0 {
+			return 0, false
+		}
+		return rs[i].Number, true
+	}
+	var out []WindowRow
+	for i, j := range js {
+		key := lockKey(j)
+		if key == "" || j.State != "failed" || skip[j.ID] {
 			continue
 		}
-		at := j.CreatedAt
-		if j.FinishedAt != nil {
-			at = *j.FinishedAt
-		}
-		switch j.State {
-		case "done":
-			if _, ok := healed[key]; ok {
-				continue
+		// the first done job of the same lock after it cured it (js is newest first)
+		var fix *Job
+		for k := i - 1; k >= 0; k-- {
+			if js[k].State == "done" && lockKey(js[k]) == key && js[k].CreatedAt.After(j.CreatedAt) {
+				fix = &js[k]
+				break
 			}
-			n := -1
+		}
+		if fix == nil {
+			continue
+		}
+		row := WindowRow{Kind: RowFailed, State: StateFailed, Fixed: true, At: finished(j), JobID: j.ID, Err: j.Error, By: "push"}
+		by := -1 // cut none
+		if j.Kind == string(kindPush) {
+			// a push job keeps no release: the one it cut is the first push
+			// release made while the fixing job ran
+			from, to := fix.CreatedAt, finished(*fix)
+			if fix.StartedAt != nil {
+				from = *fix.StartedAt
+			}
+			for _, r := range slices.Backward(rs) { // oldest first
+				if r.CreatedBy == "push" && !r.CreatedAt.Before(from) && !r.CreatedAt.After(to) {
+					by = r.Number
+					break
+				}
+			}
+		} else {
+			row.FailEnv = envs[strings.TrimPrefix(key, "env:")]
+			if fix.ReleaseID != nil {
+				if n, ok := numOf(*fix.ReleaseID); ok {
+					by = n
+				}
+			}
 			if j.ReleaseID != nil {
 				if i := slices.IndexFunc(rs, func(r store.Release) bool { return r.ID == *j.ReleaseID }); i >= 0 {
-					n = rs[i].Number
+					row.Number, row.Commit, row.By = rs[i].Number, rs[i].Commit, rs[i].CreatedBy
 				}
 			}
-			healed[key] = n
-		case "failed":
-			by, ok := healed[key]
-			if !ok || skip[j.ID] {
-				continue
-			}
-			row := WindowRow{Kind: RowFailed, State: StateFailed, Fixed: true, At: at, JobID: j.ID, Err: j.Error, By: "push"}
-			if j.Kind == string(kindPush) {
-				// a push has no release of its own: the first one cut after it
-				for _, r := range slices.Backward(rs) { // oldest first
-					if r.CreatedAt.After(at) {
-						by = r.Number
-						break
-					}
-				}
-			} else {
-				row.FailEnv = envs[strings.TrimPrefix(key, "env:")]
-				if j.ReleaseID != nil {
-					if i := slices.IndexFunc(rs, func(r store.Release) bool { return r.ID == *j.ReleaseID }); i >= 0 {
-						row.Number, row.Commit, row.By = rs[i].Number, rs[i].Commit, rs[i].CreatedBy
-					}
-				}
-			}
-			row.FixedBy = max(by, 0)
-			out = append(out, row)
 		}
+		row.FixedBy = max(by, 0)
+		out = append(out, row)
 	}
 	return out
 }

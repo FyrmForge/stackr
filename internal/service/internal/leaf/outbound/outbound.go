@@ -5,6 +5,7 @@ package outbound
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -36,7 +37,7 @@ func (l *Leaf) Add(tileID string, bytes int64, at time.Time) {
 }
 
 // FlushDue writes the sums when FlushEvery has passed since the last write.
-// A failed write keeps them for the next try.
+// A failed write, or a row of it that failed, keeps its sum for the next try.
 func (l *Leaf) FlushDue(ctx context.Context, now time.Time) error {
 	l.mu.Lock()
 	if now.Sub(l.flushed) < FlushEvery || len(l.pending) == 0 {
@@ -48,12 +49,16 @@ func (l *Leaf) FlushDue(ctx context.Context, now time.Time) error {
 		rows = append(rows, r)
 	}
 	l.mu.Unlock()
-	if err := l.rows.AddAll(ctx, rows); err != nil {
+	failed, err := l.rows.AddAll(ctx, rows)
+	if err != nil {
 		return err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, r := range rows {
+		if slices.Contains(failed, r.TileID) {
+			continue // not persisted: its sum stays for the next flush
+		}
 		// bytes added while writing stay pending
 		if p := l.pending[r.TileID]; p.Bytes == r.Bytes {
 			delete(l.pending, r.TileID)

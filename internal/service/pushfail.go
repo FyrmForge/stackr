@@ -1,10 +1,19 @@
 package service
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+	"time"
+)
 
 // PushFailure is a stack's last push that failed: the job to open and what
 // it said.
-type PushFailure struct{ JobID, Error string }
+type PushFailure struct {
+	JobID, Error string
+	Sha          string    // the commit that was pushed ("" = unknown)
+	Source       string    // the release source word of a push
+	At           time.Time // when the job finished
+}
 
 // PushFailure is the stack's newest failed push that no later done push of
 // the same repo and branch follows. Queued, running, cancelled and
@@ -14,5 +23,11 @@ func (o *Orchestrator) PushFailure(ctx context.Context, stackID string) (PushFai
 	if err != nil || !ok {
 		return PushFailure{}, false
 	}
-	return PushFailure{JobID: j.ID, Error: j.Error}, true
+	var p pushJob
+	_ = json.Unmarshal([]byte(j.Payload), &p)
+	at := j.CreatedAt
+	if j.FinishedAt != nil {
+		at = *j.FinishedAt
+	}
+	return PushFailure{JobID: j.ID, Error: j.Error, Sha: p.Event.Commit, Source: "push", At: at}, true
 }

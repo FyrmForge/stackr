@@ -18,16 +18,18 @@ type TileOutbound struct {
 type TileOutboundStore interface {
 	// AddAll counts each row's bytes more for its tile and moves its last
 	// seen to the row's, all in one transaction. A tile that no longer exists
-	// is skipped; a row that fails is logged and the rest go on.
-	AddAll(ctx context.Context, rows []TileOutbound) error
+	// is skipped; a row that fails is logged and the rest go on, and its
+	// tile id comes back in failed so the caller keeps its sum.
+	AddAll(ctx context.Context, rows []TileOutbound) (failed []string, err error)
 	// ListByEnv is every tile of the env that ever reached out.
 	ListByEnv(ctx context.Context, envID string) ([]TileOutbound, error)
 }
 
 type tileOutbound struct{ q querier }
 
-func (s tileOutbound) AddAll(ctx context.Context, rows []TileOutbound) error {
-	return inTx(ctx, s.q, func(q querier) error {
+func (s tileOutbound) AddAll(ctx context.Context, rows []TileOutbound) (failed []string, err error) {
+	err = inTx(ctx, s.q, func(q querier) error {
+		failed = failed[:0]
 		for _, r := range rows {
 			// WHERE EXISTS: a deleted tile has no row to hang this on (the
 			// foreign key would refuse it, every flush).
@@ -36,10 +38,15 @@ func (s tileOutbound) AddAll(ctx context.Context, rows []TileOutbound) error {
 				ON CONFLICT (tile_id) DO UPDATE SET last_seen = excluded.last_seen, bytes = bytes + excluded.bytes`,
 				r.TileID, r.LastSeen, r.Bytes, r.TileID); err != nil {
 				slog.Warn("tile outbound", "tile", r.TileID, "err", err)
+				failed = append(failed, r.TileID)
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return failed, nil
 }
 
 func (s tileOutbound) ListByEnv(ctx context.Context, envID string) ([]TileOutbound, error) {

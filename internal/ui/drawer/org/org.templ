@@ -163,6 +163,16 @@ type Option = c.Option
 type PlanBox struct {
 	Row    c.PlanRow
 	Review c.PlanReviewView
+	// Title is the section's heading, "" = "Latest plan"; an older plan
+	// opened from the Releases screen says "Plan".
+	Title string
+}
+
+func (b PlanBox) heading() string {
+	if b.Title == "" {
+		return "Latest plan"
+	}
+	return b.Title
 }
 
 func target() string { return "#" + c.DrawerRoot }
@@ -739,7 +749,7 @@ templ Config(v ConfigView) {
 }
 
 templ latestPlan(v ConfigView) {
-	@c.Section("Latest plan", "organization", "") {
+	@c.Section(v.Latest.heading(), "organization", "") {
 		<div class="space-y-4">
 			@c.PlanLine(v.Latest.Row)
 			if v.Latest.Row.Error != "" {

@@ -2,6 +2,7 @@ package canvas
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,7 +41,7 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	if err != nil {
 		return nil, err
 	}
-	who, err := h.who(ctx)
+	who, err := h.who(ctx, cd.s.Org.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +122,9 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	}
 	// the question: one env, one release
 	plan, envID := c.QueryParam("plan"), c.QueryParam("env")
+	if c.Request().Method == http.MethodGet && c.Param("release") != "" { // the page of one release's review
+		plan = c.Param("release") // a promote's POST names one too, and answers with the tab
+	}
 	if cd.kind == "env" {
 		envID = cd.s.Env.ID
 	}
@@ -250,18 +254,9 @@ func applyLocks(pv *comp.PlanView, action string) {
 	}
 }
 
-// who names users by id, for "user:<id>" in a release's CreatedBy.
-// ponytail: the whole user list per render; a join verb replaces it.
-func (h *handler) who(ctx context.Context) (map[string]string, error) {
-	us, err := h.orch.Users(ctx)
-	names := map[string]string{}
-	for _, u := range us {
-		names[u.ID] = u.Name
-		if u.Name == "" {
-			names[u.ID] = u.Email
-		}
-	}
-	return names, err
+// who names the org's members by id, for "user:<id>" in a release's CreatedBy.
+func (h *handler) who(ctx context.Context, orgID string) (map[string]string, error) {
+	return h.orch.MemberNames(ctx, orgID) // names of the org's members, never an email
 }
 
 // byWord is who or what cut a release, as a person reads it.

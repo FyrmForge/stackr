@@ -29,6 +29,16 @@ type ConnectorOption struct{ Value, Label string }
 type ConfigPlan struct {
 	Row    c.PlanRow
 	Review c.PlanReviewView
+	// Title is the section's heading, "" = "Latest plan"; an older plan
+	// opened from the Releases screen says "Plan".
+	Title string
+}
+
+func (b ConfigPlan) heading() string {
+	if b.Title == "" {
+		return "Latest plan"
+	}
+	return b.Title
 }
 
 // last is the latest plan's row, nil = no plan yet.
@@ -93,7 +103,7 @@ templ Config(v ConfigView) {
 }
 
 templ latestPlan(v ConfigView) {
-	@c.Section("Latest plan", "instance", "") {
+	@c.Section(v.Latest.heading(), "instance", "") {
 		<div class="space-y-4">
 			@c.PlanLine(v.Latest.Row)
 			if v.Latest.Row.Error != "" {

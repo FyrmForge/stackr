@@ -21,13 +21,13 @@ type rowEnv struct {
 }
 
 // relRows maps the service's rows; of says which stack a row is of.
-func (h *handler) relRows(ctx context.Context, rows []service.WindowRow, of func(service.WindowRow) rowEnv) []comp.RelRow {
+func (h *handler) relRows(ctx context.Context, orgID string, rows []service.WindowRow, of func(service.WindowRow) rowEnv) []comp.RelRow {
 	var who map[string]string // loaded when a row names a person
 	var out []comp.RelRow
 	for _, r := range rows {
 		e := of(r)
 		if strings.HasPrefix(r.By, "user:") && who == nil {
-			who, _ = h.who(ctx)
+			who, _ = h.who(ctx, orgID)
 		}
 		row := render.RelRowOf(r, e.stack, who, e.envs, e.jobHref)
 		for _, rv := range r.Reviews {
@@ -91,7 +91,7 @@ func (h *handler) stackWindow(ctx context.Context, l level, gv service.GraphView
 	if envID != "" {
 		stack = path.Dir(l.base) // the links are this env's siblings
 	}
-	w := &comp.RelWindow{All: "/-/releases?scope=" + url.QueryEscape(strings.TrimPrefix(stack, "/"))}
+	w := &comp.RelWindow{All: "/-/releases?scope=" + url.QueryEscape(strings.TrimPrefix(stack, "/")), Retry: l.base + "?rel=1"}
 	logEnv := ""
 	envs := map[string]comp.EnvRun{}
 	for _, r := range gv.Compare {
@@ -112,14 +112,14 @@ func (h *handler) stackWindow(ctx context.Context, l level, gv service.GraphView
 		jobHref: func(id string) string { return stack + "/" + logEnv + "/-/jobs/" + id },
 		review:  reviewLink(l.base, stackID, envID, false, l.viewOnly),
 	}
-	w.Rows = h.relRows(ctx, win.Rows, func(service.WindowRow) rowEnv { return e })
+	w.Rows = h.relRows(ctx, l.org, win.Rows, func(service.WindowRow) rowEnv { return e })
 	return w
 }
 
 // orgWindow is the org chart's window. A row says where it belongs first;
 // the rows of a stack are what waits, fails, builds or runs there.
 func (h *handler) orgWindow(ctx context.Context, l level) *comp.RelWindow {
-	w := &comp.RelWindow{Switch: l.plans, All: "/-/releases?scope=" + url.QueryEscape(strings.TrimPrefix(l.base, "/"))}
+	w := &comp.RelWindow{Switch: l.plans, All: "/-/releases?scope=" + url.QueryEscape(strings.TrimPrefix(l.base, "/")), Retry: l.base + "?rel=1"}
 	win, err := h.orch.OrgReleaseWindow(ctx, l.scope.ID, l.plans)
 	if err != nil {
 		w.Err = true
@@ -154,7 +154,7 @@ func (h *handler) orgWindow(ctx context.Context, l level) *comp.RelWindow {
 			out = append(out, render.RelPlanRow(r, "org config", cfg, l.viewOnly))
 			continue
 		}
-		row := h.relRows(ctx, []service.WindowRow{r}, func(r service.WindowRow) rowEnv { return envs[r.StackID] })[0]
+		row := h.relRows(ctx, l.org, []service.WindowRow{r}, func(r service.WindowRow) rowEnv { return envs[r.StackID] })[0]
 		row.OfStack, row.Scope = true, envs[r.StackID].stack
 		if row.Number != "" {
 			row.Scope += " " + row.Number

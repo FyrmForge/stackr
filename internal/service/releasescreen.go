@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"time"
@@ -89,11 +90,28 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 	if err != nil {
 		return sc, err
 	}
+	// every job row once, grouped by stack, for all the windows below
+	byStack := map[string][]Job{}
+	allJobs, err := o.jobRows.Recent(ctx, 0)
+	if err != nil {
+		return sc, err
+	}
+	for _, j := range allJobs {
+		var p struct {
+			StackID string `json:"stack_id"`
+		}
+		_ = json.Unmarshal([]byte(j.Payload), &p)
+		byStack[p.StackID] = append(byStack[p.StackID], j)
+	}
 	var all []ScreenRow
+	waits := map[string]map[string]bool{} // scope key -> what waits in it, one per env
 	add := func(key string, rs ...ScreenRow) {
 		for _, r := range rs {
-			if r.State == StateWaiting {
-				sc.Waiting[key]++
+			for _, k := range waitKeys(r) {
+				if waits[key] == nil {
+					waits[key] = map[string]bool{}
+				}
+				waits[key][k] = true
 			}
 		}
 	}
@@ -114,26 +132,32 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 			continue
 		}
 		start := len(sc.Scopes)
-		sc.Scopes = append(sc.Scopes,
-			ScreenScope{Key: og.Slug, Label: "All of " + og.Name, Name: og.Name},
-			ScreenScope{Key: og.Slug + "/" + ScopeOrgConfig, Label: "Org config", Depth: 1})
-		ps, err := o.OrgPlans(ctx, og.ID, 50)
-		if err != nil {
-			return sc, err
+		sc.Scopes = append(sc.Scopes, ScreenScope{Key: og.Slug, Label: "All of " + og.Name, Name: og.Name})
+		// the org canvas shows the plans to owners only (org.owner.read, as the API)
+		if authz.Can(p.Access, "org.owner.read", authz.Resource{OrgID: og.ID}) == nil {
+			sc.Scopes = append(sc.Scopes, ScreenScope{Key: og.Slug + "/" + ScopeOrgConfig, Label: "Org config", Depth: 1})
+			ps, err := o.OrgPlans(ctx, og.ID, 50)
+			if err != nil {
+				return sc, err
+			}
+			rows := planRows("org config", og.Slug, og.ID, authz.Can(p.Access, "orgplan.approve", authz.Resource{OrgID: og.ID}) == nil, planIn(ps, func(p OrgPlan) planFields {
+				return planFields{p.ID, p.Commit, p.Summary, p.Status, p.Error, "push", p.CreatedAt, p.DecidedAt != nil}
+			}))
+			add(og.Slug+"/"+ScopeOrgConfig, rows...)
+			add(og.Slug, rows...)
+			all = append(all, rows...)
 		}
-		rows := planRows("org config", og.Slug, og.ID, authz.Can(p.Access, "orgplan.approve", authz.Resource{OrgID: og.ID}) == nil, planIn(ps, func(p OrgPlan) planFields {
-			return planFields{p.ID, p.Commit, p.Summary, p.Status, p.Error, "push", p.CreatedAt, p.DecidedAt != nil}
-		}))
-		add(og.Slug+"/"+ScopeOrgConfig, rows...)
-		add(og.Slug, rows...)
-		all = append(all, rows...)
 		sts, err := o.stacks.List(ctx, og.ID)
 		if err != nil {
 			return sc, err
 		}
 		for _, st := range sts {
 			sc.Scopes = append(sc.Scopes, ScreenScope{Key: og.Slug + "/" + st.Slug, Label: st.Name, Depth: 1})
-			w, err := o.releaseWindow(ctx, st.ID, "", true)
+			js, err := o.annotate(ctx, slices.DeleteFunc(slices.Clone(byStack[st.ID]), func(j Job) bool { return !jobOfOrg(j, og.ID) }))
+			if err != nil {
+				return sc, err
+			}
+			w, err := o.releaseWindow(ctx, st.ID, "", true, &js)
 			if err != nil {
 				return sc, err
 			}
@@ -147,14 +171,17 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 			all = append(all, rows...)
 		}
 		for i := start; i < len(sc.Scopes); i++ {
+			sc.Waiting[sc.Scopes[i].Key] = len(waits[sc.Scopes[i].Key])
 			sc.Scopes[i].Waiting = sc.Waiting[sc.Scopes[i].Key]
 		}
 	}
 	if len(sc.Scopes) > 0 && sc.Scopes[0].Key == ScopeServer {
+		sc.Waiting[ScopeServer] = len(waits[ScopeServer])
 		sc.Scopes[0].Waiting = sc.Waiting[ScopeServer]
 	}
 	slices.SortStableFunc(all, func(a, b ScreenRow) int { return b.At.Compare(a.At) })
 	srcs := map[string]bool{}
+	waiting := map[string]bool{}
 	needle := strings.ToLower(strings.TrimSpace(q.Q))
 	for _, r := range all {
 		if !inScope(r, q.Scope) {
@@ -167,8 +194,8 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		if needle != "" && !strings.Contains(strings.ToLower(r.Commit+" "+r.Message+" "+r.Err), needle) {
 			continue
 		}
-		if r.State == StateWaiting {
-			sc.Counts[StateWaiting]++
+		for _, k := range waitKeys(r) {
+			waiting[k] = true
 		}
 		if r.State == StateFailed && !r.Fixed {
 			sc.Counts[StateFailed]++
@@ -180,6 +207,7 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 			sc.Rows = append(sc.Rows, r)
 		}
 	}
+	sc.Counts[StateWaiting] = len(waiting)
 	sc.Sources = slices.Sorted(func(yield func(string) bool) {
 		for k := range srcs {
 			if !yield(k) {
@@ -188,6 +216,31 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		}
 	})
 	return sc, nil
+}
+
+// waitKeys are what a waiting row stands for in the "N waiting" counts: a
+// plan is one, a release one per env it is the newest waiting release of.
+func waitKeys(r ScreenRow) []string {
+	switch {
+	case r.State != StateWaiting:
+		return nil
+	case r.Kind == RowPlan:
+		return []string{"plan " + r.PlanID + r.ID}
+	}
+	var ks []string
+	for _, e := range r.WaitEnvs {
+		ks = append(ks, r.StackID+" "+e)
+	}
+	return ks
+}
+
+// jobOfOrg says the job was enqueued for the org (its payload says so).
+func jobOfOrg(j Job, orgID string) bool {
+	var p struct {
+		OrgID string `json:"org_id"`
+	}
+	_ = json.Unmarshal([]byte(j.Payload), &p)
+	return p.OrgID == orgID
 }
 
 // inScope says a row belongs under the scope key.

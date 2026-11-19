@@ -270,6 +270,30 @@ func (o *Orchestrator) Members(ctx context.Context, orgID string) ([]Member, err
 	return out, nil
 }
 
+// MemberNames maps user id to display name for the members of the orgs, for
+// a list that says who did something. A member with no name is left out,
+// never shown by email.
+func (o *Orchestrator) MemberNames(ctx context.Context, orgIDs ...string) (map[string]string, error) {
+	out := map[string]string{}
+	seen := map[string]bool{}
+	for _, id := range orgIDs {
+		ms, err := o.orgs.Members(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range ms {
+			if seen[m.UserID] {
+				continue
+			}
+			seen[m.UserID] = true
+			if u, err := o.users.Get(ctx, m.UserID); err == nil && u.Name != "" {
+				out[m.UserID] = u.Name
+			}
+		}
+	}
+	return out, nil
+}
+
 // SetRole changes a member's role; a drop below write closes their access
 // in that org (B16).
 func (o *Orchestrator) SetRole(ctx context.Context, orgID, userID, role string) error {

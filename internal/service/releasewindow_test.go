@@ -118,7 +118,7 @@ func TestReleaseWindowWaitingAndNewest(t *testing.T) {
 	for _, r := range win.Rows {
 		by[r.Number] = r
 	}
-	if win.Waiting != 2 || by[3].State != "waiting" || by[4].State != "waiting" || by[1].State != "running" {
+	if win.Waiting != 1 || by[3].State != "waiting" || by[4].State != "waiting" || by[1].State != "running" {
 		t.Fatalf("window = %+v", win)
 	}
 	if !by[4].Newest || by[3].Newest || by[4].Lacks != 3 || by[3].Lacks != 0 {
@@ -126,6 +126,17 @@ func TestReleaseWindowWaitingAndNewest(t *testing.T) {
 	}
 	if e.Orch.IsRollback(ctx, prod.ID, r3) || e.Orch.IsRollback(ctx, prod.ID, r4) {
 		t.Error("a release newer than what runs is a roll back")
+	}
+	// prod runs 1 and two releases wait for it; the screen counts the env once
+	u := e.User(t, "o@x.io", false)
+	e.Member(t, org, u, "owner")
+	pr, err := e.Orch.SessionPrincipal(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc, err := e.Orch.ReleaseScreen(ctx, pr, service.ScreenQuery{})
+	if err != nil || sc.Counts[service.StateWaiting] != 1 || sc.Waiting["acme/immich"] != 1 {
+		t.Errorf("screen waiting = %d, tree %v (%v), want 1 for prod's one waiting head", sc.Counts[service.StateWaiting], sc.Waiting, err)
 	}
 	// the env takes 4: 1 is an ancestor, 3 is a sibling it never held
 	row.ReleaseID = &r4
@@ -137,6 +148,19 @@ func TestReleaseWindowWaitingAndNewest(t *testing.T) {
 	}
 	if e.Orch.IsRollback(ctx, prod.ID, r3) {
 		t.Error("release 3 was never held and is not an ancestor: a plan, not a roll back")
+	}
+	// the window says the same from the one read of the lineage
+	win, err = e.Orch.ReleaseWindow(ctx, st.ID, prod.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range win.Rows {
+		want := r.ID == r1
+		for _, rv := range r.Reviews {
+			if rv.Rollback != want {
+				t.Errorf("release %d review rollback = %v, want %v", r.Number, rv.Rollback, want)
+			}
+		}
 	}
 }
 
@@ -250,4 +274,125 @@ func TestReleaseWindowImageWatchHeadline(t *testing.T) {
 	if !seen {
 		t.Errorf("release 2 is not in the window: %+v", win.Rows)
 	}
+}
+
+// A release that failed in two envs is a row for each, with its own error.
+func TestReleaseWindowFailurePerEnv(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	now := time.Now()
+	r3 := uuid.NewString()
+	if err := w.e.Store.Releases.Create(ctx, store.Release{ID: r3, StackID: w.shop, Number: 3, CreatedAt: now.Add(-5 * time.Hour), CreatedBy: "push"}); err != nil {
+		t.Fatal(err)
+	}
+	for env, msg := range map[string]string{w.dev: "dev: port taken", w.prod: "prod: no image"} {
+		fin := now.Add(-4 * time.Hour)
+		if err := w.e.Store.Jobs.Create(ctx, store.Job{
+			ID: uuid.NewString(), Kind: "promote", State: "failed", Error: msg, Payload: `{"org_id":"` + w.acme + `","stack_id":"` + w.shop + `","stopped_at":"web"}`,
+			ReleaseID: &r3, LockSet: store.StringList{"env:" + env}, CreatedAt: fin, FinishedAt: &fin,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	win, err := w.e.Orch.ReleaseWindow(ctx, w.shop, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, r := range win.Rows {
+		if r.Kind == service.RowRelease && r.State == service.StateFailed {
+			got[r.FailEnv] = r.Err
+		}
+	}
+	if len(got) != 2 || got["dev"] != "dev: port taken" || got["prod"] != "prod: no image" || win.Failed != 2 {
+		t.Errorf("failed rows = %v (failed %d), want one per env with its own error", got, win.Failed)
+	}
+}
+
+// A live failed push carries its commit, source and time, and failures sort
+// by when they failed, newest first.
+func TestReleaseWindowPushFailureDetails(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	now := time.Now()
+	fin := now.Add(-10 * time.Minute)
+	if err := w.e.Store.Jobs.Create(ctx, store.Job{
+		ID: uuid.NewString(), Kind: "push", State: "failed", Error: "build api",
+		Payload: `{"org_id":"` + w.acme + `","stack_id":"` + w.shop + `","event":{"Commit":"abcdef1234567"}}`,
+		LockSet: store.StringList{"push:" + w.shop, "push:" + w.shop + ":acme/shop@main"}, CreatedAt: fin, FinishedAt: &fin,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// a promote of release 3 failed a day ago, a fresh push failure sorts above it
+	r3 := uuid.NewString()
+	if err := w.e.Store.Releases.Create(ctx, store.Release{ID: r3, StackID: w.shop, Number: 3, CreatedAt: now.Add(-time.Hour), CreatedBy: "push"}); err != nil {
+		t.Fatal(err)
+	}
+	old := now.Add(-24 * time.Hour)
+	if err := w.e.Store.Jobs.Create(ctx, store.Job{
+		ID: uuid.NewString(), Kind: "promote", State: "failed", Error: "no image", Payload: `{"stopped_at":"web"}`,
+		ReleaseID: &r3, LockSet: store.StringList{"env:" + w.prod}, CreatedAt: old, FinishedAt: &old,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	win, err := w.e.Orch.ReleaseWindow(ctx, w.shop, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fails []service.WindowRow
+	for _, r := range win.Rows {
+		if r.State == service.StateFailed {
+			fails = append(fails, r)
+		}
+	}
+	if len(fails) != 2 || fails[0].Kind != service.RowFailed || fails[0].Commit != "abcdef1234567" || fails[0].By != "push" || !fails[0].At.Equal(fin.UTC()) && !fails[0].At.Equal(fin) {
+		t.Fatalf("failures = %+v, want the push failure first with its commit, source and time", fails)
+	}
+}
+
+// A fixed push failure names the release the later push of the same lock
+// cut, not just any release made after it (here an image watch's).
+func TestReleaseHistoryFixedByTheFixingPush(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	now := time.Now()
+	lock := []string{"push:" + w.shop, "push:" + w.shop + ":acme/shop@main"}
+	payload := `{"org_id":"` + w.acme + `","stack_id":"` + w.shop + `"}`
+	push := func(state, errMsg string, at time.Time, started *time.Time, took time.Duration) {
+		t.Helper()
+		fin := at.Add(took)
+		if err := w.e.Store.Jobs.Create(ctx, store.Job{
+			ID: uuid.NewString(), Kind: "push", State: state, Error: errMsg, Payload: payload,
+			LockSet: store.StringList(lock), CreatedAt: at, StartedAt: started, FinishedAt: &fin,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rel := func(n int, by string, at time.Time) {
+		t.Helper()
+		if err := w.e.Store.Releases.Create(ctx, store.Release{ID: uuid.NewString(), StackID: w.shop, Number: n, CreatedAt: at, CreatedBy: by}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	push("failed", "build web", now.Add(-3*time.Hour), nil, time.Minute)
+	rel(8, "image-watch", now.Add(-2*time.Hour)) // the first release after the failure, from another source
+	started := now.Add(-time.Hour)
+	push("done", "", now.Add(-time.Hour), &started, 2*time.Minute)
+	rel(9, "push", now.Add(-time.Hour+time.Minute)) // what the fixing push cut
+	h, err := w.e.Orch.ReleaseHistory(ctx, w.shop, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range h.Rows {
+		if r.Kind == service.RowFailed && r.Fixed {
+			if r.FixedBy != 9 {
+				t.Errorf("fixed by release %d, want 9", r.FixedBy)
+			}
+			return
+		}
+	}
+	t.Error("no fixed failure in the history")
 }

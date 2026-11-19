@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/a-h/templ"
@@ -109,7 +110,9 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 	if len(ps) == 0 {
 		return ui.Config(v), nil
 	}
-	latest := ps[0]
+	// ?plan= opens that plan's review, else the newest one
+	i := slices.IndexFunc(ps, func(p service.ServerPlan) bool { return p.ID == c.QueryParam("plan") })
+	latest := ps[max(i, 0)]
 	var pl service.ServerConfigPlan
 	if latest.Plan != "" {
 		if err := json.Unmarshal([]byte(latest.Plan), &pl); err != nil {
@@ -117,7 +120,7 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 		}
 	}
 	box := &ui.ConfigPlan{
-		Row: rows[0],
+		Row: rows[max(i, 0)],
 		Review: comp.PlanReviewView{
 			Plan:   render.ServerPlanView(pl),
 			Origin: render.PlanOrigin(latest.Source),
@@ -139,7 +142,10 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 			box.Review.Approve = ui.Base + "/config/plans/" + latest.ID + "/approve"
 		}
 	}
-	v.Latest, v.Plans = box, rows[1:]
+	if i > 0 {
+		box.Title = "Plan"
+	}
+	v.Latest, v.Plans = box, slices.Delete(rows, max(i, 0), max(i, 0)+1)
 	return ui.Config(v), nil
 }
 

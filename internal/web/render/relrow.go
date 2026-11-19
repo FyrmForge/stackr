@@ -13,8 +13,11 @@ import (
 // SourceWord is who or what cut a release, as a person reads it: names maps
 // a user id to a name.
 func SourceWord(by string, names map[string]string) string {
-	if id, ok := strings.CutPrefix(by, "user:"); ok && names[id] != "" {
-		return names[id]
+	if id, ok := strings.CutPrefix(by, "user:"); ok { // a person; an unnamed one is no email
+		if names[id] != "" {
+			return names[id]
+		}
+		return "a member"
 	}
 	switch by {
 	case "push":
@@ -74,6 +77,9 @@ func RelRowOf(r service.WindowRow, stack string, who map[string]string, envs map
 		out.Link = components.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
 	case service.RowBuilding:
 		out.Link = components.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
+	}
+	if r.Kind == service.RowRelease && r.FailEnvID != "" {
+		out.ID += ":" + r.FailEnvID // one row per env it failed in, each its own open state
 	}
 	for _, id := range r.Runs {
 		out.Envs = append(out.Envs, envs[id])

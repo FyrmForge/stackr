@@ -6,6 +6,7 @@ package releases
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -45,15 +46,14 @@ func (h *handler) Page(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	who := map[string]string{} // ponytail: the whole user list per render, as the canvas does
-	if us, err := h.orch.Users(ctx); err == nil {
-		for _, u := range us {
-			who[u.ID] = u.Name
-			if u.Name == "" {
-				who[u.ID] = u.Email
-			}
+	// names of the members of the orgs the rows belong to; never an email
+	var orgs []string
+	for _, r := range sc.Rows {
+		if r.OrgID != "" && !slices.Contains(orgs, r.OrgID) {
+			orgs = append(orgs, r.OrgID)
 		}
 	}
+	who, _ := h.orch.MemberNames(ctx, orgs...)
 	v := components.RelScreen{
 		Action: path, Live: c.Request().URL.RequestURI(), Scope: q.Scope, State: q.State, Source: q.Source, Q: q.Q, Total: sc.Total,
 	}
@@ -137,9 +137,10 @@ func row(r service.ScreenRow, who map[string]string) components.RelRow {
 	if r.Kind == service.RowPlan {
 		out.Message = strings.TrimRight(out.Message, ".")
 		if r.State == service.StateWaiting || r.State == service.StateFailed || r.State == "applying" {
-			out.Link = components.RelLink{Label: verb + " plan", Href: "/-/admin/config"}
+			// the exact plan: the config tab opens its review, not the newest one's
+			out.Link = components.RelLink{Label: verb + " plan", Href: "/-/admin/config?plan=" + url.QueryEscape(r.ID)}
 			if r.Org != "" {
-				out.Link.Href = "/" + r.Org + "?drawer=" + url.QueryEscape("org:"+r.OrgID) + "&tab=config"
+				out.Link.Href = "/" + r.Org + "?drawer=" + url.QueryEscape("org:"+r.OrgID) + "&tab=config&plan=" + url.QueryEscape(r.ID)
 			}
 		}
 	}
@@ -156,8 +157,7 @@ func row(r service.ScreenRow, who map[string]string) components.RelRow {
 		}
 		out.Reviews = append(out.Reviews, components.RelLink{
 			Label: label + " for " + rv.Env,
-			Href:  base + "/" + rv.EnvSlug + "?drawer=" + url.QueryEscape("env:"+rv.EnvID) + "&tab=releases&plan=" + r.ID,
-			Ask:   base + "/" + rv.EnvSlug + "/-/drawer?tab=releases&plan=" + r.ID,
+			Href:  base + "/" + rv.EnvSlug + "/-/releases/" + r.ID, // the review as a page of its own
 		})
 	}
 	if r.State == service.StateWaiting && len(out.Reviews) > 0 {

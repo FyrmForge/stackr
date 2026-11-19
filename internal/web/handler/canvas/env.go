@@ -3,6 +3,7 @@ package canvas
 import (
 	"cmp"
 	"context"
+	"net/http"
 	neturl "net/url"
 	"slices"
 	"strings"
@@ -295,6 +296,17 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		form, _ := c.FormParams()
 		return "Saved.", h.orch.ReorderEnvs(c.Request().Context(), cd.s.Stack.ID, form["ids"])
 	}), write)
+	// the review of one release for this env as a page of its own: the
+	// drawer's own builder and actions (they swap #drawer-view, which the
+	// page holds), on a page of their own
+	site.GET("/:org/:stack/:env/-/releases/:release", func(c echo.Context) error {
+		cd, _ := h.cardOf(c, "env")
+		d, err := h.render(c, cd, cd.frame("releases"))
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		return render.Page(c, http.StatusOK, "Release review", d)
+	}, a.Require("org.read"))
 	site.POST(e+"/promote/:release", h.envAction("releases", func(c echo.Context, cd card) (string, error) {
 		j, err := h.orch.PromoteTicked(c.Request().Context(), middleware.Principal(c), cd.s.Env.ID, c.Param("release"), render.ApproveOpts(c).Ticked)
 		if err != nil {
