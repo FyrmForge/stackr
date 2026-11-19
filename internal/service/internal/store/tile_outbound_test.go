@@ -19,7 +19,7 @@ func TestTileOutbound(t *testing.T) {
 	t1, t2 := t0, t0.Add(time.Minute)
 	rows := []store.TileOutbound{{TileID: tl.ID, Bytes: 100, LastSeen: t1}, {TileID: tl.ID, Bytes: 50, LastSeen: t2}, {TileID: other.ID, Bytes: 7, LastSeen: t1},
 		{TileID: "gone", Bytes: 1, LastSeen: t1}} // a deleted tile is skipped, not an error
-	if err := s.TileOutbound.AddAll(ctx, rows); err != nil {
+	if failed, err := s.TileOutbound.AddAll(ctx, rows); err != nil || len(failed) != 0 {
 		t.Fatal(err)
 	}
 	got, err := s.TileOutbound.ListByEnv(ctx, tl.Env)
