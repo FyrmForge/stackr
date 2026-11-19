@@ -1011,7 +1011,8 @@ func (o *Orchestrator) CancelJob(ctx context.Context, id string) error {
 // line first adds that tile to the job's lock set, so the tile's Deployments
 // tab lists the job (job_tiles follows lock_set by trigger) and a tile the job
 // created holds queued jobs. Only tiles the job deployed or attempted get in;
-// the set was fixed at enqueue and a created tile is not in it.
+// the set was fixed at enqueue and a created tile is not in it, so its
+// "created <slug>" line adds it too, before any deploy for it can start.
 type lockLog struct {
 	ctx   context.Context
 	o     *Orchestrator
@@ -1020,7 +1021,12 @@ type lockLog struct {
 }
 
 func (l lockLog) Write(p []byte) (int, error) {
-	if slug, ok := strings.CutPrefix(strings.TrimSuffix(string(p), "\n"), "deploying "); ok {
+	line := strings.TrimSuffix(string(p), "\n")
+	slug, ok := strings.CutPrefix(line, "deploying ")
+	if !ok { // a tile the promote created holds the lock from the line that says so
+		slug, ok = strings.CutPrefix(line, "created ")
+	}
+	if ok {
 		if t, err := l.o.tiles.GetBySlug(l.ctx, l.envID, slug); err == nil {
 			if err := l.r.Lock(l.ctx, t.ID); err != nil {
 				slog.Error("recording the job's tile", "job", l.r.Job.ID, "error", err)

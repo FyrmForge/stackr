@@ -768,13 +768,13 @@ func (f *Flow) applySync(ctx context.Context, w *work, log io.Writer, swap func(
 		if err != nil {
 			return fmt.Errorf("create %s: %w", row.Slug, err)
 		}
+		logf(log, "created %s\n", t.Slug) // lockLog takes the new tile into the job's lock on this line
 		if t.Kind == tile.Operated {
 			if err := f.createInstance(ctx, t, w.re.Tiles[t.Slug].Engine); err != nil {
 				return err
 			}
 		}
 		created[t.Slug] = true
-		logf(log, "created %s\n", t.Slug)
 	}
 	for _, u := range w.updates {
 		if _, _, err := d.Tiles.Update(ctx, u[0], u[1]); err != nil {

@@ -48,3 +48,18 @@ func TestLockLogListsTheJobForADeployedTileOnly(t *testing.T) {
 		t.Fatalf("lock set = %v, want only the deployed tile %s", r.Job.LockSet, id)
 	}
 }
+
+// A tile the promote created joins the job's lock on its "created" line.
+func TestLockLogLocksACreatedTile(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	j := store.Job{ID: "pj2", Kind: string(kindPromote), State: "running", LockSet: store.StringList{"env:" + w.env}, Payload: "{}", CreatedAt: time.Now()}
+	must(t, w.st.Jobs.Create(ctx, j))
+	id := w.tile(t, "api", false).ID
+	r := &jobs.Run{Job: j, Log: io.Discard}
+	_, _ = lockLog{ctx, w.orch, r, w.env}.Write([]byte("created api\n"))
+	if !slices.Contains(r.Job.LockSet, id) {
+		t.Fatalf("lock set = %v, want the created tile %s", r.Job.LockSet, id)
+	}
+}
