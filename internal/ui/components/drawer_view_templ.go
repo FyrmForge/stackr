@@ -96,7 +96,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"[side-drawer[full]_&]:max-w-5xl [side-drawer[full]_&]:mx-auto [side-drawer[full]_&]:has-[[data-wide]]:max-w-none\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"[side-drawer[full]_&]:max-w-5xl [side-drawer[full]_&]:mx-auto\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -108,7 +108,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Stream).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 61, Col: 200}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 61, Col: 149}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {

@@ -107,6 +107,10 @@ func TestStackSettingsRows(t *testing.T) {
 			t.Errorf("no %s in\n%s", w, body)
 		}
 	}
+	// wide for the side drawer, but only the grid lifts the full-screen cap
+	if !strings.Contains(body, "data-wide") || strings.Contains(body, "data-grid") {
+		t.Error("the tab must be wide and carry no grid marker")
+	}
 	// the variables grid loads after the drawer is on screen, as the editor alone
 	if strings.Contains(body, `id="vars-editor"`) {
 		t.Error("the grid is built into the first answer")
