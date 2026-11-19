@@ -3,6 +3,7 @@ package promote
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
@@ -137,5 +138,91 @@ func TestPushAfterAnEnvCutHoldsTheWaitingConfigPin(t *testing.T) {
 	must(t, err)
 	if pins[release.ConfigSlug].CommitSHA != "c2" || r6.ID == r.ID {
 		t.Errorf("config pin = %+v, want the waiting c2", pins[release.ConfigSlug])
+	}
+}
+
+func autoIDs(es []store.Environment) []string {
+	var out []string
+	for _, e := range es {
+		out = append(out, e.Slug)
+	}
+	return out
+}
+
+// Two quick pushes on an auto env, nothing promoted between: both come back
+// auto, and the second holds the first's build.
+func TestQuickPushesOnAnAutoEnvAreBothAuto(t *testing.T) {
+	w := setup(t)
+	w.files["c2"], w.files["c3"] = xyFile, xyFile
+	var built []string
+	w.fakeBuild(&built)
+	ix, err := w.f.D.Images.Built(ctx, "stackr/x:c1", "")
+	must(t, err)
+	w.runs(t, w.dev, release.Pin{Slug: "x", Repo: w.st.ConfigRepo, CommitSHA: "c1", ImageID: &ix.ID})
+	r1, auto, err := w.f.Push(ctx, w.st.ID, Event{Repo: pushRepo, Branch: "main", Commit: "c2", Changed: []string{"x/main.go"}}, io.Discard)
+	must(t, err)
+	if len(auto) != 1 {
+		t.Fatalf("first push auto = %v", autoIDs(auto))
+	}
+	r2, auto, err := w.f.Push(ctx, w.st.ID, Event{Repo: pushRepo, Branch: "main", Commit: "c3", Changed: []string{"y/main.go"}}, io.Discard)
+	must(t, err)
+	p1, _ := w.f.D.Releases.Pins(ctx, r1.ID)
+	p2, _ := w.f.D.Releases.Pins(ctx, r2.ID)
+	if len(auto) != 1 || r2.BuiltOn == nil || *r2.BuiltOn != r1.ID || *p2["x"].ImageID != *p1["x"].ImageID {
+		t.Errorf("second push auto = %v built on %v", autoIDs(auto), r2.BuiltOn)
+	}
+}
+
+// A manual watch release waits on an auto env: the push is made but held.
+func TestPushBehindAWaitingWatchIsHeld(t *testing.T) {
+	w := setup(t)
+	w.files["c2"] = xyFile
+	var built []string
+	w.fakeBuild(&built)
+	cur := w.runs(t, w.dev, release.Pin{Slug: release.ConfigSlug, Repo: w.st.ConfigRepo, CommitSHA: "c1"})
+	waiting, err := w.f.D.Releases.Derive(ctx, w.st.ID, cur.ID, "image-watch", release.EnvLine(w.dev.ID), release.Pin{Slug: "db", Repo: "pg:16", Digest: "sha256:d2"})
+	must(t, err)
+	var log strings.Builder
+	r, auto, err := w.f.Push(ctx, w.st.ID, Event{Repo: pushRepo, Branch: "main", Commit: "c2"}, &log)
+	must(t, err)
+	want := "dev: release #3 builds on #2 which waits; not promoted automatically"
+	if r.ID == "" || len(auto) != 0 || !strings.Contains(log.String(), want) || r.BuiltOn == nil || *r.BuiltOn != waiting.ID {
+		t.Errorf("release %q auto %v log %q", r.ID, autoIDs(auto), log.String())
+	}
+}
+
+// Rolled back to 3 with 4 and 5 waiting again: a push on an auto env builds
+// on 5 and, when 4 and 5 are pushes, is promoted; when 5 is an image watch,
+// it is held.
+func TestPushAfterARollback(t *testing.T) {
+	for _, c := range []struct {
+		by   string
+		line string
+		want int
+	}{{"push", release.BranchLine("main"), 1}, {"image-watch", release.EnvLine("dev"), 0}} {
+		t.Run(c.by, func(t *testing.T) {
+			w := setup(t)
+			w.files["c9"] = xyFile
+			var built []string
+			w.fakeBuild(&built)
+			cfg := func(c string) release.Pin {
+				return release.Pin{Slug: release.ConfigSlug, Repo: w.st.ConfigRepo, CommitSHA: c}
+			}
+			r3 := w.runs(t, w.dev, cfg("c3"))
+			d := w.f.D.Releases
+			r4, err := d.Derive(ctx, w.st.ID, r3.ID, "push", release.BranchLine("main"), cfg("c4"))
+			must(t, err)
+			line := c.line
+			if c.by == "image-watch" {
+				line = release.EnvLine(w.dev.ID)
+			}
+			r5, err := d.Derive(ctx, w.st.ID, r4.ID, c.by, line, cfg("c5"))
+			must(t, err)
+			r, auto, err := w.f.Push(ctx, w.st.ID, Event{Repo: pushRepo, Branch: "main", Commit: "c9", Changed: []string{"y/main.go"}}, io.Discard)
+			must(t, err)
+			if r.BuiltOn == nil || *r.BuiltOn != r5.ID || len(auto) != c.want {
+				t.Errorf("built on %v, auto %v, want %d", r.BuiltOn, autoIDs(auto), c.want)
+			}
+		})
 	}
 }

@@ -258,22 +258,8 @@ func (l *Leaf) newest(ctx context.Context, stackID, runs, skip string, lines []s
 		if !onLine(r) || r.ID == skip || r.Number <= best.Number {
 			continue
 		}
-		// Walk the base chain; a missing release or a loop ends it.
-		for c, n := r, 0; n <= len(rs); n++ {
-			if c.ID == runs {
-				best = r
-				break
-			}
-			if c.BuiltOn == nil {
-				if runs == "" && c.Line != nil {
-					best = r
-				}
-				break
-			}
-			var ok bool
-			if c, ok = byID[*c.BuiltOn]; !ok {
-				break
-			}
+		if _, ok := chain(byID, r, runs); ok {
+			best = r
 		}
 	}
 	if best.ID == "" {
@@ -338,6 +324,64 @@ func (l *Leaf) Carry(ctx context.Context, stackID, was, now string, lines ...str
 	}
 	_, err = l.SetMessage(ctx, r, w.Message)
 	return err
+}
+
+// chain walks r's base chain back to runs: the releases passed (r first, runs
+// itself left out) and whether it got there. A missing release or a loop ends
+// it. With runs "" a lined root counts as reaching it.
+func chain(byID map[string]store.Release, r store.Release, runs string) ([]store.Release, bool) {
+	var path []store.Release
+	for c, n := r, 0; n <= len(byID); n++ {
+		if c.ID == runs {
+			return path, true
+		}
+		path = append(path, c)
+		if c.BuiltOn == nil {
+			return path, runs == "" && c.Line != nil
+		}
+		var ok bool
+		if c, ok = byID[*c.BuiltOn]; !ok {
+			break
+		}
+	}
+	return path, false
+}
+
+// Between are the releases from base back to runs, base first and runs left
+// out, and whether base chains to runs at all.
+func (l *Leaf) Between(ctx context.Context, stackID, base, runs string) ([]store.Release, bool, error) {
+	rs, err := l.releases.ListByStack(ctx, stackID)
+	if err != nil {
+		return nil, false, err
+	}
+	byID := make(map[string]store.Release, len(rs))
+	for _, r := range rs {
+		byID[r.ID] = r
+	}
+	b, ok := byID[base]
+	if !ok {
+		return nil, base == runs, nil
+	}
+	path, ok := chain(byID, b, runs)
+	return path, ok, nil
+}
+
+// Waits reports whether a cut built on base must not be promoted by itself
+// into an env that runs runs: base is not what it runs, and either the env is
+// not auto or something other than a push sits between. Auto envs let quick
+// pushes stack up (the second push's base is the first, which has not been
+// promoted yet). A base that does not chain to runs is not held. Returns the
+// release it builds on, for the log line.
+func (l *Leaf) Waits(ctx context.Context, stackID, base, runs string, envAuto bool) (store.Release, bool, error) {
+	if base == runs {
+		return store.Release{}, false, nil
+	}
+	between, ok, err := l.Between(ctx, stackID, base, runs)
+	if err != nil || !ok || len(between) == 0 {
+		return store.Release{}, false, err
+	}
+	held := !envAuto || slices.ContainsFunc(between, func(r store.Release) bool { return r.CreatedBy != "push" })
+	return between[0], held, nil
 }
 
 // Change is one slug that differs between two snapshots.

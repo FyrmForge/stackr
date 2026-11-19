@@ -250,3 +250,69 @@ func TestPick(t *testing.T) {
 		t.Error("no match did not fail")
 	}
 }
+
+// A cut built on a waiting release is not auto unless it is only pushes
+// stacking up on an auto env.
+func TestAutoBehindAWaitingRelease(t *testing.T) {
+	cases := []struct {
+		name    string
+		envAuto bool
+		waiting string // created_by of the release in between; "" = none
+		want    bool
+	}{
+		{"nothing waits", false, "", true},
+		{"push waits, env not auto", false, "push", false},
+		{"push waits, env auto", true, "push", true},
+		{"watch waits, env auto", true, "image-watch", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := storetest.Store(t)
+			fake := dockerfake.New()
+			reg := &fakeRegistry{digests: map[string]string{"nginx:1": "sha256:n2"}}
+			f := &Flow{
+				Orgs:     org.New(s.Orgs, s.OrgMembers, s.Invites),
+				Stacks:   stack.New(s.Stacks),
+				Envs:     environment.New(s.Environments, fake),
+				Tiles:    tile.New(s.Tiles, fake, vipStub{}),
+				Images:   image.New(s.Images, fake),
+				Releases: release.New(s.Releases, s.ReleaseTiles),
+				Cred:     credential.New(s.Credentials).For,
+				Settings: settings.New(s.Settings, nil),
+				Digest:   reg.Digest,
+				Tags:     reg.Tags,
+			}
+			now := time.Now()
+			o, stID := uuid.NewString(), uuid.NewString()
+			must(t, s.Orgs.Create(ctx, store.Org{ID: o, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
+			must(t, s.Stacks.Create(ctx, store.Stack{ID: stID, OrgID: o, Name: "s", Slug: "s", Settings: "{}", CreatedAt: now}))
+			dev := store.Environment{
+				ID: uuid.NewString(), StackID: stID, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
+				Network: "n", FromKind: "branch", FromBranch: "main", Auto: c.envAuto, CreatedAt: now,
+			}
+			must(t, s.Environments.Create(ctx, dev))
+			_, err := f.Tiles.Create(ctx, store.Tile{
+				StackID: stID, EnvironmentID: dev.ID, Name: "api", Kind: tile.Image, ImageRef: "nginx:1", UpdatePolicy: "auto",
+			})
+			must(t, err)
+			cur, err := f.Releases.Create(ctx, stID, "test", []release.Pin{{Slug: "api", Repo: "nginx", Digest: "sha256:n1"}})
+			must(t, err)
+			dev.ReleaseID = &cur.ID
+			must(t, s.Environments.Update(ctx, dev))
+			if c.waiting != "" {
+				_, err = f.Releases.Derive(ctx, stID, cur.ID, c.waiting, release.BranchLine("main"),
+					release.Pin{Slug: release.ConfigSlug, CommitSHA: "c2"})
+				must(t, err)
+			}
+			var log strings.Builder
+			ups, err := f.Check(ctx, Scope{}, &log)
+			must(t, err)
+			if len(ups) != 1 || ups[0].Auto != c.want {
+				t.Fatalf("updates = %+v, want Auto %v", ups, c.want)
+			}
+			if held := strings.Contains(log.String(), "which waits; not promoted automatically"); held == c.want {
+				t.Errorf("log = %q", log.String())
+			}
+		})
+	}
+}

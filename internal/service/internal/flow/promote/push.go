@@ -83,6 +83,7 @@ func (f *Flow) Push(
 	}
 	// Build on the newest release of this env's or the branch's line that is
 	// built on what the env runs: a waiting release is carried, not skipped.
+	runs := base
 	if base, err = d.Releases.Newest(ctx, stackID, base, release.Lines(from[0])...); err != nil {
 		return store.Release{}, nil, err
 	}
@@ -146,10 +147,25 @@ func (f *Flow) Push(
 		}
 	}
 	var auto []store.Environment
-	for _, e := range from {
-		if e.Auto {
-			auto = append(auto, e)
+	for i, e := range from {
+		if !e.Auto {
+			continue
 		}
+		// A cut built on a release that waits is held, apart from pushes
+		// stacking up on an auto env.
+		envRuns := deref(e.ReleaseID)
+		if i == 0 {
+			envRuns = runs
+		}
+		on, held, err := d.Releases.Waits(ctx, stackID, base, envRuns, e.Auto)
+		if err != nil {
+			return store.Release{}, nil, err
+		}
+		if held {
+			logf(log, "%s: release #%d builds on #%d which waits; not promoted automatically\n", e.Slug, r.Number, on.Number)
+			continue
+		}
+		auto = append(auto, e)
 	}
 	return r, auto, nil
 }

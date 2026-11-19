@@ -326,3 +326,43 @@ func TestCarry(t *testing.T) {
 		t.Errorf("was empty: %+v %+v", rs[0], pins)
 	}
 }
+
+func TestRollbackNewestAndWaits(t *testing.T) {
+	st := servicetest.Store(t)
+	org, stack := uuid.NewString(), uuid.NewString()
+	now := time.Now()
+	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
+	must(t, st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "s", Slug: "s", Settings: "{}", CreatedAt: now}))
+	l := release.New(st.Releases, st.ReleaseTiles)
+	main := release.BranchLine("main")
+	pin := release.Pin{Slug: "api", Digest: "sha256:a"}
+	r3, err := l.Derive(ctx, stack, "", "push", main, pin)
+	must(t, err)
+	r4, err := l.Derive(ctx, stack, r3.ID, "push", main, pin)
+	must(t, err)
+	r5, err := l.Derive(ctx, stack, r4.ID, "push", main, pin)
+	must(t, err)
+	// The env left 4 and 5 by a rollback to 3: they wait again, on purpose.
+	if got, err := l.Newest(ctx, stack, r3.ID, main); err != nil || got != r5.ID {
+		t.Errorf("Newest after a rollback = %s %v, want %s", got, err, r5.ID)
+	}
+	_, held, err := l.Waits(ctx, stack, r5.ID, r3.ID, true)
+	if err != nil || held {
+		t.Errorf("pushes on an auto env: held %v %v", held, err)
+	}
+	_, held, _ = l.Waits(ctx, stack, r5.ID, r3.ID, false)
+	if !held {
+		t.Error("a non-auto env took a cut built on a waiting release")
+	}
+	w, err := l.Derive(ctx, stack, r4.ID, "image-watch", release.EnvLine("e"), pin)
+	must(t, err)
+	if _, held, _ = l.Waits(ctx, stack, w.ID, r3.ID, true); !held {
+		t.Error("a watch release in between did not hold")
+	}
+	if _, held, _ = l.Waits(ctx, stack, r3.ID, r3.ID, false); held {
+		t.Error("a cut on what the env runs was held")
+	}
+	if _, held, _ = l.Waits(ctx, stack, r5.ID, "elsewhere", false); held {
+		t.Error("a base that does not chain was held")
+	}
+}
