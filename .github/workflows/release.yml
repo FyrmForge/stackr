@@ -25,13 +25,21 @@ jobs:
     outputs:
       current: ${{ steps.tip.outputs.current }}
     steps:
+      # Master's tip, or a commit followed only by changes CI skips (its
+      # paths-ignore): those never run CI, so they never release themselves.
       - name: Is this commit master's tip
         id: tip
         env:
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          tip=$(git ls-remote "https://github.com/${{ github.repository }}.git" refs/heads/master | cut -f1)
+          git init -q r && cd r
+          git fetch -q --filter=blob:none "https://github.com/${{ github.repository }}.git" master
+          tip=$(git rev-parse FETCH_HEAD)
           if [ "$tip" = "$SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          elif git merge-base --is-ancestor "$SHA" "$tip" &&
+            ! git diff --name-only "$SHA" "$tip" | grep -qvE '^(docs/.*|[^/]*\.md|LICENSE|\.gitignore)$'; then
+            echo "::notice::$SHA is followed only by docs commits up to $tip; it releases."
             echo "current=true" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::Skipping: $SHA is not master's tip ($tip); the newest commit releases."
