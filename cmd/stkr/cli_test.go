@@ -1340,6 +1340,19 @@ func TestPromoteEmptyPlan(t *testing.T) {
 	}
 }
 
+// An unsettled env (a stopped rollout, or a pointer on another release) has
+// work with no plan rows: the CLI asks and posts the promote.
+func TestPromoteUnsettledEmptyPlanPosts(t *testing.T) {
+	r := fake(t, map[string]string{
+		"/releases": `[{"id":"r7","number":7}]`,
+		"/plan/r7":  `{"can_deploy":true,"plan":{"changes":[],"unsettled":true}}`,
+	})
+	code, _, errw := cli(t, "-y", "promote", "7", "--stack", "shop", "--env", "prod")
+	if code != 0 || strings.Contains(errw, "nothing to change") || len(writes(r)) != 1 {
+		t.Errorf("unsettled promote = %d %q, writes %v", code, errw, writes(r))
+	}
+}
+
 // params get and rm suggest the closest name; rm sends no DELETE for a typo.
 func TestParamsDidYouMean(t *testing.T) {
 	r := fake(t, map[string]string{"/params": `[{"collection":"app","name":"mode","kind":"param","value":"x"}]`})

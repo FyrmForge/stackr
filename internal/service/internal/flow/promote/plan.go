@@ -44,6 +44,11 @@ type Plan struct {
 	Changes  []Change `json:"changes"`
 	Blockers []string `json:"blockers,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
+	// Unsettled: the env does not run this release in full (its pointer is
+	// another release, or a rollout of it stopped), so a plan with no rows
+	// still has work: promote moves the pointer or finishes the rollout.
+	// Set by the orchestrator on a dry run.
+	Unsettled bool `json:"unsettled,omitempty"`
 	// Gaps are what the plan can fill in place (an unset secret); they
 	// render and never block.
 	Gaps []planfile.Gap `json:"gaps,omitempty"`

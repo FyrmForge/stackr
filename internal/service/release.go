@@ -61,7 +61,21 @@ func (o *Orchestrator) PlanPromote(ctx context.Context, by *Principal, envID, re
 			out.Access = s.Lines
 		}
 	}
+	p.Unsettled = o.unsettled(ctx, envID, p.Release)
 	return out, nil
+}
+
+// unsettled is whether env does not fully run release number n.
+func (o *Orchestrator) unsettled(ctx context.Context, envID string, n int) bool {
+	if st, ok := o.RolloutStop(ctx, envID); ok && st.Release == n {
+		return true
+	}
+	e, err := o.envs.Get(ctx, envID)
+	if err != nil || e.ReleaseID == nil {
+		return true
+	}
+	r, err := o.releases.Get(ctx, *e.ReleaseID)
+	return err != nil || r.Number != n
 }
 
 // Promote queues taking releaseID into envID, approved by by. The job
