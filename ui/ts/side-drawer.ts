@@ -52,9 +52,8 @@ class SideDrawer extends HTMLElement {
     if (this.body()?.querySelector("[data-loading]")) this.close(true);
   };
 
-  // An answer that swapped nothing (a 204, a redirect header) leaves the
-  // loading text up: this request's end closes it. Another request's end
-  // does not.
+  // An answer that swapped nothing (204, redirect header) leaves the loading
+  // text up: this request's end closes it, another request's does not.
   private onDone = (e: Event): void => {
     if ((e as CustomEvent<{ target?: Element }>).detail?.target === this.body()) this.onLost();
   };
