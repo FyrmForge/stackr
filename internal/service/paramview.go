@@ -269,10 +269,8 @@ func (o *Orchestrator) SetParamsLater(ctx context.Context, s ParamScope, es []Pa
 	}
 	// ponytail: a runner poll between the save and this cancel can requeue a
 	// job, and a job that then runs cannot be stopped; the value stays saved.
-	waitTiles, err := cancel()
-	if err != nil {
-		return nil, nil, err
-	}
+	// A failed cancel still marks what the saved value reaches, then reports.
+	waitTiles, cancelErr := cancel()
 	for _, t := range waitTiles {
 		o.restartPending.Store(t.ID, struct{}{})
 		waiting = append(waiting, t.Slug)
@@ -284,6 +282,9 @@ func (o *Orchestrator) SetParamsLater(ctx context.Context, s ParamScope, es []Pa
 			o.restartPending.Store(t.ID, struct{}{})
 			redeploy = append(redeploy, t.Slug)
 		}
+	}
+	if cancelErr != nil {
+		return nil, nil, cancelErr
 	}
 	slices.Sort(redeploy)
 	slices.Sort(waiting)
@@ -350,7 +351,7 @@ func (o *Orchestrator) cancelPicked(ctx context.Context, pjs []parkedJob, ts []T
 			continue
 		}
 		if err := o.jobs.Cancel(ctx, pj.Job.ID); err != nil && !errors.Is(err, jobs.ErrFinished) {
-			return nil, errs.Conflictf("A deploy waiting for this value cannot be stopped now. Try again in a moment.")
+			return out, errs.Conflictf("A deploy waiting for this value cannot be stopped now. Try again in a moment.")
 		}
 		for _, id := range parkedTiles(pj.Job) {
 			if i := slices.IndexFunc(ts, func(t Tile) bool { return t.ID == id }); i >= 0 && !slices.ContainsFunc(out, func(t Tile) bool { return t.ID == id }) {
