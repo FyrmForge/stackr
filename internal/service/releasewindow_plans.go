@@ -56,7 +56,7 @@ func planLine(summary, planJSON string) string {
 func windowPlanRows(ps []planFacts) (rows []WindowRow, waiting, failed int) {
 	var older []WindowRow
 	for i, p := range ps {
-		row := WindowRow{Kind: RowPlan, PlanID: p.ID, Commit: p.Commit, Message: p.Summary, At: p.At, Err: p.Err}
+		row := WindowRow{Kind: RowPlan, PlanID: p.ID, Commit: p.Commit, Message: p.Summary, At: p.At, Err: configErrLine(p.Err)}
 		switch {
 		case p.Status == orgplan.Pending && !p.Decided:
 			row.State = StateWaiting
