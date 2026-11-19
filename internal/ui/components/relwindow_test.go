@@ -119,3 +119,26 @@ func TestRelWindowOrgAndCluster(t *testing.T) {
 		t.Errorf("cluster window:\n%s", got)
 	}
 }
+
+// A failed read keeps the bar's last counts, marked with their time, and the
+// list says it could not load with a way to try again; the first read that
+// fails has no counts to keep.
+func TestRelKeeperKeepsCountsOnError(t *testing.T) {
+	var k RelKeeper
+	at := time.Date(2026, 11, 19, 21, 4, 0, 0, time.UTC)
+	if got := k.Hold(&RelWindow{Err: true, Retry: "/x?rel=1"}, at); got.Waiting != 0 || got.AsOf != "" || !got.Err {
+		t.Errorf("first read failing = %+v", got)
+	}
+	k.Hold(&RelWindow{Waiting: 2, Failed: 1, Retry: "/x?rel=1"}, at)
+	w := k.Hold(&RelWindow{Err: true, Retry: "/x?rel=1"}, at.Add(time.Minute))
+	var b strings.Builder
+	_ = RelUpdate(*w).Render(context.Background(), &b)
+	for _, want := range []string{"2 waiting", "1 failed", "as of 21:04", "Releases could not be loaded.", `href="/x?rel=1"`, "Try again"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("update lacks %q:\n%s", want, b.String())
+		}
+	}
+	if got := k.Hold(&RelWindow{Waiting: 1}, at.Add(2*time.Minute)); got.AsOf != "" || got.Err {
+		t.Errorf("a good read after = %+v", got)
+	}
+}

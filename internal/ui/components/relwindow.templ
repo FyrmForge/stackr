@@ -16,6 +16,9 @@ type RelWindow struct {
 	Rows            []RelRow
 	All             string // the Releases screen at this scope
 	Err             bool   // the rows could not be read
+	// Retry is the page to load again when they could not be; AsOf is the
+	// time of the counts the bar keeps then ("21:04"), "" = they are current.
+	Retry, AsOf string
 	Open            bool // ?rel=1; main.js keeps the rest
 	// Title is the bar's word, "Releases" when "" (the cluster chart's is
 	// "Server config").
@@ -110,6 +113,9 @@ templ relCounts(w RelWindow) {
 	} else {
 		@relChips(w.Waiting, w.Failed)
 	}
+	if w.AsOf != "" {
+		<span class="text-xs text-rw-muted">as of { w.AsOf }</span>
+	}
 }
 
 templ relChips(waiting, failed int) {
@@ -131,7 +137,12 @@ templ relNote(n RelNote) {
 templ relRows(w RelWindow) {
 	switch {
 		case w.Err:
-			<p class="px-3 py-2 text-sm text-rw-muted">Releases could not be loaded.</p>
+			<p class="px-3 py-2 text-sm text-rw-muted">
+				Releases could not be loaded.
+				if w.Retry != "" {
+					{ " " }<a href={ templ.SafeURL(w.Retry) } class="link">Try again</a>
+				}
+			</p>
 		case len(w.Rows) == 0 && w.Note.Text != "":
 			<p class="px-3 py-2 text-sm text-rw-muted">@relNote(w.Note)</p>
 		case len(w.Rows) == 0:

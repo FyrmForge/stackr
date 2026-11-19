@@ -91,7 +91,7 @@ func (h *handler) stackWindow(ctx context.Context, l level, gv service.GraphView
 	if envID != "" {
 		stack = path.Dir(l.base) // the links are this env's siblings
 	}
-	w := &comp.RelWindow{All: "/-/releases?scope=" + url.QueryEscape(strings.TrimPrefix(stack, "/"))}
+	w := &comp.RelWindow{All: "/-/releases?scope=" + url.QueryEscape(strings.TrimPrefix(stack, "/")), Retry: l.base + "?rel=1"}
 	logEnv := ""
 	envs := map[string]comp.EnvRun{}
 	for _, r := range gv.Compare {
@@ -119,7 +119,7 @@ func (h *handler) stackWindow(ctx context.Context, l level, gv service.GraphView
 // orgWindow is the org chart's window. A row says where it belongs first;
 // the rows of a stack are what waits, fails, builds or runs there.
 func (h *handler) orgWindow(ctx context.Context, l level) *comp.RelWindow {
-	w := &comp.RelWindow{Switch: l.plans, All: "/-/releases?scope=" + url.QueryEscape(strings.TrimPrefix(l.base, "/"))}
+	w := &comp.RelWindow{Switch: l.plans, All: "/-/releases?scope=" + url.QueryEscape(strings.TrimPrefix(l.base, "/")), Retry: l.base + "?rel=1"}
 	win, err := h.orch.OrgReleaseWindow(ctx, l.scope.ID, l.plans)
 	if err != nil {
 		w.Err = true

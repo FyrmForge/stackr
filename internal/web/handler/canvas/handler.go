@@ -408,6 +408,7 @@ func (h *handler) Poll(c echo.Context) producer {
 	l, sh, drawn := where(c), show(c), c.QueryParam("n")
 	sent := map[string]stream.HTML{}
 	var last time.Time
+	var keep comp.RelKeeper // a failed read of the window keeps its last counts
 	return func(ctx context.Context) ([]stream.Msg, error) {
 		if time.Since(last) < Every {
 			return nil, nil
@@ -417,6 +418,7 @@ func (h *handler) Poll(c echo.Context) producer {
 		if err != nil {
 			return nil, err
 		}
+		v.Releases = keep.Hold(v.Releases, last)
 		if sig := Sig(v); sig != drawn {
 			drawn = sig
 			clear(sent)
