@@ -2,6 +2,7 @@ package volume
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,11 +30,13 @@ func Runs(cron string) string {
 		return cron
 	}
 	at := fmt.Sprintf("%02s:%02s", h, m)
-	switch f[4] {
-	case "*":
+	if f[4] == "*" {
 		return "Every day at " + at
-	case "0":
-		return "Every Sunday at " + at
+	}
+	if number(f[4]) {
+		if d, _ := strconv.Atoi(f[4]); d <= 7 {
+			return "Every " + time.Weekday(d%7).String() + " at " + at // 7 is Sunday too
+		}
 	}
 	return cron
 }

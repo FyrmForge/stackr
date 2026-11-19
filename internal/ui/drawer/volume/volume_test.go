@@ -52,7 +52,7 @@ func TestEveryTabRenders(t *testing.T) {
 		},
 		"backups": {
 			Backups(b),
-			[]string{"0 2 * * *", "Volume archive", "/backup\"", "/restore?run=r1", "local disk", "/schedules\"", "/schedules/s1/delete", `hx-trigger="every 2s"`, `hx-select="#backup-history-v1"`},
+			[]string{"Every day at 02:00", "Volume archive", "/backup\"", "/restore?run=r1", "local disk", "/schedules\"", "/schedules/s1/delete", `hx-trigger="every 2s"`, `hx-select="#backup-history-v1"`},
 		},
 		"settings": {
 			Settings(v, "", nil),
@@ -109,10 +109,13 @@ func TestBackupsFacts(t *testing.T) {
 	b := BackupsView{ID: "v1", Name: "pgdata", Base: "/v", Edit: true, Methods: []string{"dump"},
 		Schedules: []Schedule{{ID: "s1", Method: "dump", Cron: "0 3 * * *", TZ: "UTC", Dest: "local disk", Keep: "7", Mode: "pause"}}}
 	got := render(b)
-	for _, w := range []string{"Database dump", "to local disk", "Every day at 03:00", "UTC, 0 3 * * *", "Keep", "While it runs", `aria-label="Edit Keep"`, "Add a schedule", "Back up now", `name="repeat"`, "Empty uses 03:00."} {
+	for _, w := range []string{"Database dump", "to local disk", "Every day at 03:00", "<span>UTC</span>", "Keep", "While it runs", `aria-label="Edit Keep"`, "Add a schedule", "Back up now", `name="repeat"`, "Empty uses 03:00."} {
 		if !strings.Contains(got, w) {
 			t.Errorf("no %q in\n%s", w, got)
 		}
+	}
+	if strings.Contains(got, "0 3 * * *") { // the readable line is not printed again raw
+		t.Errorf("the cron line is printed beside its words\n%s", got)
 	}
 	if strings.Contains(got, "No backups are scheduled.") || strings.Contains(got, "default</span>") {
 		t.Errorf("a schedule row carries the empty state or the default tag\n%s", got)

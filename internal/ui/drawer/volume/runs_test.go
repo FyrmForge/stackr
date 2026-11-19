@@ -5,7 +5,7 @@ import "testing"
 func TestRunsAndCronOf(t *testing.T) {
 	for cron, want := range map[string]string{
 		"0 3 * * *": "Every day at 03:00", "0 4 * * 0": "Every Sunday at 04:00", "@daily": "Every day at 00:00",
-		"5 * * * *": "Every hour at :05", "*/5 * * * *": "*/5 * * * *", "0 3 * * 1": "0 3 * * 1",
+		"5 * * * *": "Every hour at :05", "*/5 * * * *": "*/5 * * * *", "30 2 * * 1": "Every Monday at 02:30", "0 3 * * 7": "Every Sunday at 03:00", "0 3 * * 9": "0 3 * * 9",
 	} {
 		if got := Runs(cron); got != want {
 			t.Errorf("Runs(%q) = %q, want %q", cron, got, want)

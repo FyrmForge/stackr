@@ -795,7 +795,7 @@ func scheduleRows(b BackupsView, s Schedule) c.SettingsFormView {
 		Scope: methodLabel(s.Method), Flat: true,
 	}
 	v.Rows = append(v.Rows, c.SettingRowView{Key: "runs", Label: "Runs", Value: Runs(s.Cron), Fact: true,
-		Sub: &c.RowSub{Text: s.TZ + ", " + s.Cron}})
+		Sub: &c.RowSub{Text: s.TZ}}) // the line itself is the value when it cannot be put in words
 	if s.Keep == "" {
 		v.Rows = append(v.Rows, c.SettingRowView{Key: "keep", Label: "Keep", Value: "the recovery window", Fact: true})
 	} else {
