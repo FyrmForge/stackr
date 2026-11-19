@@ -266,6 +266,7 @@ func (d *Client) List(ctx context.Context, labels map[string]string) ([]Containe
 			ID:          c.ID,
 			Image:       c.Image,
 			ImageID:     c.ImageID,
+			Created:     c.Created,
 			State:       c.State,
 			Health:      healthWord(c.Status),
 			Labels:      c.Labels,

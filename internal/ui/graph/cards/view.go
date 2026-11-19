@@ -240,6 +240,8 @@ func replica(state string) string {
 		return "success"
 	case "exited", "dead":
 		return "danger"
+	case "old", "new": // a deploy's overlap, never red
+		return "neutral"
 	}
 	return "warn"
 }

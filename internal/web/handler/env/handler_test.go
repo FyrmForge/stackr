@@ -528,6 +528,7 @@ func TestEnvDrawersLoadInShell(t *testing.T) {
 	for path, want := range map[string]string{
 		env + "/-/new-tile":                           env,
 		env + "/-/proxy":                              env + "?drawer=proxy",
+		env + "/-/internet":                           env + "?drawer=internet",
 		env + "/-/volumes/" + v.ID:                    env + "?drawer=" + v.ID,
 		env + "/-/instances/api?tab=logs":             env + "?drawer=" + s.Tile.ID + "&tab=logs",
 		env + "/-/slices/api":                         env + "?drawer=" + s.Tile.ID,
@@ -544,6 +545,9 @@ func TestEnvDrawersLoadInShell(t *testing.T) {
 	}
 	if rec := s.Do(t, "GET", env+"/-/proxy", nil); rec.Code != 200 {
 		t.Errorf("htmx proxy drawer = %d", rec.Code)
+	}
+	if rec := s.Do(t, "GET", env+"/-/internet", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), "No tile has reached out yet.") {
+		t.Errorf("htmx internet drawer = %d", rec.Code)
 	}
 }
 

@@ -58,6 +58,7 @@ func replicas(s service.TileStatus) []ui.ReplicaView {
 			Name:   r.Name,
 			State:  r.State,
 			Health: r.Health,
+			Tag:    s.Generation[r.ID],
 		})
 	}
 	return out

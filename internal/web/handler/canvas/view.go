@@ -188,6 +188,8 @@ func envDrawer(base, kind, id, slug string) (url, tab string) {
 		return base + "/-/volumes/" + id, "backups"
 	case "proxy":
 		return base + "/-/proxy", "routes"
+	case "internet":
+		return base + "/-/internet", "outbound"
 	case "vars":
 		return base + "/-/vars", "editor"
 	}

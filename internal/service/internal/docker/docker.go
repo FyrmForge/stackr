@@ -108,6 +108,8 @@ type Container struct {
 	Image string `json:"image"`
 	// ImageID is the id of the image it was created from, whatever Image says.
 	ImageID string `json:"-"`
+	// Created is when docker made it (unix seconds); 0 when not known.
+	Created int64  `json:"-"`
 	State   string `json:"state"`
 	// Health is docker's own word (healthy | unhealthy | starting), "" when
 	// the container declares no HEALTHCHECK.

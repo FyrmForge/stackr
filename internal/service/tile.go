@@ -14,6 +14,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/graph"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
@@ -33,10 +34,13 @@ type Image = store.Image
 type TileStatus struct {
 	Word     string      `json:"word"` // running | stopped | partial | … (leaf/tile); a cron or function: its card's word, idle before its first run
 	Replicas []Container `json:"replicas"`
-	LastJob  *Job        `json:"last_job"`
-	LastRun  *Run        `json:"last_run,omitempty"`
-	NextRun  *time.Time  `json:"next_run,omitempty"` // unpaused cron only
-	Paused   bool        `json:"paused"`
+	// Generation is a container's id -> "old" or "new" while a deploy of the
+	// tile overlaps its old and new containers; Replicas is then oldest first.
+	Generation map[string]string `json:"generation,omitempty"`
+	LastJob    *Job              `json:"last_job"`
+	LastRun    *Run              `json:"last_run,omitempty"`
+	NextRun    *time.Time        `json:"next_run,omitempty"` // unpaused cron only
+	Paused     bool              `json:"paused"`
 }
 
 func (o *Orchestrator) Tiles(ctx context.Context, envID string) ([]Tile, error) {
@@ -72,6 +76,15 @@ func (o *Orchestrator) TileStatus(ctx context.Context, id string) (TileStatus, e
 		return out, err
 	} else if ok {
 		out.LastJob = &j
+		cs, tags := graph.Generations(out.Replicas, t.Replicas, j, true)
+		if tags != nil {
+			out.Replicas, out.Generation = cs, map[string]string{}
+			for i, c := range cs {
+				if tags[i] != "" {
+					out.Generation[c.ID] = tags[i]
+				}
+			}
+		}
 	}
 	if !tile.RunToCompletion(t.Kind) {
 		return out, nil

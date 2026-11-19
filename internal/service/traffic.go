@@ -21,6 +21,44 @@ func (o *Orchestrator) Traffic(ctx context.Context, envID string) ([]Edge, error
 	return o.sample.Edges(ctx, envID)
 }
 
+// OutboundTile is a tile that reached the internet: when last, how many
+// bytes that came to (an estimate, rate times tick), and whether it does now.
+type OutboundTile struct {
+	Name     string
+	Slug     string
+	LastSeen time.Time
+	Bytes    int64
+	Live     bool
+}
+
+// Outbound is the env's tiles that ever reached the internet, most recent
+// first: the Internet box's drawer.
+func (o *Orchestrator) Outbound(ctx context.Context, envID string) ([]OutboundTile, error) {
+	rows, err := o.sample.Outbound(ctx, envID)
+	if err != nil {
+		return nil, err
+	}
+	lanes, err := o.sample.Edges(ctx, envID)
+	if err != nil {
+		return nil, err
+	}
+	live := map[string]bool{}
+	for _, l := range lanes {
+		if l.To == ltraffic.Internet {
+			live[l.From] = true
+		}
+	}
+	out := make([]OutboundTile, 0, len(rows))
+	for _, r := range rows {
+		t, err := o.tiles.Get(ctx, r.TileID)
+		if err != nil {
+			continue // the tile went between the two reads
+		}
+		out = append(out, OutboundTile{Name: t.Name, Slug: t.Slug, LastSeen: r.LastSeen, Bytes: r.Bytes, Live: live[r.TileID]})
+	}
+	return out, nil
+}
+
 // TrafficSeq counts samples; a stream sends when it moves.
 func (o *Orchestrator) TrafficSeq() int64 { return o.traffic.Seq() }
 
