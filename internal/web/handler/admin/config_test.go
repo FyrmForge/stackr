@@ -71,3 +71,25 @@ func TestAdminConfigAppliedRemovalOnlyHeader(t *testing.T) {
 		t.Errorf("the config tab does not poll:\n%s", body)
 	}
 }
+
+// ?plan= names a plan: one older than the 20 listed opens as itself, an id
+// that does not exist is a 404, never the newest plan with its Approve.
+func TestAdminConfigPlanParam(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	old := serverPlan(t, s, "repo", riskyServerPlan)
+	old.Status, old.CreatedAt = "rejected", time.Now().Add(-time.Hour)
+	if err := s.Store.ServerPlans.Update(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	for range 20 {
+		serverPlan(t, s, "repo", riskyServerPlan)
+	}
+	if rec := s.As(t, root, "GET", "/-/admin/config?plan=nope", nil); rec.Code != 404 {
+		t.Errorf("unknown plan = %d, want 404", rec.Code)
+	}
+	rec := s.As(t, root, "GET", "/-/admin/config?plan="+old.ID, nil)
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "/plans/"+old.ID+"/approve") || !strings.Contains(rec.Body.String(), ">Plan<") {
+		t.Errorf("older plan = %d\n%s", rec.Code, rec.Body)
+	}
+}

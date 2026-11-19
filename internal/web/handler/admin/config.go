@@ -110,9 +110,16 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 	if len(ps) == 0 {
 		return ui.Config(v), nil
 	}
-	// ?plan= opens that plan's review, else the newest one
-	i := slices.IndexFunc(ps, func(p service.ServerPlan) bool { return p.ID == c.QueryParam("plan") })
-	latest := ps[max(i, 0)]
+	// ?plan= opens that plan's review (one older than the list too), else the newest one
+	want := c.QueryParam("plan")
+	i := slices.IndexFunc(ps, func(p service.ServerPlan) bool { return p.ID == want })
+	latest, row := ps[max(i, 0)], rows[max(i, 0)]
+	if want != "" && i < 0 {
+		if latest, err = h.orch.ServerPlan(ctx, want); err != nil {
+			return nil, errs.ErrNotFound
+		}
+		row = planRow(latest)
+	}
 	var pl service.ServerConfigPlan
 	if latest.Plan != "" {
 		if err := json.Unmarshal([]byte(latest.Plan), &pl); err != nil {
@@ -120,7 +127,7 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 		}
 	}
 	box := &ui.ConfigPlan{
-		Row: rows[max(i, 0)],
+		Row: row,
 		Review: comp.PlanReviewView{
 			Plan:   render.ServerPlanView(pl),
 			Origin: render.PlanOrigin(latest.Source),
@@ -142,7 +149,7 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 			box.Review.Approve = ui.Base + "/config/plans/" + latest.ID + "/approve"
 		}
 	}
-	if i > 0 {
+	if i > 0 || (want != "" && i < 0) {
 		box.Title = "Plan"
 	}
 	v.Latest, v.Plans = box, slices.Delete(rows, max(i, 0), max(i, 0)+1)

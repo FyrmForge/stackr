@@ -80,9 +80,17 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 	if len(ps) == 0 {
 		return orgui.Config(v), nil
 	}
-	// ?plan= opens that plan's review, else the newest one
-	i := slices.IndexFunc(ps, func(p service.OrgPlan) bool { return p.ID == c.QueryParam("plan") })
-	latest := ps[max(i, 0)]
+	// ?plan= opens that plan's review (one older than the list too, if it is
+	// this org's), else the newest one
+	want := c.QueryParam("plan")
+	i := slices.IndexFunc(ps, func(p service.OrgPlan) bool { return p.ID == want })
+	latest, row := ps[max(i, 0)], v.Plans[max(i, 0)]
+	if want != "" && i < 0 {
+		if latest, err = h.orch.OrgPlan(ctx, want); err != nil || latest.OrgID != og.ID {
+			return nil, errs.ErrNotFound
+		}
+		row = planRow(latest)
+	}
 	var pl service.OrgConfigPlan
 	if latest.Plan != "" {
 		if err := json.Unmarshal([]byte(latest.Plan), &pl); err != nil {
@@ -90,7 +98,7 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 		}
 	}
 	box := &orgui.PlanBox{
-		Row:    v.Plans[max(i, 0)],
+		Row:    row,
 		Review: comp.PlanReviewView{Plan: render.OrgPlanView(pl)},
 	}
 	switch {
@@ -115,7 +123,7 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 			box.Review.Plan.Gaps = append(box.Review.Plan.Gaps, gv)
 		}
 	}
-	if i > 0 {
+	if i > 0 || (want != "" && i < 0) {
 		box.Title = "Plan"
 	}
 	v.Latest, v.Plans = box, slices.Delete(v.Plans, max(i, 0), max(i, 0)+1)
