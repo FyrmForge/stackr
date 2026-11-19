@@ -64,3 +64,44 @@ func TestReleaseScreenKeepsFixedFailure(t *testing.T) {
 		t.Errorf("outsider: %+v, %v", n, err)
 	}
 }
+
+// Config plans are the owners' (org.owner.read, as the org canvas and the
+// API): a member sees the org's releases but not its plan rows or scope.
+func TestReleaseScreenPlansAreOwnersOnly(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	if err := w.e.Store.OrgPlans.Create(ctx, store.OrgPlan{ID: uuid.NewString(), OrgID: w.acme, Status: "pending", Summary: "1 change", Plan: "{}", Ticked: []string{}, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	plans := func(u string) (rows, scopes int) {
+		t.Helper()
+		p, err := w.e.Orch.SessionPrincipal(ctx, u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sc, err := w.e.Orch.ReleaseScreen(ctx, p, service.ScreenQuery{Scope: "acme"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range sc.Rows {
+			if r.Kind == service.RowPlan {
+				rows++
+			}
+		}
+		for _, s := range sc.Scopes {
+			if s.Key == "acme/"+service.ScopeOrgConfig {
+				scopes++
+			}
+		}
+		return
+	}
+	if r, s := plans(w.user); r != 1 || s != 1 {
+		t.Errorf("owner sees %d plan rows, %d scopes, want 1, 1", r, s)
+	}
+	m := w.e.User(t, "m@x.io", false)
+	w.e.Member(t, w.acme, m, "member")
+	if r, s := plans(m); r != 0 || s != 0 {
+		t.Errorf("member sees %d plan rows, %d scopes, want 0, 0", r, s)
+	}
+}

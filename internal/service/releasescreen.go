@@ -114,19 +114,21 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 			continue
 		}
 		start := len(sc.Scopes)
-		sc.Scopes = append(sc.Scopes,
-			ScreenScope{Key: og.Slug, Label: "All of " + og.Name, Name: og.Name},
-			ScreenScope{Key: og.Slug + "/" + ScopeOrgConfig, Label: "Org config", Depth: 1})
-		ps, err := o.OrgPlans(ctx, og.ID, 50)
-		if err != nil {
-			return sc, err
+		sc.Scopes = append(sc.Scopes, ScreenScope{Key: og.Slug, Label: "All of " + og.Name, Name: og.Name})
+		// the org canvas shows the plans to owners only (org.owner.read, as the API)
+		if authz.Can(p.Access, "org.owner.read", authz.Resource{OrgID: og.ID}) == nil {
+			sc.Scopes = append(sc.Scopes, ScreenScope{Key: og.Slug + "/" + ScopeOrgConfig, Label: "Org config", Depth: 1})
+			ps, err := o.OrgPlans(ctx, og.ID, 50)
+			if err != nil {
+				return sc, err
+			}
+			rows := planRows("org config", og.Slug, og.ID, authz.Can(p.Access, "orgplan.approve", authz.Resource{OrgID: og.ID}) == nil, planIn(ps, func(p OrgPlan) planFields {
+				return planFields{p.ID, p.Commit, p.Summary, p.Status, p.Error, "push", p.CreatedAt, p.DecidedAt != nil}
+			}))
+			add(og.Slug+"/"+ScopeOrgConfig, rows...)
+			add(og.Slug, rows...)
+			all = append(all, rows...)
 		}
-		rows := planRows("org config", og.Slug, og.ID, authz.Can(p.Access, "orgplan.approve", authz.Resource{OrgID: og.ID}) == nil, planIn(ps, func(p OrgPlan) planFields {
-			return planFields{p.ID, p.Commit, p.Summary, p.Status, p.Error, "push", p.CreatedAt, p.DecidedAt != nil}
-		}))
-		add(og.Slug+"/"+ScopeOrgConfig, rows...)
-		add(og.Slug, rows...)
-		all = append(all, rows...)
 		sts, err := o.stacks.List(ctx, og.ID)
 		if err != nil {
 			return sc, err
