@@ -185,7 +185,6 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	}
 	if ei > 0 && !back && runs(es[ei-1]) < n {
 		rv.Notes = append(rv.Notes, es[ei-1].Name+" does not run this release yet.")
-		rv.Button = "Promote anyway"
 	}
 	if rv.Running = h.rolloutRunning(ctx, cd, e, rs); rv.Running != nil {
 		rv.Live = f.Base + "?tab=releases&env=" + e.ID + "&plan=" + plan // it clears by itself
