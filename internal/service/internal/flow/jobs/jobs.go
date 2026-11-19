@@ -54,6 +54,28 @@ func (r *Run) Swap() error {
 	return nil
 }
 
+// Lock adds tiles the handler created to the job's lock set: the durable
+// row (so the tile's job history lists it), the set Finish writes, and the
+// runner's active lock, so a queued job on a new tile waits for this one.
+// All under Runner.mu, which pass also holds when it starts a job.
+func (r *Run) Lock(ctx context.Context, ids ...string) error {
+	grown := false
+	for _, id := range ids {
+		if !slices.Contains(r.Job.LockSet, id) {
+			r.Job.LockSet = append(r.Job.LockSet, id)
+			grown = true
+		}
+	}
+	if !grown || r.r == nil {
+		return nil
+	}
+	slices.Sort(r.Job.LockSet)
+	r.r.mu.Lock()
+	defer r.r.mu.Unlock()
+	r.a.lock = slices.Clone(r.Job.LockSet)
+	return r.r.jobs.SetLock(context.WithoutCancel(ctx), r.Job)
+}
+
 type idleKey struct{}
 
 // Idle is called by a handler that is about to only wait on other jobs: until

@@ -664,3 +664,28 @@ func TestFinishKeepsLockSetGrowth(t *testing.T) {
 		t.Fatalf("lock set %v lost t2", j.LockSet)
 	}
 }
+
+// A tile a running job adds to its lock set holds a queued job on that tile.
+func TestRunLockHoldsQueuedJob(t *testing.T) {
+	g, b := newGate(false), newGate(false)
+	h := func(ctx context.Context, r *jobs.Run) error {
+		if err := r.Lock(ctx, "t2"); err != nil {
+			return err
+		}
+		return g.run(ctx, r)
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h, "b": b.run}, jobs.Options{})
+	start(t, r)
+	first := enqueue(t, r, "a", "t1")
+	started(t, g)
+	second := enqueue(t, r, "b", "t2")
+	notStarted(t, b)
+	if j, _ := l.Get(ctx, first); !slices.Contains(j.LockSet, "t2") {
+		t.Fatalf("durable lock set %v lacks t2", j.LockSet)
+	}
+	close(g.release)
+	if got := started(t, b); got != second {
+		t.Fatalf("started %s, want %s", got, second)
+	}
+	close(b.release)
+}

@@ -209,6 +209,9 @@ func (l *Leaf) Start(ctx context.Context, j store.Job) (store.Job, error) {
 	return j, l.jobs.Update(ctx, j)
 }
 
+// SetLock writes j's row, for a lock set that grew while it ran.
+func (l *Leaf) SetLock(ctx context.Context, j store.Job) error { return l.jobs.Update(ctx, j) }
+
 // Finish writes a terminal state, with the reason when there is one.
 func (l *Leaf) Finish(ctx context.Context, j store.Job, state, reason string) error {
 	now := time.Now().UTC()

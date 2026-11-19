@@ -1021,17 +1021,11 @@ func (o *Orchestrator) lockEnvTiles(ctx context.Context, r *jobs.Run, envID stri
 	if err != nil {
 		return
 	}
-	n := len(r.Job.LockSet)
-	for _, t := range ts {
-		if !slices.Contains(r.Job.LockSet, t.ID) {
-			r.Job.LockSet = append(r.Job.LockSet, t.ID)
-		}
+	ids := make([]string, len(ts))
+	for i, t := range ts {
+		ids[i] = t.ID
 	}
-	if len(r.Job.LockSet) == n {
-		return
-	}
-	slices.Sort(r.Job.LockSet)
-	if err := o.store.Jobs.Update(context.WithoutCancel(ctx), r.Job); err != nil {
+	if err := r.Lock(ctx, ids...); err != nil {
 		slog.Error("recording the job's tiles", "job", r.Job.ID, "error", err)
 	}
 }
