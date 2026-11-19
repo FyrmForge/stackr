@@ -21,7 +21,10 @@ func (o *Orchestrator) RolloutStop(ctx context.Context, envID string) (RolloutSt
 		case job.Superseded, job.Cancelled, job.Skipped:
 			continue
 		case job.Failed:
-			st := RolloutStop{JobID: j.ID, Error: j.Error}
+			st := RolloutStop{JobID: j.ID, Error: j.Error, At: j.CreatedAt}
+			if j.FinishedAt != nil {
+				st.At = *j.FinishedAt
+			}
 			var p struct {
 				StoppedAt   string   `json:"stopped_at"`
 				NotDeployed []string `json:"not_deployed"`

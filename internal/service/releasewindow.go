@@ -228,11 +228,14 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 		}
 	}
 	// failed promotes: one per (release, env), each with its own error
-	type promoteFail struct{ env, job, err string }
+	type promoteFail struct {
+		env, job, err string
+		at            time.Time
+	}
 	failed := map[int][]promoteFail{}
 	for _, id := range scoped {
 		if s, ok := o.RolloutStop(ctx, id); ok && s.Release > 0 {
-			failed[s.Release] = append(failed[s.Release], promoteFail{id, s.JobID, s.Error})
+			failed[s.Release] = append(failed[s.Release], promoteFail{id, s.JobID, s.Error, s.At})
 		}
 	}
 	var building []WindowRow
@@ -284,7 +287,7 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 		case len(failed[r.Number]) > 0:
 			for _, f := range failed[r.Number] {
 				fr := row
-				fr.State, fr.FailEnv, fr.FailEnvID, fr.JobID, fr.Err = StateFailed, envs[f.env], f.env, f.job, f.err
+				fr.State, fr.FailEnv, fr.FailEnvID, fr.JobID, fr.Err, fr.At = StateFailed, envs[f.env], f.env, f.job, f.err, f.at
 				failedRows = append(failedRows, fr)
 			}
 		case deploying[r.ID]:
@@ -309,8 +312,13 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 	}
 	pf, pushFailed := o.PushFailure(ctx, stackID)
 	if pushFailed {
-		failedRows = append([]WindowRow{{Kind: RowFailed, State: StateFailed, JobID: pf.JobID, Err: pf.Error}}, failedRows...)
+		row := WindowRow{Kind: RowFailed, State: StateFailed, JobID: pf.JobID, Err: pf.Error, Commit: pf.Sha, By: pf.Source, At: pf.At}
+		if pf.Sha != "" && commitBase != "" {
+			row.CommitURL = commitBase + pf.Sha
+		}
+		failedRows = append(failedRows, row)
 	}
+	slices.SortStableFunc(failedRows, func(a, b WindowRow) int { return b.At.Compare(a.At) }) // when each failed, newest first
 	w.Waiting, w.Failed = len(waiting), len(failedRows)
 	var fixed []WindowRow
 	if history {

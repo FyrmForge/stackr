@@ -298,3 +298,45 @@ func TestReleaseWindowFailurePerEnv(t *testing.T) {
 		t.Errorf("failed rows = %v (failed %d), want one per env with its own error", got, win.Failed)
 	}
 }
+
+// A live failed push carries its commit, source and time, and failures sort
+// by when they failed, newest first.
+func TestReleaseWindowPushFailureDetails(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	now := time.Now()
+	fin := now.Add(-10 * time.Minute)
+	if err := w.e.Store.Jobs.Create(ctx, store.Job{
+		ID: uuid.NewString(), Kind: "push", State: "failed", Error: "build api",
+		Payload: `{"org_id":"` + w.acme + `","stack_id":"` + w.shop + `","event":{"Commit":"abcdef1234567"}}`,
+		LockSet: store.StringList{"push:" + w.shop, "push:" + w.shop + ":acme/shop@main"}, CreatedAt: fin, FinishedAt: &fin,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// a promote of release 3 failed a day ago, a fresh push failure sorts above it
+	r3 := uuid.NewString()
+	if err := w.e.Store.Releases.Create(ctx, store.Release{ID: r3, StackID: w.shop, Number: 3, CreatedAt: now.Add(-time.Hour), CreatedBy: "push"}); err != nil {
+		t.Fatal(err)
+	}
+	old := now.Add(-24 * time.Hour)
+	if err := w.e.Store.Jobs.Create(ctx, store.Job{
+		ID: uuid.NewString(), Kind: "promote", State: "failed", Error: "no image", Payload: `{"stopped_at":"web"}`,
+		ReleaseID: &r3, LockSet: store.StringList{"env:" + w.prod}, CreatedAt: old, FinishedAt: &old,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	win, err := w.e.Orch.ReleaseWindow(ctx, w.shop, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fails []service.WindowRow
+	for _, r := range win.Rows {
+		if r.State == service.StateFailed {
+			fails = append(fails, r)
+		}
+	}
+	if len(fails) != 2 || fails[0].Kind != service.RowFailed || fails[0].Commit != "abcdef1234567" || fails[0].By != "push" || !fails[0].At.Equal(fin.UTC()) && !fails[0].At.Equal(fin) {
+		t.Fatalf("failures = %+v, want the push failure first with its commit, source and time", fails)
+	}
+}

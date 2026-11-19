@@ -215,6 +215,7 @@ type Stopped struct {
 	Tile    string
 	Pending []string
 	Error   string
+	At      time.Time // when the promote failed
 }
 
 // Rung is one env of the ladder: the release it runs, and whether one waits
