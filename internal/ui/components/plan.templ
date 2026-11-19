@@ -15,6 +15,9 @@ type PlanView struct {
 	Title     string // "Promote release 12 to prod"
 	Changes   []ChangeView
 	Blockers  []string
+	// Fix is the way out of a blocker, by its text; a blocker with none has
+	// no entry.
+	Fix map[string]BlockerFix
 	Warnings  []string
 	// Gaps are what the plan can fill in place; they never gate CanDeploy.
 	Gaps      []GapView
@@ -28,6 +31,55 @@ type PlanView struct {
 	Done bool
 	// Target is what its buttons answer into; "" = the drawer.
 	Target string
+}
+
+// BlockerFix is the one link that fixes a blocker, and what the footer says
+// to do first ("Remove the route first.").
+type BlockerFix struct{ Label, Href, Hint string }
+
+templ blockerFix(p PlanView, b string) {
+	if f, ok := p.Fix[b]; ok {
+		{ " " }<a href={ templ.SafeURL(f.Href) } class="underline">{ f.Label }</a>
+	}
+}
+
+// changeCells reads a change detail "80 to 81", "added x" or "removed" as
+// the cells now and after; a value the compare never prints (a password) is
+// only "set" or "not set".
+func changeCells(v string) (now, after string) {
+	switch {
+	case v == "removed":
+		return "set", "not set"
+	case strings.HasPrefix(v, "added "):
+		return "not set", strings.TrimPrefix(v, "added ")
+	}
+	if a, b, ok := strings.Cut(v, " to "); ok {
+		return a, b
+	}
+	return "", v
+}
+
+// changeTable is a change row opened: one line per setting, now and after.
+templ changeTable(ds []DetailView) {
+	<table class="w-full text-left text-xs">
+		<thead>
+			<tr class="text-rw-faint">
+				<th scope="col" class="pb-1 pr-4 font-medium">Setting</th>
+				<th scope="col" class="pb-1 pr-4 font-medium">Now</th>
+				<th scope="col" class="pb-1 font-medium">After</th>
+			</tr>
+		</thead>
+		<tbody class="font-mono">
+			for _, d := range ds {
+				{{ now, after := changeCells(d.Value) }}
+				<tr>
+					<td class="py-0.5 pr-4 text-rw-muted">{ d.Label }</td>
+					<td class="py-0.5 pr-4 text-rw-text [overflow-wrap:anywhere]">{ now }</td>
+					<td class="py-0.5 text-rw-text [overflow-wrap:anywhere]">{ after }</td>
+				</tr>
+			}
+		</tbody>
+	</table>
 }
 
 // GapView is one thing a plan waits on that can be filled in place. Kind is
@@ -140,7 +192,10 @@ templ Plan(p PlanView) {
 				<p class="font-medium">Blocked:</p>
 				<ul class="list-disc pl-5">
 					for _, b := range p.Blockers {
-						<li>{ b }</li>
+						<li>
+							{ b }
+							@blockerFix(p, b)
+						</li>
 					}
 				</ul>
 			</div>
@@ -176,7 +231,7 @@ templ Plan(p PlanView) {
 		}
 		<ul class="divide-y divide-rw-border">
 			for _, c := range groupCreates(p.Changes) {
-				<li class={ "py-2.5 text-sm", templ.KV("border-l-2 border-rw-warn/40 pl-3", c.Impact != "") }>
+				<li class="py-2.5 text-sm">
 					<div class="flex flex-wrap items-center gap-2 font-mono">
 						<span class={ planSignClass(c) } aria-hidden="true">{ planSign(c) }</span>
 						if c.Optional {
@@ -198,6 +253,9 @@ templ Plan(p PlanView) {
 							} else {
 								@Chip("remove?", "warn")
 							}
+						}
+						if c.Impact != "" {
+							@Chip("needs care", "warn")
 						}
 						<span class="text-rw-faint">{ planKindWord(c.Kind, p.Done) }</span>
 						if c.Tile != "" {
@@ -222,13 +280,25 @@ templ Plan(p PlanView) {
 					</div>
 					if len(c.Details) > 0 || len(c.Child) > 0 {
 						<details class="mt-2 pl-6">
-							<summary class="cursor-pointer text-xs text-rw-muted">What it makes</summary>
-							<dl class="mt-2 grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
-								for _, d := range c.Details {
-									<dt class="text-rw-muted">{ d.Label }</dt>
-									<dd class="text-rw-text font-mono text-xs [overflow-wrap:anywhere] self-center">{ d.Value }</dd>
+							<summary class="cursor-pointer text-xs text-rw-muted">
+								if c.Kind == "create" {
+									What it makes
+								} else {
+									What changes
 								}
-							</dl>
+							</summary>
+							if c.Kind == "create" {
+								<dl class="mt-2 grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+									for _, d := range c.Details {
+										<dt class="text-rw-muted">{ d.Label }</dt>
+										<dd class="text-rw-text font-mono text-xs [overflow-wrap:anywhere] self-center">{ d.Value }</dd>
+									}
+								</dl>
+							} else {
+								<div class="mt-2">
+									@changeTable(c.Details)
+								</div>
+							}
 							if len(c.Child) > 0 {
 								<p class="mt-3 mb-1 text-xs text-rw-faint">Settings of the new tile</p>
 								<ul class="space-y-0.5 font-mono text-xs">

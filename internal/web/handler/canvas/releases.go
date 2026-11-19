@@ -204,6 +204,14 @@ func planView(p service.PromotePlan) comp.PlanView {
 		Warnings:  p.Plan.Warnings,
 		CanDeploy: p.CanDeploy,
 	}
+	for _, b := range p.Plan.Blockers {
+		if f, ok := blockerFix(b); ok {
+			if pv.Fix == nil {
+				pv.Fix = map[string]comp.BlockerFix{}
+			}
+			pv.Fix[b] = f
+		}
+	}
 	for _, ch := range p.Plan.Changes {
 		pv.Changes = append(pv.Changes, comp.ChangeView{
 			Details:  details(ch.Details),
@@ -376,4 +384,14 @@ func rowOf(w service.ReleaseWindow, id string) service.WindowRow {
 		}
 	}
 	return service.WindowRow{}
+}
+
+// blockerFix is the one link that fixes a blocker the plan words as a
+// sentence. ponytail: matched on the wording; a typed blocker (kind and
+// target) in flow/promote/plan.go replaces it when more kinds need a link.
+func blockerFix(b string) (comp.BlockerFix, bool) {
+	if strings.Contains(b, "is an external route") {
+		return comp.BlockerFix{Label: "Open server routes", Href: "/-/admin/traffic", Hint: "Remove the route first."}, true
+	}
+	return comp.BlockerFix{}, false
 }

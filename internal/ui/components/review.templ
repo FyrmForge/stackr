@@ -96,6 +96,9 @@ func (v ReviewView) reviewNote() string {
 	case len(secretGaps(v.Plan)) > 0:
 		return "Set " + secretGaps(v.Plan)[0].Label + " first."
 	case len(v.Plan.Blockers) > 0:
+		if f, ok := v.Plan.Fix[v.Plan.Blockers[0]]; ok && f.Hint != "" {
+			return f.Hint
+		}
 		return "Fix what blocks it first."
 	case v.Danger || v.Access != nil || len(v.Notes) > 0 || v.Skip != nil:
 		return ""
@@ -125,6 +128,8 @@ func rowSummary(c ChangeView) string {
 			return c.New + ", " + image
 		}
 		return c.New
+	case c.Kind != "create" && len(c.Details) > 0 && c.Note != "":
+		return strings.TrimSpace(c.New + " " + c.Note)
 	case c.Old != "" && c.New != "":
 		return c.Field + " " + c.Old + " to " + c.New
 	case c.Field != "" && c.New != "":
@@ -179,14 +184,16 @@ templ reviewRows(p PlanView) {
 		}
 		<ul class="divide-y divide-rw-border">
 			for i, c := range groupCreates(p.Changes) {
-				<li class={ "py-2.5 first:pt-0 last:pb-0", templ.KV("border-l-2 border-rw-warn/40 pl-3", c.Impact != "") }>
+				<li class="py-2.5 first:pt-0 last:pb-0">
 					if rowOpens(c) {
 						<details class="group" open?={ i == 0 && c.Kind == "create" && len(c.Details) > 0 }>
 							<summary class="flex w-full cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 text-sm font-mono [&::-webkit-details-marker]:hidden">
 								@reviewHead(p, c, true)
 							</summary>
 							<div class="mt-3 pl-9 space-y-3">
-								if len(c.Details) > 0 {
+								if len(c.Details) > 0 && c.Kind != "create" {
+									@changeTable(c.Details)
+								} else if len(c.Details) > 0 {
 									<dl class="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
 										for _, d := range c.Details {
 											<dt class="text-rw-muted">{ d.Label }</dt>
@@ -212,7 +219,7 @@ templ reviewRows(p PlanView) {
 								if c.Impact != "" {
 									<p class="text-xs font-medium text-rw-warn">{ c.Impact }</p>
 								}
-								if c.Note != "" {
+								if c.Note != "" && len(c.Details) == 0 {
 									<p class="text-xs text-rw-muted">{ c.Note }</p>
 								}
 								if c.Apply != "" {
@@ -254,6 +261,9 @@ templ reviewHead(p PlanView, c ChangeView, opens bool) {
 		</label>
 	} else if c.Optional {
 		@Chip("remove?", "warn")
+	}
+	if c.Impact != "" {
+		@Chip("needs care", "warn")
 	}
 	<span class="text-rw-faint">{ c.Kind }</span>
 	if c.Tile != "" {
@@ -335,7 +345,10 @@ templ Review(v ReviewView) {
 				<p class="font-medium">Cannot promote yet</p>
 				<ul class="mt-0.5 list-disc pl-5 text-sm">
 					for _, b := range v.Plan.Blockers {
-						<li>{ b }</li>
+						<li>
+							{ b }
+							@blockerFix(v.Plan, b)
+						</li>
 					}
 				</ul>
 			</div>
