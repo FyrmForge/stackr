@@ -45,13 +45,20 @@ func TestPushConfigOnlyWhereItChanged(t *testing.T) {
 		}
 		return ids[commit+"|"+path], nil
 	}
-	// c1 is the base of both; every later commit starts equal to it.
+	// Ids are cumulative: a commit keeps what the one before it had and moves
+	// only what it changed (a waiting release is the next push's base).
+	state := map[string]string{}
 	same := func(commit string, changed ...string) {
 		for _, p := range []string{"a.yml", "b.yml", "inc.yml", "mount/x"} {
-			ids[commit+"|"+p] = "id-" + p
+			if state[p] == "" {
+				state[p] = "id-" + p
+			}
 		}
 		for _, p := range changed {
-			ids[commit+"|"+p] = "new-" + p
+			state[p] = "new-" + commit + "-" + p
+		}
+		for p, id := range state {
+			ids[commit+"|"+p] = id
 		}
 	}
 	same("c1")

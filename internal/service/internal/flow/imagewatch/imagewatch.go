@@ -165,7 +165,18 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 	}
 	// ponytail: one release per env, auto only when every swapped tile is;
 	// a mixed env waits for the chip's button.
-	r, err := f.Releases.Derive(ctx, e.StackID, deref(e.ReleaseID), "image-watch", swap...)
+	// Build on the release that waits for this env, if any (a push, an earlier
+	// watch), not on what the env runs; the digests above still compare to
+	// what it runs, so a registry that caught up makes no release.
+	lines := []string{release.EnvLine(e.ID)}
+	if e.FromKind == environment.FromBranch {
+		lines = append(lines, release.BranchLine(e.FromBranch))
+	}
+	base, err := f.Releases.Newest(ctx, e.StackID, deref(e.ReleaseID), lines...)
+	if err != nil {
+		return nil, err
+	}
+	r, err := f.Releases.Derive(ctx, e.StackID, base, "image-watch", release.EnvLine(e.ID), swap...)
 	if err != nil {
 		return nil, err
 	}

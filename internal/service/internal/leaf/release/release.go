@@ -7,6 +7,7 @@ package release
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -137,6 +138,15 @@ func (l *Leaf) Pins(ctx context.Context, releaseID string) (map[string]Pin, erro
 // ponytail: the number is max+1; two creates racing on one stack hit the
 // unique index and the second fails. Release-writing jobs are per stack.
 func (l *Leaf) Create(ctx context.Context, stackID, by string, pins []Pin) (store.Release, error) {
+	return l.create(ctx, stackID, by, "", "", pins)
+}
+
+// EnvLine and BranchLine name the line a release is cut for: an env's own
+// (image watch, deploy, rebuild, repin) or the branch a push came in on.
+func EnvLine(envID string) string   { return "env:" + envID }
+func BranchLine(name string) string { return "branch:" + name }
+
+func (l *Leaf) create(ctx context.Context, stackID, by, builtOn, line string, pins []Pin) (store.Release, error) {
 	seen := map[string]bool{}
 	for _, p := range pins {
 		if p.Slug == "" || seen[p.Slug] {
@@ -162,6 +172,12 @@ func (l *Leaf) Create(ctx context.Context, stackID, by string, pins []Pin) (stor
 		CreatedAt: time.Now().UTC(),
 		CreatedBy: by,
 	}
+	if builtOn != "" {
+		r.BuiltOn = &builtOn
+	}
+	if line != "" {
+		r.Line = &line
+	}
 	if err := l.releases.Create(ctx, r); err != nil {
 		return r, err
 	}
@@ -185,8 +201,9 @@ func (l *Leaf) Create(ctx context.Context, stackID, by string, pins []Pin) (stor
 
 // Derive is a new release copied from base with some pins swapped or added
 // (a push to one tile's repo, an image-watch bump, a per-tile rollback).
-// base "" starts from nothing: a stack's first release.
-func (l *Leaf) Derive(ctx context.Context, stackID, baseID, by string, swap ...Pin) (store.Release, error) {
+// base "" starts from nothing: a stack's first release. line (EnvLine or
+// BranchLine) is stored with the base, for Newest.
+func (l *Leaf) Derive(ctx context.Context, stackID, baseID, by, line string, swap ...Pin) (store.Release, error) {
 	pins := map[string]Pin{}
 	if baseID != "" {
 		var err error
@@ -202,7 +219,52 @@ func (l *Leaf) Derive(ctx context.Context, stackID, baseID, by string, swap ...P
 		list = append(list, p)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Slug < list[j].Slug })
-	return l.Create(ctx, stackID, by, list)
+	return l.create(ctx, stackID, by, baseID, line, list)
+}
+
+// Newest is the base a new cut on a line should build on: the highest-numbered
+// release cut for one of lines that was built, directly or through others, on
+// runs (what the env runs); else runs itself. With runs "" (the env runs
+// nothing yet) a line's own root counts as built on it. A release cut before
+// migration 019 has no base or line, so it is never on a line: the first cut
+// after the upgrade builds on runs, as before.
+func (l *Leaf) Newest(ctx context.Context, stackID, runs string, lines ...string) (string, error) {
+	rs, err := l.releases.ListByStack(ctx, stackID)
+	if err != nil {
+		return "", err
+	}
+	byID := make(map[string]store.Release, len(rs))
+	for _, r := range rs {
+		byID[r.ID] = r
+	}
+	onLine := func(r store.Release) bool { return r.Line != nil && slices.Contains(lines, *r.Line) }
+	best := store.Release{}
+	for _, r := range rs {
+		if !onLine(r) || r.Number <= best.Number {
+			continue
+		}
+		// Walk the base chain; a missing release or a loop ends it.
+		for c, n := r, 0; n <= len(rs); n++ {
+			if c.ID == runs {
+				best = r
+				break
+			}
+			if c.BuiltOn == nil {
+				if runs == "" && c.Line != nil {
+					best = r
+				}
+				break
+			}
+			var ok bool
+			if c, ok = byID[*c.BuiltOn]; !ok {
+				break
+			}
+		}
+	}
+	if best.ID == "" {
+		return runs, nil
+	}
+	return best.ID, nil
 }
 
 // Change is one slug that differs between two snapshots.

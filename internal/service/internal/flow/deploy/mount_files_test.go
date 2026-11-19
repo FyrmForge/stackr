@@ -55,7 +55,7 @@ func filesWorld(t *testing.T) (*world, string) {
 	must(t, err)
 	st.ConfigRepo = "https://github.com/acme/shop"
 	must(t, w.st.Stacks.Update(ctx, st))
-	r, err := w.f.Releases.Derive(ctx, st.ID, "", "test", release.Pin{Slug: release.ConfigSlug, CommitSHA: commit})
+	r, err := w.f.Releases.Derive(ctx, st.ID, "", "test", "", release.Pin{Slug: release.ConfigSlug, CommitSHA: commit})
 	must(t, err)
 	w.env, err = w.f.Envs.SetRelease(ctx, w.env, r.ID)
 	must(t, err)
@@ -270,7 +270,7 @@ func TestFilesMissingCommit(t *testing.T) {
 	w, _ := filesWorld(t)
 	st, err := w.f.Stacks.Get(ctx, w.tile.StackID)
 	must(t, err)
-	r, err := w.f.Releases.Derive(ctx, st.ID, "", "test", release.Pin{Slug: release.ConfigSlug, CommitSHA: strings.Repeat("a", 40)})
+	r, err := w.f.Releases.Derive(ctx, st.ID, "", "test", "", release.Pin{Slug: release.ConfigSlug, CommitSHA: strings.Repeat("a", 40)})
 	must(t, err)
 	w.env, err = w.f.Envs.SetRelease(ctx, w.env, r.ID)
 	must(t, err)

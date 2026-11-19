@@ -765,7 +765,7 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 	if len(repin) == 0 {
 		return nil
 	}
-	r, err := d.Releases.Derive(ctx, e.StackID, w.rel.ID, "promote", repin...)
+	r, err := d.Releases.Derive(ctx, e.StackID, w.rel.ID, "promote", release.EnvLine(e.ID), repin...)
 	if err != nil {
 		return err
 	}
