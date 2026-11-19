@@ -3,6 +3,8 @@ package graph
 import (
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -109,6 +111,28 @@ func TestEnvWorstTile(t *testing.T) {
 	} {
 		if got := fold(c.tiles...); got != c.want {
 			t.Errorf("%v: %q, want %q", c.tiles, got, c.want)
+		}
+	}
+}
+
+// A promote that is running tags the overlap; the same job still queued does not.
+func TestGenerationsJobs(t *testing.T) {
+	cs := []docker.Container{{ID: "a", Created: 1}, {ID: "b", Created: 2}}
+	for _, c := range []struct {
+		kind, state string
+		tagged      bool
+	}{
+		{"deploy", job.Running, true},
+		{"promote", job.Running, true},
+		{"env-sync", job.Running, true},
+		{"pr", job.Running, true},
+		{"promote", job.Queued, false},
+		{"deploy", job.Queued, false},
+		{"backup", job.Running, false},
+	} {
+		_, tags := Generations(cs, 1, store.Job{Kind: c.kind, State: c.state}, true)
+		if (tags != nil) != c.tagged {
+			t.Errorf("%s %s: tags %v, want tagged=%v", c.kind, c.state, tags, c.tagged)
 		}
 	}
 }

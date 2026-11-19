@@ -55,6 +55,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/outbound"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/registry"
@@ -863,7 +864,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Domains:  orch.domains,
 			Operated: orch.operated,
 			Traffic:  orch.traffic,
-			Out:      orch.store.TileOutbound,
+			Out:      outbound.New(orch.store.TileOutbound),
 			Path:     cfg.Conntrack,
 			Remote:   orch.workerTraffic,
 		}
