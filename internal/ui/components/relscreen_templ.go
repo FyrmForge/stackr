@@ -50,7 +50,7 @@ type RelStateLink struct {
 // RelOption is one source the filter offers.
 type RelOption struct{ Value, Label string }
 
-const relGrid = "grid grid-cols-[6.5rem_3.5rem_4.5rem_minmax(0,1fr)_6.5rem_5rem_13rem_6.5rem_6.5rem] items-center gap-x-3 px-3"
+const relGrid = "grid grid-cols-[5rem_3.25rem_4.25rem_minmax(12rem,1fr)_5rem_4.5rem_10.5rem_6.5rem_6.5rem] items-center gap-x-2 px-3"
 
 func RelScreenView(v RelScreen) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -77,7 +77,7 @@ func RelScreenView(v RelScreen) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<h2 class=\"pb-4 text-lg font-semibold text-rw-text\">Releases</h2><section class=\"panel flex flex-col overflow-hidden md:flex-row\"><nav aria-label=\"Scopes\" class=\"flex shrink-0 flex-row gap-1 overflow-x-auto border-b border-rw-border p-2 md:w-52 md:flex-col md:overflow-visible md:border-b-0 md:border-r\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<h2 class=\"pb-4 text-lg font-semibold text-rw-text\">Releases</h2><section class=\"panel flex flex-col overflow-hidden md:flex-row\"><nav aria-label=\"Scopes\" class=\"flex shrink-0 flex-row gap-1 overflow-x-auto border-b border-rw-border p-2 md:w-44 md:flex-col md:overflow-visible md:border-b-0 md:border-r\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -498,7 +498,7 @@ func RelScreenView(v RelScreen) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<div class=\"overflow-x-auto\"><div class=\"min-w-[62rem]\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<div class=\"overflow-x-auto\"><div class=\"min-w-[56rem]\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -678,7 +678,7 @@ func relScreenRow(r RelRow) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if r.Lacks != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "<div class=\"px-3 pb-2 pl-[8.5rem]\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "<div class=\"px-3 pb-2 pl-[7.5rem]\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

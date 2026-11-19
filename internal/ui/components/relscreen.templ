@@ -41,14 +41,14 @@ type RelStateLink struct {
 // RelOption is one source the filter offers.
 type RelOption struct{ Value, Label string }
 
-const relGrid = "grid grid-cols-[6.5rem_3.5rem_4.5rem_minmax(0,1fr)_6.5rem_5rem_13rem_6.5rem_6.5rem] items-center gap-x-3 px-3"
+const relGrid = "grid grid-cols-[5rem_3.25rem_4.25rem_minmax(12rem,1fr)_5rem_4.5rem_10.5rem_6.5rem_6.5rem] items-center gap-x-2 px-3"
 
 templ RelScreenView(v RelScreen) {
 	<div id="rel-screen" class="px-4 sm:px-6 py-5">
 		@LiveTab(v.Live, "rel-screen")
 		<h2 class="pb-4 text-lg font-semibold text-rw-text">Releases</h2>
 		<section class="panel flex flex-col overflow-hidden md:flex-row">
-			<nav aria-label="Scopes" class="flex shrink-0 flex-row gap-1 overflow-x-auto border-b border-rw-border p-2 md:w-52 md:flex-col md:overflow-visible md:border-b-0 md:border-r">
+			<nav aria-label="Scopes" class="flex shrink-0 flex-row gap-1 overflow-x-auto border-b border-rw-border p-2 md:w-44 md:flex-col md:overflow-visible md:border-b-0 md:border-r">
 				for _, s := range v.Scopes {
 					if s.Href == "" {
 						<span class="mt-2 flex h-6 shrink-0 items-center whitespace-nowrap px-2 text-xs text-rw-faint">{ s.Label }</span>
@@ -124,7 +124,7 @@ templ RelScreenView(v RelScreen) {
 					</div>
 				} else {
 					<div class="overflow-x-auto">
-						<div class="min-w-[62rem]">
+						<div class="min-w-[56rem]">
 							<div class={ relGrid, "h-9 border-b border-rw-border text-xs font-medium text-rw-faint" }>
 								<span>Scope</span>
 								<span>Release</span>
@@ -164,7 +164,7 @@ templ relScreenRow(r RelRow) {
 				@relOpen(r)
 			</details>
 			if r.Lacks != "" {
-				<div class="px-3 pb-2 pl-[8.5rem]">
+				<div class="px-3 pb-2 pl-[7.5rem]">
 					@Chip("Does not hold release "+r.Lacks, "warn")
 				</div>
 			}
