@@ -306,7 +306,7 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 			return middleware.HTTPError(err)
 		}
 		return render.Page(c, http.StatusOK, "Release review", d)
-	}, a.Require("org.read"))
+	}, a.LoginFirst(), a.Require("org.read"))
 	site.POST(e+"/promote/:release", h.envAction("releases", func(c echo.Context, cd card) (string, error) {
 		j, err := h.orch.PromoteTicked(c.Request().Context(), middleware.Principal(c), cd.s.Env.ID, c.Param("release"), render.ApproveOpts(c).Ticked)
 		if err != nil {
