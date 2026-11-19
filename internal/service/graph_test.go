@@ -711,3 +711,56 @@ func TestCanvasPREnvNeverBehind(t *testing.T) {
 		t.Error("the ladder's prod rung lost its waiting release")
 	}
 }
+
+// A slice in one stack cut from an operated tile of another gives the org
+// chart one reference arrow between the two stacks, however many slices; a
+// stack with no slice across has none.
+func TestCanvasOrgStackRef(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	env := servicetest.New(t)
+	org := env.Org(t, "acme")
+	infra := env.Tile(t, org) // stack "shop", env dev
+	media := env.Stack(t, org, "media")
+	env.Stack(t, org, "auth")
+	o := env.Orch
+	if _, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: infra.Env, Name: "pg"}, "postgres", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.SetOperatedAllow(ctx, mustOperated(t, o, infra.Env), []string{"acme:*"}); err != nil {
+		t.Fatal(err)
+	}
+	refs := func() []string {
+		v, err := o.Canvas(ctx, service.CanvasScope{Kind: service.CanvasOrg, ID: org}, service.ShowAll)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range v.Edges {
+			if e.Kind == "ref" {
+				out = append(out, e.From+">"+e.To)
+			}
+		}
+		return out
+	}
+	if got := refs(); len(got) != 0 {
+		t.Fatalf("no slice yet, refs = %v", got)
+	}
+	for _, n := range []string{"db", "db2"} {
+		if _, err := o.CreateSliceTile(ctx, media.Env, n, "shop:dev:pg", "", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := refs(); len(got) != 1 || got[0] != "stack:"+media.Stack+">stack:"+infra.Stack {
+		t.Errorf("refs = %v, want one media to shop", got)
+	}
+}
+
+func mustOperated(t *testing.T, o *service.Orchestrator, envID string) string {
+	t.Helper()
+	ms, err := o.OperatedInstances(context.Background(), envID)
+	if err != nil || len(ms) != 1 {
+		t.Fatalf("operated = %v, %v", ms, err)
+	}
+	return ms[0].TileID
+}

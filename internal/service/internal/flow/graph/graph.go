@@ -355,6 +355,11 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 		v.Nodes = append(v.Nodes, vars)
 	}
 	proxied := false
+	inOrg := map[string]bool{}
+	for _, st := range sts {
+		inOrg[st.ID] = true
+	}
+	used := map[[2]string]bool{} // stack pairs already joined by a reference
 	for _, st := range sts {
 		es, err := f.Envs.List(ctx, st.ID)
 		if err != nil {
@@ -363,6 +368,21 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 		ts, err := f.Tiles.ListByStack(ctx, st.ID)
 		if err != nil {
 			return err
+		}
+		// One reference per stack pair: a slice here is cut from an operated
+		// tile of another stack.
+		for _, t := range ts {
+			if t.Kind != tile.Slice {
+				continue
+			}
+			it, ok, err := f.sliceTarget(ctx, t)
+			if err != nil {
+				return err
+			}
+			if pair := [2]string{st.ID, it.StackID}; ok && it.StackID != st.ID && inOrg[it.StackID] && !used[pair] {
+				used[pair] = true
+				v.Edges = append(v.Edges, Edge{EdgeRef, "stack:" + st.ID, "stack:" + it.StackID})
+			}
 		}
 		n := card("stack:"+st.ID, KindStack, st.Name)
 		n.Slug, n.Detail, n.Deck = st.Slug, plural(len(es), "environment"), deck(len(es))
