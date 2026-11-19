@@ -131,3 +131,23 @@ func TestPlanFilesChangedRedeploys(t *testing.T) {
 		t.Errorf("redeploy = %v", wk.redeploy)
 	}
 }
+
+// A Pins read that fails leaves the running commit unknown: every files:
+// source counts as changed instead of comparing nothing.
+func TestPlanFilesPinsErrorCountsAsChanged(t *testing.T) {
+	w := setup(t)
+	w.f.FileID = func(context.Context, store.Stack, string, string) (string, error) { return "same", nil }
+	bogus := "no-such-release"
+	wk := &work{
+		e:        store.Environment{ReleaseID: &bogus},
+		re:       &ResolvedEnv{Tiles: map[string]TileConf{"api": {Files: []string{"conf/app.yml:/etc/app.yml"}}}},
+		redeploy: map[string]bool{},
+	}
+	p := &Plan{}
+	dead, cancel := context.WithCancel(ctx)
+	cancel() // the Pins read fails
+	w.f.planFileChanges(dead, p, wk, "c2")
+	if len(p.Changes) != 1 || !wk.redeploy["api"] {
+		t.Errorf("changes = %+v, redeploy = %v", p.Changes, wk.redeploy)
+	}
+}
