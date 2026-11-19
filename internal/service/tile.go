@@ -150,8 +150,20 @@ func (o *Orchestrator) checkTileConnector(ctx context.Context, t Tile) error {
 	if err != nil {
 		return err
 	}
-	if _, err := o.conns.For(ctx, org, t.GitURL); errors.As(err, &connector.NoConnector{}) {
-		return errs.Invalidf("git_url", "Connect %s under Connectors first.", connector.Host(t.GitURL))
+	e, err := o.envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	st, err := o.stacks.Get(ctx, e.StackID)
+	if err != nil {
+		return err
+	}
+	og, cs, ok := o.connectorsOf(ctx, org)
+	if !ok {
+		return nil
+	}
+	if _, err := connector.ForTile(cs, og, st, t.GitURL); errors.As(err, &connector.NoConnector{}) {
+		return errs.Invalidf("git_url", "No connector for this repository. Name one on the stack, or set the organization's.")
 	}
 	return nil
 }

@@ -171,7 +171,7 @@ func TestHandshake(t *testing.T) {
 	if u, err := l.InstallURL(ctx, org, c.ID); err != nil || u != "" {
 		t.Errorf("pending connector install url = %q %v", u, err)
 	}
-	if _, err := l.For(ctx, org, "https://github.com/acme/api"); !errors.As(err, &connector.NoConnector{}) {
+	if _, err := visibleFor(l, org, "https://github.com/acme/api"); !errors.As(err, &connector.NoConnector{}) {
 		t.Errorf("pending connector resolved: %v", err)
 	}
 	if secret := hookSecret(l, c.ID); secret != "" {
@@ -208,7 +208,7 @@ func TestHandshake(t *testing.T) {
 		t.Error("second github connector in one org")
 	}
 
-	got, err := l.For(ctx, org, "https://github.com/acme/api")
+	got, err := visibleFor(l, org, "https://github.com/acme/api")
 	if err != nil || got.ID != c.ID {
 		t.Fatalf("For = %+v %v", got, err)
 	}
@@ -219,7 +219,7 @@ func TestHandshake(t *testing.T) {
 	if secret := hookSecret(l, c.ID); secret != "whsec" {
 		t.Errorf("secret = %q", secret)
 	}
-	if _, err := l.For(ctx, org, "https://gitlab.com/acme/api"); !errors.As(err, &connector.NoConnector{}) {
+	if _, err := visibleFor(l, org, "https://gitlab.com/acme/api"); !errors.As(err, &connector.NoConnector{}) {
 		t.Errorf("gitlab = %v", err)
 	}
 	list, _ := l.List(ctx, org)
@@ -240,7 +240,7 @@ func TestConnectorScope(t *testing.T) {
 	if _, err := l.Get(ctx, mine, c.ID); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("cross-org get = %v", err)
 	}
-	if _, err := l.For(ctx, mine, "https://github.com/their/private"); !errors.As(err, &connector.NoConnector{}) {
+	if _, err := visibleFor(l, mine, "https://github.com/their/private"); !errors.As(err, &connector.NoConnector{}) {
 		t.Errorf("cross-org resolve = %v", err)
 	}
 	if err := l.Delete(ctx, mine, c.ID); !errors.Is(err, errs.ErrNotFound) {
@@ -344,49 +344,67 @@ func TestServerConnectorReadsWidenWritesDoNot(t *testing.T) {
 	}
 }
 
-// For: the named connector wins, then the org's own for the host, then
-// exactly one shared server connector; several shared is a refusal that
-// says to name one.
-func TestResolveHost(t *testing.T) {
-	st := servicetest.Store(t)
-	f := &fakeApp{}
-	l := newLeaf(st.Connectors, f)
-	acme := seedOrg(t, st)
-	url := "https://github.com/acme/api"
+// visibleFor is the first connector the org may read that serves url's host,
+// settings kept: what a clone through it would open. Visibility only: the
+// pick itself is Pick's.
+func visibleFor(l *connector.Leaf, org, url string) (store.Connector, error) {
+	cs, err := l.ListConnected(ctx, org)
+	if err != nil {
+		return store.Connector{}, err
+	}
+	for _, c := range cs {
+		if c.Host == connector.Host(url) {
+			return l.Usable(ctx, org, c.ID)
+		}
+	}
+	return store.Connector{}, connector.NoConnector{Host: connector.Host(url)}
+}
 
-	s1 := connectServer(t, l, f)
-	if _, err := l.For(ctx, acme, url); !errors.As(err, &connector.NoConnector{}) {
-		t.Errorf("unshared = %v", err)
+// Pick: a named connector wins and never falls through; else the first
+// inherited id that is there and serves the host; nothing is picked by host
+// alone.
+func TestPick(t *testing.T) {
+	org := "o1"
+	own := store.Connector{ID: "own", Host: "github.com", OrgID: &org}
+	s1 := store.Connector{ID: "s1", Host: "github.com"}
+	gl := store.Connector{ID: "gl", Host: "gitlab.com"}
+	all := []store.Connector{own, s1, gl}
+	for _, c := range []struct {
+		name    string
+		conns   []store.Connector
+		host    string
+		named   string
+		inherit []string
+		want    string
+	}{
+		{"named wins over inherit", all, "github.com", "s1", []string{"own"}, "s1"},
+		{"named missing is none, no fall through", all, "github.com", "nope", []string{"own"}, ""},
+		{"inherit order", all, "github.com", "", []string{"s1", "own"}, "s1"},
+		{"first inherit missing, next taken", all, "github.com", "", []string{"nope", "own"}, "own"},
+		{"inherit on another host skipped", all, "github.com", "", []string{"gl", "own"}, "own"},
+		{"inherit only on another host", all, "github.com", "", []string{"gl"}, ""},
+		{"two on the host, nothing named", all, "github.com", "", nil, ""},
+		{"one on the host, nothing named", []store.Connector{s1}, "github.com", "", []string{""}, ""},
+	} {
+		got, err := connector.Pick(c.conns, c.host, c.named, c.inherit...)
+		if (c.want == "") != (err != nil) || got.ID != c.want {
+			t.Errorf("%s: %q %v, want %q", c.name, got.ID, err, c.want)
+		}
+		if err != nil && !errors.As(err, &connector.NoConnector{}) {
+			t.Errorf("%s: %v is not NoConnector", c.name, err)
+		}
 	}
-	_, _ = l.SetShares(ctx, s1.ID, nil, true)
-	if c, err := l.For(ctx, acme, url); err != nil || c.ID != s1.ID {
-		t.Fatalf("one shared = %+v %v", c, err)
-	} else if env, err := l.CloneEnv(ctx, c, url); err != nil || len(env) != 3 {
-		t.Errorf("shared clone env = %v %v", env, err)
+	// the wrappers: a tile asks its stack's connector, then the org's
+	og := store.Org{ConfigConnectorID: "own"}
+	st := store.Stack{ConfigConnectorID: "s1", ConfigRepo: "https://github.com/a/b"}
+	if c, err := connector.ForTile(all, og, st, "https://github.com/a/c"); err != nil || c.ID != "s1" {
+		t.Errorf("tile = %+v %v", c, err)
 	}
-
-	_, _ = l.RenameServer(ctx, s1.ID, "one") // the fake app names every App alike
-	s2 := connectServer(t, l, f)
-	_, _ = l.SetShares(ctx, s2.ID, []string{acme}, false)
-	if _, err := l.For(ctx, acme, url); !errors.As(err, &connector.Ambiguous{}) ||
-		!strings.Contains(err.Error(), "name the connector to use") {
-		t.Errorf("two shared = %v", err)
+	if c, err := connector.ForTile(all, og, store.Stack{}, "https://github.com/a/c"); err != nil || c.ID != "own" {
+		t.Errorf("tile inherits org = %+v %v", c, err)
 	}
-	cs, _ := l.ListConnected(ctx, acme)
-	if c, err := connector.Resolve(cs, s2.ID, "github.com"); err != nil || c.ID != s2.ID {
-		t.Errorf("named = %+v %v", c, err)
-	}
-	if _, err := connector.Resolve(cs, "nope", "github.com"); !errors.As(err, &connector.NoConnector{}) {
-		t.Errorf("unknown named = %v", err)
-	}
-
-	own := connect(t, l, f, acme)
-	if c, err := l.For(ctx, acme, url); err != nil || c.ID != own.ID {
-		t.Errorf("own wins = %+v %v", c, err)
-	}
-	cs, _ = l.ListConnected(ctx, acme)
-	if len(cs) != 3 || cs[0].ID != own.ID {
-		t.Errorf("own first = %+v", cs)
+	if c, err := connector.ForStack(all, og, store.Stack{ConfigRepo: "https://github.com/a/b"}); err != nil || c.ID != "own" {
+		t.Errorf("stack inherits org = %+v %v", c, err)
 	}
 }
 

@@ -337,6 +337,18 @@ func (e *Env) Connector(t *testing.T, orgID, secret string) string {
 	return id
 }
 
+// OrgConnector is Connector, set as the connector the org's stacks and tiles
+// inherit when they name none.
+func (e *Env) OrgConnector(t *testing.T, orgID, secret string) string {
+	t.Helper()
+	id := e.Connector(t, orgID, secret)
+	og, err := e.Store.Orgs.Get(context.Background(), orgID)
+	must(t, err)
+	og.ConfigConnectorID = id
+	must(t, e.Store.Orgs.Update(context.Background(), og))
+	return id
+}
+
 // ServerConnector seeds a connected server connector (no org, shared with
 // none) named name, whose webhook secret is secret, and returns its id.
 func (e *Env) ServerConnector(t *testing.T, name, secret string) string {

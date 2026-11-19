@@ -33,23 +33,12 @@ func New(conns store.ConnectorStore, kinds []connectors.Kind) *Leaf {
 	return &Leaf{conns: conns, kinds: kinds}
 }
 
-// NoConnector is a git_url whose host has no connected connector in the org:
-// a typed error the promote diff shows.
+// NoConnector is a repo on a host that no connector of the org serves and
+// nothing names or inherits: a typed error the promote diff shows.
 type NoConnector struct{ Host string }
 
 func (e NoConnector) Error() string {
-	return "no connected git connector for " + e.Host + ". A private repo needs one under Connectors."
-}
-
-// Ambiguous is a git_url whose host several shared server connectors serve,
-// and the org has none of its own: the binding must name one.
-type Ambiguous struct {
-	Host  string
-	Names []string
-}
-
-func (e Ambiguous) Error() string {
-	return "several shared git connectors serve " + e.Host + " (" + strings.Join(e.Names, ", ") + "); name the connector to use"
+	return "no connector for " + e.Host + ": name one, or set the organization's connector."
 }
 
 // Pending is a redirect setup out at its provider: the nonce its state
@@ -410,69 +399,46 @@ func Host(gitURL string) string {
 	return strings.ToLower(u.Host)
 }
 
-// For resolves a tile's git_url to a connected connector of the org, by
-// Resolve's rule.
-func (l *Leaf) For(ctx context.Context, orgID, gitURL string) (store.Connector, error) {
-	cs, err := l.ListConnected(ctx, orgID)
-	if err != nil {
-		return store.Connector{}, err
-	}
-	c, err := Resolve(cs, "", Host(gitURL))
-	if err != nil {
-		return store.Connector{}, err
-	}
-	// ListConnected strips the settings the clone access needs.
-	return l.conns.Get(ctx, c.ID)
-}
+// OrgDefault is the connector id a stack or tile that names none inherits
+// from its org. It is the org binding's connector. Open question (fraedi
+// 5d5b4176, part 3): what an org with no binding connector inherits (a
+// connector of its own, or the single one of the host). Only this function
+// changes when that is answered.
+func OrgDefault(og store.Org) string { return og.ConfigConnectorID }
 
-// Resolve picks the connector a clone of a repo on host uses, from conns (an
-// org's ListConnected: its connected ones, then the server connectors shared
-// with it): the one named by id wins; else the org's own for the host; else
-// exactly one shared server connector. None is NoConnector, several
-// Ambiguous. A connection's host is the one its Git source serves.
-func Resolve(conns []store.Connector, named, host string) (store.Connector, error) {
+// Pick is the connector a clone of a repo on host uses, from conns (an org's
+// ListConnected: its own, then the server ones shared with it). A named id
+// wins and, when it is not in conns, is NoConnector: it never falls through.
+// Otherwise the first id of inherit that is in conns and serves host.
+// Nothing is ever picked by host alone.
+func Pick(conns []store.Connector, host, named string, inherit ...string) (store.Connector, error) {
+	find := func(id string) int {
+		return slices.IndexFunc(conns, func(c store.Connector) bool { return c.ID == id })
+	}
 	if named != "" {
-		if i := slices.IndexFunc(conns, func(c store.Connector) bool { return c.ID == named }); i >= 0 {
+		if i := find(named); i >= 0 {
 			return conns[i], nil
 		}
 		return store.Connector{}, NoConnector{Host: host}
 	}
-	on := func(own bool) []store.Connector {
-		return slices.DeleteFunc(slices.Clone(conns), func(c store.Connector) bool {
-			return c.Host != host || (c.OrgID != nil) != own
-		})
-	}
-	if own := on(true); len(own) > 0 {
-		return own[0], nil
-	}
-	switch shared := on(false); len(shared) {
-	case 0:
-		return store.Connector{}, NoConnector{Host: host}
-	case 1:
-		return shared[0], nil
-	default:
-		names := make([]string, len(shared))
-		for i, c := range shared {
-			names[i] = c.Name
+	for _, id := range inherit {
+		if i := find(id); id != "" && i >= 0 && conns[i].Host == host {
+			return conns[i], nil
 		}
-		return store.Connector{}, Ambiguous{Host: host, Names: names}
 	}
+	return store.Connector{}, NoConnector{Host: host}
 }
 
-// TieBreak is the connector id a clone of a repo on host names when several
-// shared server connectors serve it: the stack's config connector, if it is in
-// conns and serves the host too. "" lets Resolve pick by host.
-func TieBreak(conns []store.Connector, configID, host string) string {
-	if configID == "" {
-		return ""
-	}
-	if _, err := Resolve(conns, "", host); !errors.As(err, &Ambiguous{}) {
-		return ""
-	}
-	if i := slices.IndexFunc(conns, func(c store.Connector) bool { return c.ID == configID && c.Host == host }); i >= 0 {
-		return configID
-	}
-	return ""
+// ForStack is the connector the stack's own config repo clones through: the
+// one it names, else the org's.
+func ForStack(conns []store.Connector, og store.Org, st store.Stack) (store.Connector, error) {
+	return Pick(conns, Host(st.ConfigRepo), st.ConfigConnectorID, OrgDefault(og))
+}
+
+// ForTile is the connector a tile's git_url clones through. A tile has no
+// connector field: its stack's, when that serves the host, else the org's.
+func ForTile(conns []store.Connector, og store.Org, st store.Stack, gitURL string) (store.Connector, error) {
+	return Pick(conns, Host(gitURL), "", st.ConfigConnectorID, OrgDefault(og))
 }
 
 // CloneEnv is the environment that authenticates a fetch of gitURL

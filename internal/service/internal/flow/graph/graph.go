@@ -170,8 +170,8 @@ type Node struct {
 	// to, NoteSet where to set a value; one of them is set with a note.
 	Note, NoteJob, NoteSet string
 	NoteAt                 time.Time
-	Stop, StopJob  string     // a tile the failed promote never reached: the tile it stopped at, and that job
-	Wait           int        // env card: the release the rung below runs and this one does not; 0 = none
+	Stop, StopJob          string // a tile the failed promote never reached: the tile it stopped at, and that job
+	Wait                   int    // env card: the release the rung below runs and this one does not; 0 = none
 	// Vars card counts; never a value.
 	Params, Secrets int
 	Consumers       int // slice: the tiles that ref it, name it in slice_access or hold a cred on it
@@ -387,6 +387,10 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 	if err != nil {
 		return err
 	}
+	og, err := f.Orgs.Get(ctx, orgID)
+	if err != nil {
+		return err
+	}
 	ss, err := f.orgScopes(ctx, orgID)
 	if err != nil {
 		return err
@@ -457,7 +461,7 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 		// One source line per connector the stack reads: its stack file or a
 		// tile's build repo, usually the same repo.
 		for _, c := range cs {
-			if (c.ID == st.ConfigConnectorID && st.ConfigRepo != "") || buildsVia(ts, live, st.ConfigConnectorID, c.ID) {
+			if buildsVia(ts, live, og, st, c.ID) {
 				v.Edges = append(v.Edges, Edge{EdgeSource, "connector:" + c.ID, n.ID})
 			}
 		}
@@ -643,16 +647,20 @@ func envScope(e store.Environment) params.Scope {
 	return params.Scope{Kind: "env", ID: e.ID}
 }
 
-// buildsVia: a tile of ts clones through connector id, resolved as a clone
-// does (connector.Resolve, the config connector breaking a shared tie). An
-// unresolved or ambiguous host draws no line.
-func buildsVia(ts []store.Tile, live []store.Connector, configID, id string) bool {
+// buildsVia: the stack's own config repo or a tile of ts clones through
+// connector id, resolved as a clone does (connector.ForStack, ForTile). No
+// resolve, no line.
+func buildsVia(ts []store.Tile, live []store.Connector, og store.Org, st store.Stack, id string) bool {
+	if st.ConfigRepo != "" {
+		if c, err := connector.ForStack(live, og, st); err == nil && c.ID == id {
+			return true
+		}
+	}
 	return slices.ContainsFunc(ts, func(t store.Tile) bool {
 		if t.GitURL == "" {
 			return false
 		}
-		h := connector.Host(t.GitURL)
-		c, err := connector.Resolve(live, connector.TieBreak(live, configID, h), h)
+		c, err := connector.ForTile(live, og, st, t.GitURL)
 		return err == nil && c.ID == id
 	})
 }

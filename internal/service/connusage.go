@@ -200,8 +200,7 @@ func (o *Orchestrator) gitUsages(ctx context.Context, c store.Connector) ([]Usag
 			return nil, err
 		}
 		for _, st := range sts {
-			if st.ConfigRepo != "" && (st.ConfigConnectorID == c.ID ||
-				st.ConfigConnectorID == "" && resolvesTo(conns, st.ConfigRepo, c.ID)) {
+			if pk, err := connector.ForStack(conns, og, st); st.ConfigRepo != "" && err == nil && pk.ID == c.ID {
 				u, err := o.usageOf(ctx, ScopeStack, st.ID, "clones "+repoAt(st.ConfigRepo, st.ConfigBranch))
 				if err != nil {
 					return nil, err
@@ -213,7 +212,7 @@ func (o *Orchestrator) gitUsages(ctx context.Context, c store.Connector) ([]Usag
 				return nil, err
 			}
 			for _, t := range ts {
-				if t.GitURL == "" || !resolvesTo(conns, t.GitURL, c.ID) {
+				if t.GitURL == "" || !tilePicks(conns, og, st, t.GitURL, c.ID) {
 					continue
 				}
 				u, err := o.usageOf(ctx, ScopeTile, t.ID, "clones "+repoAt(t.GitURL, t.GitBranch))
@@ -227,9 +226,9 @@ func (o *Orchestrator) gitUsages(ctx context.Context, c store.Connector) ([]Usag
 	return out, nil
 }
 
-// resolvesTo: a clone of repo through conns (an org's) picks connection id.
-func resolvesTo(conns []store.Connector, repo, id string) bool {
-	c, err := connector.Resolve(conns, "", connector.Host(repo))
+// tilePicks: a clone of a tile's repo through conns picks connection id.
+func tilePicks(conns []store.Connector, og store.Org, st store.Stack, repo, id string) bool {
+	c, err := connector.ForTile(conns, og, st, repo)
 	return err == nil && c.ID == id
 }
 

@@ -52,7 +52,7 @@ func TestPushSkipsUnfollowedBranch(t *testing.T) {
 	e := servicetest.New(t)
 	org := e.Org(t, "acme")
 	seed := e.Tile(t, org) // shop/dev builds from main
-	conn := e.Connector(t, org, "sec")
+	conn := e.OrgConnector(t, org, "sec")
 	if _, err := e.Orch.CreateTile(ctx, service.Tile{
 		StackID: seed.Stack, EnvironmentID: seed.Env, Name: "web", Kind: "service",
 		GitURL: "https://github.com/acme/web",

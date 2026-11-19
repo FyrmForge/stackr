@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,9 +12,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// A tile has no connector field: with several shared server connectors on
-// its host, its stack's config connector breaks the tie when it serves the
-// host, and otherwise the error names the candidates.
+// A tile has no connector field: it clones through its stack's connector
+// when that serves the host, else the org's; never by host alone.
 func TestTileConnectorFallsBackToStack(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -58,23 +56,29 @@ func TestTileConnectorFallsBackToStack(t *testing.T) {
 	mk("c2", "gh-b", "github.com")
 	mk("c3", "gl", "gitlab.com")
 	url := "https://github.com/acme/api"
-
-	_, err = orch.conns.For(ctx, "o1", url)
-	if !errors.As(err, &connector.Ambiguous{}) || !strings.Contains(err.Error(), "gh-a") || !strings.Contains(err.Error(), "gh-b") {
-		t.Errorf("ambiguous error does not name the connectors: %v", err)
-	}
 	for _, c := range []struct{ stack, want string }{
 		{"c2", "c2"},
 		{"c3", ""}, // serves another host
-		{"", ""},
+		{"", ""},   // two on the host and nothing named: no host pick
 		{"nope", ""},
 	} {
 		if got := orch.tileConnector(ctx, store.Stack{OrgID: "o1", ConfigConnectorID: c.stack}, url); got != c.want {
 			t.Errorf("stack connector %q: tile uses %q, want %q", c.stack, got, c.want)
 		}
 	}
-	// one shared connector is not ambiguous: resolve by host as before
-	if got := orch.tileConnector(ctx, store.Stack{OrgID: "o1", ConfigConnectorID: "c3"}, "https://gitlab.com/x/y"); got != "" {
-		t.Errorf("unambiguous host named %q", got)
+	// a stack that names none inherits the org's connector
+	og, _ := orch.orgs.Get(ctx, "o1")
+	if _, err := orch.orgs.SetConfigRepo(ctx, og, "c1", "https://github.com/acme/cfg", "", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := orch.tileConnector(ctx, store.Stack{OrgID: "o1"}, url); got != "c1" {
+		t.Errorf("tile inherits org: %q", got)
+	}
+	if got := orch.tileConnector(ctx, store.Stack{OrgID: "o1", ConfigConnectorID: "c2"}, url); got != "c2" {
+		t.Errorf("stack beats org: %q", got)
+	}
+	// clones without a connector are refused with NoConnector
+	if _, err := orch.cloneEnv(ctx, "o1", "", url); !errors.As(err, &connector.NoConnector{}) {
+		t.Errorf("cloneEnv with no connector: %v", err)
 	}
 }

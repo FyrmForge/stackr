@@ -42,6 +42,8 @@ func live() orgconfig.Live {
 			ConfigRepo:   "https://github.com/acme/infra",
 			ConfigBranch: "main",
 			ConfigPath:   "stackr-org.yml",
+
+			ConfigConnectorID: "cn1",
 		},
 		Orgs: []store.Org{
 			{
@@ -383,12 +385,13 @@ func TestDiff(t *testing.T) {
 			blocker: "no connected connector for https://gitlab.example.com/acme/blog",
 		},
 		{
-			name: "two shared connectors on the host need a name",
+			name: "no org connector and none named blocks",
 			file: v1 + `stacks:
   blog:
     repo: acme/blog
 `,
 			live: func(l *orgconfig.Live) {
+				l.Org.ConfigConnectorID = ""
 				l.Connectors = []store.Connector{{ID: "sv1", Host: "github.com"}, {ID: "sv2", Host: "github.com"}}
 			},
 			changes: []orgconfig.Change{
@@ -399,7 +402,7 @@ func TestDiff(t *testing.T) {
 					Note: "file stackr-compose.yml",
 				},
 			},
-			blocker: "name the connector to use",
+			blocker: "names no connector and the organization has none; add connector: to the entry",
 		},
 		{
 			name: "a connector that is not the org's",

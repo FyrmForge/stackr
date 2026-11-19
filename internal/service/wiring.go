@@ -258,8 +258,7 @@ func (o *Orchestrator) repoLock(dir string) func() {
 }
 
 // clone checks out url at commit ("" = the branch's head) into dir
-// through the org's connector: the one connectorID names when set, the one
-// for url's host otherwise. It returns the commit checked out.
+// through the org's connector connectorID names; "" is NoConnector. It returns the commit checked out.
 func (o *Orchestrator) clone(
 	ctx context.Context,
 	orgID, connectorID, url, branch, dir, commit string,
@@ -283,7 +282,7 @@ func (o *Orchestrator) clone(
 // configHead is the tip of the stack's config branch, or of the repo's
 // default branch when it names none: the branch and its commit.
 func (o *Orchestrator) configHead(ctx context.Context, st store.Stack) (branch, sha string, err error) {
-	env, err := o.cloneEnv(ctx, st.OrgID, st.ConfigConnectorID, st.ConfigRepo)
+	env, err := o.cloneEnv(ctx, st.OrgID, o.stackConnector(ctx, st), st.ConfigRepo)
 	if err != nil {
 		return "", "", err
 	}
@@ -314,33 +313,52 @@ func (o *Orchestrator) cloneEnv(ctx context.Context, orgID, connectorID, url str
 	if o.gitEnv != nil {
 		return o.gitEnv, nil
 	}
-	var c store.Connector
-	var err error
-	if connectorID != "" {
-		// a read: the org's own connector or a server one shared with it
-		c, err = o.conns.UsableFor(ctx, orgID, connectorID, url)
-	} else {
-		c, err = o.conns.For(ctx, orgID, url)
+	if connectorID == "" {
+		return nil, connector.NoConnector{Host: connector.Host(url)}
 	}
+	// a read: the org's own connector or a server one shared with it
+	c, err := o.conns.UsableFor(ctx, orgID, connectorID, url)
 	if err != nil {
 		return nil, err
 	}
 	return o.conns.CloneEnv(ctx, c, url)
 }
 
-// tileConnector is the connector a tile's clone names: a tile has no
-// connector field, so when several shared server connectors serve its
-// host, its stack's config connector breaks the tie if it serves the host
-// too. "" lets clone resolve by host.
+// stackConnector is the connector id the stack's config repo clones
+// through (connector.ForStack); "" when none, which cloneEnv refuses.
+func (o *Orchestrator) stackConnector(ctx context.Context, st store.Stack) string {
+	if o.gitEnv != nil {
+		return ""
+	}
+	og, cs, ok := o.connectorsOf(ctx, st.OrgID)
+	if !ok {
+		return ""
+	}
+	c, _ := connector.ForStack(cs, og, st)
+	return c.ID
+}
+
+// tileConnector is the connector id a tile's clone uses (connector.ForTile).
 func (o *Orchestrator) tileConnector(ctx context.Context, st store.Stack, url string) string {
-	if o.gitEnv != nil || st.ConfigConnectorID == "" {
+	if o.gitEnv != nil {
 		return ""
 	}
-	cs, err := o.conns.ListConnected(ctx, st.OrgID)
+	og, cs, ok := o.connectorsOf(ctx, st.OrgID)
+	if !ok {
+		return ""
+	}
+	c, _ := connector.ForTile(cs, og, st, url)
+	return c.ID
+}
+
+// connectorsOf is org orgID and its connected connectors.
+func (o *Orchestrator) connectorsOf(ctx context.Context, orgID string) (store.Org, []store.Connector, bool) {
+	og, err := o.orgs.Get(ctx, orgID)
 	if err != nil {
-		return ""
+		return og, nil, false
 	}
-	return connector.TieBreak(cs, st.ConfigConnectorID, connector.Host(url))
+	cs, err := o.conns.ListConnected(ctx, orgID)
+	return og, cs, err == nil
 }
 
 // stackFile is promote's Config: the stack file at commit of the config repo,
@@ -357,7 +375,7 @@ func (o *Orchestrator) stackFile(
 	dir := filepath.Join(o.cfg.DataDir, "repos", "config-"+st.ID)
 	unlock := o.repoLock(dir)
 	defer unlock()
-	r, _, err := o.clone(ctx, st.OrgID, st.ConfigConnectorID, st.ConfigRepo, st.ConfigBranch, dir, commit, log)
+	r, _, err := o.clone(ctx, st.OrgID, o.stackConnector(ctx, st), st.ConfigRepo, st.ConfigBranch, dir, commit, log)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -373,7 +391,7 @@ func (o *Orchestrator) fileID(ctx context.Context, st store.Stack, commit, path 
 	dir := filepath.Join(o.cfg.DataDir, "repos", "config-"+st.ID)
 	unlock := o.repoLock(dir)
 	defer unlock()
-	env, err := o.cloneEnv(ctx, st.OrgID, st.ConfigConnectorID, st.ConfigRepo)
+	env, err := o.cloneEnv(ctx, st.OrgID, o.stackConnector(ctx, st), st.ConfigRepo)
 	if err != nil {
 		return "", err
 	}

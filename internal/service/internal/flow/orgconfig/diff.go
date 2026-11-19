@@ -2,7 +2,6 @@ package orgconfig
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -383,7 +382,7 @@ func (p *Plan) stacks(refs map[string]StackRef, live Live, stacks map[string]Sta
 				New:  want.Repo,
 				Note: "file " + pathOf(want.Path),
 			})
-			p.needConnector(s, want, live.Connectors)
+			p.needConnector(s, want, live)
 			continue
 		}
 		st := cur.Stack
@@ -399,12 +398,12 @@ func (p *Plan) stacks(refs map[string]StackRef, live Live, stacks map[string]Sta
 			rebind(s, "repo", have.Repo, want.Repo),
 			rebind(s, "branch", have.Branch, want.Branch),
 			rebind(s, "path", pathOf(have.Path), pathOf(want.Path)),
-			rebind(s, "connector", connectorOf(have, live.Connectors), connectorOf(want, live.Connectors)),
+			rebind(s, "connector", connectorOf(have, live), connectorOf(want, live)),
 		}
 		diffs = slices.DeleteFunc(diffs, func(c Change) bool { return c.Old == c.New })
 		if len(diffs) > 0 {
 			p.Changes = append(p.Changes, diffs...)
-			p.needConnector(s, want, live.Connectors)
+			p.needConnector(s, want, live)
 		}
 	}
 }
@@ -420,25 +419,25 @@ func rebind(s, field, from, to string) Change {
 }
 
 // needConnector blocks a binding nothing can clone: the named connector is
-// not one the org can use, the repo's host has none, or several shared ones
-// serve it.
-func (p *Plan) needConnector(s string, b Binding, conns []store.Connector) {
-	_, err := connector.Resolve(conns, b.ConnectorID, connector.Host(b.Repo))
+// not one the org can use, or it names none and the org has none that serves
+// the repo's host.
+func (p *Plan) needConnector(s string, b Binding, live Live) {
+	_, err := connector.Pick(live.Connectors, connector.Host(b.Repo), b.ConnectorID, connector.OrgDefault(live.Org))
 	switch {
 	case err == nil:
-	case errors.As(err, &connector.Ambiguous{}):
-		p.block("stacks.%s: %v", s, err)
 	case b.ConnectorID != "":
 		p.block("stacks.%s: connector %s is not one of this org's connected connectors", s, b.ConnectorID)
+	case connector.OrgDefault(live.Org) == "":
+		p.block("stacks.%s: names no connector and the organization has none; add connector: to the entry", s)
 	default:
 		p.block("stacks.%s: no connected connector for %s; connect one first", s, b.Repo)
 	}
 }
 
-// connectorOf is the connector a clone of b uses (connector.Resolve's rule);
-// "" when there is none or the choice is ambiguous.
-func connectorOf(b Binding, conns []store.Connector) string {
-	c, err := connector.Resolve(conns, b.ConnectorID, connector.Host(b.Repo))
+// connectorOf is the connector a clone of b uses (connector.Pick's rule);
+// "" when there is none.
+func connectorOf(b Binding, live Live) string {
+	c, err := connector.Pick(live.Connectors, connector.Host(b.Repo), b.ConnectorID, connector.OrgDefault(live.Org))
 	if err != nil {
 		return ""
 	}

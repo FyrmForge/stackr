@@ -6,16 +6,20 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
+// A source line follows what a clone resolves to: a named connector, else
+// the org's. A second connector on the same host draws none.
 func TestBuildsVia(t *testing.T) {
 	org := "o1"
 	own := store.Connector{ID: "own", Host: "github.com", OrgID: &org}
 	s1 := store.Connector{ID: "s1", Host: "github.com"}
 	s2 := store.Connector{ID: "s2", Host: "github.com"}
+	live := []store.Connector{own, s1, s2}
 	built := []store.Tile{{GitURL: "https://github.com/a/b"}}
 	images := []store.Tile{{}}
-	via := func(ts []store.Tile, live []store.Connector, cfg string) (got []string) {
+	repo := "https://github.com/a/stack"
+	via := func(ts []store.Tile, og store.Org, st store.Stack) (got []string) {
 		for _, c := range live {
-			if buildsVia(ts, live, cfg, c.ID) {
+			if buildsVia(ts, live, og, st, c.ID) {
 				got = append(got, c.ID)
 			}
 		}
@@ -24,17 +28,18 @@ func TestBuildsVia(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		ts   []store.Tile
-		live []store.Connector
-		cfg  string
+		og   store.Org
+		st   store.Stack
 		want string
 	}{
-		{"own wins over two shared", built, []store.Connector{own, s1, s2}, "", "own"},
-		{"config breaks a shared tie", built, []store.Connector{s1, s2}, "s2", "s2"},
-		{"ambiguous draws none", built, []store.Connector{s1, s2}, "", ""},
-		{"config on another host does not break it", built, []store.Connector{s1, s2, {ID: "gl", Host: "gitlab.com"}}, "gl", ""},
-		{"images only draw none", images, []store.Connector{own, s1, s2}, "", ""},
+		{"inherited org connector", nil, store.Org{ConfigConnectorID: "s1"}, store.Stack{ConfigRepo: repo}, "s1"},
+		{"no line from a second connector on the host", built, store.Org{ConfigConnectorID: "s1"}, store.Stack{ConfigRepo: repo}, "s1"},
+		{"tile follows the stack's connector", built, store.Org{ConfigConnectorID: "own"}, store.Stack{ConfigConnectorID: "s2"}, "s2"},
+		{"named wins over the org", nil, store.Org{ConfigConnectorID: "own"}, store.Stack{ConfigRepo: repo, ConfigConnectorID: "s2"}, "s2"},
+		{"nothing to inherit draws none", built, store.Org{}, store.Stack{ConfigRepo: repo}, ""},
+		{"images only, no repo draw none", images, store.Org{ConfigConnectorID: "own"}, store.Stack{}, ""},
 	} {
-		got := via(c.ts, c.live, c.cfg)
+		got := via(c.ts, c.og, c.st)
 		if (c.want == "") != (len(got) == 0) || (c.want != "" && (len(got) != 1 || got[0] != c.want)) {
 			t.Errorf("%s: %v, want %q", c.name, got, c.want)
 		}

@@ -277,7 +277,7 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 			byRelease[*j.ReleaseID] = append(byRelease[*j.ReleaseID], wj)
 		}
 	}
-	commitBase := o.commitBase(ctx, st.ConfigConnectorID, st.ConfigRepo)
+	commitBase := o.commitBase(ctx, o.stackConnector(ctx, st), st.ConfigRepo)
 	var waiting, failedRows, running, older []WindowRow
 	for _, r := range rs {
 		row := WindowRow{
