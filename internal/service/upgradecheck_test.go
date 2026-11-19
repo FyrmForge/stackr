@@ -42,4 +42,13 @@ func TestLastUpgradeCheckRemembered(t *testing.T) {
 	if latest, _, ok := w.orch.LastUpgradeCheck(ctx); ok {
 		t.Errorf("stale check %q still shown", latest)
 	}
+	// A build ahead of the latest release (a dev build) that made the check
+	// itself is not stale: the card and the "Checked" line agree (item 55).
+	w.orch.upgrade.Version = "v0.9.2-dev.1"
+	if _, _, err := w.orch.CheckUpgrade(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := w.orch.LastUpgradeCheck(ctx); !ok {
+		t.Error("a dev build ahead of the release reads as not checked after its own check")
+	}
 }

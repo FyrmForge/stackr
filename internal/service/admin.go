@@ -528,6 +528,10 @@ const keyUpgradeLatest = "upgrade_latest"
 // automatic: the interval counts from it across restarts.
 const keyUpgradeChecked = "upgrade_checked_at"
 
+// keyUpgradeBuild is the build that made the last check: an answer older
+// than the running build is stale only when another build asked.
+const keyUpgradeBuild = "upgrade_checked_build"
+
 // CheckUpgrade asks the release host for the latest release and remembers it; newer
 // says whether it is newer than this build (false on a dev build).
 func (o *Orchestrator) CheckUpgrade(ctx context.Context) (latest string, newer bool, err error) {
@@ -545,6 +549,7 @@ func (o *Orchestrator) CheckUpgrade(ctx context.Context) (latest string, newer b
 	if err := o.store.Settings.Set(ctx, keyUpgradeLatest, latest); err != nil {
 		slog.Warn("update check: not remembered", "err", err)
 	}
+	_ = o.store.Settings.Set(ctx, keyUpgradeBuild, o.upgrade.Version)
 	if o.upgrade.Upgradable() {
 		if err := o.store.Settings.Set(ctx, keyUpgradeChecked, time.Now().UTC().Format(time.RFC3339)); err != nil {
 			slog.Warn("update check: time not remembered", "err", err)
@@ -562,7 +567,8 @@ func (o *Orchestrator) LastUpgradeCheck(ctx context.Context) (latest string, new
 		return "", false, true
 	}
 	latest, ok, _ = o.store.Settings.Get(ctx, keyUpgradeLatest)
-	if ok && upgrade.Newer(o.upgrade.Version, latest) {
+	// A build ahead of the latest release (a dev build) is not stale: it asked itself.
+	if by, _, _ := o.store.Settings.Get(ctx, keyUpgradeBuild); ok && by != o.upgrade.Version && upgrade.Newer(o.upgrade.Version, latest) {
 		return "", false, false // checked before this build was installed: stale
 	}
 	_, newer = o.upgrade.Available(latest)
