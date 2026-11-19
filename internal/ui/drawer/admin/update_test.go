@@ -49,7 +49,7 @@ func TestUpdateCheckedAndSetting(t *testing.T) {
 			ID: "admin-update", Action: "/-/admin/settings/update", Flat: true, Keys: []string{"update_check"},
 			Rows: []c.SettingRowView{{
 				Key: "update_check", Label: "Check for stackr updates", Type: "string", Value: "daily", NoInherit: true,
-				Sub: &c.RowSub{Text: "Checked 5 min ago", Label: "Check now", Action: "/-/admin/update/check", Target: "#x"},
+				Sub:     &c.RowSub{Text: "Checked 5 min ago", Label: "Check now", Action: "/-/admin/update/check", Target: "#x"},
 				Options: []c.Option{{Value: "off", Label: "off"}, {Value: "6h", Label: "6h"}, {Value: "daily", Label: "daily"}},
 			}},
 		},

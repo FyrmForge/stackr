@@ -338,7 +338,9 @@ func TestAskOwnRegistry(t *testing.T) {
 	}
 	must(t, f.Settings.Set(ctx, "panel_domain", "panel.example.com"))
 
-	w := func(ref, policy string) watched { return watched{t: store.Tile{ImageRef: ref, TagPolicy: policy}, org: "o"} }
+	w := func(ref, policy string) watched {
+		return watched{t: store.Tile{ImageRef: ref, TagPolicy: policy}, org: "o"}
+	}
 	a := f.ask(ctx, w("registry.panel.example.com/acme/shop/api:1.0.0", ""))
 	if a.err != nil || a.digest != "sha256:acme/shop/api@1.0.0" {
 		t.Errorf("own digest = %+v", a)
@@ -351,7 +353,9 @@ func TestAskOwnRegistry(t *testing.T) {
 		t.Fatalf("HTTP calls for the own registry: %v", reg.calls)
 	}
 
-	f.Cred = func(context.Context, string, string) (store.Credential, bool, error) { return store.Credential{}, false, nil }
+	f.Cred = func(context.Context, string, string) (store.Credential, bool, error) {
+		return store.Credential{}, false, nil
+	}
 	if a = f.ask(ctx, w("nginx:1", "")); a.err != nil || a.digest != "sha256:n1" || len(reg.calls) != 1 {
 		t.Errorf("other host: %+v calls %v", a, reg.calls)
 	}

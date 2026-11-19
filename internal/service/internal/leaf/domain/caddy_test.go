@@ -269,7 +269,9 @@ func TestBasicAuthFailsClosed(t *testing.T) {
 // Gate user and password both resolve, and a literal pair (the Protect
 // setting's) still works.
 func TestGateLogin(t *testing.T) {
-	ex := func(s string) (string, error) { return strings.NewReplacer("${{ u }}", "alice", "${{ p }}", "pw").Replace(s), nil }
+	ex := func(s string) (string, error) {
+		return strings.NewReplacer("${{ u }}", "alice", "${{ p }}", "pw").Replace(s), nil
+	}
 	for _, a := range []domain.BasicAuth{{User: "${{ u }}", Password: "${{ p }}"}, {User: "alice", Password: "pw"}} {
 		if u, pw, why := domain.GateLogin(a, ex); u != "alice" || pw != "pw" || why != "" {
 			t.Errorf("%+v: %s %s %q", a, u, pw, why)

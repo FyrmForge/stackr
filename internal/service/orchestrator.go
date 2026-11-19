@@ -1026,7 +1026,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if orch.localWorker != nil { // only a real host runs the boot publish (below)
 		orch.systemPublished = make(chan struct{})
 	}
-	orch.pinConnectors(ctx) // before the queue starts, so no clone runs unpinned
+	orch.pinConnectors(ctx)   // before the queue starts, so no clone runs unpinned
 	orch.bootUpgradeHold(ctx) // before the queue starts: it holds while a helper runs
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()

@@ -177,7 +177,7 @@ func TestPanelCertGraceAndRecheck(t *testing.T) {
 		t.Fatal("a fresh install's panel name fired before its certificate could arrive")
 	}
 	w.orch.recheckFailingCerts(ctx)
-	w.orch.trustAsync.Wait() // it runs off the tick
+	w.orch.trustAsync.Wait()        // it runs off the tick
 	if n := len(*dialled); n != 2 { // the name is still waiting, so the recheck looks again
 		t.Fatalf("nothing failing and nothing waiting would not dial, this waits: %d dials", n)
 	}
