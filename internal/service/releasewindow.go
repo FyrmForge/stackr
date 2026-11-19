@@ -226,8 +226,7 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 	byRelease := map[string][]WindowJob{}
 	for _, j := range js { // newest first
 		live := j.State == "queued" || j.State == "running"
-		switch {
-		case j.ReleaseID != nil:
+		if j.ReleaseID != nil {
 			if live && j.Kind == string(kindPromote) {
 				deploying[*j.ReleaseID] = true
 			}

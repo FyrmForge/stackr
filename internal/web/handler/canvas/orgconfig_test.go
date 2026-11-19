@@ -355,7 +355,7 @@ func TestOrgConfigBindDialog(t *testing.T) {
 		t.Fatalf("bind = %d\n%s", rec.Code, body)
 	}
 	// bound: the facts and the waiting plan come before the folded form
-	if f, p, c := strings.Index(body, ">Repository</dt>"), strings.Index(body, ">Latest plan<"), strings.Index(body, ">Change</summary>"); p < 0 || f < 0 || c < 0 || !(p < f && f < c) {
+	if f, p, c := strings.Index(body, ">Repository</dt>"), strings.Index(body, ">Latest plan<"), strings.Index(body, ">Change</summary>"); p < 0 || f < 0 || c < 0 || p >= f || f >= c {
 		t.Errorf("order plan %d facts %d change %d:\n%s", p, f, c, body)
 	}
 }
