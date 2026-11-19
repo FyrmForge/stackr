@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -120,5 +122,38 @@ func TestFindIDPrefix(t *testing.T) {
 	}
 	if code, _, e := cli(t, "volume", "rm", "-y", "3466"); code == 0 || !strings.Contains(e, `"3466" matches 2 volumes`) {
 		t.Errorf("volume ambiguous = %d %q", code, e)
+	}
+}
+
+func TestErrTail(t *testing.T) {
+	for _, c := range []struct{ log, err, want string }{
+		{"a\n", "boom", "error: boom\n"},
+		{"a", "boom", "\nerror: boom\n"},
+		{"", "boom", "error: boom\n"},
+		{"boom happened\nerror: boom\n", "boom", ""},
+		{"x boom then more\n", "boom", "error: boom\n"}, // mentioned earlier, not at the end
+		{"a\n", " ", ""},
+	} {
+		if got := errTail(c.log, c.err); got != c.want {
+			t.Errorf("errTail(%q, %q) = %q, want %q", c.log, c.err, got, c.want)
+		}
+	}
+}
+
+// --follow of a failed job ends its streamed log with the error too.
+func TestJobFollowEndsWithError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/events") {
+			b, _ := json.Marshal(map[string]any{"job": map[string]any{"id": "j1", "state": "failed", "error": longErr}, "log": "creating stackr-bazarr-1\n"})
+			_, _ = fmt.Fprintf(w, "event: end\ndata: %s\n\n", b)
+			return
+		}
+		_, _ = io.WriteString(w, `{"id":"j1","state":"running"}`)
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	_, got, _ := cli(t, "job", "log", "j1", "--follow")
+	if want := "creating stackr-bazarr-1\nerror: " + longErr + "\n"; got != want {
+		t.Errorf("follow =\n%q\nwant\n%q", got, want)
 	}
 }

@@ -111,6 +111,7 @@ func (a *app) follow(base string, job any, what string) error {
 		logw = pf
 	}
 	var end jobOut
+	var seen strings.Builder
 	var raw []byte
 	err = events(res.Body, func(name string, data []byte) (bool, error) {
 		var ev jobOut
@@ -125,6 +126,7 @@ func (a *app) follow(base string, job any, what string) error {
 			return true, err
 		}
 		_, _ = io.WriteString(logw, ev.Log)
+		seen.WriteString(ev.Log)
 		if name == "end" {
 			end, raw = ev, data
 			return true, nil
@@ -150,6 +152,9 @@ func (a *app) follow(base string, job any, what string) error {
 	case "done", "superseded":
 		a.say("%s: %s", what, end.Job.State)
 		return nil
+	}
+	if end.Job.State == "failed" {
+		_, _ = io.WriteString(logw, errTail(seen.String(), end.Job.Error))
 	}
 	if end.Job.Error != "" {
 		return fmt.Errorf("%s %s: %s", what, end.Job.State, end.Job.Error)
