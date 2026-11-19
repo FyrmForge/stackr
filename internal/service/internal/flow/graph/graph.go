@@ -657,6 +657,23 @@ func reads(ts []store.Tile, k params.Kind) bool {
 	return false
 }
 
+// readsParam is whether t reads the param "collection.name" (or
+// "org.collection.name"): its own collection, or a ${{ params.* }} ref.
+// ponytail: env values and command only; a param read from another field of
+// the tile reads as unrelated.
+func readsParam(t store.Tile, param string) bool {
+	if strings.HasPrefix(param, t.Slug+".") {
+		return true
+	}
+	for _, r := range refs(t) {
+		if (r.Kind == params.KindParam && param == r.Slug+"."+r.Name) ||
+			(r.Kind == params.KindOrgParam && param == "org."+r.Slug+"."+r.Name) {
+			return true
+		}
+	}
+	return false
+}
+
 // refs are every well-formed ${{ }} in a tile's env values and command.
 func refs(t store.Tile) []params.Ref {
 	var env map[string]string
@@ -822,7 +839,8 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 	}
 	// a first promote parked on a value has made no job of this tile yet
 	if s.word == "none" && f.Parked != nil && !tile.RunToCompletion(t.Kind) {
-		if param, _, ok := f.Parked(ctx, t.StackID, t.EnvironmentID); ok {
+		// only a tile that reads the value waits; the rest keep their word
+		if param, _, ok := f.Parked(ctx, t.StackID, t.EnvironmentID); ok && readsParam(t, param) {
 			s.word, s.waiting = "waiting", param
 		}
 	}
