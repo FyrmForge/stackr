@@ -32,7 +32,7 @@ templ Card(v CardView) {
 			</div>
 		} else {
 			<div class="flex h-full flex-col p-3.5">
-				@top(v.Kind, v.Name, v.Detail, v.Host, v.NewVersion, v.Access)
+				@top(v.Kind, v.Name, v.Detail, v.Host, v.NewVersion, v.Access, v.Footer.Fail != "" || v.Footer.StoppedAt != "" || v.Footer.Note != "")
 				if v.Sync != "" {
 					{{ text, class := syncChip(v.Sync) }}
 					<span class={ "absolute -top-2.5 right-3 z-10 rounded-md border bg-rw-surface px-1.5 py-0.5 text-[10px]", class }>{ text }</span>
@@ -49,10 +49,12 @@ templ Card(v CardView) {
 // Top is a card's head row (v0 nodeCardBody): the icon, the name, the
 // detail and its chips.
 templ Top(kind, name, detail string, host, newVersion bool) {
-	@top(kind, name, detail, host, newVersion, Access{})
+	@top(kind, name, detail, host, newVersion, Access{}, false)
 }
 
-templ top(kind, name, detail string, host, newVersion bool, acc Access) {
+// top: noted drops the kind chip, so the line above the footer (it sits over
+// the head's last row in the card's fixed height) never lands on it.
+templ top(kind, name, detail string, host, newVersion bool, acc Access, noted bool) {
 	<div class="flex items-center gap-2.5">
 		<span class="node-icon flex h-7 w-7 items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
 			@Icon(kind)
@@ -61,7 +63,7 @@ templ top(kind, name, detail string, host, newVersion bool, acc Access) {
 			<div class="font-semibold text-rw-text truncate text-sm leading-tight">{ name }</div>
 			<div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
 				<span class="text-xs text-rw-faint truncate">{ detail }</span>
-				if KindLabel(kind) != "" {
+				if KindLabel(kind) != "" && !noted {
 					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted">{ KindLabel(kind) }</span>
 				}
 				if acc.Chip != "" {
