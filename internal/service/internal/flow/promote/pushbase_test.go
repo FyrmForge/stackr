@@ -2,6 +2,7 @@ package promote
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -224,5 +225,28 @@ func TestPushAfterARollback(t *testing.T) {
 				t.Errorf("built on %v, auto %v, want %d", r.BuiltOn, autoIDs(auto), c.want)
 			}
 		})
+	}
+}
+
+// A push marks its job swapping before it cuts the release, and a push that
+// was already superseded cuts nothing.
+func TestPushSwapsBeforeCutting(t *testing.T) {
+	w := setup(t)
+	w.files["c2"] = "version: 1\nstack: shop\nladder: [dev, prd]\nhead: main\nbase:\n  tiles:\n    api: {image: nginx:1, port: 80}\n"
+	w.runs(t, w.dev, release.Pin{Slug: release.ConfigSlug, Repo: w.st.ConfigRepo, CommitSHA: "c1"}, release.Pin{Slug: "api", Repo: "nginx:1", Digest: "sha256:d1"})
+	n := 0
+	ev := Event{Repo: pushRepo, Branch: "main", Commit: "c2", Swap: func() error { n++; return nil }}
+	if r, _, err := w.f.Push(ctx, w.st.ID, ev, io.Discard); err != nil || r.ID == "" || n != 1 {
+		t.Fatalf("release %q err %v swaps %d, want a release after one swap", r.ID, err, n)
+	}
+	gone := errors.New("superseded")
+	ev.Commit, ev.Swap = "c3", func() error { return gone }
+	w.files["c3"] = w.files["c2"]
+	rs, _ := w.f.D.Releases.List(ctx, w.st.ID)
+	if _, _, err := w.f.Push(ctx, w.st.ID, ev, io.Discard); !errors.Is(err, gone) {
+		t.Fatalf("err = %v, want the swap's", err)
+	}
+	if after, _ := w.f.D.Releases.List(ctx, w.st.ID); len(after) != len(rs) {
+		t.Errorf("a superseded push cut a release")
 	}
 }

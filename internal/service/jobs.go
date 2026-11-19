@@ -307,6 +307,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			// the reasons outlive the log: the empty stack page says them
 			r.Job.Payload = withSkipped(r.Job.Payload, skipped)
+			p.Event.Swap = r.Swap
 			return o.runPush(ctx, p.StackID, p.Event, r.Log)
 		}),
 		kindPR:            payload(o.runPR),
@@ -718,7 +719,7 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 	if ctx, err = o.withController(ctx); err != nil {
 		return err
 	}
-	return o.runPush(ctx, p.StackID, promote.Event{Repo: p.Repo, Branch: p.Head, Commit: p.SHA, PR: true, PRNumber: p.Number}, r.Log)
+	return o.runPush(ctx, p.StackID, promote.Event{Repo: p.Repo, Branch: p.Head, Commit: p.SHA, PR: true, PRNumber: p.Number, Swap: r.Swap}, r.Log)
 }
 
 // prEnabled is pr_envs.enabled and pr_envs.forks in the stack file at the

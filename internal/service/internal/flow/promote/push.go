@@ -26,6 +26,11 @@ type Event struct {
 	PR bool
 	// PRNumber is the pull request's; with PR set only env pr-<n> is built.
 	PRNumber int
+	// Swap marks the job swapping before the release is cut (Run.Swap): a
+	// newer push then waits instead of cancelling a cut release before its
+	// promotes are queued. It errors when the job was superseded; Push stops.
+	// nil = no job behind it. Never stored.
+	Swap func() error `json:"-"`
 }
 
 // Push turns a push into a release: the config pin moves when the push is
@@ -136,6 +141,11 @@ func (f *Flow) Push(
 	}
 	if len(pins) == 0 {
 		return store.Release{}, nil, nil
+	}
+	if ev.Swap != nil {
+		if err := ev.Swap(); err != nil {
+			return store.Release{}, nil, err
+		}
 	}
 	r, err := d.Releases.Derive(ctx, stackID, base, "push", release.BranchLine(ev.Branch), pins...)
 	if err != nil {
