@@ -163,3 +163,19 @@ func TestConfigTabStates(t *testing.T) {
 		t.Errorf("a decided plan comes before the facts:\n%s", p)
 	}
 }
+
+// The bind dialog says "No repositories found" when the connector chosen (the
+// first by default) lists none, even though another connector lists some.
+func TestPickerEmptyConnectorNote(t *testing.T) {
+	v := PickerView{
+		Connectors: []Option{{Value: "c1", Label: "one"}, {Value: "c2", Label: "two"}},
+		Repos:      []c.RepoOption{{FullName: "a/b", ConnectorID: "c2"}},
+	}
+	if out := html(t, Picker(v)); strings.Contains(out, "data-no-repos hidden") || !strings.Contains(out, "data-no-repos") {
+		t.Errorf("first connector is empty, the note shows:\n%s", out)
+	}
+	v.Connector = "c2"
+	if out := html(t, Picker(v)); !strings.Contains(out, "data-no-repos hidden") {
+		t.Errorf("c2 lists a repo, the note is hidden:\n%s", out)
+	}
+}

@@ -187,6 +187,15 @@ document.addEventListener('click', function (evt) {
         return sel ? sel.value : '';
     }
 
+    // noRepos shows the "No repositories found" note while the chosen
+    // connector has none to offer (the server drew it for the first one).
+    function noRepos(p) {
+        var note = p.closest('form').querySelector('[data-no-repos]');
+        if (!note) return;
+        var cid = connectorOf(p);
+        note.hidden = options(p).some(function (o) { return !cid || !o.dataset.connector || o.dataset.connector === cid; });
+    }
+
     function filter(p) {
         var cid = connectorOf(p);
         var input = p.querySelector('[data-combo-input]');
@@ -318,7 +327,7 @@ document.addEventListener('click', function (evt) {
     document.addEventListener('change', function (e) {
         if (!e.target.matches || !e.target.matches('[name="connector_id"]')) return;
         var p = e.target.closest('form').querySelector('[data-repo-picker]');
-        if (p) { close(p); checkFile(p); }
+        if (p) { close(p); checkFile(p); noRepos(p); }
     });
     document.addEventListener('focusin', function (e) {
         var p = pickerOf(e.target);

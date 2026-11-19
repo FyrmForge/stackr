@@ -5,6 +5,7 @@
 package org
 
 import (
+	"slices"
 	"strconv"
 	"time"
 	"strings"
@@ -806,6 +807,16 @@ type PickerView struct {
 	Repos      []c.RepoOption
 }
 
+// noRepos is whether the selected connector (the first when none is chosen)
+// lists no repository; main.js keeps it current as the select changes.
+func (v PickerView) noRepos() bool {
+	cid := v.Connector
+	if cid == "" && len(v.Connectors) > 0 {
+		cid = v.Connectors[0].Value
+	}
+	return !slices.ContainsFunc(v.Repos, func(r c.RepoOption) bool { return r.ConnectorID == "" || r.ConnectorID == cid })
+}
+
 templ Picker(v PickerView) {
 	<form novalidate hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-5">
 		<div>
@@ -817,8 +828,8 @@ templ Picker(v PickerView) {
 				}
 			</select>
 		</div>
-		if len(v.Connectors) > 0 && len(v.Repos) == 0 {
-			<p class="text-xs text-rw-faint">No repositories found through the connectors. Type one, or install the connector on it.</p>
+		if len(v.Connectors) > 0 {
+			<p class="text-xs text-rw-faint" data-no-repos hidden?={ !v.noRepos() }>No repositories found through this connector. Type one, or install the connector on it.</p>
 		}
 		@c.RepoPicker(c.RepoPickerView{ID: "bind", Base: v.Base, Repos: v.Repos, File: "stackr-org.yml"})
 		<button type="submit" class="btn btn-primary btn-sm">Save and plan</button>
