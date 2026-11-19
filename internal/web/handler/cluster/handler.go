@@ -8,6 +8,8 @@
 package cluster
 
 import (
+	"context"
+	"hash/fnv"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,10 +19,12 @@ import (
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/cluster"
 	"github.com/FyrmForge/stackr/internal/ui/components"
+	adminui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -35,6 +39,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	admin := a.Require("node.manage")
 	g.GET(cluster.Base, h.Page, a.LoginFirst(), admin)
 	g.GET(cluster.Base+"/map", h.Map, admin)
+	g.GET(cluster.Base+"/events", h.Events, admin)
 	g.GET(cluster.Base+"/internet", h.Internet, admin)
 	g.GET(cluster.Base+"/tunnel", h.Tunnel, admin)
 	g.GET(cluster.Base+"/tunnel/events", h.TunnelEvents, admin)
@@ -44,8 +49,50 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(cluster.Base+"/-/notes/delete", h.DeleteNote, admin)
 }
 
+// Every is how often the page's stream rebuilds the map (it was the timer's
+// 3 seconds).
+var Every = 3 * time.Second
+
+// view is the map and its window; the viewer's ?rel= opens it.
 func (h *handler) view(c echo.Context) (ui.View, cluster.Map, error) {
 	ctx := c.Request().Context()
+	v, m, err := h.mapView(ctx)
+	if err != nil {
+		return v, m, err
+	}
+	n, err := sig(ctx, v)
+	if err != nil {
+		return v, m, err
+	}
+	v.Events = cluster.Base + "/events?n=" + n
+	v.Releases = h.window(ctx)
+	v.Releases.Open = c.QueryParam("rel") == "1"
+	return v, m, nil
+}
+
+// window is the releases window of the cluster chart: the server file's
+// plans, each row a summary in place of a number.
+func (h *handler) window(ctx context.Context) *components.RelWindow {
+	w := &components.RelWindow{Title: "Server config", All: "/-/releases?scope=" + service.ScopeServer}
+	win, err := h.orch.ServerReleaseWindow(ctx)
+	if err != nil {
+		w.Err = true
+		return w
+	}
+	href := adminui.Href("config")
+	w.Waiting, w.Failed = win.Waiting, win.Failed
+	for _, r := range win.Rows {
+		w.Rows = append(w.Rows, render.RelPlanRow(r, "", href, false))
+	}
+	w.Note = components.RelNote{Text: "No config plans yet."}
+	if !win.Bound {
+		w.Note = components.RelNote{Text: "No config file is bound.", Link: "Bind a repository", Href: href}
+	}
+	return w
+}
+
+// mapView is the canvas without its window.
+func (h *handler) mapView(ctx context.Context) (ui.View, cluster.Map, error) {
 	cm, err := h.orch.ClusterMap(ctx)
 	if err != nil {
 		return ui.View{}, cluster.Map{}, err
@@ -69,6 +116,50 @@ func (h *handler) view(c echo.Context) (ui.View, cluster.Map, error) {
 	}
 	create := []ui.Create{{Label: "+ Add node", URL: cluster.AddNodeURL}}
 	return cluster.Build(m, cluster.Base, notes, create), m, nil
+}
+
+// GET /-/cluster/events?n=<sig>: the page's stream, as a canvas has one.
+// "graph" with the whole map when it moves away from the one the page drew
+// (n), "releases" with the window's rows and counts when they change.
+func (h *handler) Events(c echo.Context) error {
+	drawn, sent := c.QueryParam("n"), ""
+	var last time.Time
+	return stream.Watch(c, func(ctx context.Context) ([]stream.Msg, error) {
+		if time.Since(last) < Every {
+			return nil, nil
+		}
+		last = time.Now()
+		v, _, err := h.mapView(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if sig, err := sig(ctx, v); err != nil {
+			return nil, err
+		} else if sig != drawn {
+			drawn = sig
+			v.Releases = h.window(ctx)
+			body, err := render.Event(ctx, ui.Canvas(v)) // the window is in it: main.js puts its open state back
+			return []stream.Msg{{Name: "graph", Body: body}}, err
+		}
+		body, err := render.Event(ctx, components.RelUpdate(*h.window(ctx)))
+		if err != nil || string(body) == sent {
+			return nil, err
+		}
+		sent = string(body)
+		return []stream.Msg{{Name: "releases", Body: body}}, nil
+	})
+}
+
+// sig names what the map draws, the window apart: the page tells the stream
+// what it drew, so the stream says only what moved.
+func sig(ctx context.Context, v ui.View) (string, error) {
+	var b strings.Builder
+	if err := ui.Canvas(v).Render(ctx, &b); err != nil {
+		return "", err
+	}
+	f := fnv.New64a()
+	_, _ = f.Write([]byte(b.String()))
+	return strconv.FormatUint(f.Sum64(), 36), nil
 }
 
 // GET /-/cluster. A fresh load of ?drawer=node:<id>&tab= comes with that

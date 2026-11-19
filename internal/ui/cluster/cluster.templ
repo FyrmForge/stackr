@@ -2,14 +2,18 @@ package cluster
 
 import "github.com/FyrmForge/stackr/internal/ui/graph"
 // Page is the Cluster page under the shell's top bar: #graph, which holds the canvas and swaps
-// its inside on a timer. The swap waits while someone is typing in a note.
+// its inside on the page's stream ("graph" when the map moves; the releases
+// window patches itself on "releases"). The swap waits while someone is
+// typing in a note.
 templ Page(v graph.View, m Map) {
 	<div
 		id="graph"
 		class="flex min-h-0 flex-1 flex-col"
-		hx-get={ Base + "/map" }
-		hx-trigger="every 3s"
-		hx-swap="innerHTML"
+		if v.Events != "" {
+			hx-ext="sse"
+			sse-connect={ v.Events }
+			sse-swap="graph"
+		}
 	>
 		@graph.Canvas(v)
 	</div>

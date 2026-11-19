@@ -405,20 +405,40 @@ document.addEventListener('input', function (evt) {
 // The releases window (components/relwindow.templ): a <details> that stays
 // open or closed as the viewer left it, in the address (?rel=1 or 0) and in
 // localStorage when the address says nothing, and whose rows stay open while
-// the "releases" event patches the list.
+// the "releases" event patches the list. The org chart's switch ("Org config"
+// or "All", ?relview=) is kept the same way and, being an attribute of the
+// window, survives the patches; a redrawn canvas gets both back on load.
 (function () {
-    var KEY = 'rel-window', held = [];
+    var KEY = 'rel-window', VIEW = 'rel-view', held = [];
+    function keep(name, key, value) {
+        var url = new URL(location.href);
+        url.searchParams.set(name, value);
+        history.replaceState(history.state, '', url);
+        try { localStorage.setItem(key, value); } catch (e) { /* private mode */ }
+    }
+    function saved(name, key) {
+        var v = new URL(location.href).searchParams.get(name);
+        if (v !== null) return v;
+        try { return localStorage.getItem(key); } catch (e) { return null; }
+    }
     document.addEventListener('toggle', function (evt) {
         if (evt.target.id !== 'rel-window') return;
-        var on = evt.target.open, url = new URL(location.href);
-        url.searchParams.set('rel', on ? '1' : '0');
-        history.replaceState(history.state, '', url);
-        try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) { /* private mode */ }
+        keep('rel', KEY, evt.target.open ? '1' : '0');
     }, true);
+    document.addEventListener('click', function (evt) {
+        var b = evt.target.closest && evt.target.closest('[data-view-set]');
+        var w = b && b.closest('#rel-window');
+        if (!w) return;
+        evt.preventDefault(); // a button in the bar is not the bar
+        w.dataset.view = b.dataset.viewSet;
+        keep('relview', VIEW, b.dataset.viewSet);
+    });
     document.addEventListener('htmx:load', function (evt) {
         var w = evt.target.id === 'rel-window' ? evt.target : evt.target.querySelector && evt.target.querySelector('#rel-window');
-        if (!w || new URL(location.href).searchParams.has('rel')) return;
-        try { w.open = localStorage.getItem(KEY) === '1'; } catch (e) { /* private mode */ }
+        if (!w) return;
+        var open = saved('rel', KEY);
+        if (open !== null) w.open = open === '1';
+        if ('view' in w.dataset) w.dataset.view = saved('relview', VIEW) === 'org' ? 'org' : 'all';
     });
     document.addEventListener('htmx:sseBeforeMessage', function (evt) {
         if (evt.target.id !== 'rel-body') return;

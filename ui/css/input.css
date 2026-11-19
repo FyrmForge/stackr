@@ -910,6 +910,18 @@ graph-canvas:has(svg[data-lanes] g:not([hidden])) .graph-legend-traffic { displa
     @apply w-max rounded-lg border border-rw-border bg-rw-surface/90 backdrop-blur-sm shadow-rw
            hover:border-rw-strong transition-colors;
 }
+/* The org chart's releases window holds one set of counts and rows per view of its switch. */
+#rel-window[data-view=org] [data-for=all], #rel-window[data-view=all] [data-for=org],
+#rel-window[data-view=org] [data-stack] { display: none; }
+#rel-window[data-view=org] [data-view-set=org], #rel-window[data-view=all] [data-view-set=all] {
+    @apply bg-rw-inset text-rw-text;
+}
+/* The cluster chart's env legend sits above the releases window, whatever its height. */
+#rel-window { anchor-name: --rel-window; }
+graph-canvas:has(#rel-window) [data-legend] {
+    position-anchor: --rel-window;
+    bottom: calc(anchor(top) + 0.5rem);
+}
 .graph-view {
     @apply inset-auto top-0 right-0 m-0 p-0 h-full max-h-none w-full max-w-sm border-0 border-l border-rw-border
            bg-rw-surface text-rw-text overflow-y-auto cursor-default;

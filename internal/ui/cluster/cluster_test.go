@@ -47,7 +47,9 @@ func render(t *testing.T) string {
 	t.Helper()
 	m := sample()
 	var sb strings.Builder
-	if err := cluster.Page(cluster.Build(m, cluster.Base, nil, nil), m).Render(context.Background(), &sb); err != nil {
+	v := cluster.Build(m, cluster.Base, nil, nil)
+	v.Events = cluster.Base + "/events?n=x"
+	if err := cluster.Page(v, m).Render(context.Background(), &sb); err != nil {
 		t.Fatal(err)
 	}
 	return sb.String()
@@ -110,10 +112,9 @@ func TestMapDraws(t *testing.T) {
 	if got := strings.Count(body, `hx-trigger="click consume"`); got != 4+1+1 {
 		t.Errorf("%d env rows, want home 4, nas 1, fsn1 1", got)
 	}
-	// The refresh is an `every` poll: flash-toast keeps its failures quiet
-	// (a panel restart) on that trigger alone.
-	if !strings.Contains(body, `hx-trigger="every 3s"`) {
-		t.Error("map refresh is not an every poll")
+	// The refresh is the page's stream, as every canvas has one.
+	if !strings.Contains(body, `sse-connect="/-/cluster/events?n=x"`) || strings.Contains(body, `hx-trigger="every 3s"`) {
+		t.Error("map refresh is not the page stream")
 	}
 	// The canvas fits the map above the legends it finds by this hook.
 	if !strings.Contains(body, `<div data-legend`) {

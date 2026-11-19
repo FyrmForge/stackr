@@ -20,8 +20,6 @@ const (
 	// screenMax caps the list; the screen says so.
 	// ponytail: no paging; a cursor when an install passes this.
 	screenMax = 300
-
-	RowPlan = "plan" // a row of the screen: an org or server config plan
 )
 
 // ScreenQuery narrows the screen. State is "" (all), "waiting", "failed" or

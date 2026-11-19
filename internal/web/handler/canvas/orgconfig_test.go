@@ -159,25 +159,35 @@ func (b browser) stream(t *testing.T, path string) *httptest.ResponseRecorder {
 	return rec
 }
 
-// The org canvas banner: a pending plan warns and links to the tab, an
-// error row says the config is invalid; a viewer gets neither.
-func TestOrgPlanBanner(t *testing.T) {
+// The org canvas has no plan strip: its window lists the org file's plans,
+// a pending one waiting with a link to the tab, a failed one with its
+// error; a viewer who cannot read plans gets none of them.
+func TestOrgPlanWindow(t *testing.T) {
 	r := newConfigRig(t)
-	if body := r.owner.do(t, "GET", "/acme", nil, false).Body.String(); strings.Contains(body, "Config ") {
-		t.Errorf("a banner with no plan:\n%s", body)
+	body := r.owner.do(t, "GET", "/acme", nil, false).Body.String()
+	if strings.Contains(body, "Config plan pending") || !strings.Contains(body, "No config file is bound.") ||
+		!strings.Contains(body, ">Bind a repository<") {
+		t.Errorf("no file bound:\n%s", body)
 	}
 	r.file(t, regionFile)
 	if _, err := r.owner.env.Orch.SetOrgConfigRepo(context.Background(), r.owner.org, r.conn, "acme/org", "", "", false); err != nil {
 		t.Fatal(err)
 	}
 	href := `href="/acme?drawer=org:` + r.owner.org + `&amp;tab=config"`
-	body := r.owner.do(t, "GET", "/acme", nil, false).Body.String()
-	if !strings.Contains(body, "Config plan pending: 1 to add. View") || !strings.Contains(body, href) ||
-		!strings.Contains(body, "bg-rw-warning/10") {
-		t.Errorf("pending banner:\n%s", body)
+	body = r.owner.do(t, "GET", "/acme", nil, false).Body.String()
+	for _, want := range []string{"org config", "1 to add", ">waiting<", ">Review plan<", href, ">1 waiting<", `data-view="all"`, `data-view-set="org"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pending plan lacks %q:\n%s", want, body)
+		}
 	}
-	if body := r.viewer.do(t, "GET", "/acme", nil, false).Body.String(); strings.Contains(body, "Config plan pending") {
-		t.Error("a viewer gets the banner")
+	if strings.Contains(body, "bg-rw-warning/10") {
+		t.Error("the old strip is still drawn")
+	}
+	if body := r.viewer.do(t, "GET", "/acme", nil, false).Body.String(); strings.Contains(body, "1 to add") || strings.Contains(body, `data-view-set`) || strings.Contains(body, "No config") {
+		t.Error("a viewer sees the plan, the switch or a note about the file")
+	}
+	if body := r.owner.do(t, "GET", "/acme?rel=1&relview=org", nil, false).Body.String(); !strings.Contains(body, `data-view="org"`) {
+		t.Error("the address does not carry the view")
 	}
 
 	r.file(t, "version: 2\n")
@@ -185,9 +195,8 @@ func TestOrgPlanBanner(t *testing.T) {
 		t.Fatal(err)
 	}
 	body = r.owner.do(t, "GET", "/acme", nil, false).Body.String()
-	if !strings.Contains(body, "Config invalid. View details") || !strings.Contains(body, href) ||
-		!strings.Contains(body, "bg-rw-danger/10") {
-		t.Errorf("error banner:\n%s", body)
+	if !strings.Contains(body, "Plan failed: ") || !strings.Contains(body, ">1 failed<") || !strings.Contains(body, ">View details<") || !strings.Contains(body, href) {
+		t.Errorf("failed plan:\n%s", body)
 	}
 }
 

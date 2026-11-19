@@ -9,6 +9,7 @@ import (
 	"context"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -429,6 +430,68 @@ func Diff(from, to map[string]Pin) []Change {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
 	return out
+}
+
+// MovedOf says in a line what a release changed against the one it was built
+// on, "immich-server 3.4.1 to 3.4.2"; "" when it has no base or nothing moved.
+func (l *Leaf) MovedOf(ctx context.Context, id string) string {
+	r, err := l.Get(ctx, id)
+	if err != nil || r.BuiltOn == nil {
+		return ""
+	}
+	from, err := l.Pins(ctx, *r.BuiltOn)
+	if err != nil {
+		return ""
+	}
+	to, err := l.Pins(ctx, r.ID)
+	if err != nil {
+		return ""
+	}
+	return Moved(from, to)
+}
+
+// Moved is the line of Diff's changed tiles: a tag moves as "old to new"; a
+// pin whose tag stayed (or has none) reads its digests. At most two tiles
+// are named.
+func Moved(from, to map[string]Pin) string {
+	var parts []string
+	n := 0
+	for _, c := range Diff(from, to) {
+		if c.Kind != "changed" {
+			continue
+		}
+		n++
+		if n > 2 {
+			continue
+		}
+		a, b := from[c.Slug], to[c.Slug]
+		ta, tb := tagOf(a.Repo), tagOf(b.Repo)
+		if ta == "" || tb == "" || ta == tb {
+			ta, tb = shortDigest(a), shortDigest(b)
+		}
+		if ta == "" || tb == "" {
+			continue
+		}
+		parts = append(parts, c.Slug+" "+ta+" to "+tb)
+	}
+	if n > 2 {
+		parts = append(parts, "and "+strconv.Itoa(n-2)+" more")
+	}
+	return strings.Join(parts, ", ")
+}
+
+// tagOf is the tag of an image ref, "" when it names none.
+func tagOf(ref string) string {
+	if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {
+		return ref[i+1:]
+	}
+	return ""
+}
+
+// shortDigest is the first seven characters of a pin's digest ("" = none).
+func shortDigest(p Pin) string {
+	d := strings.TrimPrefix(p.Digest, "sha256:")
+	return d[:min(7, len(d))]
 }
 
 func ptr(s *string) string {

@@ -396,3 +396,15 @@ func TestRollbackNewestAndWaits(t *testing.T) {
 		t.Error("a base that does not chain was held")
 	}
 }
+
+func TestMoved(t *testing.T) {
+	pin := func(repo, digest string) release.Pin { return release.Pin{Repo: repo, Digest: digest} }
+	from := map[string]release.Pin{"immich-server": pin("ghcr.io/x/immich-server:3.4.1", "sha256:aaaaaaaa"), "valkey": pin("valkey:8", "sha256:1111111")}
+	to := map[string]release.Pin{"immich-server": pin("ghcr.io/x/immich-server:3.4.2", "sha256:bbbbbbbb"), "valkey": pin("valkey:8", "sha256:2222222")}
+	if got := release.Moved(from, to); got != "immich-server 3.4.1 to 3.4.2, valkey 1111111 to 2222222" {
+		t.Errorf("Moved = %q", got)
+	}
+	if got := release.Moved(from, from); got != "" {
+		t.Errorf("nothing moved = %q", got)
+	}
+}

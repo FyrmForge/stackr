@@ -2,13 +2,20 @@ package cluster_test
 
 import (
 	"context"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/web/handler/cluster"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -163,4 +170,47 @@ func mustPositions(t *testing.T, s *webtest.Site) map[string]service.Point {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// The cluster chart carries a releases window of the server file's plans and
+// a page stream in place of the timer: at connect the map the page drew is
+// not sent again ("graph" would reset the viewer's window), the window's rows
+// and counts are ("releases"), and a plan that lands shows on the next one.
+func TestClusterWindowAndStream(t *testing.T) {
+	stream.PollEvery, cluster.Every = 10*time.Millisecond, 0
+	s := webtest.New(t)
+	root := admin(t, s)
+	body := s.As(t, root, "GET", "/-/cluster", nil).Body.String()
+	for _, want := range []string{`id="rel-window"`, ">Server config<", "No config file is bound.", ">Bind a repository<", `href="/-/admin/config"`, `sse-connect="/-/cluster/events?n=`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	if strings.Contains(body, `hx-get="/-/cluster/map"`) {
+		t.Error("the timer is still there")
+	}
+	ctx := context.Background()
+	if err := s.Store.ServerPlans.Create(ctx, service.ServerPlan{ID: uuid.NewString(), Source: "repo", Status: "pending", Summary: "1 removal to review: route auth", Ticked: []string{}, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	body = s.As(t, root, "GET", "/-/cluster?rel=1", nil).Body.String()
+	for _, want := range []string{"1 removal to review: route auth", ">1 waiting<", ">Review plan<", `open>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	n := regexp.MustCompile(`sse-connect="(/-/cluster/events\?n=[^"]*)"`).FindStringSubmatch(body)
+	if n == nil {
+		t.Fatal("no stream address")
+	}
+	req := httptest.NewRequest("GET", html.UnescapeString(n[1]), nil)
+	req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: root})
+	cctx, cancel := context.WithCancel(ctx)
+	time.AfterFunc(time.Second, cancel)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req.WithContext(cctx))
+	got := rec.Body.String()
+	if strings.Contains(got, "event: graph") || !strings.Contains(got, "event: releases\ndata: <ul") || !strings.Contains(got, `id="rel-counts" hx-swap-oob`) {
+		t.Errorf("stream:\n%s", got)
+	}
 }
