@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -150,7 +149,7 @@ func BranchLine(name string) string { return "branch:" + name }
 // Lines are the lines a cut for env e builds on: its own, and its branch's
 // for a branch env.
 func Lines(e store.Environment) []string {
-	if e.FromKind == environment.FromBranch {
+	if e.FromKind == "branch" { // environment.FromBranch; a leaf never imports a sibling
 		return []string{EnvLine(e.ID), BranchLine(e.FromBranch)}
 	}
 	return []string{EnvLine(e.ID)}
