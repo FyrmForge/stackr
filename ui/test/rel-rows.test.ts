@@ -40,3 +40,11 @@ test("Clear filters empties the preserved search box", () => {
   }
   assert.equal(box.value, "");
 });
+
+test("a stale graph is refetched inside #graph without the drawer", () => {
+  let call: unknown[] = [];
+  g.htmx = { trigger: noop, ajax: (...a: unknown[]) => (call = a) };
+  g.location = { href: "http://x.test/acme/shop?drawer=env%3A1&tab=releases" };
+  handlers["graph-stale"].forEach((f) => f({}));
+  assert.deepEqual(call, ["GET", "/acme/shop?tab=releases", { target: "#graph", select: "#graph > *", swap: "innerHTML" }]);
+});

@@ -487,5 +487,8 @@ document.addEventListener('input', function (evt) {
 
 // A canvas dropped a stream update while a note had focus: fetch the page's graph now.
 document.addEventListener('graph-stale', function () {
-    htmx.ajax('GET', location.pathname + location.search, { target: '#graph', select: '#graph', swap: 'outerHTML' });
+    // The stream swaps the canvas inside #graph (which owns the SSE connection): do the same, and leave ?drawer= out so no drawer is touched.
+    var u = new URL(location.href);
+    u.searchParams.delete('drawer');
+    htmx.ajax('GET', u.pathname + u.search, { target: '#graph', select: '#graph > *', swap: 'innerHTML' });
 });
