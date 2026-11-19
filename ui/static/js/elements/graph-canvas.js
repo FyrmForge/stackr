@@ -50,7 +50,7 @@ class GraphCanvas extends HTMLElement {
     wire(on) {
         const pairs = [
             [this, "pointerdown", this.onDown], [this, "mousedown", this.onMouseDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
-            [this, "change", this.onChange], [this, "pointerover", this.onOver], [this, "pointerleave", this.onOver],
+            [this, "change", this.onChange], [this, "focusout", this.onFocusOut], [this, "pointerover", this.onOver], [this, "pointerleave", this.onOver],
             [window, "pointermove", this.onMove], [window, "pointerup", this.onUp], [window, "pointercancel", this.onUp],
             [window, "resize", this.onResize], [document, "keydown", this.onKey], [document, "htmx:beforeRequest", this.onRefresh], [document, "htmx:sseBeforeMessage", this.onRefresh],
         ];
@@ -90,9 +90,23 @@ class GraphCanvas extends HTMLElement {
         this.wire(false);
     }
     onResize = () => (this.touched ? this.apply() : this.fit());
+    stale = false;
     onRefresh = (e) => {
-        if (e.target?.id === "graph" && this.querySelector("textarea:focus"))
-            e.preventDefault();
+        if (e.target?.id !== "graph" || !this.querySelector("textarea:focus"))
+            return;
+        e.preventDefault();
+        if (e.type === "htmx:sseBeforeMessage")
+            this.stale = true;
+    };
+    onFocusOut = () => {
+        if (!this.stale)
+            return;
+        setTimeout(() => {
+            if (!this.stale || this.querySelector("textarea:focus"))
+                return;
+            this.stale = false;
+            window.htmx?.ajax("GET", location.pathname + location.search, { target: "#graph", select: "#graph", swap: "outerHTML" });
+        });
     };
     nodes = () => [...this.querySelectorAll(":scope > [data-world] > graph-node")];
     cards = () => this.nodes().filter((n) => !idOf(n).startsWith("note:"));

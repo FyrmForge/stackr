@@ -62,7 +62,7 @@ class GraphCanvas extends HTMLElement {
   private wire(on: boolean): void {
     const pairs: [EventTarget, string, (e: never) => void][] = [
       [this, "pointerdown", this.onDown], [this, "mousedown", this.onMouseDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
-      [this, "change", this.onChange], [this, "pointerover", this.onOver], [this, "pointerleave", this.onOver],
+      [this, "change", this.onChange], [this, "focusout", this.onFocusOut], [this, "pointerover", this.onOver], [this, "pointerleave", this.onOver],
       [window, "pointermove", this.onMove], [window, "pointerup", this.onUp], [window, "pointercancel", this.onUp],
       [window, "resize", this.onResize], [document, "keydown", this.onKey], [document, "htmx:beforeRequest", this.onRefresh], [document, "htmx:sseBeforeMessage", this.onRefresh],
     ];
@@ -93,8 +93,20 @@ class GraphCanvas extends HTMLElement {
   }
   private onResize = (): void => (this.touched ? this.apply() : this.fit());
   // The page refreshes #graph (timer or stream); skip one while someone types in a note: saving it answers with the canvas as it is.
+  // A dropped stream message is never resent, so mark the canvas stale and fetch the page's graph once the note loses focus.
+  private stale = false;
   private onRefresh = (e: Event): void => {
-    if ((e.target as Element | null)?.id === "graph" && this.querySelector("textarea:focus")) e.preventDefault();
+    if ((e.target as Element | null)?.id !== "graph" || !this.querySelector("textarea:focus")) return;
+    e.preventDefault();
+    if (e.type === "htmx:sseBeforeMessage") this.stale = true;
+  };
+  private onFocusOut = (): void => {
+    if (!this.stale) return;
+    setTimeout(() => {
+      if (!this.stale || this.querySelector("textarea:focus")) return;
+      this.stale = false;
+      (window as unknown as { htmx?: { ajax: (m: string, u: string, o: object) => void } }).htmx?.ajax("GET", location.pathname + location.search, { target: "#graph", select: "#graph", swap: "outerHTML" });
+    });
   };
   private nodes = (): HTMLElement[] => [...this.querySelectorAll<HTMLElement>(":scope > [data-world] > graph-node")];
   private cards = (): HTMLElement[] => this.nodes().filter((n) => !idOf(n).startsWith("note:"));
