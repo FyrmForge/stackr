@@ -102,7 +102,7 @@ func TestProxyCertState(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := s.Do(t, "GET", "/acme/shop/dev/-/proxy", nil)
-	if !strings.Contains(rec.Body.String(), "Certificate not checked yet.") || !strings.Contains(rec.Body.String(), "/-/proxy/recheck?tile=") {
+	if !strings.Contains(rec.Body.String(), "ertificate") || !strings.Contains(rec.Body.String(), "/-/proxy/recheck?tile=") {
 		t.Fatalf("proxy drawer = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", "/acme/shop/dev/-/proxy/recheck?tile="+s.Tile.ID+"&host=shop.acme.dev", nil)

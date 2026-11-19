@@ -4,6 +4,7 @@ package components
 // Recheck is the POST that probes the host again ("" = the viewer may not).
 type CertView struct {
 	Status, Reason, Until, Recheck string
+	Soon                           bool // valid, but inside the renewal window
 }
 
 // Cert says where a host's certificate stands and offers "Check again now".
@@ -16,7 +17,11 @@ templ Cert(v CertView) {
 			case "waiting":
 				<span class="text-rw-muted">Waiting for a certificate.</span>
 			case "valid":
-				<span class="text-rw-faint">Certificate valid until { v.Until }.</span>
+				if v.Soon {
+					<span class="text-rw-faint">Certificate valid until { v.Until }, renews soon.</span>
+				} else {
+					<span class="text-rw-faint">Certificate valid until { v.Until }.</span>
+				}
 			default:
 				<span class="text-rw-faint">Certificate not checked yet.</span>
 		}

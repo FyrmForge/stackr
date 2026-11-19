@@ -338,7 +338,7 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		for i := range rows {
 			ids[i] = rows[i].ID
 		}
-		gates := h.orch.DomainGates(ctx, ids)
+		gates := h.orch.DomainGates(ctx, t.EnvironmentID, ids)
 		for i := range rows {
 			rows[i].Gate, rows[i].Locked = gates[rows[i].ID].User, gates[rows[i].ID].Locked
 			cs, ok := h.orch.CertState(rows[i].Host)
@@ -361,7 +361,7 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 			}
 			rows[i].Records = &v
 		}
-		refs, err := h.gateRefs(ctx, t.EnvironmentID)
+		refs, err := h.gateRefs(c, t.EnvironmentID)
 		if err != nil {
 			return sv, err
 		}
@@ -528,8 +528,12 @@ func (h *handler) AttachDomain(c echo.Context) error {
 		}
 		s.Port = n
 	}
-	if u := strings.TrimSpace(c.FormValue("gate_user")); u != "" {
-		refs, err := h.gateRefs(c.Request().Context(), tileOf(c).EnvironmentID)
+	u := strings.TrimSpace(c.FormValue("gate_user"))
+	if u == "" && c.FormValue("gate_pw") != "" {
+		return h.refuseDomain(c, errs.Invalidf("gate_user", "Add a gate user, or clear the gate password."))
+	}
+	if u != "" {
+		refs, err := h.gateRefs(c, tileOf(c).EnvironmentID)
 		if err != nil {
 			return h.after(c, "settings", "", err)
 		}
@@ -562,19 +566,14 @@ func (h *handler) AttachDomain(c echo.Context) error {
 	return h.after(c, "settings", "Attached "+s.Host+".", err)
 }
 
-// gateRefs are the env's variable and secret names as references: the only
-// values a gate password may take from the form.
-func (h *handler) gateRefs(ctx context.Context, envID string) ([]string, error) {
-	ps, err := h.orch.MaskedParams(ctx, service.ParamScope{Kind: "env", ID: envID})
-	if err != nil {
-		return nil, err
+// gateRefs are the variable and secret names the env resolves, as
+// references: the only values a gate password may take from the form. Only a
+// viewer who may write variables sees them; others get none.
+func (h *handler) gateRefs(c echo.Context, envID string) ([]string, error) {
+	if !can(c, "variable.write") {
+		return nil, nil
 	}
-	refs := make([]string, 0, len(ps))
-	for _, p := range ps {
-		refs = append(refs, "${{ params."+p.Collection+"."+p.Name+" }}")
-	}
-	slices.Sort(refs)
-	return refs, nil
+	return h.orch.GateRefs(c.Request().Context(), envID)
 }
 
 // refuseDomain answers a refused add: the add form opens again with what

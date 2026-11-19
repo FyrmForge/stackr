@@ -350,7 +350,8 @@ type Orchestrator struct {
 	// would (tests).
 	failCrashAfter string
 	certRecheck    atomic.Bool  // a failing-cert recheck runs
-	certStates     sync.Map     // host -> CertState; memory only, the next check refills it
+	certBooted     atomic.Bool  // the boot-time cert probe was queued
+	certStates     sync.Map     // node id + "\x00" + host -> CertState; memory only, the next check refills it
 	panelRecheck   atomic.Bool  // a panel-name recheck runs
 	panelGen       atomic.Int64 // bumped when the panel record rows change; a check that saw it move judges nothing
 	panelMu        sync.Mutex   // a panel record write (reconcileDNS) and a check's verdict never overlap
