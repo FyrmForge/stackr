@@ -54,7 +54,10 @@ type WindowRow struct {
 	State   string
 	Runs    []string // env ids that run it
 	FailEnv string   // StateFailed from a promote: the env it stopped in
-	Newest  bool
+	// FailEnvID is that env's id: a release that failed in two envs is one
+	// row for each.
+	FailEnvID string
+	Newest    bool
 	// Lacks is the number of a waiting release this one does not hold; 0 = none.
 	Lacks   int
 	Reviews []WindowReview
@@ -224,12 +227,12 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 			}
 		}
 	}
-	// failed promotes, by release number
-	failed := map[int]string{}
-	failedJob := map[int]string{}
+	// failed promotes: one per (release, env), each with its own error
+	type promoteFail struct{ env, job, err string }
+	failed := map[int][]promoteFail{}
 	for _, id := range scoped {
 		if s, ok := o.RolloutStop(ctx, id); ok && s.Release > 0 {
-			failed[s.Release], failedJob[s.Release] = id, s.JobID
+			failed[s.Release] = append(failed[s.Release], promoteFail{id, s.JobID, s.Error})
 		}
 	}
 	var building []WindowRow
@@ -278,9 +281,12 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 			}
 		}
 		switch {
-		case failed[r.Number] != "":
-			row.State, row.FailEnv, row.JobID = StateFailed, envs[failed[r.Number]], failedJob[r.Number]
-			failedRows = append(failedRows, row)
+		case len(failed[r.Number]) > 0:
+			for _, f := range failed[r.Number] {
+				fr := row
+				fr.State, fr.FailEnv, fr.FailEnvID, fr.JobID, fr.Err = StateFailed, envs[f.env], f.env, f.job, f.err
+				failedRows = append(failedRows, fr)
+			}
 		case deploying[r.ID]:
 			row.State = StateDeploying
 			running = append(running, row)
@@ -309,8 +315,8 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 	var fixed []WindowRow
 	if history {
 		skip := map[string]bool{pf.JobID: true}
-		for _, id := range failedJob {
-			skip[id] = true
+		for _, fr := range failedRows {
+			skip[fr.JobID] = true
 		}
 		fixed = fixedFailures(js, rs, scoped, envs, skip)
 	}

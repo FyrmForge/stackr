@@ -75,6 +75,9 @@ func RelRowOf(r service.WindowRow, stack string, who map[string]string, envs map
 	case service.RowBuilding:
 		out.Link = components.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
 	}
+	if r.Kind == service.RowRelease && r.FailEnvID != "" {
+		out.ID += ":" + r.FailEnvID // one row per env it failed in, each its own open state
+	}
 	for _, id := range r.Runs {
 		out.Envs = append(out.Envs, envs[id])
 	}

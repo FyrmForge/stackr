@@ -264,3 +264,37 @@ func TestReleaseWindowImageWatchHeadline(t *testing.T) {
 		t.Errorf("release 2 is not in the window: %+v", win.Rows)
 	}
 }
+
+// A release that failed in two envs is a row for each, with its own error.
+func TestReleaseWindowFailurePerEnv(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	now := time.Now()
+	r3 := uuid.NewString()
+	if err := w.e.Store.Releases.Create(ctx, store.Release{ID: r3, StackID: w.shop, Number: 3, CreatedAt: now.Add(-5 * time.Hour), CreatedBy: "push"}); err != nil {
+		t.Fatal(err)
+	}
+	for env, msg := range map[string]string{w.dev: "dev: port taken", w.prod: "prod: no image"} {
+		fin := now.Add(-4 * time.Hour)
+		if err := w.e.Store.Jobs.Create(ctx, store.Job{
+			ID: uuid.NewString(), Kind: "promote", State: "failed", Error: msg, Payload: `{"org_id":"` + w.acme + `","stack_id":"` + w.shop + `","stopped_at":"web"}`,
+			ReleaseID: &r3, LockSet: store.StringList{"env:" + env}, CreatedAt: fin, FinishedAt: &fin,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	win, err := w.e.Orch.ReleaseWindow(ctx, w.shop, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, r := range win.Rows {
+		if r.Kind == service.RowRelease && r.State == service.StateFailed {
+			got[r.FailEnv] = r.Err
+		}
+	}
+	if len(got) != 2 || got["dev"] != "dev: port taken" || got["prod"] != "prod: no image" || win.Failed != 2 {
+		t.Errorf("failed rows = %v (failed %d), want one per env with its own error", got, win.Failed)
+	}
+}
