@@ -12,7 +12,6 @@ import (
 	"io"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -52,14 +51,9 @@ type Flow struct {
 	OwnTags   func(ctx context.Context, repo string) ([]string, error)
 
 	// Promoting reports a promote into the env that is queued or running;
-	// nil = none. The env waits a tick: once it lands, the base is what runs.
+	// nil = none. An image watched in such an env is not asked this tick (so
+	// nothing is recorded); once the promote lands, the base is what runs.
 	Promoting func(ctx context.Context, envID string) (bool, error)
-
-	// held are the envs a sweep skipped for a promote: the registry answer
-	// is already recorded, so the next sweep must not read it as old news.
-	// ponytail: in memory; a restart loses it and the next registry move wins.
-	mu   sync.Mutex
-	held map[string]bool
 
 	last time.Time // the last timed sweep
 }
@@ -98,6 +92,7 @@ type watched struct {
 type answer struct {
 	digest, tag, prev string
 	err               error
+	skip              bool // an env it is watched for has a promote running
 }
 
 // Check runs one sweep over scope.
@@ -116,6 +111,13 @@ func (f *Flow) Check(ctx context.Context, sc Scope, log io.Writer) ([]Update, er
 		k := w.org + "|" + w.t.ImageRef + "|" + w.t.TagPolicy
 		a, ok := answers[k]
 		if !ok {
+			if busy, err := f.promoting(ctx, ws, k); err != nil {
+				return nil, err
+			} else if busy {
+				answers[k] = &answer{skip: true}
+				logf(log, "%s: promote running; image check waits\n", w.t.ImageRef)
+				continue
+			}
 			if _, seen := prevs[w.t.ImageRef]; !seen {
 				img, _ := f.Images.GetByRef(ctx, w.t.ImageRef)
 				prevs[w.t.ImageRef] = img.LastDigest
@@ -129,7 +131,7 @@ func (f *Flow) Check(ctx context.Context, sc Scope, log io.Writer) ([]Update, er
 		}
 		// Registry errors retry next round and never read as an update; an
 		// unchanged answer is not news either (the chip already shows it).
-		if a.err != nil || (a.digest == a.prev && !f.isHeld(w.e.ID)) {
+		if a.skip || a.err != nil || a.digest == a.prev {
 			continue
 		}
 		if _, seen := byEnv[w.e.ID]; !seen {
@@ -179,18 +181,6 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 	if len(swap) == 0 {
 		return nil, nil
 	}
-	if f.Promoting != nil {
-		busy, err := f.Promoting(ctx, e.ID)
-		if err != nil {
-			return nil, err
-		}
-		if busy {
-			f.hold(e.ID, true)
-			logf(log, "%s: promote running; image check waits\n", e.Slug)
-			return nil, nil
-		}
-	}
-	f.hold(e.ID, false)
 	// ponytail: one release per env, auto only when every swapped tile is;
 	// a mixed env waits for the chip's button.
 	// Build on the release that waits for this env, if any (a push, an earlier
@@ -214,23 +204,21 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 	return &Update{EnvID: e.ID, Env: e.Slug, ReleaseID: r.ID, Number: r.Number, Auto: auto}, nil
 }
 
-func (f *Flow) isHeld(envID string) bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.held[envID]
-}
-
-func (f *Flow) hold(envID string, on bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if on && f.held == nil {
-		f.held = map[string]bool{}
+// promoting: a promote is queued or running in any env key's image is
+// watched for.
+func (f *Flow) promoting(ctx context.Context, ws []watched, key string) (bool, error) {
+	if f.Promoting == nil {
+		return false, nil
 	}
-	if on {
-		f.held[envID] = true
-	} else {
-		delete(f.held, envID)
+	for _, w := range ws {
+		if w.org+"|"+w.t.ImageRef+"|"+w.t.TagPolicy != key {
+			continue
+		}
+		if busy, err := f.Promoting(ctx, w.e.ID); err != nil || busy {
+			return busy, err
+		}
 	}
+	return false, nil
 }
 
 // direct: a branch env or the bottom rung takes releases straight away;

@@ -361,55 +361,55 @@ func TestAskOwnRegistry(t *testing.T) {
 	}
 }
 
-// A promote into the env that is queued or running holds the check for the
-// tick: no release is cut on top of the one it is landing.
+// A promote into an env the image is watched for skips the tile this tick:
+// no registry ask, nothing recorded. The next tick, with the promote built,
+// cuts the release.
 func TestCheckWaitsForAPromote(t *testing.T) {
-	for _, again := range []bool{false, true} {
-		busy := true
-		s := storetest.Store(t)
-		fake := dockerfake.New()
-		reg := &fakeRegistry{digests: map[string]string{"nginx:1": "sha256:n2"}}
-		f := &Flow{
-			Orgs:      org.New(s.Orgs, s.OrgMembers, s.Invites),
-			Stacks:    stack.New(s.Stacks),
-			Envs:      environment.New(s.Environments, fake),
-			Tiles:     tile.New(s.Tiles, fake, vipStub{}),
-			Images:    image.New(s.Images, fake),
-			Releases:  release.New(s.Releases, s.ReleaseTiles),
-			Cred:      credential.New(s.Credentials).For,
-			Settings:  settings.New(s.Settings, nil),
-			Digest:    reg.Digest,
-			Tags:      reg.Tags,
-			Promoting: func(context.Context, string) (bool, error) { return busy, nil },
-		}
-		now := time.Now()
-		o, stID := uuid.NewString(), uuid.NewString()
-		must(t, s.Orgs.Create(ctx, store.Org{ID: o, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-		must(t, s.Stacks.Create(ctx, store.Stack{ID: stID, OrgID: o, Name: "s", Slug: "s", Settings: "{}", CreatedAt: now}))
-		dev := store.Environment{
-			ID: uuid.NewString(), StackID: stID, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
-			Network: "n", FromKind: "branch", FromBranch: "main", Auto: true, CreatedAt: now,
-		}
-		must(t, s.Environments.Create(ctx, dev))
-		_, err := f.Tiles.Create(ctx, store.Tile{
-			StackID: stID, EnvironmentID: dev.ID, Name: "api", Kind: tile.Image, ImageRef: "nginx:1", UpdatePolicy: "auto",
-		})
-		must(t, err)
-		cur, err := f.Releases.Create(ctx, stID, "test", []release.Pin{{Slug: "api", Repo: "nginx", Digest: "sha256:n1"}})
-		must(t, err)
-		dev.ReleaseID = &cur.ID
-		must(t, s.Environments.Update(ctx, dev))
-		var log strings.Builder
-		ups, err := f.Check(ctx, Scope{}, &log)
-		must(t, err)
-		if len(ups) != 0 || !strings.Contains(log.String(), "promote running; image check waits") {
-			t.Fatalf("busy: updates %+v log %q", ups, log.String())
-		}
-		if again { // the registry answer was recorded; the env must not lose it
-			busy = false
-			if ups, err = f.Check(ctx, Scope{}, &log); err != nil || len(ups) != 1 {
-				t.Fatalf("after the promote landed: updates %+v err %v", ups, err)
-			}
-		}
+	busy := true
+	s := storetest.Store(t)
+	fake := dockerfake.New()
+	reg := &fakeRegistry{digests: map[string]string{"nginx:1": "sha256:n2"}}
+	f := &Flow{
+		Orgs:      org.New(s.Orgs, s.OrgMembers, s.Invites),
+		Stacks:    stack.New(s.Stacks),
+		Envs:      environment.New(s.Environments, fake),
+		Tiles:     tile.New(s.Tiles, fake, vipStub{}),
+		Images:    image.New(s.Images, fake),
+		Releases:  release.New(s.Releases, s.ReleaseTiles),
+		Cred:      credential.New(s.Credentials).For,
+		Settings:  settings.New(s.Settings, nil),
+		Digest:    reg.Digest,
+		Tags:      reg.Tags,
+		Promoting: func(context.Context, string) (bool, error) { return busy, nil },
+	}
+	now := time.Now()
+	o, stID := uuid.NewString(), uuid.NewString()
+	must(t, s.Orgs.Create(ctx, store.Org{ID: o, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
+	must(t, s.Stacks.Create(ctx, store.Stack{ID: stID, OrgID: o, Name: "s", Slug: "s", Settings: "{}", CreatedAt: now}))
+	dev := store.Environment{
+		ID: uuid.NewString(), StackID: stID, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
+		Network: "n", FromKind: "branch", FromBranch: "main", Auto: true, CreatedAt: now,
+	}
+	must(t, s.Environments.Create(ctx, dev))
+	_, err := f.Tiles.Create(ctx, store.Tile{
+		StackID: stID, EnvironmentID: dev.ID, Name: "api", Kind: tile.Image, ImageRef: "nginx:1", UpdatePolicy: "auto",
+	})
+	must(t, err)
+	cur, err := f.Releases.Create(ctx, stID, "test", []release.Pin{{Slug: "api", Repo: "nginx", Digest: "sha256:n1"}})
+	must(t, err)
+	dev.ReleaseID = &cur.ID
+	must(t, s.Environments.Update(ctx, dev))
+	var log strings.Builder
+	ups, err := f.Check(ctx, Scope{}, &log)
+	must(t, err)
+	if len(ups) != 0 || !strings.Contains(log.String(), "promote running; image check waits") {
+		t.Fatalf("busy: updates %+v log %q", ups, log.String())
+	}
+	if img, _ := f.Images.GetByRef(ctx, "nginx:1"); img.LastDigest != "" {
+		t.Fatalf("the skipped tick recorded %q", img.LastDigest)
+	}
+	busy = false
+	if ups, err = f.Check(ctx, Scope{}, &log); err != nil || len(ups) != 1 {
+		t.Fatalf("after the promote landed: updates %+v err %v", ups, err)
 	}
 }
