@@ -26,7 +26,7 @@ import (
 func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
 	ctx, og := c.Request().Context(), cd.s.Org
 	// the picker: the org's own connectors and the server ones shared with it
-	cs, err := h.orch.ConnectedConnectors(ctx, og.ID)
+	cs, err := h.orch.ConfigConnectors(ctx, og.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func (h *handler) mountOrgConfig(site *echo.Group, a *middleware.Access) {
 // they can read, as the setup wizard lists them.
 func (h *handler) orgPicker(c echo.Context) error {
 	og, ctx := middleware.ScopeOf(c).Org, c.Request().Context()
-	cs, err := h.orch.ConnectedConnectors(ctx, og.ID)
+	cs, err := h.orch.ConfigConnectors(ctx, og.ID)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}

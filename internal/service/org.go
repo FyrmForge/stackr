@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
@@ -437,6 +439,21 @@ func (o *Orchestrator) ConnectedConnectors(ctx context.Context, orgID string) ([
 	return o.conns.ListConnected(ctx, orgID)
 }
 
+// ConfigConnectors is the connectors the org may pick: those that serve the
+// config repo's host when one is bound, else all connected ones.
+func (o *Orchestrator) ConfigConnectors(ctx context.Context, orgID string) ([]Connector, error) {
+	og, err := o.orgs.Get(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := o.conns.ListConnected(ctx, orgID)
+	if err != nil || og.ConfigRepo == "" {
+		return cs, err
+	}
+	host := connector.Host(o.repoURL(ctx, og.ConfigRepo))
+	return slices.DeleteFunc(cs, func(c Connector) bool { return strings.ToLower(c.Host) != host }), nil
+}
+
 // SetOrgConnector picks the connector the org's repositories clone through
 // ("" = none): its own or a server one shared with it. It needs no config repo.
 func (o *Orchestrator) SetOrgConnector(ctx context.Context, orgID, connectorID string) (Org, error) {
@@ -447,6 +464,11 @@ func (o *Orchestrator) SetOrgConnector(ctx context.Context, orgID, connectorID s
 	if connectorID != "" {
 		if _, err := o.conns.Usable(ctx, og.ID, connectorID); err != nil {
 			return og, err // another org's connector is not there
+		}
+		if og.ConfigRepo != "" {
+			if _, err := o.conns.UsableFor(ctx, og.ID, connectorID, o.repoURL(ctx, og.ConfigRepo)); err != nil {
+				return og, errs.Invalidf("connector", "That connector does not serve the host of the organization's config repository.")
+			}
 		}
 	}
 	return o.orgs.SetConnector(ctx, og, connectorID)

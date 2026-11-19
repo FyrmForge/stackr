@@ -9,10 +9,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -432,3 +434,35 @@ func TestSetOrgConnector(t *testing.T) {
 		t.Errorf("clear = %+v %v", og, err)
 	}
 }
+
+// With a config repo bound, the org picks only a connector that serves its
+// host, and the picker lists only those.
+func TestSetOrgConnectorServesConfigRepoHost(t *testing.T) {
+	ctx := context.Background()
+	r := newServerRig(t)
+	o := r.env.Orch
+	own := r.env.Connector(t, r.acme, "whsec")
+	if err := r.env.Store.Connectors.Create(ctx, store.Connector{
+		ID: "gl", ShareAll: true, Kind: "github", Capabilities: store.StringList{"git"}, Name: "gl",
+		Host: "gitlab.com", Settings: `{"app":{"id":1,"slug":"gl","webhook_secret":"s"}}`, CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if cs, _ := o.ConfigConnectors(ctx, r.acme); len(cs) != 2 {
+		t.Errorf("no repo bound: %d connectors, want all", len(cs))
+	}
+	if _, err := o.SetOrgConfigRepo(ctx, r.acme, own, "acme/org", "", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.SetOrgConnector(ctx, r.acme, "gl"); !isInvalidErr(err) {
+		t.Errorf("a connector on another host = %v", err)
+	}
+	if cs, _ := o.ConfigConnectors(ctx, r.acme); len(cs) != 1 || cs[0].ID != own {
+		t.Errorf("picker = %+v, want only the github one", cs)
+	}
+	if _, err := o.SetOrgConnector(ctx, r.acme, own); err != nil {
+		t.Errorf("the serving connector = %v", err)
+	}
+}
+
+func isInvalidErr(err error) bool { _, ok := errs.IsInvalid(err); return ok }
