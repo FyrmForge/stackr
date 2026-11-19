@@ -173,3 +173,23 @@ func TestCanvasTileWaitsOnParkedPromote(t *testing.T) {
 		t.Errorf("worker = %q waiting for %q", n.Status, n.Waiting)
 	}
 }
+
+// Under a job snapshot the parked jobs and a stack's push rows are read once:
+// a job parked after the first read is not seen until the next render.
+func TestJobSnapshotReadsOnce(t *testing.T) {
+	env := servicetest.New(t)
+	org := env.Org(t, "acme")
+	tl := env.Tile(t, org)
+	env.WaitingJob(t, "huginn.oidc_secret", `{"env_id":"`+tl.Env+`"}`)
+	snap := service.WithJobSnapshot(context.Background())
+	if ps := env.Orch.ParkedOn(snap, tl.Stack, ""); len(ps) != 1 {
+		t.Fatalf("first read = %+v", ps)
+	}
+	env.WaitingJob(t, "org.gate.password", `{"env_id":"`+tl.Env+`"}`)
+	if ps := env.Orch.ParkedOn(snap, tl.Stack, tl.Env); len(ps) != 1 {
+		t.Errorf("the snapshot read the rows again: %+v", ps)
+	}
+	if ps := env.Orch.ParkedOn(context.Background(), tl.Stack, ""); len(ps) != 2 {
+		t.Errorf("a read without a snapshot = %+v", ps)
+	}
+}

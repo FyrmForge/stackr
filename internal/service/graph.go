@@ -57,7 +57,7 @@ func (o *Orchestrator) Canvas(ctx context.Context, s CanvasScope, show GraphShow
 	if err != nil {
 		return GraphView{}, err
 	}
-	return o.graph.Build(ctx, s, in)
+	return o.graph.Build(WithJobSnapshot(ctx), s, in)
 }
 
 // SetPosition saves where a card was dropped ("note:<id>" moves a note).
