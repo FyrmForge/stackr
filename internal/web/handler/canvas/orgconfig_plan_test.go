@@ -18,9 +18,13 @@ func TestOrgConfigPlanParam(t *testing.T) {
 	ctx := context.Background()
 	const tab = "/acme/-/drawer?tab=config"
 	seed := func(org string, ago time.Duration) string {
+		sum := ""
+		if ago == 0 {
+			sum = "newest-marker"
+		}
 		p := service.OrgPlan{
 			ID: uuid.NewString(), OrgID: org, Status: "rejected", Ticked: []string{},
-			Plan: `{"changes":[]}`, CreatedAt: time.Now().Add(-ago),
+			Summary: sum, Plan: `{"changes":[]}`, CreatedAt: time.Now().Add(-ago),
 		}
 		if err := r.owner.env.Store.OrgPlans.Create(ctx, p); err != nil {
 			t.Fatal(err)
@@ -29,8 +33,9 @@ func TestOrgConfigPlanParam(t *testing.T) {
 	}
 	old := seed(r.owner.org, time.Hour)
 	for i := range 20 {
-		seed(r.owner.org, time.Duration(i)*time.Second)
+		seed(r.owner.org, time.Duration(i+1)*time.Second)
 	}
+	seed(r.owner.org, 0)
 	if rec := r.owner.do(t, "GET", tab+"&plan="+uuid.NewString(), nil, true); rec.Code != 404 {
 		t.Errorf("unknown plan = %d, want 404", rec.Code)
 	}
@@ -39,7 +44,8 @@ func TestOrgConfigPlanParam(t *testing.T) {
 		t.Errorf("another org's plan = %d, want 404", rec.Code)
 	}
 	rec := r.owner.do(t, "GET", tab+"&plan="+old, nil, true)
-	if rec.Code != 200 || strings.Contains(rec.Body.String(), ">Latest plan<") || !strings.Contains(rec.Body.String(), ">Plan<") {
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), ">Latest plan<") || !strings.Contains(rec.Body.String(), ">Plan<") ||
+		!strings.Contains(rec.Body.String(), "newest-marker") {
 		t.Errorf("older plan = %d\n%s", rec.Code, rec.Body)
 	}
 }

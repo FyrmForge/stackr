@@ -85,11 +85,16 @@ func TestAdminConfigPlanParam(t *testing.T) {
 	for range 20 {
 		serverPlan(t, s, "repo", riskyServerPlan)
 	}
+	newest := serverPlan(t, s, "repo", riskyServerPlan)
+	newest.Summary = "newest-marker"
+	if err := s.Store.ServerPlans.Update(context.Background(), newest); err != nil {
+		t.Fatal(err)
+	}
 	if rec := s.As(t, root, "GET", "/-/admin/config?plan=nope", nil); rec.Code != 404 {
 		t.Errorf("unknown plan = %d, want 404", rec.Code)
 	}
 	rec := s.As(t, root, "GET", "/-/admin/config?plan="+old.ID, nil)
-	if rec.Code != 200 || strings.Contains(rec.Body.String(), "/plans/"+old.ID+"/approve") || !strings.Contains(rec.Body.String(), ">Plan<") {
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "/plans/"+old.ID+"/approve") || !strings.Contains(rec.Body.String(), ">Plan<") || !strings.Contains(rec.Body.String(), "newest-marker") {
 		t.Errorf("older plan = %d\n%s", rec.Code, rec.Body)
 	}
 }

@@ -152,7 +152,10 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 	if i > 0 || (want != "" && i < 0) {
 		box.Title = "Plan"
 	}
-	v.Latest, v.Plans = box, slices.Delete(rows, max(i, 0), max(i, 0)+1)
+	v.Latest, v.Plans = box, rows
+	if i >= 0 || want == "" { // a plan fetched by id is not in the list
+		v.Plans = slices.Delete(rows, max(i, 0), max(i, 0)+1)
+	}
 	return ui.Config(v), nil
 }
 

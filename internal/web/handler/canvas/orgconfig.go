@@ -126,7 +126,10 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 	if i > 0 || (want != "" && i < 0) {
 		box.Title = "Plan"
 	}
-	v.Latest, v.Plans = box, slices.Delete(v.Plans, max(i, 0), max(i, 0)+1)
+	v.Latest = box
+	if i >= 0 || want == "" { // a plan fetched by id is not in the list
+		v.Plans = slices.Delete(v.Plans, max(i, 0), max(i, 0)+1)
+	}
 	return orgui.Config(v), nil
 }
 
