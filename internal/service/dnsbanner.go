@@ -11,6 +11,11 @@ import (
 // banner's own refresh inside it cost no lookups. Tests set it to 0.
 var dnsBannerTTL = 2 * time.Minute
 
+// dnsBannerFailTTL is how long an answer that still lists hosts is reused:
+// the open banner asks again every 5 s, so a record fixed meanwhile clears it
+// on the next ask instead of after dnsBannerTTL.
+var dnsBannerFailTTL = 3 * time.Second
+
 type bannerKey struct {
 	o   *Orchestrator
 	env string
@@ -29,8 +34,14 @@ var bannerCache sync.Map // bannerKey -> bannerHit
 // resolves to its node is released, so stackr manages it again.
 func (o *Orchestrator) EnvDNSBanner(ctx context.Context, envID string) (DNSMove, error) {
 	k := bannerKey{o, envID}
-	if v, ok := bannerCache.Load(k); ok && time.Since(v.(bannerHit).at) < dnsBannerTTL {
-		return v.(bannerHit).m, nil
+	if v, ok := bannerCache.Load(k); ok {
+		hit, ttl := v.(bannerHit), dnsBannerTTL
+		if !hit.m.Empty() {
+			ttl = dnsBannerFailTTL
+		}
+		if time.Since(hit.at) < ttl {
+			return hit.m, nil
+		}
 	}
 	m, err := o.envDNSBanner(ctx, envID)
 	if err == nil {

@@ -8,8 +8,8 @@ import (
 )
 
 func noBannerCache(t *testing.T) {
-	dnsBannerTTL = 0
-	t.Cleanup(func() { dnsBannerTTL = 2 * time.Minute })
+	dnsBannerTTL, dnsBannerFailTTL = 0, 0
+	t.Cleanup(func() { dnsBannerTTL, dnsBannerFailTTL = 2*time.Minute, 3*time.Second })
 }
 
 // A hand-managed host that resolves elsewhere is in the banner with the record
@@ -106,5 +106,25 @@ func TestDNSSyncReleasesHeldHost(t *testing.T) {
 	must(t, n.orch.reconcileDNS(ctx, nil))
 	if got := n.orch.DNSHeld(ctx); len(got) != 0 {
 		t.Errorf("held after a matching sync = %v", got)
+	}
+}
+
+// A banner that lists a host is not served from the 2 minute cache: once the
+// record is fixed the next ask clears it (item 55).
+func TestEnvDNSBannerClearsPastTheCache(t *testing.T) {
+	dnsBannerFailTTL = 0 // the long TTL stays: only a clean answer would be served from it
+	t.Cleanup(func() { dnsBannerFailTTL = 3 * time.Second })
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	publicIPs(t, n, "198.51.100.1", "198.51.100.2")
+	_, err := n.orch.AttachDomain(ctx, n.devT.ID, DomainSpec{Host: "cache.example.com"})
+	must(t, err)
+	fakeDNS(t, map[string][]string{"cache.example.com": {"192.0.2.9"}})
+	if m, err := n.orch.EnvDNSBanner(ctx, n.dev.ID); err != nil || m.Empty() {
+		t.Fatalf("banner = %+v, %v", m, err)
+	}
+	fakeDNS(t, map[string][]string{"cache.example.com": {"198.51.100.1"}})
+	if m, err := n.orch.EnvDNSBanner(ctx, n.dev.ID); err != nil || !m.Empty() {
+		t.Fatalf("banner after the fix = %+v, %v", m, err)
 	}
 }
