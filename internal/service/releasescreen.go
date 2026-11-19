@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"time"
@@ -89,6 +90,19 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 	if err != nil {
 		return sc, err
 	}
+	// every job row once, grouped by stack, for all the windows below
+	byStack := map[string][]Job{}
+	allJobs, err := o.jobRows.Recent(ctx, 0)
+	if err != nil {
+		return sc, err
+	}
+	for _, j := range allJobs {
+		var p struct {
+			StackID string `json:"stack_id"`
+		}
+		_ = json.Unmarshal([]byte(j.Payload), &p)
+		byStack[p.StackID] = append(byStack[p.StackID], j)
+	}
 	var all []ScreenRow
 	waits := map[string]map[string]bool{} // scope key -> what waits in it, one per env
 	add := func(key string, rs ...ScreenRow) {
@@ -139,7 +153,11 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		}
 		for _, st := range sts {
 			sc.Scopes = append(sc.Scopes, ScreenScope{Key: og.Slug + "/" + st.Slug, Label: st.Name, Depth: 1})
-			w, err := o.releaseWindow(ctx, st.ID, "", true)
+			js, err := o.annotate(ctx, slices.DeleteFunc(slices.Clone(byStack[st.ID]), func(j Job) bool { return !jobOfOrg(j, og.ID) }))
+			if err != nil {
+				return sc, err
+			}
+			w, err := o.releaseWindow(ctx, st.ID, "", true, &js)
 			if err != nil {
 				return sc, err
 			}
@@ -214,6 +232,15 @@ func waitKeys(r ScreenRow) []string {
 		ks = append(ks, r.StackID+" "+e)
 	}
 	return ks
+}
+
+// jobOfOrg says the job was enqueued for the org (its payload says so).
+func jobOfOrg(j Job, orgID string) bool {
+	var p struct {
+		OrgID string `json:"org_id"`
+	}
+	_ = json.Unmarshal([]byte(j.Payload), &p)
+	return p.OrgID == orgID
 }
 
 // inScope says a row belongs under the scope key.

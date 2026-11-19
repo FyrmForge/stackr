@@ -100,19 +100,21 @@ const windowOlder = 3
 // ReleaseWindow reads the rows from releases, the ladder, the stack's jobs
 // and the failure markers the canvas already shows.
 func (o *Orchestrator) ReleaseWindow(ctx context.Context, stackID, envID string) (ReleaseWindow, error) {
-	return o.releaseWindow(ctx, stackID, envID, false)
+	return o.releaseWindow(ctx, stackID, envID, false, nil)
 }
 
 // ReleaseHistory is ReleaseWindow with every release and the failures fixed
 // since, for the lists that are the record (the Releases screen, the API).
 func (o *Orchestrator) ReleaseHistory(ctx context.Context, stackID, envID string) (ReleaseWindow, error) {
-	return o.releaseWindow(ctx, stackID, envID, true)
+	return o.releaseWindow(ctx, stackID, envID, true, nil)
 }
 
 // releaseWindow is ReleaseWindow; history lists every release and the
 // failures that were fixed since (the Releases screen's record), where the
 // window keeps a few older ones and drops a fixed failure.
-func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string, history bool) (ReleaseWindow, error) {
+// jobs are the stack's job rows when the caller already holds them (the
+// screen reads them once for every stack); nil = read them here.
+func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string, history bool, jobs *[]Job) (ReleaseWindow, error) {
 	var w ReleaseWindow
 	var envs = map[string]string{} // env id -> name
 	slugs := map[string]string{}   // env id -> slug
@@ -168,8 +170,10 @@ func (o *Orchestrator) releaseWindow(ctx context.Context, stackID, envID string,
 	)
 	// ponytail: scans the stack's job rows (ScopeJobs does); a SQL filter on
 	// release_id when an install holds enough jobs to feel it.
-	js, err := o.ScopeJobs(ctx, st.OrgID, stackID, "", 0)
-	if err != nil {
+	var js []Job
+	if jobs != nil {
+		js = *jobs
+	} else if js, err = o.ScopeJobs(ctx, st.OrgID, stackID, "", 0); err != nil {
 		return w, err
 	}
 	byID := make(map[string]store.Release, len(rs)) // the lineage, read once
