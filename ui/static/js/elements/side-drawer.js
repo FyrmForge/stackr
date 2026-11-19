@@ -3,7 +3,8 @@ class SideDrawer extends HTMLElement {
     opener = null;
     dirty = false;
     onSwap = (e) => {
-        const target = e.detail?.target;
+        const d = e.detail;
+        const target = d?.target;
         const body = this.body();
         if (!body || !target || !body.contains(target))
             return;
@@ -12,6 +13,8 @@ class SideDrawer extends HTMLElement {
         if (!this.hasAttribute("open") && was && !this.contains(was))
             this.opener = was;
         this.setAttribute("open", "");
+        if (d.requestConfig?.elt?.closest("[data-full]"))
+            this.expand(true);
         const tab = new URLSearchParams(location.search).get("tab");
         if (tab)
             this.setAttribute("tab", tab);

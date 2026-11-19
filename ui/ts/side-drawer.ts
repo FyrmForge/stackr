@@ -18,13 +18,16 @@ class SideDrawer extends HTMLElement {
   private dirty = false;
 
   private onSwap = (e: Event): void => {
-    const target = (e as CustomEvent<{ target?: Element }>).detail?.target;
+    const d = (e as CustomEvent<{ target?: Element; requestConfig?: { elt?: Element } }>).detail;
+    const target = d?.target;
     const body = this.body();
     if (!body || !target || !body.contains(target)) return;
     this.dirty = false;
     const was = document.activeElement as HTMLElement | null;
     if (!this.hasAttribute("open") && was && !this.contains(was)) this.opener = was;
     this.setAttribute("open", "");
+    // a link marked data-full (the Releases screen's reviews) opens the drawer wide
+    if (d.requestConfig?.elt?.closest("[data-full]")) this.expand(true);
     const tab = new URLSearchParams(location.search).get("tab");
     if (tab) this.setAttribute("tab", tab);
     else this.removeAttribute("tab");
