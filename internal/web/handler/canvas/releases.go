@@ -88,7 +88,7 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 				continue
 			}
 			label := "Review plan"
-			if r.Number < runs(e) {
+			if r.Number < runs(e) && h.orch.IsRollback(ctx, e.ID, r.ID) {
 				label = "Review rollback"
 			}
 			if cd.kind == "stack" {
@@ -101,9 +101,9 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		}
 	}
 	if cd.kind == "env" {
-		if rel, ok := h.orch.WaitingRelease(ctx, st.ID, cd.s.Env.ID); ok {
+		if win, err := h.orch.ReleaseWindow(ctx, st.ID, cd.s.Env.ID); err == nil {
 			for i := range rows {
-				rows[i].Waiting = rs[i].ID == rel.ID
+				rows[i].Waiting = rowOf(win, rs[i].ID).State == service.StateWaiting
 			}
 		}
 	}
@@ -142,7 +142,7 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	if err != nil {
 		return nil, err
 	}
-	back := n < cur
+	back := n < cur && h.orch.IsRollback(ctx, e.ID, plan)
 	canGo := can(c, cd.s, "env.write") // the review disables its button on a blocker itself
 	rv := comp.ReviewView{
 		Back:   f.Base + "?tab=releases",
@@ -168,11 +168,13 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		rv.Plan.Blockers = nil
 		rv.Access = accessView(p.Access, middleware.Principal(c).Access.Admin)
 	}
+	win, _ := h.orch.ReleaseWindow(ctx, st.ID, e.ID)
+	rv.Skip = skipNote(win, plan, f.Base, e.ID)
 	switch {
 	case back:
 		rv.Title, rv.Chip, rv.Tone, rv.Button, rv.Danger = "Roll back "+e.Name+" to release "+strconv.Itoa(n), "Rollback", "warn", "Roll back "+e.Name, true
 		rv.Notes = append(rv.Notes, "Removes "+strconv.Itoa(cur-n)+" release"+map[bool]string{true: "", false: "s"}[cur-n == 1]+" from "+e.Name+".")
-	case ei > 0 && runs(es[ei-1]) == n && cur < n:
+	case rowOf(win, plan).State == service.StateWaiting:
 		rv.Chip, rv.Tone = "Waiting", "accent"
 	}
 	if ei > 0 && !back && runs(es[ei-1]) < n {
@@ -342,4 +344,35 @@ func (h *handler) fillPromoteGap(c echo.Context, envID, release string) error {
 	}
 	_, err = h.orch.SetParams(ctx, service.ParamScope{Kind: "env", ID: envID}, []service.ParamEntry{{Collection: col, Name: key, Kind: "secret", Value: value}})
 	return err
+}
+
+// skipNote is the review's line for a waiting release that leaves out a
+// lower-numbered waiting one, with the link to that one's own review.
+func skipNote(w service.ReleaseWindow, plan, base, envID string) *comp.ReviewSkip {
+	lacks := rowOf(w, plan).Lacks
+	for _, r := range w.Rows {
+		if lacks > 0 && r.Number == lacks {
+			n := strconv.Itoa(lacks)
+			what := "Release " + n
+			if r.Commit != "" {
+				what += " (" + short(r.Commit) + ")"
+			}
+			return &comp.ReviewSkip{
+				Text:  what + " is newer config and is not in this release.",
+				Label: "Review release " + n,
+				Ask:   base + "?tab=releases&env=" + envID + "&plan=" + r.ID,
+			}
+		}
+	}
+	return nil
+}
+
+// rowOf is the window's row of a release, zero when it lists none.
+func rowOf(w service.ReleaseWindow, id string) service.WindowRow {
+	for _, r := range w.Rows {
+		if r.ID == id && r.Kind == service.RowRelease {
+			return r
+		}
+	}
+	return service.WindowRow{}
 }

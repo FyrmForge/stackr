@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/api/stream"
+	"github.com/FyrmForge/stackr/internal/web/handler/canvas"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -132,5 +134,33 @@ func TestFailedPushShows(t *testing.T) {
 	s.PushJob(t, s.Tile.Stack, "done", "", at.Add(time.Minute))
 	if body := get(t, s, "/acme/shop/dev/-/drawer?tab=releases"); strings.Contains(body, "The last push failed") {
 		t.Errorf("a later push left the failure:\n%s", body)
+	}
+}
+
+// The releases window sits on the stack and env canvas in the pill's place:
+// a failed push is a counted row with its job log, ?rel=1 opens it, and the
+// canvas stream carries its rows as the "releases" event.
+func TestReleasesWindow(t *testing.T) {
+	stream.PollEvery, canvas.Every = 10*time.Millisecond, 0
+	s := webtest.New(t)
+	id := s.PushJob(t, s.Tile.Stack, "failed", "build x: exit status 1", time.Now())
+	for _, path := range []string{"/acme/shop/dev", "/acme/shop"} {
+		body := get(t, s, path)
+		for _, want := range []string{`id="rel-window"`, ">1 failed<", "Push failed: build x: exit status 1", `/-/jobs/` + id + `"`, `hx-get="/acme/shop/dev"`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s lacks %q", path, want)
+			}
+		}
+		if strings.Contains(body, `class="env-compare`) && strings.Contains(body, `<details id="rel-window"`) && strings.Contains(body, `z-10 open:w-[34rem] open:max-w-[calc(100%-2rem)]" open>`) {
+			t.Errorf("%s: the window opened without ?rel=1", path)
+		}
+	}
+	if !strings.Contains(get(t, s, "/acme/shop/dev?rel=1"), `open:max-w-[calc(100%-2rem)]" open>`) {
+		t.Error("?rel=1 did not open the window")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(time.Second, cancel)
+	if body := s.DoCtx(ctx, t, "GET", "/acme/shop/dev/-/events", nil).Body.String(); !strings.Contains(body, "event: releases\ndata: <div") {
+		t.Errorf("no releases event:\n%s", body)
 	}
 }

@@ -181,13 +181,13 @@ type Stopped struct {
 	Error   string
 }
 
-// Rung is one env in the compare pill: the release it runs, and whether
-// the rung below it runs a newer one.
+// Rung is one env of the ladder: the release it runs, and whether one waits
+// for it (the rung below runs a newer one, or a release cut for its line).
 type Rung struct {
 	EnvID, Name, Slug, Color string
 	Release                  int // 0 = none yet
 	Behind                   bool
-	Waiting                  int // Behind: the release of the rung below, waiting to be promoted here
+	Waiting                  int // Behind: the newest release waiting to be promoted here
 }
 
 // Show is what the server draws; the look toggles are the element's.
@@ -478,6 +478,25 @@ func (f *Flow) ladder(ctx context.Context, stackID string) ([]store.Environment,
 			r.Behind = i > 0 && prev > r.Release
 			if r.Behind {
 				r.Waiting = prev
+			}
+			// A release cut for this env's line that holds what it runs waits
+			// here too, the bottom env and a one-env stack included.
+			runs := ""
+			if e.ReleaseID != nil {
+				runs = *e.ReleaseID
+			}
+			head, err := f.Releases.Newest(ctx, stackID, runs, release.Lines(e)...)
+			if err != nil {
+				return nil, nil, err
+			}
+			if head != "" && head != runs {
+				h, err := f.Releases.Get(ctx, head)
+				if err != nil {
+					return nil, nil, err
+				}
+				if h.Number > r.Waiting {
+					r.Behind, r.Waiting = true, h.Number
+				}
 			}
 			prev = r.Release
 		}

@@ -83,6 +83,11 @@ templ relRow(r RelRow) {
 				</summary>
 				@relOpen(r)
 			</details>
+			if r.Lacks != "" {
+				<div class="px-3 pb-2 pl-12">
+					@Chip("Does not hold release "+r.Lacks, "warn")
+				</div>
+			}
 		} else {
 			<div class="flex min-h-9 items-center gap-2 px-3 py-1 text-sm">
 				@relHead(r)
@@ -125,11 +130,6 @@ templ relHead(r RelRow) {
 
 templ relOpen(r RelRow) {
 	<div class="flex flex-col gap-1 border-t border-rw-border bg-rw-inset py-2 pl-12 pr-3 text-xs text-rw-muted">
-		if r.Lacks != "" {
-			<div>
-				@Chip("Does not hold release "+r.Lacks, "warn")
-			</div>
-		}
 		<div>
 			<span class="text-rw-faint">Cut</span>
 			{ " " }

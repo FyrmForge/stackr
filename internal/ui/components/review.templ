@@ -21,6 +21,8 @@ type ReviewView struct {
 	// Notes are plain warn lines under the summary (a skipped rung, what a
 	// rollback removes).
 	Notes []string
+	// Skip is the newer waiting release this one leaves out; nil = none.
+	Skip *ReviewSkip
 	// Access is the elevated access the plan needs approved; nil = none.
 	Access *ReviewAccess
 	// Running is the release that is still deploying in this env; it blocks.
@@ -32,6 +34,10 @@ type ReviewView struct {
 	// Live is this view's own GET, polled while a block can clear by itself.
 	Live string
 }
+
+// ReviewSkip is the line "Release 3 (b653b0c) is newer config and is not in
+// this release." and the GET of that release's own review.
+type ReviewSkip struct{ Text, Label, Ask string }
 
 // ReviewAccess is the access block: Admin = promoting approves it in their
 // name, else a server admin must.
@@ -91,7 +97,7 @@ func (v ReviewView) reviewNote() string {
 		return "Set " + secretGaps(v.Plan)[0].Label + " first."
 	case len(v.Plan.Blockers) > 0:
 		return "Fix what blocks it first."
-	case v.Danger || v.Access != nil || len(v.Notes) > 0:
+	case v.Danger || v.Access != nil || len(v.Notes) > 0 || v.Skip != nil:
 		return ""
 	}
 	return "Nothing is deployed until you press it."
@@ -363,6 +369,13 @@ templ Review(v ReviewView) {
 		}
 		for _, n := range v.Notes {
 			<p class="text-sm text-rw-warn">{ n }</p>
+		}
+		if v.Skip != nil {
+			<p class="text-sm text-rw-warn">
+				{ v.Skip.Text }
+				{ " " }
+				<button type="button" class="link" hx-get={ v.Skip.Ask } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">{ v.Skip.Label }</button>
+			</p>
 		}
 		@reviewRows(v.Plan)
 		<div class="flex flex-wrap items-center gap-3">

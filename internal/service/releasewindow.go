@@ -3,8 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // Window row kinds and release states (releases view RFC, section 4).
@@ -110,6 +114,69 @@ func (o *Orchestrator) ReleaseWindow(ctx context.Context, stackID, envID string)
 			}
 		}
 	}
+	// Every release cut for an env's line that holds what it runs waits for
+	// it (the leaf's Newest and Between say which): its path back to what
+	// the env runs, to tell which release holds which.
+	ladder, err := o.envs.Ladder(ctx, stackID)
+	if err != nil {
+		return w, err
+	}
+	var (
+		newest = map[string]bool{}            // release id -> the head of a line some env waits on
+		paths  = map[string]map[string]bool{} // env id + release id -> ids it holds
+		sets   = map[string][]store.Release{} // env id -> the releases waiting for it
+	)
+	for _, e := range ladder {
+		if envID != "" && e.ID != envID {
+			continue
+		}
+		runsID := ""
+		if e.ReleaseID != nil {
+			runsID = *e.ReleaseID
+		}
+		lines := release.Lines(e)
+		head, err := o.releases.Newest(ctx, stackID, runsID, lines...)
+		if err != nil {
+			return w, err
+		}
+		if head == runsID {
+			continue
+		}
+		newest[head] = true
+		for _, r := range rs {
+			if r.Line == nil || !slices.Contains(lines, *r.Line) || r.ID == runsID || r.Number <= runsByEn[e.ID] {
+				continue
+			}
+			path, ok, err := o.releases.Between(ctx, stackID, r.ID, runsID)
+			if err != nil {
+				return w, err
+			}
+			if !ok || len(path) == 0 {
+				continue
+			}
+			sets[e.ID] = append(sets[e.ID], r)
+			held := map[string]bool{}
+			for _, p := range path {
+				held[p.ID] = true
+			}
+			paths[e.ID+" "+r.ID] = held
+			if !slices.Contains(waitFor[r.Number], e.ID) {
+				waitFor[r.Number] = append(waitFor[r.Number], e.ID)
+			}
+		}
+	}
+	// A waiting release that leaves out a lower-numbered waiting one says so:
+	// promoting it alone loses what the other cut.
+	lacks := map[string]int{}
+	for env, set := range sets {
+		for _, r := range set {
+			for _, x := range set {
+				if x.Number < r.Number && x.Number > lacks[r.ID] && !paths[env+" "+r.ID][x.ID] && !paths[env+" "+x.ID][r.ID] {
+					lacks[r.ID] = x.Number
+				}
+			}
+		}
+	}
 	// failed promotes, by release number
 	failed := map[int]string{}
 	failedJob := map[int]string{}
@@ -160,19 +227,19 @@ func (o *Orchestrator) ReleaseWindow(ctx context.Context, stackID, envID string)
 		}
 		for _, id := range scoped {
 			if n := runsByEn[id]; n != r.Number {
-				row.Reviews = append(row.Reviews, WindowReview{EnvID: id, Env: envs[id], Rollback: r.Number < n})
+				row.Reviews = append(row.Reviews, WindowReview{EnvID: id, Env: envs[id], Rollback: r.Number < n && o.IsRollback(ctx, id, r.ID)})
 			}
 		}
 		switch {
 		case failed[r.Number] != "":
 			row.State, row.FailEnv, row.JobID = StateFailed, envs[failed[r.Number]], failedJob[r.Number]
 			failedRows = append(failedRows, row)
-		case len(waitFor[r.Number]) > 0:
-			row.State = StateWaiting
-			waiting = append(waiting, row)
 		case deploying[r.ID]:
 			row.State = StateDeploying
 			running = append(running, row)
+		case len(waitFor[r.Number]) > 0:
+			row.State, row.Newest, row.Lacks = StateWaiting, newest[r.ID], lacks[r.ID]
+			waiting = append(waiting, row)
 		case len(row.Runs) > 0:
 			row.State = StateRunning
 			running = append(running, row)
@@ -212,4 +279,35 @@ func (o *Orchestrator) commitBase(ctx context.Context, connectorID, repo string)
 	}
 	h := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(c.Host, "https://"), "http://"), "/")
 	return "https://" + h + "/" + strings.TrimSuffix(repo, ".git") + "/commit/"
+}
+
+// IsRollback says taking releaseID into envID is a roll back: it is something
+// the env ran before, or an ancestor of what it runs, and older than it. A
+// newer release, or an older one the env never held (cut on another line),
+// is a plain plan. A release cut before migration 019 has no lineage: the
+// number decides, as it did.
+func (o *Orchestrator) IsRollback(ctx context.Context, envID, releaseID string) bool {
+	e, err := o.envs.Get(ctx, envID)
+	if err != nil || e.ReleaseID == nil || *e.ReleaseID == releaseID {
+		return false
+	}
+	t, err := o.releases.Get(ctx, releaseID)
+	if err != nil {
+		return false
+	}
+	cur, err := o.releases.Get(ctx, *e.ReleaseID)
+	if err != nil || t.Number >= cur.Number {
+		return false
+	}
+	if t.Line == nil {
+		return true
+	}
+	if _, ok, err := o.releases.Between(ctx, e.StackID, cur.ID, t.ID); err == nil && ok {
+		return true // an ancestor of what it runs
+	}
+	js, err := o.store.Jobs.ListTouching(ctx, []string{"env:" + envID}, string(kindPromote), 50) // newest first
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(js, func(j Job) bool { return j.State == "done" && j.ReleaseID != nil && *j.ReleaseID == releaseID })
 }
