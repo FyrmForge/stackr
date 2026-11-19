@@ -388,3 +388,35 @@ document.addEventListener('input', function (evt) {
         if (p && p.showPopover && !open()) p.showPopover();
     });
 })();
+
+// The releases window (components/relwindow.templ): a <details> that stays
+// open or closed as the viewer left it, in the address (?rel=1 or 0) and in
+// localStorage when the address says nothing, and whose rows stay open while
+// the "releases" event patches the list.
+(function () {
+    var KEY = 'rel-window', held = [];
+    document.addEventListener('toggle', function (evt) {
+        if (evt.target.id !== 'rel-window') return;
+        var on = evt.target.open, url = new URL(location.href);
+        url.searchParams.set('rel', on ? '1' : '0');
+        history.replaceState(history.state, '', url);
+        try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) { /* private mode */ }
+    }, true);
+    document.addEventListener('htmx:load', function (evt) {
+        var w = evt.target.id === 'rel-window' ? evt.target : evt.target.querySelector && evt.target.querySelector('#rel-window');
+        if (!w || new URL(location.href).searchParams.has('rel')) return;
+        try { w.open = localStorage.getItem(KEY) === '1'; } catch (e) { /* private mode */ }
+    });
+    document.addEventListener('htmx:sseBeforeMessage', function (evt) {
+        if (evt.target.id !== 'rel-body') return;
+        held = Array.prototype.map.call(evt.target.querySelectorAll('details[open][data-id]'), function (d) { return d.dataset.id; });
+    });
+    document.addEventListener('htmx:afterSwap', function (evt) {
+        var b = evt.detail.target;
+        if (!b || b.id !== 'rel-body') return;
+        held.forEach(function (id) {
+            var d = b.querySelector('details[data-id="' + id + '"]');
+            if (d) d.open = true;
+        });
+    });
+})();

@@ -1,7 +1,6 @@
 package canvas
 
 import (
-	"path"
 	"slices"
 	"strings"
 
@@ -105,19 +104,6 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 			Y:    a.Y,
 			W:    a.W,
 			H:    a.H,
-		})
-	}
-	stack := l.base
-	if l.scope.Kind == service.CanvasEnv {
-		stack = path.Dir(l.base) // the pill links this env's siblings
-	}
-	for _, r := range gv.Compare {
-		v.Compare = append(v.Compare, ui.Rung{
-			Name:    r.Name,
-			Color:   r.Color,
-			Href:    stack + "/" + r.Slug,
-			Release: r.Release,
-			Behind:  r.Behind,
 		})
 	}
 	if l.scope.Kind == service.CanvasEnv && sh.Traffic {

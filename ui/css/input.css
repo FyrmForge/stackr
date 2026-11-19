@@ -905,7 +905,6 @@ graph-canvas:has(svg[data-lanes] g:not([hidden])) .graph-legend-traffic { displa
     @apply w-max rounded-lg border border-rw-border bg-rw-surface/90 backdrop-blur-sm shadow-rw
            hover:border-rw-strong transition-colors;
 }
-.env-pill { @apply flex items-center gap-3 px-3 py-2 text-xs leading-none whitespace-nowrap select-none; }
 .graph-view {
     @apply inset-auto top-0 right-0 m-0 p-0 h-full max-h-none w-full max-w-sm border-0 border-l border-rw-border
            bg-rw-surface text-rw-text overflow-y-auto cursor-default;

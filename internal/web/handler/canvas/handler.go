@@ -24,6 +24,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
 	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -103,6 +104,9 @@ func (h *handler) view(c echo.Context) (ui.View, error) {
 		q = syncQ{}
 	}
 	v, err := h.build(c.Request().Context(), where(c), show(c), c.QueryParam("focus"), q)
+	if v.Releases != nil {
+		v.Releases.Open = c.QueryParam("rel") == "1"
+	}
 	if v.SyncBar != nil && !can(c, middleware.ScopeOf(c), "env.write") { // the review is for anyone; deploying it is not
 		v.SyncBar.Deploy = nil
 	}
@@ -133,6 +137,7 @@ func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focu
 		}
 	}
 	v := mapView(gv, l, sh, focus, g)
+	v.Releases = h.relWindow(ctx, l, gv)
 	if review {
 		v.Events, v.SyncBar, v.Review = "", syncBar(l, pl, q), q.query()
 	}
@@ -374,6 +379,16 @@ func (h *handler) Poll(c echo.Context) producer {
 			return []stream.Msg{{Name: "graph", Body: body}}, err
 		}
 		var out []stream.Msg
+		if v.Releases != nil {
+			body, err := render.Event(ctx, comp.RelBody(*v.Releases))
+			if err != nil {
+				return nil, err
+			}
+			if sent["releases"] != body {
+				sent["releases"] = body
+				out = append(out, stream.Msg{Name: "releases", Body: body})
+			}
+		}
 		for _, n := range v.Nodes {
 			body, err := render.Event(ctx, n.Foot())
 			if err != nil {

@@ -33,15 +33,15 @@ type View struct {
 	Empty   string
 	// EmptyNote is the second line under Empty, EmptyHref the "Review plan" link after it.
 	EmptyNote, EmptyHref string
-	Compare []Rung
-	Create  []Create        // the level's create dialogs the viewer may open
-	Lanes   []cards.Lane    // env traffic at the last sample; nil = no lanes layer
-	Banner  *Banner         // the strip over the canvas; nil = none
-	DNS     string          // GET …/-/dns-banner, loaded on page load (env); "" = no slot
-	SyncBar *SyncBar        // the env sync review's strip; nil = none
-	Over    templ.Component // drawn over the canvas with the chrome (the Cluster map's legend); nil = none
-	Review  string          // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
-	FanGap  int             // px between edge ends fanned out on one card side; 0 = the canvas default
+	Releases             *c.RelWindow    // stack and env canvas: the releases window, which holds the env links; nil = none
+	Create               []Create        // the level's create dialogs the viewer may open
+	Lanes                []cards.Lane    // env traffic at the last sample; nil = no lanes layer
+	Banner               *Banner         // the strip over the canvas; nil = none
+	DNS                  string          // GET …/-/dns-banner, loaded on page load (env); "" = no slot
+	SyncBar              *SyncBar        // the env sync review's strip; nil = none
+	Over                 templ.Component // drawn over the canvas with the chrome (the Cluster map's legend); nil = none
+	Review               string          // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
+	FanGap               int             // px between edge ends fanned out on one card side; 0 = the canvas default
 }
 
 // SyncBar is the strip under the banner while an env sync is under review:
@@ -119,13 +119,6 @@ type Edge struct {
 type Note struct {
 	ID, Kind, Text string
 	X, Y, W, H     int
-}
-
-// Rung is one env of the stack's ladder in the env-compare pill.
-type Rung struct {
-	Name, Color, Href string
-	Release           int // 0 = never released
-	Behind            bool
 }
 
 // Route is a helper route of this canvas, show params and review kept.
@@ -317,13 +310,4 @@ func sizeVal(n int) string {
 		return ""
 	}
 	return itoa(n)
-}
-
-// behindTitle spells the arrow's tooltip; a rung with no release yet is
-// not "release #0".
-func behindTitle(r Rung) string {
-	if r.Release == 0 {
-		return "No release yet; the env below runs one"
-	}
-	return "Runs release #" + itoa(r.Release) + "; the env below runs a newer one"
 }

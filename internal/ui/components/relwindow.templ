@@ -1,0 +1,186 @@
+package components
+
+import (
+	"strconv"
+	"time"
+)
+
+// RelWindow is the releases window, bottom left of the stack and env canvas
+// (releases view RFC, section 4): a collapsed bar with what needs a person
+// and the env links, and the list under it when open. It takes the env pill
+// in.
+type RelWindow struct {
+	Envs            []RelEnv
+	Waiting, Failed int
+	Rows            []RelRow
+	Err             bool // the rows could not be read
+	Open            bool // ?rel=1; main.js keeps the rest
+}
+
+// RelEnv is one env link of the bar.
+type RelEnv struct{ Name, Color, Href string }
+
+// RelLink is a text link: a review, or a job log.
+type RelLink struct{ Label, Href string }
+
+// RelJob is one job of a release, for its open row.
+type RelJob struct {
+	Text string
+	Href string
+}
+
+// RelRow is one line: a release, a failed push or a build under way.
+type RelRow struct {
+	Kind    string // release | failed | building
+	ID            string
+	Number        string // "" = none
+	Commit        string // short
+	Message       string // the headline; the source when the cut had none
+	State, Tone   string // one word, a Chip tone
+	Envs          []EnvRun
+	Newest        bool
+	Lacks         string // the number of a waiting release this one does not hold
+	Link          RelLink
+	Reviews       []RelLink
+	Log           string
+	At            time.Time
+	By            string
+	Jobs          []RelJob
+	CommitURL     string
+	CommitFull    string
+	Stack         string // building: the stack
+	Queued        bool
+}
+
+// RelBody is what the "releases" event swaps: the bar's markers and the list.
+templ RelBody(w RelWindow) {
+	<div id="rel-body" class="max-h-[50vh] overflow-y-auto border-t border-rw-border " sse-swap="releases" hx-swap="innerHTML" hx-target="this">
+		@relRows(w)
+	</div>
+}
+
+templ relRows(w RelWindow) {
+	switch {
+		case w.Err:
+			<p class="px-3 py-2 text-sm text-rw-muted">Releases could not be loaded.</p>
+		case len(w.Rows) == 0:
+			<p class="px-3 py-2 text-sm text-rw-muted">No releases yet. A push or a first deploy makes one.</p>
+		default:
+			<ul class="divide-y divide-rw-border">
+				for _, r := range w.Rows {
+					@relRow(r)
+				}
+			</ul>
+	}
+}
+
+templ relRow(r RelRow) {
+	<li>
+		if r.Kind == "release" {
+			<details data-id={ r.ID } class="group">
+				<summary class="flex min-h-9 cursor-pointer list-none items-center gap-2 px-3 py-1 text-sm hover:bg-rw-inset [&::-webkit-details-marker]:hidden">
+					@relHead(r)
+				</summary>
+				@relOpen(r)
+			</details>
+		} else {
+			<div class="flex min-h-9 items-center gap-2 px-3 py-1 text-sm">
+				@relHead(r)
+			</div>
+		}
+	</li>
+}
+
+templ relHead(r RelRow) {
+	<span class="w-7 shrink-0 font-mono text-xs text-rw-faint">{ r.Number }</span>
+	if r.Kind == "building" {
+		<span class="min-w-0 flex-1 truncate text-rw-text">
+			if r.Queued {
+				Waiting to build { r.Stack } at <span class="font-mono text-xs">{ r.Commit }</span>
+			} else {
+				Building { r.Stack } at <span class="font-mono text-xs">{ r.Commit }</span>, started
+				{ " " }
+				@Time(r.At, "15:04")
+			}
+		</span>
+	} else {
+		if r.Commit != "" {
+			<span class={ "shrink-0 font-mono text-xs whitespace-nowrap", templ.KV("text-rw-text", r.Number == "" || r.State == "waiting"), templ.KV("text-rw-muted", r.Number != "" && r.State != "waiting") }>{ r.Commit }</span>
+		}
+		<span class="min-w-0 flex-1 truncate text-rw-text" title={ r.Message }>{ r.Message }</span>
+		for _, e := range r.Envs {
+			<span class={ "chip bg-rw-inset text-rw-text", envClass(e.Color) }><span class="env-dot mr-1"></span>{ e.Name }</span>
+		}
+	}
+	if r.Newest {
+		@Chip("newest", "success")
+	}
+	if r.State != "" {
+		@Chip(r.State, r.Tone)
+	}
+	if r.Link.Label != "" {
+		<a href={ templ.SafeURL(r.Link.Href) } class="link shrink-0 whitespace-nowrap">{ r.Link.Label }</a>
+	}
+}
+
+templ relOpen(r RelRow) {
+	<div class="flex flex-col gap-1 border-t border-rw-border bg-rw-inset py-2 pl-12 pr-3 text-xs text-rw-muted">
+		if r.Lacks != "" {
+			<div>
+				@Chip("Does not hold release "+r.Lacks, "warn")
+			</div>
+		}
+		<div>
+			<span class="text-rw-faint">Cut</span>
+			{ " " }
+			@When(r.At)
+			{ " by " + r.By }
+		</div>
+		for _, j := range r.Jobs {
+			<div>
+				<span class="text-rw-faint">Job</span> { j.Text }
+				{ " " }<a href={ templ.SafeURL(j.Href) } class="link">Job log</a>
+			</div>
+		}
+		for _, l := range r.Reviews {
+			<div><a href={ templ.SafeURL(l.Href) } class="link">{ l.Label }</a></div>
+		}
+		if r.CommitURL != "" {
+			<div>
+				<span class="text-rw-faint">Commit</span>
+				{ " " }<a href={ templ.SafeURL(r.CommitURL) } target="_blank" rel="noopener" class="link">Open { r.Commit } on the git host</a>
+			</div>
+		}
+	</div>
+}
+
+// RelWindowView is the window: a <details> whose summary is the bar, so it
+// opens and closes with no script of its own (main.js keeps it open across
+// reloads and the open rows across the stream's patches). The env links sit
+// in the bar like the pill's did; a click on one goes there, not open.
+templ RelWindowView(w RelWindow) {
+	<details id="rel-window" class="env-compare group absolute bottom-4 left-4 z-10 open:w-[34rem] open:max-w-[calc(100%-2rem)]" open?={ w.Open }>
+		<summary class="flex h-9 cursor-pointer list-none items-center gap-2 whitespace-nowrap px-3 text-sm [&::-webkit-details-marker]:hidden">
+			<span class="font-semibold text-rw-text">Releases</span>
+			if w.Waiting > 0 {
+				@Chip(strconv.Itoa(w.Waiting)+" waiting", "accent")
+			}
+			if w.Failed > 0 {
+				@Chip(strconv.Itoa(w.Failed)+" failed", "danger")
+			}
+			<span class="h-4 w-px bg-rw-border"></span>
+			<nav aria-label="Environments" class="flex items-center gap-3 text-xs">
+				for _, e := range w.Envs {
+					<a href={ templ.SafeURL(e.Href) } hx-get={ e.Href } hx-target="#main" hx-push-url="true" class="flex items-center gap-1.5 text-rw-text transition-colors hover:text-rw-accentHi">
+						<span class={ "env-dot", envClass(e.Color) }></span>
+						{ e.Name }
+					</a>
+				}
+			</nav>
+			<span class="flex-1"></span>
+			<span aria-hidden="true" class="text-rw-faint group-open:rotate-180">&#9652;</span>
+		</summary>
+		@RelBody(w)
+		<p class="flex h-8 items-center border-t border-rw-border px-3 text-xs text-rw-faint">Updates by itself</p>
+	</details>
+}

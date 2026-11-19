@@ -59,16 +59,6 @@ func TestCanvasChrome(t *testing.T) {
 	}
 }
 
-// The compare pill's arrow says a rung with no release has none, not #0.
-func TestBehindTitle(t *testing.T) {
-	if got := behindTitle(Rung{Release: 0, Behind: true}); got != "No release yet; the env below runs one" {
-		t.Errorf("no release = %q", got)
-	}
-	if got := behindTitle(Rung{Release: 3, Behind: true}); got != "Runs release #3; the env below runs a newer one" {
-		t.Errorf("release 3 = %q", got)
-	}
-}
-
 func render(t *testing.T, v View) string {
 	t.Helper()
 	var b strings.Builder

@@ -150,8 +150,8 @@ templ Canvas(v View) {
 				}
 			</div>
 		}
-		if len(v.Compare) > 0 {
-			@compare(v.Compare)
+		if v.Releases != nil {
+			@c.RelWindowView(*v.Releases)
 		}
 		if v.Over != nil {
 			@v.Over
@@ -480,23 +480,4 @@ templ legend(v View) {
 			}
 		</div>
 	}
-}
-
-// compare is the environments pill, bottom left of the stack canvas (v0
-// env-compare): each env's colour and name, and an amber arrow where the
-// env below runs a newer release.
-templ compare(rs []Rung) {
-	<nav aria-label="Environments" class="env-compare absolute bottom-4 left-4 z-10">
-		<div class="env-pill">
-			for _, r := range rs {
-				<a href={ templ.SafeURL(r.Href) } hx-get={ r.Href } hx-target="#main" hx-push-url="true" class="flex items-center gap-1.5 text-rw-text hover:text-rw-accentHi transition-colors">
-					<span class={ "env-dot", hue(r.Color) }></span>
-					{ r.Name }
-					if r.Behind {
-						<span class="text-rw-warn" title={ behindTitle(r) }>&uarr;</span>
-					}
-				</a>
-			}
-		</div>
-	</nav>
 }
