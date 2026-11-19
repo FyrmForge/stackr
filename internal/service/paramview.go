@@ -267,6 +267,8 @@ func (o *Orchestrator) SetParamsLater(ctx context.Context, s ParamScope, es []Pa
 	if err = o.noted(ctx, err, securitylog.ParamSet, s.Kind, s.ID, "set "+strings.Join(names, ", ")); err != nil {
 		return nil, nil, err
 	}
+	// ponytail: a runner poll between the save and this cancel can requeue a
+	// job, and a job that then runs cannot be stopped; the value stays saved.
 	waitTiles, err := cancel()
 	if err != nil {
 		return nil, nil, err
