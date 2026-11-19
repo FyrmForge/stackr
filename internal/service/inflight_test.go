@@ -165,12 +165,22 @@ func TestCanvasTileWaitsOnParkedPromote(t *testing.T) {
 		}
 		return nodes(v)[w.worker]
 	}
+	other := func() service.GraphNode {
+		v, err := w.e.Orch.Canvas(ctx, scope, service.ShowAll)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nodes(v)[w.web]
+	}
 	if n := tile(); n.Status == "waiting" {
 		t.Fatalf("worker waits with nothing parked: %+v", n)
 	}
-	w.e.WaitingJob(t, "huginn.oidc_secret", `{"env_id":"`+w.dev+`"}`)
-	if n := tile(); n.Status != "waiting" || n.Waiting != "huginn.oidc_secret" {
+	w.e.WaitingJob(t, "worker.oidc_secret", `{"env_id":"`+w.dev+`"}`)
+	if n := tile(); n.Status != "waiting" || n.Waiting != "worker.oidc_secret" {
 		t.Errorf("worker = %q waiting for %q", n.Status, n.Waiting)
+	}
+	if n := other(); n.Status == "waiting" {
+		t.Errorf("web does not read the value but waits: %+v", n)
 	}
 }
 

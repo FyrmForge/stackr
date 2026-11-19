@@ -150,13 +150,14 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	back := n < cur && h.orch.IsRollback(ctx, e.ID, plan)
 	canGo := can(c, cd.s, "env.write") // the review disables its button on a blocker itself
 	rv := comp.ReviewView{
-		Back:   f.Base + "?tab=releases",
-		Title:  "Release " + strconv.Itoa(n) + " for " + e.Name,
-		By:     rows[ri].By,
-		When:   rows[ri].When,
-		Commit: rows[ri].Commit,
-		Plan:   planView(p),
-		Button: "Promote to " + e.Name,
+		Back:    f.Base + "?tab=releases",
+		Title:   "Release " + strconv.Itoa(n) + " for " + e.Name,
+		By:      rows[ri].By,
+		When:    rows[ri].When,
+		Commit:  rows[ri].Commit,
+		Message: rows[ri].Message,
+		Plan:    planView(p),
+		Button:  "Promote to " + e.Name,
 	}
 	rv.Plan.Title = "What changes"
 	rv.Plan.Ticks = canGo
@@ -184,7 +185,6 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	}
 	if ei > 0 && !back && runs(es[ei-1]) < n {
 		rv.Notes = append(rv.Notes, es[ei-1].Name+" does not run this release yet.")
-		rv.Button = "Promote anyway"
 	}
 	if rv.Running = h.rolloutRunning(ctx, cd, e, rs); rv.Running != nil {
 		rv.Live = f.Base + "?tab=releases&env=" + e.ID + "&plan=" + plan // it clears by itself

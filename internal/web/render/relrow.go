@@ -65,14 +65,15 @@ func RelRowOf(r service.WindowRow, stack string, who map[string]string, envs map
 	if r.Lacks > 0 {
 		out.Lacks = strconv.Itoa(r.Lacks)
 	}
-	if out.Message == "" && r.Kind == service.RowRelease {
+	if out.Message == "" && (r.Kind == service.RowRelease || (r.Kind == service.RowFailed && r.Number > 0)) {
 		out.Message = strings.ToUpper(out.By[:1]) + out.By[1:]
 	}
 	switch r.Kind {
 	case service.RowFailed:
-		out.Message = "Push failed: " + strings.TrimRight(ErrTail(r.Err), ".")
-		if r.FailEnv != "" { // a promote that failed, from the history
-			out.Message = "Release " + out.Number + " failed in " + r.FailEnv + ": " + strings.TrimRight(ErrTail(r.Err), ".")
+		if r.FailEnv != "" { // a promote that failed, from the history: its release keeps its message, the cause gets its own line
+			out.Err = strings.TrimRight(ErrTail(r.Err), ".")
+		} else {
+			out.Message = "Push failed: " + strings.TrimRight(ErrTail(r.Err), ".")
 		}
 		out.Link = components.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
 	case service.RowBuilding:
@@ -87,6 +88,7 @@ func RelRowOf(r service.WindowRow, stack string, who map[string]string, envs map
 	if r.State == service.StateFailed && r.Kind == service.RowRelease {
 		out.Link = components.RelLink{Label: "Job log", Href: jobHref(r.JobID)}
 		out.State = "failed in " + r.FailEnv
+		out.Err = strings.TrimRight(ErrTail(r.Err), ".")
 	}
 	for _, j := range r.Jobs {
 		t := j.Kind + ", " + j.State

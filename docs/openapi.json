@@ -8973,6 +8973,9 @@
             },
             "type": "array"
           },
+          "unsettled": {
+            "type": "boolean"
+          },
           "warnings": {
             "items": {
               "type": "string"

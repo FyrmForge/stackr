@@ -196,6 +196,8 @@ func word(status, waiting string) (tone, text string) {
 	switch status {
 	case "running", "done":
 		return "success", "Online"
+	case "live":
+		return "success", "Live"
 	case "error":
 		return "danger", "Crashed"
 	case "failed":

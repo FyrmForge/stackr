@@ -151,7 +151,7 @@ func TestCanvasEventsSwapGraph(t *testing.T) {
 	events := html.UnescapeString(regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(get(t, s, "/acme"))[1])
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(60*time.Millisecond, func() { _, _ = s.Orch.CreateStack(context.Background(), s.Org, "blog", "") })
-	time.AfterFunc(250*time.Millisecond, cancel)
+	time.AfterFunc(2*time.Second, cancel) // a poll renders the releases window too, slow under -race
 	body := s.DoCtx(ctx, t, "GET", events, nil).Body.String()
 	if !strings.Contains(body, "event: graph\ndata: <graph-canvas") ||
 		!strings.Contains(body, `href="/acme/blog"`) ||

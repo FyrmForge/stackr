@@ -274,21 +274,24 @@ func (o *Orchestrator) Members(ctx context.Context, orgID string) ([]Member, err
 // a list that says who did something. A member with no name is left out,
 // never shown by email.
 func (o *Orchestrator) MemberNames(ctx context.Context, orgIDs ...string) (map[string]string, error) {
-	out := map[string]string{}
-	seen := map[string]bool{}
+	member := map[string]bool{}
 	for _, id := range orgIDs {
 		ms, err := o.orgs.Members(ctx, id)
 		if err != nil {
 			return nil, err
 		}
 		for _, m := range ms {
-			if seen[m.UserID] {
-				continue
-			}
-			seen[m.UserID] = true
-			if u, err := o.users.Get(ctx, m.UserID); err == nil && u.Name != "" {
-				out[m.UserID] = u.Name
-			}
+			member[m.UserID] = true
+		}
+	}
+	us, err := o.users.List(ctx) // one read for every member's name
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, u := range us {
+		if member[u.ID] && u.Name != "" {
+			out[u.ID] = u.Name
 		}
 	}
 	return out, nil

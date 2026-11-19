@@ -90,18 +90,9 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 	if err != nil {
 		return sc, err
 	}
-	// every job row once, grouped by stack, for all the windows below
-	byStack := map[string][]Job{}
-	allJobs, err := o.jobRows.Recent(ctx, 0)
+	allJobs, err := o.jobRows.Recent(ctx, 0) // every job row once; each org groups its own
 	if err != nil {
 		return sc, err
-	}
-	for _, j := range allJobs {
-		var p struct {
-			StackID string `json:"stack_id"`
-		}
-		_ = json.Unmarshal([]byte(j.Payload), &p)
-		byStack[p.StackID] = append(byStack[p.StackID], j)
 	}
 	var all []ScreenRow
 	waits := map[string]map[string]bool{} // scope key -> what waits in it, one per env
@@ -151,9 +142,13 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		if err != nil {
 			return sc, err
 		}
+		byStack, err := o.jobsByStack(ctx, allJobs, sts)
+		if err != nil {
+			return sc, err
+		}
 		for _, st := range sts {
 			sc.Scopes = append(sc.Scopes, ScreenScope{Key: og.Slug + "/" + st.Slug, Label: st.Name, Depth: 1})
-			js, err := o.annotate(ctx, slices.DeleteFunc(slices.Clone(byStack[st.ID]), func(j Job) bool { return !jobOfOrg(j, og.ID) }))
+			js, err := o.annotate(ctx, byStack[st.ID])
 			if err != nil {
 				return sc, err
 			}
@@ -234,13 +229,49 @@ func waitKeys(r ScreenRow) []string {
 	return ks
 }
 
-// jobOfOrg says the job was enqueued for the org (its payload says so).
-func jobOfOrg(j Job, orgID string) bool {
-	var p struct {
-		OrgID string `json:"org_id"`
+// jobsByStack groups the jobs by the stack of sts they are about, newest
+// first as given. A job names its stack by its payload's stack_id, else by
+// its lock set (push:<stack>..., env:<env>) or its payload's env_id: promote
+// payloads carry no stack_id and rows older than the stamping carry none at
+// all.
+func (o *Orchestrator) jobsByStack(ctx context.Context, js []Job, sts []Stack) (map[string][]Job, error) {
+	stackOf := map[string]string{} // stack id, env id -> stack id
+	for _, st := range sts {
+		stackOf[st.ID] = st.ID
+		ladder, err := o.envs.Ladder(ctx, st.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range ladder {
+			stackOf[e.ID] = st.ID
+		}
 	}
-	_ = json.Unmarshal([]byte(j.Payload), &p)
-	return p.OrgID == orgID
+	out := map[string][]Job{}
+	for _, j := range js {
+		var p struct {
+			StackID string `json:"stack_id"`
+			EnvID   string `json:"env_id"`
+		}
+		_ = json.Unmarshal([]byte(j.Payload), &p)
+		id := stackOf[p.StackID]
+		if id == "" {
+			id = stackOf[p.EnvID]
+		}
+		for _, l := range j.LockSet {
+			if id != "" {
+				break
+			}
+			if k, ok := strings.CutPrefix(l, "push:"); ok {
+				id = stackOf[strings.SplitN(k, ":", 2)[0]]
+			} else if k, ok := strings.CutPrefix(l, "env:"); ok {
+				id = stackOf[k]
+			}
+		}
+		if id != "" {
+			out[id] = append(out[id], j)
+		}
+	}
+	return out, nil
 }
 
 // inScope says a row belongs under the scope key.
@@ -296,7 +327,7 @@ func planRows(scope, org, orgID string, can bool, ps []planFields) []ScreenRow {
 	cured := false // a newer plan applied or had nothing to do
 	for _, p := range ps {
 		row := ScreenRow{Scope: scope, Org: org, OrgID: orgID, CanPromote: can,
-			WindowRow: WindowRow{Kind: RowPlan, ID: p.ID, Commit: p.Commit, Message: p.Summary, At: p.At, By: SourceKeyOf(p.Source), Err: p.Err}}
+			WindowRow: WindowRow{Kind: RowPlan, ID: p.ID, Commit: p.Commit, Message: p.Summary, At: p.At, By: SourceKeyOf(p.Source), Err: configErrLine(p.Err)}}
 		switch p.Status {
 		case orgplan.Pending:
 			row.State = StateWaiting
@@ -305,7 +336,7 @@ func planRows(scope, org, orgID string, can bool, ps []planFields) []ScreenRow {
 			}
 		case orgplan.Error:
 			row.State, row.Fixed = StateFailed, cured
-			row.Message = "Plan failed: " + p.Err
+			row.Message = "Plan failed: " + row.Err
 		case orgplan.Applied, orgplan.Clean:
 			row.State, cured = p.Status, true
 		default:

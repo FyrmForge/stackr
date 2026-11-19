@@ -31,6 +31,8 @@ type ReleaseStore interface {
 	Get(ctx context.Context, id string) (Release, error)
 	GetByNumber(ctx context.Context, stackID string, number int) (Release, error)
 	ListByStack(ctx context.Context, stackID string) ([]Release, error)
+	// ListByOrg is every release of the org's stacks, one query.
+	ListByOrg(ctx context.Context, orgID string) ([]Release, error)
 	Update(ctx context.Context, r Release) error
 	Delete(ctx context.Context, id string) error
 }
@@ -45,6 +47,10 @@ func (s releases) GetByNumber(ctx context.Context, stackID string, number int) (
 
 func (s releases) ListByStack(ctx context.Context, stackID string) ([]Release, error) {
 	return s.many(ctx, "stack_id = ?", stackID)
+}
+
+func (s releases) ListByOrg(ctx context.Context, orgID string) ([]Release, error) {
+	return s.many(ctx, "stack_id IN (SELECT id FROM stacks WHERE org_id = ?)", orgID)
 }
 
 // ReleaseTile is a row of release_tiles: one tile's pinned source and image.

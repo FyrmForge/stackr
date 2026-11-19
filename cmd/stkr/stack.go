@@ -622,7 +622,7 @@ func (a *app) move(c *cobra.Command, p, release string, dry bool, verb, question
 	}
 	changes, _ := pl["changes"].([]any)
 	blockers, _ := pl["blockers"].([]any)
-	if len(changes) == 0 && len(blockers) == 0 {
+	if unsettled, _ := pl["unsettled"].(bool); len(changes) == 0 && len(blockers) == 0 && !unsettled {
 		if !a.json {
 			_, _ = fmt.Fprintf(a.errw, "nothing to change: %s already runs release %s\n", last(p), release)
 		}

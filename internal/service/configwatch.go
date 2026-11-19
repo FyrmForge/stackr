@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
@@ -13,6 +14,7 @@ import (
 // approval, which includes a panel edit the file does not hold). status is
 // the plan row's.
 func (o *Orchestrator) configState(ctx context.Context, scope, subject, status, errMsg, summary string) {
+	errMsg = configErrLine(errMsg)
 	bad, drift := "alert.config.invalid."+scope, "alert.config.drift."+scope
 	switch status {
 	case orgplan.Error:
@@ -65,4 +67,14 @@ func (o *Orchestrator) replanConfigs(ctx context.Context) {
 			_, _ = o.enqueue(ctx, kindOrgPlan, orgPlanJob{OrgID: og.ID}, "orgconfig:"+og.ID)
 		}
 	}
+}
+
+// configErrLine is a config parse error as one line for a row or banner: its
+// first line (the file's excerpt follows it), without the "yaml:" prefixes.
+func configErrLine(err string) string {
+	l, _, _ := strings.Cut(strings.TrimSpace(err), "\n")
+	for strings.HasPrefix(l, "yaml: ") {
+		l = strings.TrimPrefix(l, "yaml: ")
+	}
+	return strings.TrimSpace(l)
 }

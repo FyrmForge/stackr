@@ -105,6 +105,9 @@ func TestStackPlanPlacingNeedsOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !pp.Plan.Unsettled {
+		t.Error("an env that runs no release is unsettled: a promote has work even with no rows")
+	}
 	if pp.CanDeploy || len(pp.Plan.Blockers) != 1 || pp.Plan.Blockers[0] != promote.NeedsOwner {
 		t.Errorf("member plan = %+v, want blocked on the owner", pp.Plan)
 	}
@@ -130,5 +133,8 @@ func TestStackPlanPlacingNeedsOwner(t *testing.T) {
 	// a plan without a placing change is a member's again
 	if pp, err = env.Orch.PlanPromote(ctx, member, dev, rel); err != nil || !pp.CanDeploy {
 		t.Errorf("member plan with the exits in place = %+v %v, want deployable", pp.Plan, err)
+	}
+	if pp.Plan.Unsettled {
+		t.Error("an env that runs the release in full is settled")
 	}
 }

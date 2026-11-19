@@ -139,3 +139,57 @@ func TestMemberNamesNeverFallBackToEmail(t *testing.T) {
 		t.Errorf("blank member shows as %q", got[blank])
 	}
 }
+
+// Jobs are placed by what the real flows write: a push payload has a
+// stack_id and no org_id, a promote payload an env_id and no stack_id. The
+// screen still lists the failure a later push cured, the one a later promote
+// cured, and a promote under way as deploying.
+func TestReleaseScreenPlacesJobsByRealPayloads(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	p, err := w.e.Orch.SessionPrincipal(ctx, w.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rid := uuid.NewString()
+	if err := w.e.Store.Releases.Create(ctx, store.Release{ID: rid, StackID: w.shop, Number: 3, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	job := func(kind, state, msg, payload string, lock []string, rel *string, ago time.Duration) {
+		t.Helper()
+		at := time.Now().Add(-ago)
+		j := store.Job{ID: uuid.NewString(), Kind: kind, State: state, Error: msg, Payload: payload, LockSet: store.StringList(lock), ReleaseID: rel, CreatedAt: at}
+		if state != "running" {
+			j.FinishedAt = &at
+		}
+		if err := w.e.Store.Jobs.Create(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+	}
+	push := `{"stack_id":"` + w.shop + `","event":{"repo":"acme/shop","branch":"main","commit":"abc"}}`
+	pl := []string{"push:" + w.shop, "push:" + w.shop + ":acme/shop@main"}
+	job("push", "failed", "build web, exit status 1", push, pl, nil, 5*time.Hour)
+	job("push", "done", "", push, pl, nil, 4*time.Hour)
+	promote := `{"env_id":"` + w.prod + `","release_id":"` + rid + `"}`
+	job("promote", "failed", "deploy api, boom", promote, []string{"env:" + w.prod}, &rid, 3*time.Hour)
+	job("promote", "done", "", promote, []string{"env:" + w.prod}, &rid, 2*time.Hour)
+	job("promote", "running", "", `{"env_id":"`+w.dev+`","release_id":"`+rid+`"}`, []string{"env:" + w.dev}, &rid, time.Minute)
+
+	sc, err := w.e.Orch.ReleaseScreen(ctx, p, service.ScreenQuery{Scope: "acme/shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixed, deploying := 0, 0
+	for _, r := range sc.Rows {
+		if r.State == service.StateFailed && r.Fixed {
+			fixed++
+		}
+		if r.State == service.StateDeploying {
+			deploying++
+		}
+	}
+	if fixed != 2 || deploying != 1 {
+		t.Errorf("fixed failures = %d, deploying = %d, want 2, 1: %+v", fixed, deploying, sc.Rows)
+	}
+}

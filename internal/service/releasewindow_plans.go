@@ -10,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // planFacts is the part of an org or server plan the window reads.
@@ -55,7 +56,7 @@ func planLine(summary, planJSON string) string {
 func windowPlanRows(ps []planFacts) (rows []WindowRow, waiting, failed int) {
 	var older []WindowRow
 	for i, p := range ps {
-		row := WindowRow{Kind: RowPlan, PlanID: p.ID, Commit: p.Commit, Message: p.Summary, At: p.At, Err: p.Err}
+		row := WindowRow{Kind: RowPlan, PlanID: p.ID, Commit: p.Commit, Message: p.Summary, At: p.At, Err: configErrLine(p.Err)}
 		switch {
 		case p.Status == orgplan.Pending && !p.Decided:
 			row.State = StateWaiting
@@ -144,8 +145,37 @@ func (o *Orchestrator) OrgReleaseWindow(ctx context.Context, orgID string, plans
 	if err != nil {
 		return w, err
 	}
+	// the org's jobs and releases once for every stack's window
+	// ponytail: rungs, ladders, push failures and the building push are
+	// still read per stack.
+	all, err := o.jobRows.Recent(ctx, 0)
+	if err != nil {
+		return w, err
+	}
+	byStack, err := o.jobsByStack(ctx, all, sts)
+	if err != nil {
+		return w, err
+	}
+	var flat []Job
 	for _, st := range sts {
-		sw, err := o.ReleaseWindow(ctx, st.ID, "")
+		flat = append(flat, byStack[st.ID]...)
+	}
+	if flat, err = o.annotate(ctx, flat); err != nil {
+		return w, err
+	}
+	rels, err := o.releases.ListByOrg(ctx, orgID)
+	if err != nil {
+		return w, err
+	}
+	for _, st := range sts {
+		n := len(byStack[st.ID])
+		js := flat[:n:n]
+		flat = flat[n:]
+		rs := rels[st.ID]
+		if rs == nil {
+			rs = []store.Release{} // held: none, not unread
+		}
+		sw, err := o.releaseWindowOf(ctx, st.ID, "", false, &js, rs)
 		if err != nil {
 			return w, err
 		}

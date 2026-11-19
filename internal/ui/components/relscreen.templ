@@ -171,6 +171,9 @@ templ relScreenRow(r RelRow) {
 				@relCells(r)
 			</div>
 		}
+		if r.Err != "" {
+			<p class="px-3 pb-2 pl-[7.5rem] text-xs text-rw-danger [overflow-wrap:anywhere]">{ r.Err }</p>
+		}
 	</li>
 }
 
