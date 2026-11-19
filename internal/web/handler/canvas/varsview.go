@@ -221,6 +221,13 @@ func (h *handler) heldOf(ctx context.Context, cl col, es []service.ParamEntry, d
 	if len(redeploy) > 0 {
 		held.Impact = append(held.Impact, "Redeploys "+strings.Join(redeploy, ", ")+".")
 	}
+	gates, err := h.orch.ParamGateHosts(ctx, cl.ps, es)
+	if err != nil {
+		return nil, err
+	}
+	if len(gates) > 0 {
+		held.Impact = append(held.Impact, "Reloads the gate on "+strings.Join(gates, ", ")+".")
+	}
 	held.Tiles = len(slices.Compact(slices.Sorted(slices.Values(slices.Concat(starts, redeploy)))))
 	held.Starts = len(redeploy) == 0 && len(starts) > 0
 	return &held, nil

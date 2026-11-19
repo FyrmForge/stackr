@@ -36,11 +36,8 @@ func (o *Orchestrator) RevealParam(ctx context.Context, by *Principal, s ParamSc
 	return p.Value, nil
 }
 
-// ParamImpact is the tiles (by slug) a save of es would redeploy, without
-// writing anything: a changed value or a secret given a new value counts, an
-// unchanged one does not. A stored secret is decrypted here to compare and
-// never leaves.
-func (o *Orchestrator) ParamImpact(ctx context.Context, s ParamScope, es []ParamEntry) ([]string, error) {
+// changedKeys is the keys of es a save would move: see ParamImpact.
+func (o *Orchestrator) changedKeys(ctx context.Context, s ParamScope, es []ParamEntry) (map[string]bool, error) {
 	have, err := o.params.Values(ctx, s, false)
 	if err != nil {
 		return nil, err
@@ -58,8 +55,31 @@ func (o *Orchestrator) ParamImpact(ctx context.Context, s ParamScope, es []Param
 			keys[k] = true
 		}
 	}
-	if len(keys) == 0 {
-		return nil, nil
+	return keys, nil
+}
+
+// ParamGateHosts is the hosts whose basic-auth login reads a key a save of es
+// would move: the save rebuilds the proxy rules for them, nothing restarts.
+func (o *Orchestrator) ParamGateHosts(ctx context.Context, s ParamScope, es []ParamEntry) ([]string, error) {
+	keys, err := o.changedKeys(ctx, s, es)
+	if err != nil || len(keys) == 0 {
+		return nil, err
+	}
+	ts, err := o.scopeTiles(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	return o.gateHits(ctx, s, ts, keys)
+}
+
+// ParamImpact is the tiles (by slug) a save of es would redeploy, without
+// writing anything: a changed value or a secret given a new value counts, an
+// unchanged one does not. A stored secret is decrypted here to compare and
+// never leaves.
+func (o *Orchestrator) ParamImpact(ctx context.Context, s ParamScope, es []ParamEntry) ([]string, error) {
+	keys, err := o.changedKeys(ctx, s, es)
+	if err != nil || len(keys) == 0 {
+		return nil, err
 	}
 	ts, err := o.scopeTiles(ctx, s)
 	if err != nil {
