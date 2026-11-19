@@ -21,6 +21,7 @@ import (
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
 	stackui "github.com/FyrmForge/stackr/internal/ui/drawer/stack"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
+	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -115,6 +116,14 @@ func (h *handler) drawerRoute(kind string) echo.HandlerFunc {
 		cd, err := h.cardOf(c, kind)
 		if err != nil {
 			return middleware.HTTPError(err)
+		}
+		if kind == "vars" && c.QueryParam("bare") != "" { // a section's lazy body: the editor alone
+			body, err := h.vars(c, cd.s, "", "")
+			if err != nil {
+				return middleware.HTTPError(err)
+			}
+			c.Response().Header().Set("Cache-Control", "no-store")
+			return respond.HTML(c, http.StatusOK, body)
 		}
 		f := cd.frame(c.QueryParam("tab"))
 		if ok, err := render.ToShell(c, f.Node); ok {
@@ -315,4 +324,10 @@ func envDrawerLoad(url, tab, open string) templ.Component {
 		url += sep + "open=" + neturl.QueryEscape(open)
 	}
 	return comp.DrawerLoad(url)
+}
+
+// varsLoad is the variables section's body: the editor, fetched when the
+// drawer is already on screen (the grid is the costly part of a tab).
+func varsLoad(s service.Scope) templ.Component {
+	return placementui.Load(urlOf(s) + "/-/vars?bare=1")
 }

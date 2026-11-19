@@ -19,6 +19,25 @@ class SideDrawer extends HTMLElement {
             this.removeAttribute("tab");
         this.querySelector("[data-close]")?.focus({ preventScroll: true });
     };
+    onBefore = (e) => {
+        const body = this.body();
+        if (!body || e.detail?.target !== body || this.hasAttribute("open"))
+            return;
+        const was = document.activeElement;
+        if (was && !this.contains(was))
+            this.opener = was;
+        const p = document.createElement("p");
+        p.className = "p-6 text-sm text-rw-muted";
+        p.setAttribute("aria-busy", "true");
+        p.dataset.loading = "";
+        p.textContent = "Loading…";
+        body.replaceChildren(p);
+        this.setAttribute("open", "");
+    };
+    onLost = () => {
+        if (this.body()?.querySelector("[data-loading]"))
+            this.close(true);
+    };
     onClick = (e) => {
         const el = e.target;
         if (el.closest("[data-expand]"))
@@ -46,6 +65,7 @@ class SideDrawer extends HTMLElement {
         e.preventDefault();
         if (d.xhr?.status === 404)
             return this.close(true);
+        body.querySelector("[data-loading]")?.remove();
         body.querySelector("[data-request-error]")?.remove();
         const p = document.createElement("p");
         p.className = "banner banner-danger";
@@ -72,6 +92,9 @@ class SideDrawer extends HTMLElement {
         }
     };
     connectedCallback() {
+        document.addEventListener("htmx:beforeRequest", this.onBefore);
+        document.addEventListener("htmx:sendError", this.onLost);
+        document.addEventListener("htmx:timeout", this.onLost);
         document.addEventListener("htmx:afterSwap", this.onSwap);
         document.addEventListener("htmx:afterSettle", this.onSettle);
         document.addEventListener("htmx:responseError", this.onError, true);
@@ -81,6 +104,9 @@ class SideDrawer extends HTMLElement {
         this.addEventListener("change", this.onEdit);
     }
     disconnectedCallback() {
+        document.removeEventListener("htmx:beforeRequest", this.onBefore);
+        document.removeEventListener("htmx:sendError", this.onLost);
+        document.removeEventListener("htmx:timeout", this.onLost);
         document.removeEventListener("htmx:afterSwap", this.onSwap);
         document.removeEventListener("htmx:afterSettle", this.onSettle);
         document.removeEventListener("htmx:responseError", this.onError, true);

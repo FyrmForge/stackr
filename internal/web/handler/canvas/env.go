@@ -90,11 +90,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 	if err != nil {
 		return nil, err
 	}
-	varsBody, err := h.vars(c, cd.s, "", "")
-	if err != nil {
-		return nil, err
-	}
-	set, secret, err := h.varCounts(c, cd.s)
+	set, secret, err := h.varCounts(c, cd.s, es)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +114,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 		Color:     e.Color,
 		Cascade:   cascade,
 		Volumes:   volumesView(vols, f.Base, write),
-		Vars:      varsBody,
+		Vars:      varsLoad(cd.s),
 		Placement: placementui.Load(urlOf(cd.s) + "/-/placement"),
 		Open:      c.FormValue("open"),
 		Refresh:   f.Base + "?tab=settings",
@@ -205,13 +201,13 @@ func exitOf(rs []service.PlacementRung) string {
 // of them are secret.
 // ponytail: reads the grid a second time beside h.vars; share it if the
 // Settings tab gets slow.
-func (h *handler) varCounts(c echo.Context, s service.Scope) (set, secret int, err error) {
+func (h *handler) varCounts(c echo.Context, s service.Scope, es []service.Environment) (set, secret int, err error) {
 	ctx := c.Request().Context()
-	cs, _, err := h.cols(ctx, s)
+	cs, _, err := h.colsIn(ctx, s, es)
 	if err != nil {
 		return 0, 0, err
 	}
-	g, err := h.grid(ctx, cs, can(c, s, "variable.write"))
+	g, err := h.grid(ctx, cs, can(c, s, "variable.write"), false)
 	if err != nil {
 		return 0, 0, err
 	}

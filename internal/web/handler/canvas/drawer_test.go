@@ -200,7 +200,7 @@ func TestEnvSettingsRows(t *testing.T) {
 		`<span hidden data-acc-refresh hx-get="/acme/shop/dev/-/drawer?tab=settings" hx-trigger="refresh" hx-swap="none" hx-select-oob="#env-settings-general-head,#env-settings-deploys-head,`, // an in-row save redraws the heads
 		`<summary id="env-settings-placement-head"`,
 		`hx-get="/acme/shop/dev/-/placement"`,
-		`id="vars-editor"`,
+		`hx-get="/acme/shop/dev/-/vars?bare=1"`,
 		`data-acc="deploys">`,
 		"own uplink",
 		"set</span>", // Variables: "N set" or "none set"
