@@ -111,7 +111,7 @@ templ RelScreenView(v RelScreen) {
 							<option value={ o.Value } selected?={ o.Value == v.Source }>{ o.Label }</option>
 						}
 					</select>
-					<input id="rel-q" type="search" name="q" value={ v.Q } class="input !w-60 !py-1.5 text-sm" placeholder="Search commit or message" aria-label="Search commit or message"/>
+					<input id="rel-q" hx-preserve="true" type="search" name="q" value={ v.Q } class="input !w-60 !py-1.5 text-sm" placeholder="Search commit or message" aria-label="Search commit or message"/>
 				</form>
 				if len(v.Rows) == 0 {
 					<div class="flex flex-col items-start gap-2 p-4 text-sm text-rw-muted">
