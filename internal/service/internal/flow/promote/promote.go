@@ -402,14 +402,15 @@ func (s *Stopped) Error() string { return s.Err.Error() }
 func (s *Stopped) Unwrap() error { return s.Err }
 
 // partly is a tile's rollout failure once the env already points at the new
-// release: some tiles run it and some do not. A park keeps its own text.
+// release: some tiles run it and some do not. A park keeps its own text. The
+// cause is the last line, which is the one a tile card shows.
 func partly(slug string, pending []string, err error) error {
 	_, unset := errs.IsUnset(err)
 	_, approval := errs.IsNeedsApproval(err)
 	if unset || approval {
 		return &Stopped{slug, pending, fmt.Errorf("deploy %s: %w", slug, err)}
 	}
-	return &Stopped{slug, pending, fmt.Errorf("deploy %s: %w; the environment is partly rolled out on the new release, promote again to finish it", slug, err)}
+	return &Stopped{slug, pending, fmt.Errorf("the environment is partly rolled out on the new release, promote again to finish it\ndeploy %s: %w", slug, err)}
 }
 
 // applyInstances writes the file's allow list and env pairs onto each

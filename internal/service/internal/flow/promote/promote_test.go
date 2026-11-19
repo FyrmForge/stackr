@@ -1000,7 +1000,7 @@ func TestPartlyStopped(t *testing.T) {
 	if !errors.As(err, &st) || st.Tile != "bazarr" || len(st.Pending) != 2 || st.Pending[0] != "radarr" {
 		t.Fatalf("err = %#v", err)
 	}
-	if !strings.Contains(err.Error(), "deploy bazarr: port taken; the environment is partly rolled out") {
+	if !strings.Contains(err.Error(), "partly rolled out") || !strings.HasSuffix(err.Error(), "\ndeploy bazarr: port taken") {
 		t.Errorf("text = %q", err)
 	}
 	if _, ok := errs.IsUnset(partly("a", nil, errs.Unset{Param: "x"})); !ok {
