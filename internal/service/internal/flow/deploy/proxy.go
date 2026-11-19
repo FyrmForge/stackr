@@ -144,6 +144,26 @@ func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Setting
 	return r, nil
 }
 
+// Gate is a domain's basic-auth login as the proxy would resolve it: the user
+// ("" when the domain has no gate or the user did not resolve) and why the
+// address is locked ("" when it is not). Never the password.
+func (f *Flow) Gate(ctx context.Context, d store.Domain) (user, locked string, err error) {
+	x, err := domain.ExtrasOf(d)
+	if err != nil || x.BasicAuth == nil {
+		return "", "", err
+	}
+	server, err := f.Settings.Defaults(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	r, err := f.tileRoute(ctx, d.TileID, server)
+	if err != nil {
+		return "", "", err
+	}
+	user, _, locked = domain.GateLogin(*x.BasicAuth, r.Expand)
+	return user, locked, nil
+}
+
 // OrgReplicaNames are the container names (lower case, any state) of every
 // tile in the org of tileID: the private hosts a forward-auth URL may name.
 // Best effort: a tile whose replicas cannot be listed is skipped, which only

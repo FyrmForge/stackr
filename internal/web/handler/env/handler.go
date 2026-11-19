@@ -1426,7 +1426,13 @@ func (h *handler) Proxy(c echo.Context) error {
 	}
 	var v proxy.View
 	for _, r := range rs {
+		gate, lock, err := h.orch.DomainGate(c.Request().Context(), r.ID)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
 		v.Rows = append(v.Rows, proxy.Route{
+			Gate:  gate,
+			Lock:  lock,
 			Host:  r.Host,
 			Path:  r.Path,
 			Tile:  r.Tile,

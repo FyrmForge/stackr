@@ -487,6 +487,16 @@ type Route struct {
 	Tile string `json:"tile"` // the tile's name
 }
 
+// DomainGate is, for domain id, the user of a domain's basic-auth gate ("" = no gate) and
+// why its address is locked ("" = not locked).
+func (o *Orchestrator) DomainGate(ctx context.Context, id string) (user, locked string, err error) {
+	d, err := o.domains.Get(ctx, id) // reads are redacted; the gate needs the stored password
+	if err != nil {
+		return "", "", err
+	}
+	return o.deploy.Gate(ctx, d)
+}
+
 // Routes are the env's domains, every tile's, in tile order (the proxy
 // card's drawer).
 func (o *Orchestrator) Routes(ctx context.Context, envID string) ([]Route, error) {

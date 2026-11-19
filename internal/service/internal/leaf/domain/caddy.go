@@ -653,8 +653,9 @@ func account(accs []Account, host string) string {
 // a real hash of random bytes nobody has. Never an open URL, never a
 // sentinel Caddy might compare as plain text.
 func credentials(a BasicAuth, expand Expand) (user, hash string) {
-	user, pw, _ := GateLogin(a, expand)
-	if user == "" || pw == "" || len(pw) > 72 {
+	user, pw, why := GateLogin(a, expand)
+	if why != "" {
+		slog.Warn("basic auth route locked", "user", a.User, "why", why)
 		return "locked", lockHash()
 	}
 	return user, hashOf(pw)
@@ -671,7 +672,6 @@ func GateLogin(a BasicAuth, expand Expand) (user, pw, reason string) {
 		}
 		v, err := expand(*p)
 		if err != nil {
-			slog.Warn("basic auth login did not resolve; route locked", "user", a.User, "err", err)
 			*p, reason = "", err.Error()
 			continue
 		}

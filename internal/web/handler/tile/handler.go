@@ -334,6 +334,9 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		p := middleware.Principal(c)
 		rows := domainRows(ds)
 		for i := range rows {
+			if rows[i].Gate, rows[i].Locked, err = h.orch.DomainGate(ctx, rows[i].ID); err != nil {
+				return sv, err
+			}
 			rs, err := h.orch.TileDomainRecords(ctx, t.ID, rows[i].ID)
 			if err != nil {
 				return sv, err
