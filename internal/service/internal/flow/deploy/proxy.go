@@ -266,6 +266,42 @@ func (f *Flow) gateExpand(ctx context.Context, t store.Tile) (domain.Expand, err
 	return func(s string) (string, error) { return rr.Expand(params.InGate, s) }, nil
 }
 
+// GateRefs are the references a gate in env envID may name as its password:
+// every variable and secret the env resolves, its own and the tier or org block
+// it inherits (ownScopes), as "${{ params.<collection>.<name> }}". Names only;
+// a secret is never read.
+func (f *Flow) GateRefs(ctx context.Context, envID string) ([]string, error) {
+	e, err := f.Envs.Get(ctx, envID)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stacks.Get(ctx, e.StackID)
+	if err != nil {
+		return nil, err
+	}
+	tiers, err := f.Tiers.List(ctx, st.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	envScope, orgScope, _ := ownScopes(e, st, tiers)
+	scopes := []params.Scope{envScope}
+	if orgScope != nil {
+		scopes = append(scopes, *orgScope)
+	}
+	var refs []string
+	for _, sc := range scopes {
+		ps, err := f.Params.Masked(ctx, sc)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range ps {
+			refs = append(refs, "${{ params."+p.Collection+"."+p.Name+" }}")
+		}
+	}
+	slices.Sort(refs)
+	return slices.Compact(refs), nil
+}
+
 // OrgReplicaNames are the container names (lower case, any state) of every
 // tile in the org of tileID: the private hosts a forward-auth URL may name.
 // Best effort: a tile whose replicas cannot be listed is skipped, which only

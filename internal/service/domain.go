@@ -537,6 +537,12 @@ func (o *Orchestrator) DomainGates(ctx context.Context, envID string, ids []stri
 	return out
 }
 
+// GateRefs are the variable and secret references a gate password in env
+// envID may take, inherited tier and org ones included (names only).
+func (o *Orchestrator) GateRefs(ctx context.Context, envID string) ([]string, error) {
+	return o.deploy.GateRefs(ctx, envID)
+}
+
 // Routes are the env's domains, every tile's, in tile order (the proxy
 // card's drawer).
 func (o *Orchestrator) Routes(ctx context.Context, envID string) ([]Route, error) {
