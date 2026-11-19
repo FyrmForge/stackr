@@ -42,6 +42,16 @@ editing the NixOS files: `playground/vm.sh sync`.
 (`stk`, `x`, `logs`, `hosts`, `status`, `pr`) stay free. Running `nodes.sh`
 directly over `vm.sh ssh` is not covered. Each checkout has its own bundle dir.
 
+For a run of several commands (a QA pass, screenshots), hold the VM:
+
+    playground/vm.sh hold stackr-97 "ui1 screenshots"
+    PLAYGROUND_HOLDER=stackr-97 playground/vm.sh deploy
+    playground/vm.sh release
+
+While held, other writers exit 75 with the holder and reason; `vm.sh status`
+shows it. `release` works for anyone, so check with the holder before taking
+over a hold that looks stale.
+
 The install prints a recovery key; it is saved to
 `/var/lib/playground/recovery.key` on the VM (mode 600) and never shown.
 
