@@ -674,10 +674,12 @@ table releases
   col created_at DATETIME notnull=1 default=- pk=0
   col created_by TEXT notnull=1 default=- pk=0
   col message TEXT notnull=1 default='' pk=0
+  col built_on TEXT notnull=0 default=- pk=0
+  col line TEXT notnull=0 default=- pk=0
   fk stack_id -> stacks(id) on_update=NO ACTION on_delete=CASCADE
   index (auto) unique=1 origin=pk partial=0 (id)
   index (auto) unique=1 origin=u partial=0 (stack_id,number)
-  sql CREATE TABLE releases ( id TEXT PRIMARY KEY, stack_id TEXT NOT NULL REFERENCES stacks (id) ON DELETE CASCADE, number INTEGER NOT NULL, created_at DATETIME NOT NULL, created_by TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', UNIQUE (stack_id, number) )
+  sql CREATE TABLE releases ( id TEXT PRIMARY KEY, stack_id TEXT NOT NULL REFERENCES stacks (id) ON DELETE CASCADE, number INTEGER NOT NULL, created_at DATETIME NOT NULL, created_by TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', built_on TEXT, line TEXT, UNIQUE (stack_id, number) )
 table routes
   col id TEXT notnull=0 default=- pk=1
   col host TEXT notnull=1 default=- pk=0
