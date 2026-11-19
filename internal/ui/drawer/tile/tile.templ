@@ -1148,6 +1148,9 @@ templ domainRowsList(v View, d DomainsView) {
 					if r.Locked != "" {
 						<p class="mt-1 text-xs text-rw-danger">Locked for everyone: { r.Locked }.</p>
 					}
+					if r.HTTPS {
+						<div class="mt-1">@c.Cert(r.Cert)</div>
+					}
 					if r.Records != nil {
 						<details class="mt-1" open?={ len(r.Records.Rows) > 0 }>
 							<summary class="text-xs text-rw-faint hover:text-rw-text cursor-pointer select-none">DNS records</summary>

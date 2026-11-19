@@ -62,6 +62,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(d+"/runs/:run/stop", h.StopRun, write)
 	g.POST(d+"/domains", h.AttachDomain, require("domain.write"))
 	g.POST(d+"/domains/:domain/detach", h.DetachDomain, require("domain.write"))
+	g.POST(d+"/domains/:domain/recheck", h.RecheckCert, require("domain.write"))
 	g.POST(d+"/domains/:domain/raw", h.SetRawCaddy, require("proxy.admin"))
 	g.POST(d+"/domains/:domain/records", h.AddRecord, require("domain.write"))
 	g.POST(d+"/domains/:domain/records/remove", h.RemoveRecord, require("domain.write"))
@@ -340,6 +341,12 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		gates := h.orch.DomainGates(ctx, ids)
 		for i := range rows {
 			rows[i].Gate, rows[i].Locked = gates[rows[i].ID].User, gates[rows[i].ID].Locked
+			cs, ok := h.orch.CertState(rows[i].Host)
+			rc := ""
+			if can(c, "domain.write") {
+				rc = base(c) + "/domains/" + rows[i].ID + "/recheck?open=network"
+			}
+			rows[i].Cert = render.Cert(cs, ok, rc)
 			rs, err := h.orch.TileDomainRecords(ctx, t.ID, rows[i].ID)
 			if err != nil {
 				return sv, err
@@ -628,6 +635,22 @@ func (h *handler) AddRecord(c echo.Context) error {
 func (h *handler) RemoveRecord(c echo.Context) error {
 	err := h.orch.RemoveTileDomainRecord(c.Request().Context(), tileOf(c).ID, c.Param("domain"), c.FormValue("record"))
 	return h.after(c, "settings", "Record removed.", err)
+}
+
+// POST …/domains/:domain/recheck: probe the host's certificate now.
+func (h *handler) RecheckCert(c echo.Context) error {
+	ctx := c.Request().Context()
+	ds, err := h.orch.Domains(ctx, tileOf(c).ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	for _, d := range ds {
+		if d.ID == c.Param("domain") {
+			_, err = h.orch.RecheckCert(ctx, tileOf(c).ID, d.Host)
+			return h.after(c, "settings", "Checked.", err)
+		}
+	}
+	return middleware.HTTPError(errs.ErrNotFound)
 }
 
 func (h *handler) SetRawCaddy(c echo.Context) error {

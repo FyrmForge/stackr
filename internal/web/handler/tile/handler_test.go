@@ -531,3 +531,21 @@ func TestStorageMounts(t *testing.T) {
 		t.Errorf("stored = %+v %v", ts, err)
 	}
 }
+
+// A domain row shows its certificate state and Check again now, which
+// probes the host and draws the row again.
+func TestDomainRowCertState(t *testing.T) {
+	s := webtest.New(t)
+	d, err := s.Orch.AttachDomain(context.Background(), s.Tile.ID, service.DomainSpec{Host: "app.acme.dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String()
+	if !strings.Contains(body, "Certificate not checked yet.") || !strings.Contains(body, "/domains/"+d.ID+"/recheck") {
+		t.Fatalf("settings lacks the cert line\n%s", body)
+	}
+	rec := s.Do(t, "POST", drawer+"/domains/"+d.ID+"/recheck?open=network", nil)
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "not checked yet") {
+		t.Errorf("recheck = %d\n%s", rec.Code, rec.Body)
+	}
+}

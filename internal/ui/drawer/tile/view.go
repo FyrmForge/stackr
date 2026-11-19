@@ -197,6 +197,7 @@ type DomainRow struct {
 	// Gate is the basic-auth user ("" = none); Locked is why the address
 	// answers nobody ("" = not locked).
 	Gate, Locked string
+	Cert         c.CertView // an HTTPS host's certificate state
 	// Records is the host's custom DNS records; nil = no managed domain
 	// covers it.
 	Records *dnsui.RecordsView

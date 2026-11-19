@@ -1,0 +1,27 @@
+package components
+
+// CertView is one host's certificate state. Status "" = not checked yet.
+// Recheck is the POST that probes the host again ("" = the viewer may not).
+type CertView struct {
+	Status, Reason, Until, Recheck string
+}
+
+// Cert says where a host's certificate stands and offers "Check again now".
+templ Cert(v CertView) {
+	<span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+		switch v.Status {
+			case "failed":
+				@Chip("certificate failed", "danger")
+				<span class="text-rw-danger">{ v.Reason }.</span>
+			case "waiting":
+				<span class="text-rw-muted">Waiting for a certificate.</span>
+			case "valid":
+				<span class="text-rw-faint">Certificate valid until { v.Until }.</span>
+			default:
+				<span class="text-rw-faint">Certificate not checked yet.</span>
+		}
+		if v.Recheck != "" {
+			@PostButton("Check again now", v.Recheck)
+		}
+	</span>
+}
