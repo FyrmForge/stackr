@@ -201,6 +201,26 @@ func TestCheck(t *testing.T) {
 		t.Errorf("chip wrong for %+v", img)
 	}
 
+	// Round 5: a push release waits (built on what dev runs, line branch:main)
+	// and the registry moves: the watch builds on the waiting release, so the
+	// new release keeps its config pin and swaps in the new digest.
+	waiting, err := f.Releases.Derive(ctx, stID, cur.ID, "push", release.BranchLine("main"),
+		release.Pin{Slug: release.ConfigSlug, CommitSHA: "c2"})
+	must(t, err)
+	reg.digests["nginx:1"] = "sha256:n3"
+	if ups, err = f.Check(ctx, Scope{}, io.Discard); err != nil || len(ups) != 1 {
+		t.Fatalf("round with a waiting release: %v %+v", err, ups)
+	}
+	pins, err = f.Releases.Pins(ctx, ups[0].ReleaseID)
+	must(t, err)
+	if pins[release.ConfigSlug].CommitSHA != "c2" || pins["api"].Digest != "sha256:n3" {
+		t.Errorf("pins = %+v, want the waiting config pin and the new digest", pins)
+	}
+	if got, _ := f.Releases.Get(ctx, ups[0].ReleaseID); got.BuiltOn == nil || *got.BuiltOn != waiting.ID ||
+		got.Line == nil || *got.Line != release.EnvLine(dev.ID) {
+		t.Errorf("stored base and line = %v %v", got.BuiltOn, got.Line)
+	}
+
 	// Timed sweep: the interval gates it.
 	if due, _ := f.Due(ctx, now); !due {
 		t.Error("first sweep not due")

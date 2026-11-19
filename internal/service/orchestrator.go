@@ -758,6 +758,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Members:        orch.members,
 			Resources:      orch.domainres,
 			Config:         orch.stackFile,
+			FileID:         orch.fileID,
 			Build:          b,
 			DNS01:          orch.dns01,
 			RouteHeld:      orch.routes.Covers,

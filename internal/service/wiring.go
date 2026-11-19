@@ -365,6 +365,34 @@ func (o *Orchestrator) stackFile(
 	return clonedStackFile(ctx, r, st, commit)
 }
 
+// fileID is the git object id of path in the stack's config repo at commit.
+// A commit the clone lacks is fetched first.
+func (o *Orchestrator) fileID(ctx context.Context, st store.Stack, commit, path string) (string, error) {
+	if st.ConfigRepo == "" {
+		return "", errors.New("this stack has no config repo")
+	}
+	dir := filepath.Join(o.cfg.DataDir, "repos", "config-"+st.ID)
+	unlock := o.repoLock(dir)
+	defer unlock()
+	env, err := o.cloneEnv(ctx, st.OrgID, st.ConfigConnectorID, st.ConfigRepo)
+	if err != nil {
+		return "", err
+	}
+	r := git.Repo{
+		Dir:    dir,
+		Root:   filepath.Join(o.cfg.DataDir, "repos"),
+		URL:    st.ConfigRepo,
+		Branch: st.ConfigBranch,
+		Auth:   func(context.Context) []string { return env },
+	}
+	if !r.Has(ctx, commit) {
+		if _, err := r.Checkout(ctx, commit, io.Discard); err != nil {
+			return "", err
+		}
+	}
+	return r.ObjectID(ctx, commit, path)
+}
+
 // clonedStackFile is stackFile read from the local clone r, no fetch.
 func clonedStackFile(ctx context.Context, r git.Repo, st store.Stack, commit string) ([]byte, promote.Fetcher, error) {
 	path := st.ConfigPath

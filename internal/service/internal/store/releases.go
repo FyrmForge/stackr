@@ -19,6 +19,11 @@ type Release struct {
 	// Message is the first line of that commit's message; "" when the cut had
 	// none (apply, image watch, manual deploy).
 	Message string `db:"message" json:"message,omitempty"`
+	// BuiltOn is the release this one was derived from, and Line the line it
+	// was cut for ("env:<id>" or "branch:<name>", see leaf/release). Both nil
+	// on a release cut before migration 019. Not in the API: json:"-".
+	BuiltOn *string `db:"built_on" json:"-"`
+	Line    *string `db:"line" json:"-"`
 }
 
 type ReleaseStore interface {

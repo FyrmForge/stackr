@@ -187,6 +187,7 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 		t.StackID,
 		deref(e.ReleaseID),
 		"deploy",
+		release.EnvLine(e.ID),
 		release.Pin{Slug: t.Slug, Repo: t.ImageRef, Digest: digest},
 	)
 	if err != nil {
@@ -208,7 +209,7 @@ func (f *Flow) firstBuild(ctx context.Context, t store.Tile, e store.Environment
 	if err != nil {
 		return "", false, err
 	}
-	r, err := f.Releases.Derive(ctx, t.StackID, deref(e.ReleaseID), "deploy",
+	r, err := f.Releases.Derive(ctx, t.StackID, deref(e.ReleaseID), "deploy", release.EnvLine(e.ID),
 		release.Pin{Slug: t.Slug, Repo: t.GitURL, Branch: branch, CommitSHA: sha, ImageID: &id})
 	if err != nil {
 		return "", false, err
@@ -243,7 +244,7 @@ func (f *Flow) Rebuild(ctx context.Context, tileID string, log io.Writer) error 
 		return err
 	}
 	p.ImageID = &id
-	r, err := f.Releases.Derive(ctx, t.StackID, *e.ReleaseID, RebuildLine, p)
+	r, err := f.Releases.Derive(ctx, t.StackID, *e.ReleaseID, RebuildLine, release.EnvLine(e.ID), p)
 	if err != nil {
 		return err
 	}
