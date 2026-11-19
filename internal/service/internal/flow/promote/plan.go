@@ -354,6 +354,23 @@ func (f *Flow) ladderRule(ctx context.Context, p *Plan, e store.Environment, rel
 func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) error {
 	d, e, re := f.D, w.e, w.re
 
+	if f.RepoWarning != nil {
+		if w.st.ConfigRepo != "" {
+			if m := f.RepoWarning(ctx, w.st, w.st.ConfigRepo, false); m != "" {
+				p.Warnings = append(p.Warnings, "stack file: "+m)
+			}
+		}
+		for _, name := range slices.Sorted(maps.Keys(re.Tiles)) {
+			if tc := re.Tiles[name]; builds(tc) {
+				if repo := or(tc.GitURL, w.st.ConfigRepo); repo != "" {
+					if m := f.RepoWarning(ctx, w.st, repo, true); m != "" {
+						p.Warnings = append(p.Warnings, "tile "+name+": "+m)
+					}
+				}
+			}
+		}
+	}
+
 	// The env's own knobs and settings.
 	ed := e
 	if re.Color != "" && re.Color != e.Color {

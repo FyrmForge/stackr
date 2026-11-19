@@ -201,7 +201,7 @@ func (o *Orchestrator) gitUsages(ctx context.Context, c store.Connector) ([]Usag
 		}
 		for _, st := range sts {
 			if pk, err := connector.ForStack(conns, og, st); st.ConfigRepo != "" && err == nil && pk.ID == c.ID {
-				u, err := o.usageOf(ctx, ScopeStack, st.ID, "clones "+repoAt(st.ConfigRepo, st.ConfigBranch))
+				u, err := o.usageOf(ctx, ScopeStack, st.ID, "clones "+repoAt(st.ConfigRepo, st.ConfigBranch)+o.notListed(c, st.ConfigRepo))
 				if err != nil {
 					return nil, err
 				}
@@ -215,7 +215,7 @@ func (o *Orchestrator) gitUsages(ctx context.Context, c store.Connector) ([]Usag
 				if t.GitURL == "" || !tilePicks(conns, og, st, t.GitURL, c.ID) {
 					continue
 				}
-				u, err := o.usageOf(ctx, ScopeTile, t.ID, "clones "+repoAt(t.GitURL, t.GitBranch))
+				u, err := o.usageOf(ctx, ScopeTile, t.ID, "clones "+repoAt(t.GitURL, t.GitBranch)+o.notListed(c, t.GitURL))
 				if err != nil {
 					return nil, err
 				}
@@ -224,6 +224,17 @@ func (o *Orchestrator) gitUsages(ctx context.Context, c store.Connector) ([]Usag
 		}
 	}
 	return out, nil
+}
+
+// NotListed ends a Used by line whose repo the connector's repo list does
+// not name.
+const NotListed = " (not in this connector's repo list)"
+
+func (o *Orchestrator) notListed(c store.Connector, repo string) string {
+	if o.repoWarning(c, repo) == "" {
+		return ""
+	}
+	return NotListed
 }
 
 // tilePicks: a clone of a tile's repo through conns picks connection id.

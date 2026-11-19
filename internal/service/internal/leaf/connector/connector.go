@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -26,11 +27,14 @@ import (
 type Leaf struct {
 	conns store.ConnectorStore
 	kinds []connectors.Kind
+
+	mu    sync.Mutex
+	lists map[string]map[string]bool // connector id -> the repos its last list named
 }
 
 // New is the leaf over conns, opening connections of kinds.
 func New(conns store.ConnectorStore, kinds []connectors.Kind) *Leaf {
-	return &Leaf{conns: conns, kinds: kinds}
+	return &Leaf{conns: conns, kinds: kinds, lists: map[string]map[string]bool{}}
 }
 
 // NoConnector is a repo on a host that no connector of the org serves and
@@ -508,7 +512,61 @@ func (l *Leaf) repos(ctx context.Context, c store.Connector) ([]connectors.Repo,
 	if err != nil {
 		return nil, err
 	}
-	return g.Repos(ctx)
+	rs, err := g.Repos(ctx)
+	l.NoteRepos(c.ID, rs, err)
+	return rs, err
+}
+
+// repoKey is a repo as the lists spell it: lower case, no .git, no trailing
+// slash.
+func repoKey(s string) string {
+	return strings.TrimSuffix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(s)), "/"), ".git")
+}
+
+// NoteRepos keeps the repos connector id's provider just listed, in memory;
+// a failed list forgets the last one (what Lists answers is then unknown).
+func (l *Leaf) NoteRepos(id string, rs []connectors.Repo, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err != nil {
+		delete(l.lists, id)
+		return
+	}
+	set := make(map[string]bool, 2*len(rs))
+	for _, r := range rs {
+		set[repoKey(r.URL)], set[repoKey(r.FullName)] = true, true
+	}
+	l.lists[id] = set
+}
+
+// Lists says whether connector id's last repo list names repoURL (or an
+// owner/name). known is false until a list has been read since start, or when
+// the last one failed: memory only, never a provider call.
+// ponytail: empty until the first check after a restart, up to 15 minutes.
+func (l *Leaf) Lists(id, repoURL string) (listed, known bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	set, ok := l.lists[id]
+	return set[repoKey(repoURL)], ok
+}
+
+// LegacyByHost is the pick a clone made before a stack or tile inherited its
+// org's connector: the org's own connector on the host, else the one shared
+// server connector. Only the one-time compat pin uses it. None or several is
+// NoConnector.
+func LegacyByHost(conns []store.Connector, host string) (store.Connector, error) {
+	on := func(own bool) []store.Connector {
+		return slices.DeleteFunc(slices.Clone(conns), func(c store.Connector) bool {
+			return c.Host != host || (c.OrgID != nil) != own
+		})
+	}
+	if own := on(true); len(own) > 0 {
+		return own[0], nil
+	}
+	if shared := on(false); len(shared) == 1 {
+		return shared[0], nil
+	}
+	return store.Connector{}, NoConnector{Host: host}
 }
 
 // RepoBranches lists repo's branches through connector id, for the config

@@ -91,6 +91,7 @@ type ReposView struct {
 	Shared     bool   // a server connector: no install links
 	Checked    bool
 	Repos      []string // full names
+	Unlisted   []string // in use, and not in Repos
 }
 
 func repoCount(n int) string {
@@ -122,6 +123,14 @@ templ Repos(v ReposView) {
 						<li class="py-2 font-mono text-xs text-rw-muted">{ r }</li>
 					}
 				</ul>
+				if len(v.Unlisted) > 0 {
+					<p class="text-sm text-rw-muted mb-3">In use, not listed.</p>
+					<ul class="divide-y divide-rw-border mb-5">
+						for _, r := range v.Unlisted {
+							<li class="py-2 font-mono text-xs text-rw-muted">{ r }</li>
+						}
+					</ul>
+				}
 				<div class="flex flex-wrap gap-2">
 					if !v.Shared {
 						<a href={ templ.SafeURL(v.InstallURL) } class="btn btn-ghost btn-sm">Change which repositories it can see</a>

@@ -320,6 +320,28 @@ func TestDiff(t *testing.T) {
 			},
 		},
 		{
+			name: "a pinned stack whose file names none shows the connector change",
+			file: v1 + `stacks:
+  shop:
+    repo: https://github.com/acme/shop
+    branch: main
+`,
+			live: func(l *orgconfig.Live) {
+				l.Connectors = append(l.Connectors, store.Connector{ID: "cn2", Host: "github.com"})
+				l.Stacks[0].Stack.ConfigConnectorID = "cn2"
+			},
+			changes: []orgconfig.Change{
+				{
+					Kind:  "rebind",
+					Tile:  "shop",
+					Field: "connector",
+					Old:   "cn2",
+					New:   "cn1",
+					Note:  "inherits the organization's connector",
+				},
+			},
+		},
+		{
 			name: "binding a hand-made stack is a rebind",
 			file: v1 + `stacks:
   legacy:

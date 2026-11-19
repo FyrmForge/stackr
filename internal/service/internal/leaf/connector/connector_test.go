@@ -567,3 +567,25 @@ func TestUsableForHost(t *testing.T) {
 		}
 	}
 }
+
+// Lists answers from memory: listed, not listed, and not known (no list yet,
+// or the last one failed).
+func TestLists(t *testing.T) {
+	l := newLeaf(servicetest.Store(t).Connectors, &fakeApp{})
+	if _, known := l.Lists("c1", "https://github.com/a/b"); known {
+		t.Error("known before any list")
+	}
+	l.NoteRepos("c1", []connectors.Repo{{FullName: "A/B", URL: "https://github.com/A/B.git"}}, nil)
+	for _, u := range []string{"https://github.com/a/b", "https://github.com/a/b/", "a/b"} {
+		if listed, known := l.Lists("c1", u); !listed || !known {
+			t.Errorf("%s: listed %v known %v", u, listed, known)
+		}
+	}
+	if listed, known := l.Lists("c1", "https://github.com/a/c"); listed || !known {
+		t.Errorf("not listed: %v %v", listed, known)
+	}
+	l.NoteRepos("c1", nil, errors.New("down"))
+	if _, known := l.Lists("c1", "https://github.com/a/b"); known {
+		t.Error("known after a failed list")
+	}
+}

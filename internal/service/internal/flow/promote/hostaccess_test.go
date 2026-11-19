@@ -1,6 +1,7 @@
 package promote
 
 import (
+	"context"
 	"io"
 	"slices"
 	"strings"
@@ -224,5 +225,48 @@ environments:
 	must(t, err)
 	if p.Blocked() {
 		t.Fatalf("blockers = %v", p.Blockers)
+	}
+}
+
+// A repo the connector it clones through does not list is a plan warning:
+// the stack file's repo, and each building tile's.
+func TestPlanWarnsOnUnlistedRepo(t *testing.T) {
+	w := setup(t)
+	w.f.RepoWarning = func(_ context.Context, _ store.Stack, repo string, tile bool) string {
+		if tile && strings.HasSuffix(repo, "/api") {
+			return ""
+		}
+		return "connector gh does not list " + repo
+	}
+	w.files["c1"] = `
+version: 1
+stack: shop
+ladder: [dev, prd]
+head: main
+base:
+  tiles:
+    api:
+      git_url: https://github.com/acme/api
+      port: 80
+    web:
+      git_url: https://github.com/acme/web
+      port: 80
+    cache:
+      image: redis:7
+      port: 6379
+environments:
+  dev: {}
+  prd: {}
+`
+	p, err := w.f.Plan(ctx, w.dev.ID, w.release(t, "c1").ID, io.Discard)
+	must(t, err)
+	got := strings.Join(p.Warnings, "|")
+	for _, want := range []string{"stack file: connector gh does not list https://github.com/acme/shop", "tile web: connector gh does not list https://github.com/acme/web"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("warnings = %q; want %q", p.Warnings, want)
+		}
+	}
+	if strings.Contains(got, "tile api") || strings.Contains(got, "tile cache") {
+		t.Errorf("warnings = %q", p.Warnings)
 	}
 }

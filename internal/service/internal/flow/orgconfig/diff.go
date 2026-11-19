@@ -401,6 +401,13 @@ func (p *Plan) stacks(refs map[string]StackRef, live Live, stacks map[string]Sta
 			rebind(s, "connector", connectorOf(have, live), connectorOf(want, live)),
 		}
 		diffs = slices.DeleteFunc(diffs, func(c Change) bool { return c.Old == c.New })
+		if want.ConnectorID == "" {
+			for i := range diffs {
+				if diffs[i].Field == "connector" {
+					diffs[i].Note = "inherits the organization's connector"
+				}
+			}
+		}
 		if len(diffs) > 0 {
 			p.Changes = append(p.Changes, diffs...)
 			p.needConnector(s, want, live)

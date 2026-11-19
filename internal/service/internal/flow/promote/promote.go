@@ -47,6 +47,10 @@ type Flow struct {
 	// Config reads the stack file (and a fetcher for its includes) at a
 	// commit of the stack's config repo.
 	Config func(ctx context.Context, st store.Stack, commit string, log io.Writer) ([]byte, Fetcher, error)
+	// RepoWarning is the warning for a repo of stack st the connector it
+	// clones through does not list ("" = none). tile: the repo is a tile's, not
+	// the stack file's. Nil = no warnings.
+	RepoWarning func(ctx context.Context, st store.Stack, repo string, tile bool) string
 	// FileID is the git object id of a path of the stack's config repo at a
 	// commit ("" = no such path); an error when the commit cannot be read.
 	// Nil = file changes are not compared.

@@ -195,7 +195,7 @@ type StackRef struct {
 	Repo      string `yaml:"repo,omitempty"`
 	Branch    string `yaml:"branch,omitempty"`
 	Path      string `yaml:"path,omitempty"`
-	Connector string `yaml:"connector,omitempty"` // a connector name; "" = the org's connector for the repo's host
+	Connector string `yaml:"connector,omitempty"` // a connector name; "" = the org's connector
 }
 
 // UnmarshalYAML refuses every key but the four: anything else is v0's

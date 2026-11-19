@@ -2,12 +2,14 @@ package canvas
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	connui "github.com/FyrmForge/stackr/internal/ui/drawer/connector"
@@ -80,6 +82,13 @@ func (h *handler) mountConnector(site *echo.Group, a *middleware.Access) {
 		v := connui.ReposView{Label: h.kindLabel(cd.conn.Kind), Check: cd.frame("repos").Base + "/check", InstallURL: install, Shared: cd.conn.Shared, Checked: true}
 		for _, r := range repos {
 			v.Repos = append(v.Repos, r.FullName)
+		}
+		if us, err := h.orch.ConnectorUsages(ctx, &cd.s.Org.ID, cd.conn.ID); err == nil {
+			for _, u := range us {
+				if what, ok := strings.CutSuffix(u.What, service.NotListed); ok {
+					v.Unlisted = append(v.Unlisted, u.Path+": "+what)
+				}
+			}
 		}
 		return respond.HTML(c, http.StatusOK, comp.Drawer(cd.frame("repos"), connui.Repos(v)))
 	}, a.Require("org.read"))

@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
@@ -225,6 +226,11 @@ func (o *Orchestrator) orgFileWarns(ctx context.Context, live *orgconfig.Live, f
 		}
 		b := f.Stacks[slug].Binding(live.Org, live.Connectors)
 		st.ConfigRepo, st.ConfigBranch, st.ConfigPath, st.ConfigConnectorID = b.Repo, b.Branch, b.Path, b.ConnectorID
+		if c, err := connector.ForStack(live.Connectors, live.Org, st); err == nil && b.Repo != "" {
+			if w := o.repoWarning(c, b.Repo); w != "" {
+				live.FileNotes = append(live.FileNotes, "stacks."+slug+": "+w)
+			}
+		}
 		r, err := o.stackFileResolved(ctx, live.Org, st)
 		if err != nil || r == nil {
 			continue

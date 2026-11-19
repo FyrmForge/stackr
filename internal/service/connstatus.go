@@ -22,7 +22,7 @@ import (
 const checkTTL = 5 * time.Minute
 
 // ask asks conn's provider the cheapest thing its capabilities offer.
-func (o *Orchestrator) ask(ctx context.Context, k connectors.Kind, conn connectors.Conn) error {
+func (o *Orchestrator) ask(ctx context.Context, id string, k connectors.Kind, conn connectors.Conn) error {
 	caps := connectors.Caps(k)
 	switch {
 	case slices.Contains(caps, CapDNS):
@@ -32,7 +32,8 @@ func (o *Orchestrator) ask(ctx context.Context, k connectors.Kind, conn connecto
 		}
 		return err
 	case slices.Contains(caps, CapGit):
-		_, err := conn.(connectors.GitSource).Repos(ctx)
+		rs, err := conn.(connectors.GitSource).Repos(ctx)
+		o.conns.NoteRepos(id, rs, err)
 		return err
 	}
 	return nil
@@ -53,7 +54,7 @@ func (o *Orchestrator) check(ctx context.Context, c store.Connector) store.Conne
 	}
 	k, conn, err := o.open(c)
 	if err == nil {
-		err = o.ask(ctx, k, conn)
+		err = o.ask(ctx, c.ID, k, conn)
 	}
 	o.noteCheck(ctx, &c, err)
 	o.connProblem(ctx, c)
@@ -219,7 +220,7 @@ func (o *Orchestrator) UpdateConnector(ctx context.Context, orgID *string, id st
 	if err := next.Setup(vals); err != nil {
 		return Connector{}, err
 	}
-	if err := o.ask(ctx, k, next); err != nil {
+	if err := o.ask(ctx, id, k, next); err != nil {
 		return Connector{}, err
 	}
 	b, err := json.Marshal(next)
