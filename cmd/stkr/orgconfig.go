@@ -99,6 +99,7 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 	export.Flags().BoolVar(&force, "force", false, "overwrite an existing -o file")
 
 	var remove []string
+	var keep bool
 	approve := waits(leaf("approve <plan>", "org.plan-get,org.plan-approve", "Apply a pending config plan: prints it, then asks",
 		exact(1), func(c *cobra.Command, args []string) error {
 			return org(func(p string) error {
@@ -111,7 +112,7 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 					return err
 				}
 				m, _ := v.(map[string]any)
-				body, err := a.approveBody(m, remove, "Apply config plan "+args[0]+"?")
+				body, err := a.approveBody(m, remove, keep, "Apply config plan "+args[0]+"?")
 				if err != nil {
 					return err
 				}
@@ -119,6 +120,7 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 			})
 		}))
 	approve.Flags().StringArrayVar(&remove, "remove", nil, "tick a removal row to apply it (repeatable; the plan lists the keys)")
+	approve.Flags().BoolVar(&keep, "keep", false, "keep every removal and close the plan (for a plan that is only removals)")
 
 	return []*cobra.Command{
 		bind,

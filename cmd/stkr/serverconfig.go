@@ -100,6 +100,7 @@ func (a *app) serverConfig() *cobra.Command {
 	export.Flags().BoolVar(&force, "force", false, "overwrite an existing -o file")
 
 	var remove []string
+	var keep bool
 	approve := waits(leaf("approve <plan>", "admin.config-plan-get,admin.config-plan-approve",
 		"Apply a pending server plan: prints it, then asks", exact(1),
 		func(c *cobra.Command, args []string) error {
@@ -107,7 +108,7 @@ func (a *app) serverConfig() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.approveServer(c, v, remove)
+			return a.approveServer(c, v, remove, keep)
 		}))
 	apply := waits(leaf("apply", "admin.config-plan-file,admin.config-plan-approve",
 		"Plan a local stackr-server.yml (not the repo's) and apply it: prints the plan, then asks", exact(0),
@@ -120,11 +121,12 @@ func (a *app) serverConfig() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.approveServer(c, v, remove)
+			return a.approveServer(c, v, remove, keep)
 		}))
 	apply.Flags().StringVarP(&file, "file", "f", "stackr-server.yml", "the file to apply")
 	for _, c := range []*cobra.Command{approve, apply} {
 		c.Flags().StringArrayVar(&remove, "remove", nil, "tick a removal row to apply it (repeatable; the plan lists the keys)")
+		c.Flags().BoolVar(&keep, "keep", false, "keep every removal and close the plan (for a plan that is only removals)")
 	}
 
 	return noun("server", "The server's config file, stackr-server.yml (admin)",
@@ -184,7 +186,7 @@ func (a *app) serverPlan(v any) error {
 
 // approveServer is approve and apply: print the plan row v, then approve it
 // as the org verb does, following the apply job under /admin.
-func (a *app) approveServer(c *cobra.Command, v any, remove []string) error {
+func (a *app) approveServer(c *cobra.Command, v any, remove []string, keep bool) error {
 	if err := a.serverPlan(v); err != nil {
 		return err
 	}
@@ -194,7 +196,7 @@ func (a *app) approveServer(c *cobra.Command, v any, remove []string) error {
 		return nil
 	}
 	id := cell(m["id"])
-	body, err := a.approveBody(m, remove, "Apply server plan "+id+"?")
+	body, err := a.approveBody(m, remove, keep, "Apply server plan "+id+"?")
 	if err != nil {
 		return err
 	}
@@ -205,7 +207,7 @@ func (a *app) approveServer(c *cobra.Command, v any, remove []string) error {
 // a blocked plan, check each --remove names a removal row, ask the question,
 // and ask once more for a plan with impact lines. The body is nil when the
 // approver has nothing to add, so a plain plan sends a plain approve.
-func (a *app) approveBody(row map[string]any, remove []string, question string) (any, error) {
+func (a *app) approveBody(row map[string]any, remove []string, keep bool, question string) (any, error) {
 	pl, err := planOf(row)
 	if err != nil {
 		return nil, err
@@ -230,6 +232,11 @@ func (a *app) approveBody(row map[string]any, remove []string, question string) 
 			return nil, usage("--remove %s is no removal row of this plan (rows: %s)", k, cmpJoin(keys))
 		}
 	}
+	// every row a removal and none ticked: the service refuses, so say so here
+	// before asking anything.
+	if len(changes) > 0 && len(keys) == len(changes) && len(remove) == 0 && !keep {
+		return nil, usage("Nothing will change. Tick the removal to apply it. Pass --remove KEY to tick it, or --keep to keep it and close the plan.")
+	}
 	if err := a.confirm(question); err != nil {
 		return nil, err
 	}
@@ -238,7 +245,7 @@ func (a *app) approveBody(row map[string]any, remove []string, question string) 
 			return nil, err
 		}
 	}
-	if !risky && len(remove) == 0 {
+	if !risky && len(remove) == 0 && !keep {
 		return nil, nil
 	}
 	body := map[string]any{}
@@ -247,6 +254,9 @@ func (a *app) approveBody(row map[string]any, remove []string, question string) 
 	}
 	if len(remove) > 0 {
 		body["ticked"] = remove
+	}
+	if keep {
+		body["keep"] = true
 	}
 	return body, nil
 }

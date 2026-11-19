@@ -2249,6 +2249,7 @@ stkr org approve <plan> [flags]
 ```
 
 ```
+      --keep                 keep every removal and close the plan (for a plan that is only removals)
       --no-wait              print the job and return; it runs server-side
       --remove stringArray   tick a removal row to apply it (repeatable; the plan lists the keys)
 ```
@@ -3034,6 +3035,7 @@ stkr server apply [flags]
 
 ```
   -f, --file string          the file to apply (default "stackr-server.yml")
+      --keep                 keep every removal and close the plan (for a plan that is only removals)
       --no-wait              print the job and return; it runs server-side
       --remove stringArray   tick a removal row to apply it (repeatable; the plan lists the keys)
 ```
@@ -3047,6 +3049,7 @@ stkr server approve <plan> [flags]
 ```
 
 ```
+      --keep                 keep every removal and close the plan (for a plan that is only removals)
       --no-wait              print the job and return; it runs server-side
       --remove stringArray   tick a removal row to apply it (repeatable; the plan lists the keys)
 ```

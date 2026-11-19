@@ -217,3 +217,29 @@ func TestServerPreviewSaysNoChanges(t *testing.T) {
 		}
 	}
 }
+
+// A plan of removals only, none ticked, prints the sentence and sends
+// nothing; --keep or a tick goes on.
+func TestApproveRemovalOnlyNeedsKeepOrTick(t *testing.T) {
+	ps := &planServer{row: `{"id":"p1","status":"pending","plan":"{\"changes\":[` +
+		`{\"kind\":\"route-delete\",\"tile\":\"old.example.com\",\"key\":\"route:old.example.com\",\"optional\":true}]}"}`}
+	ps.serve(t)
+	for _, noun := range []string{"server", "org"} {
+		ps.reqs = nil
+		if code, _, errw := cli(t, noun, "approve", "p1", "-y"); code != 2 ||
+			!strings.Contains(errw, "Nothing will change. Tick the removal to apply it.") ||
+			strings.Contains(strings.Join(ps.reqs, "\n"), "POST") {
+			t.Errorf("%s approve = %d %q, sent %q; want the sentence and no POST", noun, code, errw, ps.reqs)
+		}
+		ps.reqs = nil
+		if code, _, errw := cli(t, noun, "approve", "p1", "--keep", "--no-wait", "-y"); code != 0 ||
+			!strings.HasSuffix(ps.last(), `/approve {"keep":true}`) {
+			t.Errorf("%s approve --keep = %d %q, sent %q", noun, code, errw, ps.reqs)
+		}
+		ps.reqs = nil
+		if code, _, errw := cli(t, noun, "approve", "p1", "--remove", "route:old.example.com", "--no-wait", "-y"); code != 0 ||
+			!strings.HasSuffix(ps.last(), `/approve {"ticked":["route:old.example.com"]}`) {
+			t.Errorf("%s approve --remove = %d %q, sent %q", noun, code, errw, ps.reqs)
+		}
+	}
+}

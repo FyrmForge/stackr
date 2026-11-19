@@ -25,13 +25,14 @@ type (
 	ApproveIn struct {
 		Ticked  []string `json:"ticked"`
 		Confirm bool     `json:"confirm"`
+		Keep    bool     `json:"keep"`
 	}
 )
 
 func (ApproveIn) BodyOptional() {}
 
 func (in ApproveIn) opts() service.ApproveOpts {
-	return service.ApproveOpts{Ticked: in.Ticked, Confirm: in.Confirm}
+	return service.ApproveOpts{Ticked: in.Ticked, Confirm: in.Confirm, Keep: in.Keep}
 }
 
 // maxOrgFile caps a plan-preview body, as v0 did.

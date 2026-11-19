@@ -128,7 +128,7 @@ func TestServerRemovalNeedsATick(t *testing.T) {
 	if err != nil || !strings.Contains(pl.Plan, `"key":"route:old.example.com"`) {
 		t.Fatalf("plan = %+v, %v; want the removal row", pl, err)
 	}
-	if _, err := r.env.Orch.ApproveServerPlan(ctx, pl.ID, service.ApproveOpts{}); err != nil {
+	if _, err := r.env.Orch.ApproveServerPlan(ctx, pl.ID, service.ApproveOpts{Keep: true}); err != nil {
 		t.Fatal(err)
 	}
 	r.applied(t, pl.ID)

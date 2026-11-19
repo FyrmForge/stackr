@@ -644,3 +644,45 @@ func TestOrgFilePinSeesStackFileVolumes(t *testing.T) {
 		}
 	}
 }
+
+// A plan that is only removals, none ticked, is refused with the sentence;
+// Keep closes it as kept; a tick applies it. The list says what was done.
+func TestApproveRemovalOnlyPlan(t *testing.T) {
+	ctx := context.Background()
+	r := newOrgRig(t)
+	if _, err := r.env.Orch.CreateShare(ctx, r.org, service.ShareSpec{Slug: "media", Kind: "nfs", Source: "nas:/e"}); err != nil {
+		t.Fatal(err)
+	}
+	r.orgFile(t, "version: 1\norg: acme\nshares: {}\n")
+	r.bind(t, false)
+	p := r.plans(t)[0]
+	if !strings.Contains(p.Summary, "to review") {
+		t.Fatalf("planned summary = %q, want a removal to review", p.Summary)
+	}
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, p.ID, service.ApproveOpts{}); !errors.Is(err, service.ErrNothingWillChange) ||
+		!strings.Contains(err.Error(), "Nothing will change. Tick the removal to apply it.") {
+		t.Fatalf("untick approve = %v, want ErrNothingWillChange", err)
+	}
+	if got, _ := r.env.Orch.OrgPlan(ctx, p.ID); got.DecidedAt != nil {
+		t.Fatal("the refused approve stamped the row")
+	}
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, p.ID, service.ApproveOpts{Keep: true}); err != nil {
+		t.Fatalf("keep = %v", err)
+	}
+	r.applied(t, p.ID)
+	if ps := r.plans(t); ps[0].Summary != "nothing changed, 1 kept" {
+		t.Errorf("list after keep = %q, want the applied wording", ps[0].Summary)
+	}
+
+	q, err := r.env.Orch.PlanOrgConfig(ctx, r.org)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, q.ID, service.ApproveOpts{Ticked: []string{"share:media"}}); err != nil {
+		t.Fatalf("tick = %v", err)
+	}
+	r.applied(t, q.ID)
+	if ps := r.plans(t); ps[0].ID != q.ID || ps[0].Summary != "1 removed" {
+		t.Errorf("list after tick = %+v, want 1 removed", ps[0].Summary)
+	}
+}
