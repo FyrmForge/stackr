@@ -18,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/outbound"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
@@ -36,9 +37,7 @@ type Flow struct {
 	Operated *operated.Leaf
 	Traffic  *ltraffic.Leaf
 	// Out remembers which tiles reached the internet and when; nil = not kept.
-	// ponytail: the flow holds the store itself, there is no leaf for one
-	// table of two columns.
-	Out  store.TileOutboundStore
+	Out  *outbound.Leaf
 	Path string           // the conntrack file
 	Now  func() time.Time // nil = time.Now
 	// Remote is every worker's GET /v1/traffic by node id; a node that did
@@ -124,7 +123,7 @@ func (f *Flow) Tick(ctx context.Context) error {
 }
 
 // recordOutbound adds this tick's bytes to every tile that talked to the
-// internet. ponytail: rate x tick length, so the total is an estimate that
+// internet (in memory; the leaf writes them once a minute). ponytail: rate x tick length, so the total is an estimate that
 // drifts with a missed tick; exact counters would need the conntrack bytes.
 func (f *Flow) recordOutbound(ctx context.Context, at time.Time) error {
 	if f.Out == nil {
@@ -134,11 +133,9 @@ func (f *Flow) recordOutbound(ctx context.Context, at time.Time) error {
 		if p.To != ltraffic.Internet || p.From == ltraffic.Proxy || p.From == ltraffic.Internet {
 			continue
 		}
-		if err := f.Out.Add(ctx, p.From, int64(bps*ltraffic.Every.Seconds()), at); err != nil {
-			return err
-		}
+		f.Out.Add(p.From, int64(bps*ltraffic.Every.Seconds()), at)
 	}
-	return nil
+	return f.Out.FlushDue(ctx, at)
 }
 
 // Outbound is the env's tiles that ever reached the internet, newest first.

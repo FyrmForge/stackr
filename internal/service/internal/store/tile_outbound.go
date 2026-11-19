@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -15,19 +16,30 @@ type TileOutbound struct {
 
 // TileOutboundStore is keyed by tile.
 type TileOutboundStore interface {
-	// Add counts bytes more for the tile and moves its last seen to at.
-	Add(ctx context.Context, tileID string, bytes int64, at time.Time) error
+	// AddAll counts each row's bytes more for its tile and moves its last
+	// seen to the row's, all in one transaction. A tile that no longer exists
+	// is skipped; a row that fails is logged and the rest go on.
+	AddAll(ctx context.Context, rows []TileOutbound) error
 	// ListByEnv is every tile of the env that ever reached out.
 	ListByEnv(ctx context.Context, envID string) ([]TileOutbound, error)
 }
 
 type tileOutbound struct{ q querier }
 
-func (s tileOutbound) Add(ctx context.Context, tileID string, bytes int64, at time.Time) error {
-	_, err := s.q.ExecContext(ctx, `INSERT INTO tile_outbound (tile_id, last_seen, bytes) VALUES (?, ?, ?)
-		ON CONFLICT (tile_id) DO UPDATE SET last_seen = excluded.last_seen, bytes = bytes + excluded.bytes`,
-		tileID, at, bytes)
-	return mapErr(err)
+func (s tileOutbound) AddAll(ctx context.Context, rows []TileOutbound) error {
+	return inTx(ctx, s.q, func(q querier) error {
+		for _, r := range rows {
+			// WHERE EXISTS: a deleted tile has no row to hang this on (the
+			// foreign key would refuse it, every flush).
+			if _, err := q.ExecContext(ctx, `INSERT INTO tile_outbound (tile_id, last_seen, bytes)
+				SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM tiles WHERE id = ?)
+				ON CONFLICT (tile_id) DO UPDATE SET last_seen = excluded.last_seen, bytes = bytes + excluded.bytes`,
+				r.TileID, r.LastSeen, r.Bytes, r.TileID); err != nil {
+				slog.Warn("tile outbound", "tile", r.TileID, "err", err)
+			}
+		}
+		return nil
+	})
 }
 
 func (s tileOutbound) ListByEnv(ctx context.Context, envID string) ([]TileOutbound, error) {
