@@ -23,7 +23,7 @@ var elements = map[string]int{
 	"password-toggle": 150,
 	"settings-find":   170, // opens nested details on a hit, redraws row heads after an in-row save
 	"settings-read":   200, // read mode: rows are facts behind a pencil, edits held (against the stored value) until Apply
-	"side-drawer":     175,
+	"side-drawer":     185,
 	"tab-strip":       150,
 	"term-pane":       150,
 	"theme-toggle":    150,
