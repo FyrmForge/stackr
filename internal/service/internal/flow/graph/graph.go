@@ -909,13 +909,13 @@ func LayerJob(word string, up int, runKind bool, j store.Job) string {
 // incoming generation while a deploy of it runs and it holds more containers
 // than it wants (the overlap, where both share labels). It returns the
 // containers oldest first and a tag each: "old" for the oldest extras,
-// "new" for the newest extras, "" for a real replica. No live deploy or no
-// extras: the containers as they came, no tags.
+// "new" for the newest extras, "" for a real replica. No running job that
+// replaces containers (a queued one has not started) or no extras: the containers as they came, no tags.
 // ponytail: tells generations by creation time only; a deploy that
 // replaces replicas one by one reads the same as an overlap.
 func Generations(cs []docker.Container, want int, j store.Job, hasJob bool) ([]docker.Container, []string) {
 	extra := len(cs) - max(want, 1)
-	if !hasJob || !rollout[j.Kind] || (j.State != job.Running && j.State != job.Queued) || extra <= 0 {
+	if !hasJob || !replaces[j.Kind] || j.State != job.Running || extra <= 0 {
 		return cs, nil
 	}
 	cs = slices.Clone(cs)
@@ -938,6 +938,11 @@ func Generations(cs []docker.Container, want int, j store.Job, hasJob bool) ([]d
 // health; a promote, env sync or PR job locks every tile of the env, so its
 // failure would paint the neighbours too.
 var rollout = map[string]bool{"deploy": true, "start": true, "restart": true, "seed": true}
+
+// replaces are the job kinds that start new containers beside the old ones: a
+// rollout, and the promote, env sync and PR jobs, which deploy every tile of
+// the env (they lock them all, so the tile finds them as its last job).
+var replaces = map[string]bool{"deploy": true, "start": true, "restart": true, "seed": true, "promote": true, "env-sync": true, "pr": true}
 
 // ---- env -------------------------------------------------------------------
 
