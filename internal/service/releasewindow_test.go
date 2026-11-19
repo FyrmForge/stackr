@@ -340,3 +340,48 @@ func TestReleaseWindowPushFailureDetails(t *testing.T) {
 		t.Fatalf("failures = %+v, want the push failure first with its commit, source and time", fails)
 	}
 }
+
+// A fixed push failure names the release the later push of the same lock
+// cut, not just any release made after it (here an image watch's).
+func TestReleaseHistoryFixedByTheFixingPush(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	now := time.Now()
+	lock := []string{"push:" + w.shop, "push:" + w.shop + ":acme/shop@main"}
+	payload := `{"org_id":"` + w.acme + `","stack_id":"` + w.shop + `"}`
+	push := func(state, errMsg string, at time.Time, started *time.Time, took time.Duration) {
+		t.Helper()
+		fin := at.Add(took)
+		if err := w.e.Store.Jobs.Create(ctx, store.Job{
+			ID: uuid.NewString(), Kind: "push", State: state, Error: errMsg, Payload: payload,
+			LockSet: store.StringList(lock), CreatedAt: at, StartedAt: started, FinishedAt: &fin,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rel := func(n int, by string, at time.Time) {
+		t.Helper()
+		if err := w.e.Store.Releases.Create(ctx, store.Release{ID: uuid.NewString(), StackID: w.shop, Number: n, CreatedAt: at, CreatedBy: by}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	push("failed", "build web", now.Add(-3*time.Hour), nil, time.Minute)
+	rel(8, "image-watch", now.Add(-2*time.Hour)) // the first release after the failure, from another source
+	started := now.Add(-time.Hour)
+	push("done", "", now.Add(-time.Hour), &started, 2*time.Minute)
+	rel(9, "push", now.Add(-time.Hour+time.Minute)) // what the fixing push cut
+	h, err := w.e.Orch.ReleaseHistory(ctx, w.shop, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range h.Rows {
+		if r.Kind == service.RowFailed && r.Fixed {
+			if r.FixedBy != 9 {
+				t.Errorf("fixed by release %d, want 9", r.FixedBy)
+			}
+			return
+		}
+	}
+	t.Error("no fixed failure in the history")
+}

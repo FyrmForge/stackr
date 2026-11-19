@@ -407,9 +407,7 @@ func isRollback(byID map[string]store.Release, curID string, t store.Release, ra
 // later job cured is the live one and is not listed again. js is newest
 // first.
 func fixedFailures(js []Job, rs []store.Release, scoped []string, envs map[string]string, skip map[string]bool) []WindowRow {
-	healed := map[string]int{} // lock -> the release number of the newest done job; -1 = cut none
-	var out []WindowRow
-	for _, j := range js {
+	lockKey := func(j Job) string {
 		key := ""
 		for _, l := range j.LockSet {
 			if strings.HasPrefix(l, "push:") && j.Kind == string(kindPush) {
@@ -419,50 +417,68 @@ func fixedFailures(js []Job, rs []store.Release, scoped []string, envs map[strin
 				key = l
 			}
 		}
-		if key == "" {
+		return key
+	}
+	finished := func(j Job) time.Time {
+		if j.FinishedAt != nil {
+			return *j.FinishedAt
+		}
+		return j.CreatedAt
+	}
+	numOf := func(id string) (int, bool) {
+		i := slices.IndexFunc(rs, func(r store.Release) bool { return r.ID == id })
+		if i < 0 {
+			return 0, false
+		}
+		return rs[i].Number, true
+	}
+	var out []WindowRow
+	for i, j := range js {
+		key := lockKey(j)
+		if key == "" || j.State != "failed" || skip[j.ID] {
 			continue
 		}
-		at := j.CreatedAt
-		if j.FinishedAt != nil {
-			at = *j.FinishedAt
-		}
-		switch j.State {
-		case "done":
-			if _, ok := healed[key]; ok {
-				continue
+		// the first done job of the same lock after it cured it (js is newest first)
+		var fix *Job
+		for k := i - 1; k >= 0; k-- {
+			if js[k].State == "done" && lockKey(js[k]) == key && js[k].CreatedAt.After(j.CreatedAt) {
+				fix = &js[k]
+				break
 			}
-			n := -1
+		}
+		if fix == nil {
+			continue
+		}
+		row := WindowRow{Kind: RowFailed, State: StateFailed, Fixed: true, At: finished(j), JobID: j.ID, Err: j.Error, By: "push"}
+		by := -1 // cut none
+		if j.Kind == string(kindPush) {
+			// a push job keeps no release: the one it cut is the first push
+			// release made while the fixing job ran
+			from, to := fix.CreatedAt, finished(*fix)
+			if fix.StartedAt != nil {
+				from = *fix.StartedAt
+			}
+			for _, r := range slices.Backward(rs) { // oldest first
+				if r.CreatedBy == "push" && !r.CreatedAt.Before(from) && !r.CreatedAt.After(to) {
+					by = r.Number
+					break
+				}
+			}
+		} else {
+			row.FailEnv = envs[strings.TrimPrefix(key, "env:")]
+			if fix.ReleaseID != nil {
+				if n, ok := numOf(*fix.ReleaseID); ok {
+					by = n
+				}
+			}
 			if j.ReleaseID != nil {
 				if i := slices.IndexFunc(rs, func(r store.Release) bool { return r.ID == *j.ReleaseID }); i >= 0 {
-					n = rs[i].Number
+					row.Number, row.Commit, row.By = rs[i].Number, rs[i].Commit, rs[i].CreatedBy
 				}
 			}
-			healed[key] = n
-		case "failed":
-			by, ok := healed[key]
-			if !ok || skip[j.ID] {
-				continue
-			}
-			row := WindowRow{Kind: RowFailed, State: StateFailed, Fixed: true, At: at, JobID: j.ID, Err: j.Error, By: "push"}
-			if j.Kind == string(kindPush) {
-				// a push has no release of its own: the first one cut after it
-				for _, r := range slices.Backward(rs) { // oldest first
-					if r.CreatedAt.After(at) {
-						by = r.Number
-						break
-					}
-				}
-			} else {
-				row.FailEnv = envs[strings.TrimPrefix(key, "env:")]
-				if j.ReleaseID != nil {
-					if i := slices.IndexFunc(rs, func(r store.Release) bool { return r.ID == *j.ReleaseID }); i >= 0 {
-						row.Number, row.Commit, row.By = rs[i].Number, rs[i].Commit, rs[i].CreatedBy
-					}
-				}
-			}
-			row.FixedBy = max(by, 0)
-			out = append(out, row)
 		}
+		row.FixedBy = max(by, 0)
+		out = append(out, row)
 	}
 	return out
 }
