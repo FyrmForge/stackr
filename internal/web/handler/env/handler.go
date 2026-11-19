@@ -1424,15 +1424,16 @@ func (h *handler) Proxy(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	ids := make([]string, len(rs))
+	for i, r := range rs {
+		ids[i] = r.ID
+	}
+	gates := h.orch.DomainGates(c.Request().Context(), ids)
 	var v proxy.View
 	for _, r := range rs {
-		gate, lock, err := h.orch.DomainGate(c.Request().Context(), r.ID)
-		if err != nil {
-			return middleware.HTTPError(err)
-		}
 		v.Rows = append(v.Rows, proxy.Route{
-			Gate:  gate,
-			Lock:  lock,
+			Gate:  gates[r.ID].User,
+			Lock:  gates[r.ID].Locked,
 			Host:  r.Host,
 			Path:  r.Path,
 			Tile:  r.Tile,

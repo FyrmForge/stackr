@@ -333,10 +333,13 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		}
 		p := middleware.Principal(c)
 		rows := domainRows(ds)
+		ids := make([]string, len(rows))
 		for i := range rows {
-			if rows[i].Gate, rows[i].Locked, err = h.orch.DomainGate(ctx, rows[i].ID); err != nil {
-				return sv, err
-			}
+			ids[i] = rows[i].ID
+		}
+		gates := h.orch.DomainGates(ctx, ids)
+		for i := range rows {
+			rows[i].Gate, rows[i].Locked = gates[rows[i].ID].User, gates[rows[i].ID].Locked
 			rs, err := h.orch.TileDomainRecords(ctx, t.ID, rows[i].ID)
 			if err != nil {
 				return sv, err

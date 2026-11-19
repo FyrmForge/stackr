@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
@@ -487,14 +488,28 @@ type Route struct {
 	Tile string `json:"tile"` // the tile's name
 }
 
-// DomainGate is, for domain id, the user of a domain's basic-auth gate ("" = no gate) and
-// why its address is locked ("" = not locked).
-func (o *Orchestrator) DomainGate(ctx context.Context, id string) (user, locked string, err error) {
-	d, err := o.domains.Get(ctx, id) // reads are redacted; the gate needs the stored password
-	if err != nil {
-		return "", "", err
+// GateInfo is a domain's gate for the panel: the user as written and why the
+// address is locked ("" = not locked).
+type GateInfo = deploy.GateInfo
+
+// DomainGates is the gate of each domain id, in one pass. A domain with no
+// gate is absent from the map; one that fails to read is locked with the
+// error as its reason.
+func (o *Orchestrator) DomainGates(ctx context.Context, ids []string) map[string]GateInfo {
+	var ds []store.Domain
+	out := map[string]GateInfo{}
+	for _, id := range ids {
+		d, err := o.domains.Get(ctx, id) // reads are redacted; the gate needs the stored password
+		if err != nil {
+			out[id] = GateInfo{Locked: err.Error()}
+			continue
+		}
+		ds = append(ds, d)
 	}
-	return o.deploy.Gate(ctx, d)
+	for id, g := range o.deploy.Gates(ctx, ds) {
+		out[id] = g
+	}
+	return out
 }
 
 // Routes are the env's domains, every tile's, in tile order (the proxy
