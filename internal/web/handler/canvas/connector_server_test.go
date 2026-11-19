@@ -48,3 +48,33 @@ func TestOrgConfigPickerServerConnector(t *testing.T) {
 		t.Errorf("server connectors after org writes = %+v", cs)
 	}
 }
+
+// A server admin sees "Make this a server connector" on the org's own
+// connector, an owner who is no admin does not; the move leaves the card
+// shared and the org's binding in place.
+func TestMakeServerConnectorAction(t *testing.T) {
+	r := newConfigRig(t)
+	env := r.owner.env
+	card := "/acme/-/connectors/" + r.conn
+	if body := r.owner.do(t, "GET", card, nil, true).Body.String(); strings.Contains(body, "Make this a server connector") {
+		t.Fatalf("an owner who is no admin is offered the move:\n%s", body)
+	}
+	a := env.User(t, "admin@acme.test", true)
+	env.Member(t, r.owner.org, a, "owner")
+	admin := browser{env, r.owner.h, r.owner.org, env.Session(t, a)}
+	body := admin.do(t, "GET", card, nil, true).Body.String()
+	if !strings.Contains(body, "Make this a server connector") || !strings.Contains(body, `hx-post="`+card+`/make-server"`) {
+		t.Fatalf("an admin is not offered the move:\n%s", body)
+	}
+	if rec := r.owner.do(t, "POST", card+"/make-server", nil, true); rec.Code != http.StatusNotFound {
+		t.Errorf("an owner's move = %d, want 404", rec.Code)
+	}
+	rec := admin.do(t, "POST", card+"/make-server", nil, true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "It is a server connector now") || !strings.Contains(rec.Body.String(), "shared from the server") ||
+		strings.Contains(rec.Body.String(), "Make this a server connector") {
+		t.Fatalf("move = %d\n%s", rec.Code, rec.Body)
+	}
+	if cs, _ := env.Orch.ServerConnectors(context.Background()); len(cs) != 1 || cs[0].ID != r.conn {
+		t.Errorf("server connectors = %+v", cs)
+	}
+}

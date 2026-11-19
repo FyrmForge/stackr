@@ -206,6 +206,22 @@ func (o *Orchestrator) ShareConnector(
 	return o.serverConnector(ctx, c)
 }
 
+// MakeServerConnector moves org orgID's connector id up to the server,
+// shared with that org, so one connector serves the server and the org. Its
+// id stays, so every binding that names it (the org's file, its stacks)
+// follows, and nothing is asked of the provider. Admin only; by is the
+// caller.
+func (o *Orchestrator) MakeServerConnector(ctx context.Context, by *Principal, orgID, id string) (ServerConnector, error) {
+	if by == nil || !by.Access.Admin || by.Access.KeyOrg != "" {
+		return ServerConnector{}, errs.ErrNotFound
+	}
+	c, err := o.conns.MakeServer(ctx, orgID, id)
+	if err != nil {
+		return ServerConnector{}, err
+	}
+	return o.serverConnector(ctx, c)
+}
+
 // binding is one place that names a connector: orgID is the org it belongs
 // to, "" for the server's own.
 type binding struct{ orgID, what string }
