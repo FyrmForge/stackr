@@ -3377,6 +3377,9 @@
               }
             ]
           },
+          "scope": {
+            "type": "string"
+          },
           "started_at": {
             "oneOf": [
               {

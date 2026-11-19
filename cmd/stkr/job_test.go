@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -155,5 +156,22 @@ func TestJobFollowEndsWithError(t *testing.T) {
 	_, got, _ := cli(t, "job", "log", "j1", "--follow")
 	if want := "creating stackr-bazarr-1\nerror: " + longErr + "\n"; got != want {
 		t.Errorf("follow =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// job ls shows each job's stack (or stack/env) in a scope column, and
+// --stack asks the stack's own list.
+func TestJobLsScope(t *testing.T) {
+	r := fake(t, map[string]string{
+		"/orgs/acme/jobs":             `[{"id":"j1","kind":"push","scope":"shop","state":"done"},{"id":"j2","kind":"deploy","scope":"blog/dev","state":"done"}]`,
+		"/orgs/acme/stacks/shop/jobs": `[{"id":"j1","kind":"push","scope":"shop","state":"done"}]`,
+	})
+	_, out, _ := cli(t, "job", "ls")
+	if !strings.Contains(out, "push\tshop\t") || !strings.Contains(out, "deploy\tblog/dev\t") {
+		t.Errorf("job ls = %q, want the scope of each job", out)
+	}
+	_, out, _ = cli(t, "job", "ls", "--stack", "shop")
+	if !strings.Contains(out, "j1") || strings.Contains(out, "j2") || !slices.Contains(r.reqs, "GET /api/v1/orgs/acme/stacks/shop/jobs?limit=20 ") {
+		t.Errorf("job ls --stack = %q, reqs %q", out, r.reqs)
 	}
 }

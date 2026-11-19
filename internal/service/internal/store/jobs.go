@@ -32,6 +32,9 @@ type Job struct {
 	// why a queued job has not started.
 	Line  string `db:"-" json:"line,omitempty"`
 	Waits string `db:"-" json:"waits,omitempty"`
+	// Scope is the stack slug, or stack/env, a job is about; "" for a job
+	// above the stacks. Filled with Line and Waits, never stored.
+	Scope string `db:"-" json:"scope,omitempty"`
 }
 
 // MarshalJSON renders the payload as the object it holds, not a string of

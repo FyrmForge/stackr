@@ -845,10 +845,34 @@ func (o *Orchestrator) annotate(ctx context.Context, js []Job) ([]Job, error) {
 	}
 	held := o.UpgradeHeld()
 	for i := range js {
+		js[i].Scope = o.jobScope(ctx, js[i])
 		js[i].Waits = job.Waits(js[i], live, held)
 		js[i].Line = jobLine(js[i])
 	}
 	return js, nil
+}
+
+// jobScope names the stack, or stack/env, a job's payload is about, "" for a
+// job above the stacks (or whose rows are gone).
+// ponytail: two row reads per job listed; cache by id if lists grow large.
+func (o *Orchestrator) jobScope(ctx context.Context, j Job) string {
+	var p map[string]any
+	_ = json.Unmarshal([]byte(j.Payload), &p)
+	c := o.jobChild(ctx, p)
+	if c.Stack == "" {
+		return ""
+	}
+	st, err := o.stacks.Get(ctx, c.Stack)
+	if err != nil {
+		return ""
+	}
+	if c.Env == "" {
+		return st.Slug
+	}
+	if e, err := o.envs.Get(ctx, c.Env); err == nil {
+		return st.Slug + "/" + e.Slug
+	}
+	return st.Slug
 }
 
 // jobLine is the release line a job makes, for the lists: a rebuild is a
