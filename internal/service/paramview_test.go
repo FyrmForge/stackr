@@ -123,6 +123,26 @@ func TestUnsetParams(t *testing.T) {
 	}
 }
 
+// A secret a running tile reads and the env has no value for is listed with no
+// tile waiting, though no deploy is parked on it.
+func TestUnsetParamsListsWhatARunningTileReads(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	s := ParamScope{Kind: "env", ID: w.env}
+	w.envTile(t, w.env, "web", "params.c.token")
+	got, err := w.orch.UnsetParams(ctx, s)
+	must(t, err)
+	if tiles, ok := got["c.token"]; !ok || len(tiles) != 0 {
+		t.Fatalf("unset = %v, want c.token listed with no tile", got)
+	}
+	_, err = w.orch.SetParams(ctx, s, []ParamEntry{{Collection: "c", Name: "token", Kind: "secret", Value: "x"}})
+	must(t, err)
+	if got, _ := w.orch.UnsetParams(ctx, s); len(got) != 0 {
+		t.Errorf("still unset once set: %v", got)
+	}
+}
+
 // Redeploy later saves without redeploying, marks the running readers, and the
 // mark clears when the tile is deployed.
 func TestSetParamsLater(t *testing.T) {

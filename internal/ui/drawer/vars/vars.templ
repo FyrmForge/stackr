@@ -20,7 +20,7 @@ type View struct {
 }
 
 templ Editor(v View) {
-	<div id={ Root } class="space-y-4" hx-history="false">
+	<div id={ Root } class="space-y-4" hx-history="false" data-press-wins>
 		if v.Lead != "" {
 			<p class="text-sm text-rw-muted">{ v.Lead }</p>
 		} else if v.Grid != nil {

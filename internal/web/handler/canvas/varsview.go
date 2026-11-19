@@ -62,6 +62,11 @@ func entriesOf(form url.Values) []service.ParamEntry {
 func (h *handler) heldReply(c echo.Context, s service.Scope, cs []col, form url.Values, scope string, add []service.ParamEntry, open *vars.CellRef, openSecret bool, mods ...func(*vars.Grid)) error {
 	held := heldIn(form)
 	hs, msg := form.Get("held_scope"), ""
+	// an open input's typed value rides along on any redraw (typed_scope names
+	// its column; Cancel blanks it) and is held like a blur would have held it
+	if ts := form.Get("typed_scope"); add == nil && ts != "" && (scope == "" || scope == ts) && (hs == "" || hs == ts) {
+		add, scope = render.ParamEntries(form), ts
+	}
 	if len(held) > 0 && scope != "" && scope != hs && (len(add) > 0 || open != nil) {
 		msg = "Apply or cancel the held changes first."
 		add, open = nil, nil
@@ -215,6 +220,13 @@ func (h *handler) heldOf(ctx context.Context, cl col, es []service.ParamEntry, d
 	}
 	if len(redeploy) > 0 {
 		held.Impact = append(held.Impact, "Redeploys "+strings.Join(redeploy, ", ")+".")
+	}
+	gates, err := h.orch.ParamGateHosts(ctx, cl.ps, es)
+	if err != nil {
+		return nil, err
+	}
+	if len(gates) > 0 {
+		held.Impact = append(held.Impact, "Reloads the gate on "+strings.Join(gates, ", ")+".")
 	}
 	held.Tiles = len(slices.Compact(slices.Sorted(slices.Values(slices.Concat(starts, redeploy)))))
 	held.Starts = len(redeploy) == 0 && len(starts) > 0

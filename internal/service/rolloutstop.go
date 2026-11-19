@@ -10,7 +10,7 @@ import (
 // RolloutStop is the env's newest promote when it failed, until a promote
 // after it does not or the tile it stopped at deploys again. A superseded,
 // cancelled or skipped one says nothing; a queued or running one is a
-// retry under way.
+// retry under way. A later release on the env ends it too.
 func (o *Orchestrator) RolloutStop(ctx context.Context, envID string) (RolloutStop, bool) {
 	js, err := o.store.Jobs.ListTouching(ctx, []string{"env:" + envID}, string(kindPromote), 10) // newest first
 	if err != nil {
@@ -31,6 +31,12 @@ func (o *Orchestrator) RolloutStop(ctx context.Context, envID string) (RolloutSt
 			if j.ReleaseID != nil {
 				if r, err := o.releases.Get(ctx, *j.ReleaseID); err == nil {
 					st.Release = r.Number
+				}
+			}
+			// a later release on the env (a push, a rollback, another promote) retires it
+			if e, err := o.envs.Get(ctx, envID); err == nil && e.ReleaseID != nil {
+				if r, err := o.releases.Get(ctx, *e.ReleaseID); err == nil && r.Number > st.Release {
+					return RolloutStop{}, false
 				}
 			}
 			if t, err := o.tiles.GetBySlug(ctx, envID, st.Tile); err == nil && j.FinishedAt != nil {

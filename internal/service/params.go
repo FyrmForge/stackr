@@ -192,14 +192,26 @@ func (o *Orchestrator) syncGateReaders(ctx context.Context, s ParamScope, ts []T
 }
 
 func (o *Orchestrator) syncGates(ctx context.Context, s ParamScope, ts []Tile, keys map[string]bool) error {
-	ds, err := o.domains.List(ctx)
-	if err != nil {
+	hit, err := o.gateHits(ctx, s, ts, keys)
+	if err != nil || len(hit) == 0 {
 		return err
 	}
+	return o.sync.Sync(ctx)
+}
+
+// gateHits is the hosts, sorted, of the domains of ts whose basic-auth login
+// reads a key of keys.
+func (o *Orchestrator) gateHits(ctx context.Context, s ParamScope, ts []Tile, keys map[string]bool) ([]string, error) {
+	ds, err := o.domains.List(ctx)
+	if err != nil {
+		return nil, err
+	}
 	gates := map[string][]string{}
+	hosts := map[string][]string{}
 	for _, d := range ds {
 		if x, err := domain.ExtrasOf(d); err == nil && x.BasicAuth != nil {
 			gates[d.TileID] = append(gates[d.TileID], x.BasicAuth.User, x.BasicAuth.Password)
+			hosts[d.TileID] = append(hosts[d.TileID], d.Host)
 		}
 	}
 	var fakes []Tile
@@ -209,10 +221,15 @@ func (o *Orchestrator) syncGates(ctx context.Context, s ParamScope, ts []Tile, k
 		}
 	}
 	hit, err := o.readers(ctx, s, fakes, keys, false)
-	if err != nil || len(hit) == 0 {
-		return err
+	if err != nil {
+		return nil, err
 	}
-	return o.sync.Sync(ctx)
+	var out []string
+	for _, t := range hit {
+		out = append(out, hosts[t.ID]...)
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
 }
 
 // pushPRSecrets copies a changed secret of the stack's pr block into every

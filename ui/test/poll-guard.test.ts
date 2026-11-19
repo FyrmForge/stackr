@@ -98,3 +98,20 @@ test("a response that lands after an edit started is not swapped", () => {
   attrs["data-poll-guard"] = "";
   assert.equal(swap(), true, "regions without the tokens keep their behaviour");
 });
+
+test("a blur-triggered request is dropped while a button of its target is pressed", () => {
+  const btn = { closest: () => btn };
+  handlers["pointerdown"].forEach((f) => f({ target: btn }));
+  const t = { hasAttribute: (n: string) => n === "data-press-wins", contains: (x: unknown) => x === btn };
+  const run = (type: string) => {
+    let prevented = 0;
+    handlers["htmx:beforeRequest"].forEach((f) =>
+      f({ detail: { elt: { getAttribute: () => null }, target: t, requestConfig: { triggeringEvent: { type } } }, preventDefault: () => prevented++ }),
+    );
+    return prevented;
+  };
+  assert.equal(run("change"), 1);
+  assert.equal(run("submit"), 0, "only a blur is dropped");
+  handlers["pointerup"].forEach((f) => f({}));
+  return new Promise((r) => setTimeout(r, 5)).then(() => assert.equal(run("change"), 0, "released: the blur redraws again"));
+});

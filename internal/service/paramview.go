@@ -36,11 +36,8 @@ func (o *Orchestrator) RevealParam(ctx context.Context, by *Principal, s ParamSc
 	return p.Value, nil
 }
 
-// ParamImpact is the tiles (by slug) a save of es would redeploy, without
-// writing anything: a changed value or a secret given a new value counts, an
-// unchanged one does not. A stored secret is decrypted here to compare and
-// never leaves.
-func (o *Orchestrator) ParamImpact(ctx context.Context, s ParamScope, es []ParamEntry) ([]string, error) {
+// changedKeys is the keys of es a save would move: see ParamImpact.
+func (o *Orchestrator) changedKeys(ctx context.Context, s ParamScope, es []ParamEntry) (map[string]bool, error) {
 	have, err := o.params.Values(ctx, s, false)
 	if err != nil {
 		return nil, err
@@ -58,8 +55,31 @@ func (o *Orchestrator) ParamImpact(ctx context.Context, s ParamScope, es []Param
 			keys[k] = true
 		}
 	}
-	if len(keys) == 0 {
-		return nil, nil
+	return keys, nil
+}
+
+// ParamGateHosts is the hosts whose basic-auth login reads a key a save of es
+// would move: the save rebuilds the proxy rules for them, nothing restarts.
+func (o *Orchestrator) ParamGateHosts(ctx context.Context, s ParamScope, es []ParamEntry) ([]string, error) {
+	keys, err := o.changedKeys(ctx, s, es)
+	if err != nil || len(keys) == 0 {
+		return nil, err
+	}
+	ts, err := o.scopeTiles(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	return o.gateHits(ctx, s, ts, keys)
+}
+
+// ParamImpact is the tiles (by slug) a save of es would redeploy, without
+// writing anything: a changed value or a secret given a new value counts, an
+// unchanged one does not. A stored secret is decrypted here to compare and
+// never leaves.
+func (o *Orchestrator) ParamImpact(ctx context.Context, s ParamScope, es []ParamEntry) ([]string, error) {
+	keys, err := o.changedKeys(ctx, s, es)
+	if err != nil || len(keys) == 0 {
+		return nil, err
 	}
 	ts, err := o.scopeTiles(ctx, s)
 	if err != nil {
@@ -128,14 +148,53 @@ func lockedTiles(j Job) []string {
 
 // UnsetParams names the values an env's tiles wait for: a deploy parked on a
 // param of this env that has no value yet, with the tiles parked on it
-// ("collection.name" to tile slugs). A declared secret stores no row, so the
-// parked deploys are where the declaration shows.
+// ("collection.name" to tile slugs), and, with no tiles, the values a running
+// tile reads that have none. A declared secret stores no row, so the parked
+// deploys and the readers are where the declaration shows.
 func (o *Orchestrator) UnsetParams(ctx context.Context, s ParamScope) (map[string][]string, error) {
 	out, err := o.UnsetParamsOf(ctx, []ParamScope{s})
 	if err != nil {
 		return nil, err
 	}
 	return out[0], nil
+}
+
+// unsetRead adds to out the values a running tile of the env reads and the env
+// has no value for (the secret was unset after it deployed, or never reached
+// a parked deploy): listed with no tile, since nothing waits for them.
+func (o *Orchestrator) unsetRead(ctx context.Context, s ParamScope, out map[string][]string) error {
+	have, err := o.params.Values(ctx, s, true) // secrets too: they are the usual case
+	if err != nil {
+		return err
+	}
+	ts, err := o.scopeTiles(ctx, s)
+	if err != nil {
+		return err
+	}
+	for _, t := range ts {
+		var miss []string
+		for _, b := range params.Refs(t.EnvJSON + "\n" + t.Volumes + "\n" + t.Command) {
+			r, err := params.Parse(b)
+			if k := r.Slug + "." + r.Name; err == nil && r.Kind == params.KindParam && r.Env == "" {
+				if _, ok := have[k]; !ok {
+					miss = append(miss, k)
+				}
+			}
+		}
+		if len(miss) == 0 {
+			continue
+		}
+		if ok, err := o.reachedByRedeploy(ctx, t); err != nil {
+			return err
+		} else if ok {
+			for _, k := range miss {
+				if _, there := out[k]; !there {
+					out[k] = nil
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // UnsetParamsOf is UnsetParams for several scopes with the parked jobs read
@@ -168,6 +227,9 @@ func (o *Orchestrator) UnsetParamsOf(ctx context.Context, ss []ParamScope) ([]ma
 					out[k] = append(out[k], t.Slug)
 				}
 			}
+		}
+		if err := o.unsetRead(ctx, s, out); err != nil {
+			return nil, err
 		}
 		for _, v := range out {
 			slices.Sort(v)

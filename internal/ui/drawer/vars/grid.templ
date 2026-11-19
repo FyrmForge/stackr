@@ -160,6 +160,10 @@ func editVals(col Col, group, name string, secret bool) string {
 // editor posts it, so no click loses them.
 const heldSel = "#vars-held"
 
+// keepSel is heldSel and the open input: a request that redraws the editor
+// without saving must not lose what was typed.
+const keepSel = "#vars-held, .vars-edit"
+
 // plainURL draws the editor with nothing open and nothing held.
 func (g Grid) plainURL() string { return g.Action + "/edit" }
 
@@ -235,7 +239,7 @@ templ listRow(g Grid, col Col, group string, r Row, cell Cell) {
 				@editInput(g, col, group, r, cell, refused)
 			</div>
 			<div class="flex items-center justify-end gap-1">
-				<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
+				<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-vals='{"typed_scope":""}' hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
 			</div>
 		</form>
 		if cell.Set && g.DeleteAction != "" {
@@ -274,7 +278,7 @@ templ cellView(g Grid, col Col, group string, r Row, cell Cell) {
 	if !g.ReadOnly && (g.editing(col, group, r.Name) || refused != nil) {
 		<form data-hold class="vars-edit flex flex-wrap items-center gap-1" hx-post={ g.Action + "/preview" } hx-trigger="submit, change" hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">
 			@editInput(g, col, group, r, cell, refused)
-			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
+			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-vals='{"typed_scope":""}' hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">Cancel</button>
 		</form>
 		if cell.Set && g.DeleteAction != "" {
 			@unsetButton(g, col, group, r)
@@ -318,18 +322,18 @@ templ cellValue(g Grid, col Col, group string, r Row, cell Cell) {
 templ cellActions(g Grid, col Col, group string, r Row, cell Cell) {
 	if g.ReadOnly {
 	} else if g.pending(col, group, r.Name) != nil {
-		<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + group + "." + r.Name } hx-post={ g.Action + "/preview" } hx-vals={ dropVals(g.pending(col, group, r.Name).Field) } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">@undoIcon()</button>
+		<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + group + "." + r.Name } hx-post={ g.Action + "/preview" } hx-vals={ dropVals(g.pending(col, group, r.Name).Field) } hx-include={ keepSel } hx-target="#vars-editor" hx-swap="outerHTML">@undoIcon()</button>
 	} else if cell.Set && cell.Secret {
 		if g.shown(col, group, r.Name) != nil {
-			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">Hide</button>
+			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-include={ keepSel } hx-target="#vars-editor" hx-swap="outerHTML">Hide</button>
 		} else {
-			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/reveal" } hx-vals={ delVals(col.Token, group, r.Name) } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Show " + group + "." + r.Name }>Show</button>
+			<button type="button" class="btn btn-sm" hx-post={ g.Action + "/reveal" } hx-vals={ delVals(col.Token, group, r.Name) } hx-include={ keepSel } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Show " + group + "." + r.Name }>Show</button>
 		}
-		<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-vals={ editVals(col, group, r.Name, true) } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Replace " + group + "." + r.Name }>Replace</button>
+		<button type="button" class="btn btn-sm" hx-post={ g.Action + "/edit" } hx-vals={ editVals(col, group, r.Name, true) } hx-include={ keepSel } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Replace " + group + "." + r.Name }>Replace</button>
 	} else if r.Secret {
-		<button type="button" class="btn btn-primary btn-sm" hx-post={ g.Action + "/edit" } hx-vals={ editVals(col, group, r.Name, true) } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Set " + group + "." + r.Name }>Set</button>
+		<button type="button" class="btn btn-primary btn-sm" hx-post={ g.Action + "/edit" } hx-vals={ editVals(col, group, r.Name, true) } hx-include={ keepSel } hx-target="#vars-editor" hx-swap="outerHTML" aria-label={ "Set " + group + "." + r.Name }>Set</button>
 	} else {
-		<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Edit" aria-label={ "Edit " + group + "." + r.Name } hx-post={ g.Action + "/edit" } hx-vals={ editVals(col, group, r.Name, false) } hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML">@penIcon()</button>
+		<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Edit" aria-label={ "Edit " + group + "." + r.Name } hx-post={ g.Action + "/edit" } hx-vals={ editVals(col, group, r.Name, false) } hx-include={ keepSel } hx-target="#vars-editor" hx-swap="outerHTML">@penIcon()</button>
 	}
 }
 
@@ -337,12 +341,13 @@ templ cellActions(g Grid, col Col, group string, r Row, cell Cell) {
 templ shownNote(g Grid) {
 	<p class="mt-1 text-xs text-rw-faint" data-hold>
 		Shown to you. Logged. Hides in 30 s.
-		<span hidden hx-post={ g.Action + "/edit" } hx-trigger="load delay:30s" hx-include={ heldSel } hx-target="#vars-editor" hx-swap="outerHTML"></span>
+		<span hidden hx-post={ g.Action + "/edit" } hx-trigger="load delay:30s" hx-include={ keepSel } hx-target="#vars-editor" hx-swap="outerHTML"></span>
 	</p>
 }
 
 templ editInput(g Grid, col Col, group string, r Row, cell Cell, refused *c.Refused) {
 	<input type="hidden" name="scope" value={ col.Token }/>
+	<input type="hidden" name="typed_scope" value={ col.Token }/>
 	if cell.Secret || (!cell.Set && r.Secret) {
 		<input class="input font-mono ff" type="password" autocomplete="new-password" name={ "secret." + group + "." + r.Name } aria-label={ "Value of " + group + "." + r.Name } placeholder="new value"/>
 	} else {
@@ -423,6 +428,9 @@ func dropVals(field string) string {
 }
 
 func waitsLine(tiles []string) string {
+	if len(tiles) == 1 {
+		return tiles[0] + " waits for it."
+	}
 	return NaturalList(tiles) + " wait for it."
 }
 

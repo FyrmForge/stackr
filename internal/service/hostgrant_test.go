@@ -327,8 +327,11 @@ func TestDeleteTileKeepsEnvWidePromote(t *testing.T) {
 	if s := w.jobState(t, own.ID); s != job.Cancelled {
 		t.Errorf("tile job = %s, want cancelled", s)
 	}
-	if s := w.jobState(t, env.ID); s != job.Waiting {
-		t.Errorf("env promote = %s, want waiting", s)
+	// not cancelled. A raw waiting row is not one this process parked, so the
+	// runner's 3 s unpark tick requeues it, and under load that tick lands
+	// before this check: waiting, queued or running all mean it was kept.
+	if s := w.jobState(t, env.ID); s == job.Cancelled {
+		t.Errorf("env promote = %s, want it kept", s)
 	}
 }
 

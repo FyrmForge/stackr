@@ -4,7 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -115,4 +117,52 @@ func TestWaitingReleaseRowWords(t *testing.T) {
 		return
 	}
 	t.Fatalf("no release row: %+v", wt)
+}
+
+// A release waiting on the bottom env (rung 0, nothing below it) is listed by
+// its own number and does not panic the page.
+func TestWaitingReleaseAtBottomEnv(t *testing.T) {
+	t.Parallel()
+	e := servicetest.New(t)
+	ctx := context.Background()
+	org := e.Org(t, "acme")
+	u := e.User(t, "o@acme.test", false)
+	e.Member(t, org, u, "owner")
+	tl := e.Tile(t, org)
+	now := time.Now()
+	line := "env:" + tl.Env
+	built := "r1"
+	for _, r := range []store.Release{
+		{ID: "r1", StackID: tl.Stack, Number: 1, CreatedAt: now},
+		{ID: "r2", StackID: tl.Stack, Number: 2, CreatedAt: now, BuiltOn: &built, Line: &line},
+	} {
+		if err := e.Store.Releases.Create(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.Store.ReleaseTiles.Create(ctx, store.ReleaseTile{ID: "t" + r.ID, ReleaseID: r.ID, Slug: "api", Repo: "nginx:1", Digest: "sha256:" + r.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row, err := e.Store.Environments.Get(ctx, tl.Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row.ReleaseID = &built
+	if err := e.Store.Environments.Update(ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	p, err := e.Orch.SessionPrincipal(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := e.Orch.WaitingOnYou(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range w.Groups {
+		if g.Title == "Releases to promote" && strings.HasSuffix(g.Items[0].Title, "release 2") {
+			return
+		}
+	}
+	t.Fatalf("no row naming release 2: %+v", w)
 }

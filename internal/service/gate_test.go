@@ -148,3 +148,32 @@ func TestGateSyncPRAndFailure(t *testing.T) {
 		t.Errorf("readers after a failed sync = %q", names(rs))
 	}
 }
+
+// A save that changes what a gate login reads names the gate's host before
+// anything is written; a value no gate reads names none.
+func TestParamGateHosts(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	api := w.tile(t, "api", true)
+	scope := ParamScope{Kind: "env", ID: w.env}
+	_, err := w.orch.SetParams(ctx, scope, []ParamEntry{
+		{Collection: "gate", Name: "user", Kind: "param", Value: "alice"},
+		{Collection: "app", Name: "mode", Kind: "param", Value: "a"},
+	})
+	must(t, err)
+	_, err = w.orch.AttachDomain(ctx, api.ID, DomainSpec{Host: "api.example.com", Extras: domain.Extras{
+		BasicAuth: &domain.BasicAuth{User: "${{ params.gate.user }}", Password: "pw"},
+	}})
+	must(t, err)
+	hs, err := w.orch.ParamGateHosts(ctx, scope, []ParamEntry{{Collection: "gate", Name: "user", Kind: "param", Value: "bob"}})
+	if err != nil || len(hs) != 1 || hs[0] != "api.example.com" {
+		t.Errorf("gate.user: %v %v", hs, err)
+	}
+	if hs, _ := w.orch.ParamGateHosts(ctx, scope, []ParamEntry{{Collection: "gate", Name: "user", Kind: "param", Value: "alice"}}); len(hs) != 0 {
+		t.Errorf("an unchanged value reloads %v", hs)
+	}
+	if hs, _ := w.orch.ParamGateHosts(ctx, scope, []ParamEntry{{Collection: "app", Name: "mode", Kind: "param", Value: "b"}}); len(hs) != 0 {
+		t.Errorf("a value no gate reads reloads %v", hs)
+	}
+}
