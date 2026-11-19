@@ -371,7 +371,14 @@
             "type": "boolean"
           },
           "keep": {
-            "type": "boolean"
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "ticked": {
             "items": {
@@ -382,8 +389,7 @@
         },
         "required": [
           "ticked",
-          "confirm",
-          "keep"
+          "confirm"
         ],
         "type": "object"
       },
