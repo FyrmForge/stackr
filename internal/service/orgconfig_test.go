@@ -645,6 +645,20 @@ func TestOrgFilePinSeesStackFileVolumes(t *testing.T) {
 	}
 }
 
+// The org plan warns, before approval, about an env a bound stack's file
+// declares with no branch or promote: the push would skip it.
+func TestOrgPlanWarnsEnvWithoutBranch(t *testing.T) {
+	r := newOrgRig(t)
+	r.g.Commit(t, "acme/shop", "main", map[string]string{
+		"stackr-compose.yml": "version: 1\nstack: shop\nenvironments:\n  prod: {}\n",
+	})
+	r.orgFile(t, "version: 1\norg: acme\nstacks:\n  shop:\n    repo: acme/shop\n")
+	r.bind(t, false)
+	if p := r.plans(t)[0]; !strings.Contains(p.Plan, "shop/prod: the file gives it no branch or promote") {
+		t.Errorf("plan = %s / %s, want the warning", p.Summary, p.Plan)
+	}
+}
+
 // A plan that is only removals, none ticked, is refused with the sentence;
 // Keep closes it as kept; a tick applies it. The list says what was done.
 func TestApproveRemovalOnlyPlan(t *testing.T) {

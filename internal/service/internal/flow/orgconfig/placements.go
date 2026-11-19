@@ -31,4 +31,5 @@ func (p *Plan) placing(f *File, live Live) {
 	p.Changes = append(p.Changes, live.DNS...)
 	p.Notes = append(p.Notes, warns...)
 	p.Notes = append(p.Notes, live.DNSNotes...)
+	p.Notes = append(p.Notes, live.FileNotes...)
 }
