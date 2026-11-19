@@ -586,7 +586,8 @@ func (o *Orchestrator) buildInto(
 // repo-relative. With none, the context folder's Dockerfile wins, then the
 // repo root's; neither existing is an error naming both.
 func dockerfileIn(r git.Repo, buildContext, explicit string) (string, error) {
-	if explicit != "" {
+	// A saved tile stores "Dockerfile" for none (tile.Validate), so it is not explicit.
+	if explicit != "" && explicit != "Dockerfile" {
 		return r.Under(explicit)
 	}
 	inCtx := filepath.ToSlash(filepath.Join(buildContext, "Dockerfile"))
@@ -595,7 +596,7 @@ func dockerfileIn(r git.Repo, buildContext, explicit string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if _, err := os.Stat(df); err == nil {
+		if fi, err := os.Stat(df); err == nil && fi.Mode().IsRegular() {
 			return df, nil
 		}
 	}

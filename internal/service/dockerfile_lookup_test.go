@@ -31,6 +31,8 @@ func TestDockerfileIn(t *testing.T) {
 		{"root only", []string{"Dockerfile"}, "", "Dockerfile"},
 		{"both, context wins", []string{"app/Dockerfile", "Dockerfile"}, "", "app/Dockerfile"},
 		{"explicit stays repo-relative", []string{"app/Dockerfile", "ci/Dockerfile.x"}, "ci/Dockerfile.x", "ci/Dockerfile.x"},
+		{"saved default still looks in context first", []string{"app/Dockerfile", "Dockerfile"}, "Dockerfile", "app/Dockerfile"},
+		{"directory named Dockerfile is skipped", []string{"app/Dockerfile/x", "Dockerfile"}, "", "Dockerfile"},
 		{"neither", nil, "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
