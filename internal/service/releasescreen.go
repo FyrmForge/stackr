@@ -31,9 +31,9 @@ type ScreenQuery struct{ Scope, State, Source, Q string }
 // ScreenScope is one entry of the scope tree. Org entries (Depth 0) are the
 // "All of <org>" scope; Depth 1 are its file and stacks.
 type ScreenScope struct {
-	Key, Label string
-	Depth      int
-	Waiting    int
+	Key, Label, Name string // Name is the org's, on its own entry
+	Depth            int
+	Waiting          int
 }
 
 // ScreenRow is a WindowRow with where it belongs.
@@ -43,8 +43,9 @@ type ScreenRow struct {
 	Org        string // slug
 	OrgID      string
 	StackSlug  string
-	LogEnv     string // the env slug the stack's job logs are addressed under
-	CanPromote bool   // the viewer may take it into an env
+	LogEnv     string      // the env slug the stack's job logs are addressed under
+	Envs       []WindowEnv // the stack's, to name WindowRow.Runs
+	CanPromote bool        // the viewer may take it into an env
 }
 
 // ReleaseScreen is the screen's tree, rows (newest first) and the sources
@@ -54,6 +55,9 @@ type ReleaseScreen struct {
 	Rows    []ScreenRow
 	Sources []string
 	Total   int // rows that matched, before the cap
+	// Counts are what waits and what failed (not yet fixed) in the scope,
+	// source and search, whatever the state filter says.
+	Counts  map[string]int
 	Waiting map[string]int
 }
 
@@ -76,7 +80,7 @@ func SourceKey(by string) string {
 // rows); a per-scope cache when an install holds enough stacks to feel it.
 func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q ScreenQuery) (ReleaseScreen, error) {
 	var sc ReleaseScreen
-	sc.Waiting = map[string]int{}
+	sc.Waiting, sc.Counts = map[string]int{}, map[string]int{}
 	var orgs []Org
 	var err error
 	if p.Access.Admin {
@@ -113,7 +117,7 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		}
 		start := len(sc.Scopes)
 		sc.Scopes = append(sc.Scopes,
-			ScreenScope{Key: og.Slug, Label: "All of " + og.Name},
+			ScreenScope{Key: og.Slug, Label: "All of " + og.Name, Name: og.Name},
 			ScreenScope{Key: og.Slug + "/" + ScopeOrgConfig, Label: "Org config", Depth: 1})
 		ps, err := o.OrgPlans(ctx, og.ID, 50)
 		if err != nil {
@@ -138,7 +142,7 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 			can := authz.Can(p.Access, "env.write", authz.Resource{OrgID: og.ID, StackID: st.ID}) == nil
 			var rows []ScreenRow
 			for _, r := range w.Rows {
-				rows = append(rows, ScreenRow{WindowRow: r, Scope: st.Name, Org: og.Slug, OrgID: og.ID, StackSlug: st.Slug, LogEnv: w.LogEnv, CanPromote: can})
+				rows = append(rows, ScreenRow{WindowRow: r, Scope: st.Name, Org: og.Slug, OrgID: og.ID, StackSlug: st.Slug, LogEnv: w.LogEnv, Envs: w.Envs, CanPromote: can})
 			}
 			add(og.Slug+"/"+st.Slug, rows...)
 			add(og.Slug, rows...)
@@ -159,10 +163,19 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 			continue
 		}
 		srcs[SourceKey(r.By)] = true
-		if !matchState(r, q.State) || q.Source != "" && SourceKey(r.By) != q.Source {
+		if q.Source != "" && SourceKey(r.By) != q.Source {
 			continue
 		}
 		if needle != "" && !strings.Contains(strings.ToLower(r.Commit+" "+r.Message+" "+r.Err), needle) {
+			continue
+		}
+		if r.State == StateWaiting {
+			sc.Counts[StateWaiting]++
+		}
+		if r.State == StateFailed && !r.Fixed {
+			sc.Counts[StateFailed]++
+		}
+		if !matchState(r, q.State) {
 			continue
 		}
 		if sc.Total++; len(sc.Rows) < screenMax {

@@ -13,10 +13,10 @@ func relSample() RelWindow {
 	return RelWindow{
 		Envs: []RelEnv{{Name: "prod", Color: "teal", Href: "/o/immich/prod"}}, Waiting: 2, Failed: 1,
 		Rows: []RelRow{
-			{Kind: "building", Stack: "immich", Commit: "f9cdc50", At: at, Link: RelLink{"Job log", "/j/1"}},
-			{Kind: "failed", Commit: "a8c41d2", Message: "Push failed: build immich-ml, exit status 1", State: "failed", Tone: "danger", Link: RelLink{"Job log", "/j/2"}},
-			{Kind: "release", ID: "r4", Number: "4", Commit: "56abcb8", Message: "Image watch", State: "waiting", Tone: "accent", Lacks: "3", Link: RelLink{"Review plan", "/p/4"}, At: at, By: "image watch"},
-			{Kind: "release", ID: "r3", Number: "3", Commit: "b653b0c", Message: "immich: depends_on for the server", State: "waiting", Tone: "accent", Link: RelLink{"Review plan", "/p/3"}, At: at, By: "git push",
+			{Kind: "building", Stack: "immich", Commit: "f9cdc50", At: at, Link: RelLink{Label: "Job log", Href: "/j/1"}},
+			{Kind: "failed", Commit: "a8c41d2", Message: "Push failed: build immich-ml, exit status 1", State: "failed", Tone: "danger", Link: RelLink{Label: "Job log", Href: "/j/2"}},
+			{Kind: "release", ID: "r4", Number: "4", Commit: "56abcb8", Message: "Image watch", State: "waiting", Tone: "accent", Lacks: "3", Link: RelLink{Label: "Review plan", Href: "/p/4"}, At: at, By: "image watch"},
+			{Kind: "release", ID: "r3", Number: "3", Commit: "b653b0c", Message: "immich: depends_on for the server", State: "waiting", Tone: "accent", Link: RelLink{Label: "Review plan", Href: "/p/3"}, At: at, By: "git push",
 				Jobs: []RelJob{{"push, done in 14s", "/j/3"}}, CommitURL: "https://github.com/a/b/commit/b653b0c"},
 			{Kind: "release", ID: "r2", Number: "2", Commit: "256abcb", Message: "immich: v3.4.1", State: "running", Tone: "success", Envs: []EnvRun{{Name: "prod", Color: "teal"}}, At: at, By: "git push"},
 			{Kind: "release", ID: "r1", Number: "1", Commit: "10f3e7a", Message: "first stack file", State: "superseded", At: at, By: "git push"},

@@ -9,6 +9,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // relWindow is the releases window of a stack or env canvas: the env links
@@ -116,16 +117,8 @@ func (h *handler) relWindow(ctx context.Context, l level, gv service.GraphView) 
 	return w
 }
 
-var stateTone = map[string]string{
-	service.StateWaiting:   "accent",
-	service.StateDeploying: "warn",
-	service.StateRunning:   "success",
-	service.StateFailed:    "danger",
-}
+var stateTone = render.StateTone
 
-func short(sha string) string { return sha[:min(7, len(sha))] }
+func short(sha string) string { return render.ShortSHA(sha) }
 
-func errTail(err string) string {
-	s, _ := comp.ErrTail(err, 80)
-	return s
-}
+func errTail(err string) string { return render.ErrTail(err) }
