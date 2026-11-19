@@ -522,7 +522,7 @@ func fixedFailures(js []Job, rs []store.Release, scoped []string, envs map[strin
 			}
 			if j.ReleaseID != nil {
 				if i := slices.IndexFunc(rs, func(r store.Release) bool { return r.ID == *j.ReleaseID }); i >= 0 {
-					row.Number, row.Commit, row.By = rs[i].Number, rs[i].Commit, rs[i].CreatedBy
+					row.Number, row.Commit, row.Message, row.By = rs[i].Number, rs[i].Commit, rs[i].Message, rs[i].CreatedBy
 				}
 			}
 		}

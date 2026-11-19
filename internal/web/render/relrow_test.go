@@ -25,3 +25,12 @@ func TestSourceWordUnnamedUser(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// A failed release keeps its commit message; the cause is its own line.
+func TestRelRowFailedPromoteKeepsMessage(t *testing.T) {
+	r := service.WindowRow{Kind: service.RowFailed, State: service.StateFailed, Number: 19, Message: "fix login", FailEnv: "dev", Err: "a\ndeploy web: boom.", JobID: "j"}
+	got := RelRowOf(r, "shop", nil, nil, func(id string) string { return "/jobs/" + id })
+	if got.Message != "fix login" || got.Err != "deploy web: boom" {
+		t.Errorf("message %q err %q", got.Message, got.Err)
+	}
+}

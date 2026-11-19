@@ -82,6 +82,7 @@ type RelRow struct {
 	Source string
 	Plan   bool // a config plan, not a release
 	Fixed  bool // a failure a later push or promote cured
+	Err    string // a failed release: the end of its error, on a line of its own
 }
 
 // RelBody is what the "releases" event swaps: the bar's markers and the list.
@@ -177,6 +178,9 @@ templ relRow(r RelRow) {
 			<div class="flex min-h-9 items-center gap-2 px-3 py-1 text-sm">
 				@relHead(r)
 			</div>
+		}
+		if r.Err != "" {
+			<p class="px-3 pb-2 pl-12 text-xs text-rw-danger [overflow-wrap:anywhere]">{ r.Err }</p>
 		}
 	</li>
 }

@@ -397,6 +397,44 @@ func TestReleaseHistoryFixedByTheFixingPush(t *testing.T) {
 	t.Error("no fixed failure in the history")
 }
 
+// A failed promote in the history keeps its release's commit message; the
+// screen shows the error on its own line.
+func TestReleaseHistoryFailedPromoteKeepsMessage(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	now := time.Now()
+	r5, r6 := uuid.NewString(), uuid.NewString()
+	for n, id := range map[int]string{5: r5, 6: r6} {
+		if err := w.e.Store.Releases.Create(ctx, store.Release{ID: id, StackID: w.shop, Number: n, CreatedAt: now.Add(-time.Duration(10-n) * time.Hour), CreatedBy: "push", Message: "fix login"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, j := range []struct{ state, err, rel string }{{"failed", "deploy web: boom", r5}, {"done", "", r6}} {
+		fin := now.Add(time.Duration(i-4) * time.Hour)
+		rel := j.rel
+		if err := w.e.Store.Jobs.Create(ctx, store.Job{
+			ID: uuid.NewString(), Kind: "promote", State: j.state, Error: j.err, Payload: `{"org_id":"` + w.acme + `","stack_id":"` + w.shop + `"}`,
+			ReleaseID: &rel, LockSet: store.StringList{"env:" + w.dev}, CreatedAt: fin, FinishedAt: &fin,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h, err := w.e.Orch.ReleaseHistory(ctx, w.shop, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range h.Rows {
+		if r.Kind == service.RowFailed && r.FailEnv != "" {
+			if r.Message != "fix login" || r.Err != "deploy web: boom" {
+				t.Errorf("failed promote row = message %q err %q, want its release's message and the error apart", r.Message, r.Err)
+			}
+			return
+		}
+	}
+	t.Error("no failed promote row in the history")
+}
+
 // The org window reads the org's jobs and releases once and places each by
 // the real payloads (a promote has an env_id and no stack_id or org_id):
 // a promote under way on one stack makes that stack's release deploying and
