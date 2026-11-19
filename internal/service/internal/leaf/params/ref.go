@@ -182,6 +182,9 @@ const (
 	InCommand    Where = "command"
 	InDomain     Where = "domain"      // params only, never a secret, never a tile output (a cycle)
 	InBackupDest Where = "backup_dest" // org.backups only
+	// InGate is a domain's basic-auth login: params, plain or secret. The
+	// password is bcrypt-hashed before it reaches the proxy config.
+	InGate Where = "gate"
 	// InProvisionFrom is a slice tile's target: params and env.name only.
 	InProvisionFrom Where = "provision_from"
 	// InServerFile is an item of stackr-server.yml (a backup dest key, later a
@@ -197,7 +200,7 @@ func allowed(w Where, k Kind) bool {
 		return k != KindBackup && k != KindEnv && k != KindServerParam
 	case InProvisionFrom:
 		return k == KindParam || k == KindEnv
-	case InDomain:
+	case InDomain, InGate:
 		return k == KindParam || k == KindOrgParam
 	case InBackupDest:
 		return k == KindBackup
@@ -263,6 +266,7 @@ type Resolver struct {
 	deps  map[string]bool
 	nets  map[string]bool
 	hosts map[string]bool
+	plain bool // a gate ref read a plain (non-secret) value
 }
 
 func NewResolver(s Snapshot) *Resolver {
@@ -301,6 +305,13 @@ func (rr *Resolver) Expand(w Where, val string) (string, error) {
 		return "", firstErr
 	}
 	return out, nil
+}
+
+// ExpandGate is Expand at InGate, and whether a plain variable fed it.
+func (rr *Resolver) ExpandGate(val string) (string, bool, error) {
+	rr.plain = false
+	v, err := rr.Expand(InGate, val)
+	return v, rr.plain, err
 }
 
 func serverRefErr(r Ref, w Where) error {
@@ -344,6 +355,9 @@ func (rr *Resolver) lookup(w Where, r Ref) (string, error) {
 			return "", fmt.Errorf("%s: %s is a secret, and a domain is public", r.Source, key)
 		case v.Secret && w == InProvisionFrom:
 			return "", fmt.Errorf("%s: %s is a secret, and a provision_from target reaches plans and logs", r.Source, key)
+		}
+		if w == InGate && !v.Secret {
+			rr.plain = true
 		}
 		return v.V, nil
 	}

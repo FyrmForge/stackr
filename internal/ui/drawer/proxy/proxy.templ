@@ -8,6 +8,7 @@ type View struct{ Rows []Route }
 type Route struct {
 	Host, Path, Tile, Port string
 	HTTPS, Auto, Raw       bool
+	Gate, Lock             string // basic-auth user; why the address is locked
 }
 
 templ Routes(v View) {
@@ -36,7 +37,15 @@ templ routes(v View) {
 						if r.Raw {
 							@c.Chip("raw Caddy", "")
 						}
+						if r.Lock != "" {
+							@c.Chip("locked", "danger")
+						} else if r.Gate != "" {
+							@c.Chip("gate: "+r.Gate, "")
+						}
 					</span>
+					if r.Lock != "" {
+						<span class="w-full text-xs text-rw-danger">Locked for everyone: { r.Lock }.</span>
+					}
 				</li>
 			}
 		</ul>

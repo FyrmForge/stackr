@@ -1124,6 +1124,11 @@ templ domainRowsList(v View, d DomainsView) {
 							if r.Auto {
 								<span class="text-xs text-rw-faint ml-1">generated</span>
 							}
+							if r.Locked != "" {
+								<span class="ml-1">@c.Chip("locked", "danger")</span>
+							} else if r.Gate != "" {
+								<span class="text-xs text-rw-faint ml-1">gate: { r.Gate }</span>
+							}
 						</span>
 						if !v.ReadOnly {
 							<span class="flex items-center gap-2 shrink-0 ml-auto">
@@ -1137,6 +1142,9 @@ templ domainRowsList(v View, d DomainsView) {
 							</span>
 						}
 					</div>
+					if r.Locked != "" {
+						<p class="mt-1 text-xs text-rw-danger">Locked for everyone: { r.Locked }.</p>
+					}
 					if r.Records != nil {
 						<details class="mt-1" open?={ len(r.Records.Rows) > 0 }>
 							<summary class="text-xs text-rw-faint hover:text-rw-text cursor-pointer select-none">DNS records</summary>

@@ -780,6 +780,7 @@ func (f *Flow) planDomains(
 		sp := specOf(dc, host, tc.Port)
 		sp.Auto = dc.Auto
 		sp.ResourceID = resID
+		warnGate(p, rr, name, host, sp.Extras.BasicAuth)
 		key := strings.ToLower(host) + normPath(dc.Path)
 		want[key] = true
 		for _, o := range all {

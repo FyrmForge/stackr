@@ -194,6 +194,9 @@ type DomainRow struct {
 	HTTPS, Auto          bool
 	Redirect             string
 	Raw                  string
+	// Gate is the basic-auth user ("" = none); Locked is why the address
+	// answers nobody ("" = not locked).
+	Gate, Locked string
 	// Records is the host's custom DNS records; nil = no managed domain
 	// covers it.
 	Records *dnsui.RecordsView

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
@@ -148,6 +149,9 @@ func (o *Orchestrator) stageParams(ctx context.Context, s ParamScope, skipEnv st
 	if err != nil {
 		return nil, err
 	}
+	if err := o.syncGateReaders(ctx, s, ts, keys); err != nil {
+		return nil, err
+	}
 	if skipEnv != "" {
 		ts = slices.DeleteFunc(ts, func(t Tile) bool { return t.EnvironmentID == skipEnv })
 	}
@@ -172,6 +176,35 @@ func (o *Orchestrator) stageParams(ctx context.Context, s ParamScope, skipEnv st
 		}
 	}
 	return ts, nil
+}
+
+// syncGateReaders rebuilds the proxy rules when a domain's basic-auth login
+// reads a key that moved: the hash lives in the proxy config, no container
+// restarts. It reuses readers by showing it each tile with only its gates'
+// refs as env. ponytail: a PR env's copied secrets (pushPRSecrets) land after
+// this, so their gates wait for the next sync.
+func (o *Orchestrator) syncGateReaders(ctx context.Context, s ParamScope, ts []Tile, keys map[string]bool) error {
+	ds, err := o.domains.List(ctx)
+	if err != nil {
+		return err
+	}
+	gates := map[string][]string{}
+	for _, d := range ds {
+		if x, err := domain.ExtrasOf(d); err == nil && x.BasicAuth != nil {
+			gates[d.TileID] = append(gates[d.TileID], x.BasicAuth.User, x.BasicAuth.Password)
+		}
+	}
+	var fakes []Tile
+	for _, t := range ts {
+		if g := gates[t.ID]; len(g) > 0 {
+			fakes = append(fakes, Tile{ID: t.ID, EnvironmentID: t.EnvironmentID, StackID: t.StackID, EnvJSON: strings.Join(g, "\n")})
+		}
+	}
+	hit, err := o.readers(ctx, s, fakes, keys, false)
+	if err != nil || len(hit) == 0 {
+		return err
+	}
+	return o.sync.Sync(ctx)
 }
 
 // pushPRSecrets copies a changed secret of the stack's pr block into every

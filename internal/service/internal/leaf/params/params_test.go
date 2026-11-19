@@ -230,6 +230,10 @@ func TestResolve(t *testing.T) {
 		{params.InDomain, "api.${{ params.domains.base }}", "api.x.io", ""},
 		{params.InDomain, "${{ params.db.pass }}", "", "is a secret"},
 		{params.InDomain, "${{ tile.api.host }}", "", "not allowed in domain"},
+		// a gate login takes a secret or a variable, never a tile output
+		{params.InGate, "${{ params.db.pass }}", "s3", ""},
+		{params.InGate, "${{ params.email.sender }}", "env@x.io", ""},
+		{params.InGate, "${{ tile.api.host }}", "", "not allowed in gate"},
 		// server.params resolve in the server file and nowhere else
 		{params.InServerFile, "${{ server.params.s3.secret_key }}", "sk", ""},
 		{params.InServerFile, "a-${{server.params.s3.region}}", "a-eu", ""},
@@ -267,6 +271,17 @@ func TestResolve(t *testing.T) {
 	var gone params.Removed
 	if _, err := params.Parse("stack.cache.host"); !errors.As(err, &gone) || gone.Form != "stack.cache" {
 		t.Errorf("stack ref = %v, want Removed", err)
+	}
+}
+
+func TestExpandGatePlain(t *testing.T) {
+	rr := params.NewResolver(params.Snapshot{EnvParams: map[string]params.Value{
+		"db.pass": {V: "s3", Secret: true}, "email.sender": {V: "u"},
+	}})
+	for ref, plain := range map[string]bool{"${{ params.db.pass }}": false, "${{ params.email.sender }}": true} {
+		if _, p, err := rr.ExpandGate(ref); err != nil || p != plain {
+			t.Errorf("%s: plain %v, %v; want %v", ref, p, err, plain)
+		}
 	}
 }
 

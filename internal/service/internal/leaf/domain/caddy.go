@@ -653,18 +653,40 @@ func account(accs []Account, host string) string {
 // a real hash of random bytes nobody has. Never an open URL, never a
 // sentinel Caddy might compare as plain text.
 func credentials(a BasicAuth, expand Expand) (user, hash string) {
-	pw := a.Password
-	if expand != nil && pw != "" {
-		var err error
-		if pw, err = expand(pw); err != nil {
-			slog.Warn("basic auth password did not resolve; route locked", "user", a.User, "err", err)
-			pw = ""
-		}
-	}
-	if a.User == "" || pw == "" || len(pw) > 72 {
+	user, pw, why := GateLogin(a, expand)
+	if why != "" {
+		slog.Warn("basic auth route locked", "user", a.User, "why", why)
 		return "locked", lockHash()
 	}
-	return a.User, hashOf(pw)
+	return user, hashOf(pw)
+}
+
+// GateLogin resolves a gate's user and password through expand; reason is
+// why the gate is locked, "" when both resolve. A nil expand takes them as
+// written.
+func GateLogin(a BasicAuth, expand Expand) (user, pw, reason string) {
+	user, pw = a.User, a.Password
+	for _, p := range []*string{&user, &pw} {
+		if expand == nil || *p == "" {
+			continue
+		}
+		v, err := expand(*p)
+		if err != nil {
+			*p, reason = "", err.Error()
+			continue
+		}
+		*p = v
+	}
+	switch {
+	case reason != "":
+	case user == "":
+		reason = "the gate user is empty"
+	case pw == "":
+		reason = "the gate password is empty"
+	case len(pw) > 72:
+		reason = "the gate password is over 72 bytes"
+	}
+	return user, pw, reason
 }
 
 // Cost 5: Caddy checks the hash on every request, assets included.

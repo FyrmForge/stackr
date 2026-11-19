@@ -37,6 +37,9 @@ func one(d store.Domain) []domain.TileRoute {
 }
 
 func expand(s string) (string, error) {
+	if !strings.Contains(s, "${{") { // like params.Expand
+		return s, nil
+	}
 	if s == "${{ secrets.web.pw }}" {
 		return "s3cret", nil
 	}
@@ -260,6 +263,21 @@ func TestBasicAuthFailsClosed(t *testing.T) {
 	}
 	if !bytes.Equal(build("plain"), build("plain")) {
 		t.Error("a rebuild changed the bytes")
+	}
+}
+
+// Gate user and password both resolve, and a literal pair (the Protect
+// setting's) still works.
+func TestGateLogin(t *testing.T) {
+	ex := func(s string) (string, error) { return strings.NewReplacer("${{ u }}", "alice", "${{ p }}", "pw").Replace(s), nil }
+	for _, a := range []domain.BasicAuth{{User: "${{ u }}", Password: "${{ p }}"}, {User: "alice", Password: "pw"}} {
+		if u, pw, why := domain.GateLogin(a, ex); u != "alice" || pw != "pw" || why != "" {
+			t.Errorf("%+v: %s %s %q", a, u, pw, why)
+		}
+	}
+	bad := func(string) (string, error) { return "", errors.New("gate.password is not set") }
+	if _, _, why := domain.GateLogin(domain.BasicAuth{User: "a", Password: "${{ p }}"}, bad); !strings.Contains(why, "not set") {
+		t.Errorf("reason = %q", why)
 	}
 }
 
