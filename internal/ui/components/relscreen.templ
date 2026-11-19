@@ -75,8 +75,6 @@ templ RelScreenView(v RelScreen) {
 			</nav>
 			<div class="min-w-0 flex-1">
 				<form
-					action={ templ.SafeURL(v.Action) }
-					method="get"
 					class="flex flex-wrap items-center gap-3 border-b border-rw-border p-3"
 					hx-get={ v.Action }
 					hx-target="#rel-screen"
