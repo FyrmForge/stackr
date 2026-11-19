@@ -1,0 +1,77 @@
+package components
+
+import (
+	"strconv"
+	"strings"
+)
+
+// PushFailView is the line of a stack whose last push failed: the end of its
+// error, the whole last line for the title, the job's log.
+type PushFailView struct{ Short, Full, Href string }
+
+// NewPushFail is the line for a push job's error and its job page.
+func NewPushFail(err, href string) PushFailView {
+	s, f := ErrTail(err, 80)
+	return PushFailView{Short: s, Full: f, Href: href}
+}
+
+// ErrTail is the end of an error's last line, cut to max runes behind "...",
+// and that whole line for a title.
+func ErrTail(err string, max int) (short, full string) {
+	full = strings.TrimSpace(err)
+	if i := strings.LastIndex(full, "\n"); i >= 0 {
+		full = strings.TrimSpace(full[i+1:])
+	}
+	if r := []rune(full); len(r) > max {
+		return "..." + string(r[len(r)-max:]), full
+	}
+	return full, full
+}
+
+// PushFailed is the danger line over an env page and its Releases tab after
+// a failed push; the next push that does not fail takes it away.
+templ PushFailed(p PushFailView) {
+	<div class="banner banner-danger flex items-center gap-3" role="alert">
+		<span class="min-w-0 flex-1 truncate" title={ p.Full }>{ "The last push failed: " + strings.TrimRight(p.Short, ".") + "." }</span>
+		if p.Href != "" {
+			<a href={ templ.SafeURL(p.Href) } class="shrink-0 underline">Job log</a>
+		}
+	</div>
+}
+
+// StopView is the line of an env whose last promote failed: what stopped and
+// its job log.
+type StopView struct{ Text, Href string }
+
+// NewStop is the line for a failed promote of release n that stopped at tile
+// ("" = before any tile ran).
+func NewStop(release int, tile, href string) StopView {
+	t := "Promote of release " + strconv.Itoa(release) + " failed."
+	if tile != "" {
+		t = "Promote of release " + strconv.Itoa(release) + " stopped at " + tile + "."
+	}
+	return StopView{Text: t, Href: href}
+}
+
+// RolloutStopped is the danger line over an env page after a failed promote;
+// the next promote that does not fail takes it away.
+templ RolloutStopped(s StopView) {
+	<div class="banner banner-danger flex items-center gap-3" role="alert">
+		<span class="min-w-0 flex-1 truncate">{ s.Text }</span>
+		if s.Href != "" {
+			<a href={ templ.SafeURL(s.Href) } class="shrink-0 underline">Job log</a>
+		}
+	</div>
+}
+
+// StopChip is the env bar's "Promote failed" chip. It is always in the bar
+// (hidden when none) so the banners poll can swap it in place.
+templ StopChip(on, oob bool) {
+	<span
+		id="env-stop-chip"
+		class={ "chip bg-rw-danger/15 text-rw-danger", templ.KV("hidden", !on) }
+		if oob {
+			hx-swap-oob="true"
+		}
+	>Promote failed</span>
+}

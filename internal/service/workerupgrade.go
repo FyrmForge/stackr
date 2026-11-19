@@ -423,7 +423,7 @@ func (ro rollout) one(ctx context.Context, n store.Node, target string) error {
 			return err
 		}
 		set(stateFailed, msg)
-		why := n.Name + " failed to upgrade"
+		why := n.Name + " failed to update"
 		if rolledBack {
 			why += ", rolled back"
 		}
@@ -436,7 +436,7 @@ func (ro rollout) one(ctx context.Context, n store.Node, target string) error {
 	f, err := ro.facts(ctx, n.ID)
 	switch {
 	case n.Status != node.StatusOnline || err != nil:
-		set(stateSkipped, "offline, upgrades when it reconnects")
+		set(stateSkipped, "offline, updates when it reconnects")
 		return nil
 	case f.Arch != "" && f.Arch != ro.arch:
 		set(stateSkipped, fmt.Sprintf("%s is %s; the stackr image is %s only", n.Name, f.Arch, ro.arch))

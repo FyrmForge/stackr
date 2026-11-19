@@ -7,6 +7,9 @@ import c "github.com/FyrmForge/stackr/internal/ui/components"
 // Root is what a save answers into (outerHTML), wherever the editor sits.
 const Root = "vars-editor"
 
+// GridID is the part of the editor a live refresh swaps.
+const GridID = "vars-grid"
+
 type View struct {
 	Scope  string // "org acme", for the heading
 	Lead   string // the opening line; "" = the tiles' (a save redeploys what reads them)
@@ -17,13 +20,20 @@ type View struct {
 }
 
 templ Editor(v View) {
-	<div id={ Root } class="space-y-4">
+	<div id={ Root } class="space-y-4" hx-history="false">
 		if v.Lead != "" {
 			<p class="text-sm text-rw-muted">{ v.Lead }</p>
+		} else if v.Grid != nil {
+			<p class="text-sm text-rw-muted">Variables of { v.Scope }. A save can redeploy the running tiles that read them.</p>
 		} else {
 			<p class="text-sm text-rw-muted">Variables of { v.Scope }. A save redeploys the running tiles that read them.</p>
 		}
 		if v.Grid != nil {
+			// values change under the viewer (a tile parks, a save lands): look again,
+			// but not over an open edit, a pending change or a revealed secret. Only
+			// the grid is swapped: the save note and a form error stay until the next
+			// action, and a click's swap into #vars-editor never finds its target replaced.
+			<span hidden data-live-tab data-poll-guard="hold dirty region" hx-get={ v.Grid.Action } hx-trigger="every 3s" hx-select={ "#" + GridID } hx-target={ "#" + GridID } hx-swap="outerHTML"></span>
 			@c.FormError(v.Error)
 			if v.Note != "" && v.Grid.Added == nil {
 				<p class="banner" role="status">{ v.Note }</p>

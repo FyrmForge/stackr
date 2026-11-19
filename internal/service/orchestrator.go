@@ -265,13 +265,15 @@ type Orchestrator struct {
 	recGen     int
 	// recoverSeen are the nonces of recent recovery calls (RecoverNode).
 	recoverSeen recoverNonces
-	db          *sqlx.DB
-	store       *store.Store
-	sessions    *auth.SessionManager
-	docker      Docker
-	vip         tile.VIP  // the boot rebuild reads it (vipboot.go)
-	dnsKick     *coalesce // the records sync after a proxy push (dnssync.go)
-	dnsSync     dnsState
+	// restartPending are the tiles a redeploy-later param save reaches (paramview.go).
+	restartPending sync.Map
+	db             *sqlx.DB
+	store          *store.Store
+	sessions       *auth.SessionManager
+	docker         Docker
+	vip            tile.VIP  // the boot rebuild reads it (vipboot.go)
+	dnsKick        *coalesce // the records sync after a proxy push (dnssync.go)
+	dnsSync        dnsState
 
 	users       *user.Leaf
 	orgs        *org.Leaf
@@ -332,11 +334,13 @@ type Orchestrator struct {
 	upgradeCheckMu  sync.Mutex            // CheckUpgrade runs one at a time
 	upgradeTried    atomic.Int64          // unix nanos of the last check that stored no answer (0 none)
 	upgrading       atomic.Bool           // an upgrade helper runs on the controller (UpgradeHeld)
+	upgradeStep     atomic.Int32          // the running upgrade's step (UpgradePull..), 0 = none
 	vipAsync        sync.WaitGroup        // rerouteVIPsAsync runs in flight; tests wait on it
+	waitCounts      waitCountCache        // per user: the shell badge's count, a few seconds old
 	trustAsync      sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
 	vipLocks        sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
 	moveAllLocks    sync.Map              // node ID -> *sync.Mutex: one Move all batch per node at a time
-	earlyMu         sync.Mutex           // guards earlyIPs
+	earlyMu         sync.Mutex            // guards earlyIPs
 	earlyIPs        map[string]earlyEnt   // container id -> address holding early lan rules
 	// downSince is when each instance's primary was first seen down (the
 	// primary-down problem waits for it to last); lease and leasePush: lease.go.
@@ -721,6 +725,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{
+			Deployed:    func(id string) { orch.restartPending.Delete(id) },
 			Preflight:   orch.preflight,
 			Remote:      func(ctx context.Context, e store.Environment) bool { return orch.envRemote(ctx, e.ID) },
 			LinkHost:    orch.linkHost,
@@ -778,6 +783,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			CheckDNS:       orch.CheckFileRecords,
 			WriteParams:    orch.writeParams,
 			Placements:     orch.stackPlacements,
+			NodeOf:         orch.nodeAndDisk,
 			Forget:         orch.forgetTileClone,
 			SetVolumeCap:   orch.SetVolumeCap,
 			DumpBeforeDrop: orch.dumpBeforeDrop,
@@ -830,6 +836,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Panel:   panel.New(d),
 			Version: cfg.Version,
 			Archive: orch.upgradeArchive,
+			Step:    orch.setUpgradeStep,
 			Spec:    orch.panelSpec,
 
 			Docker:    d,
@@ -861,24 +868,31 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.graph = build("flow/graph", func() *graph.Flow {
 		return &graph.Flow{
-			Orgs:       orch.orgs,
-			Stacks:     orch.stacks,
-			Envs:       orch.envs,
-			Tiles:      orch.tiles,
-			Params:     orch.params,
-			Tiers:      orch.tiers,
-			Volumes:    orch.volumes,
-			Domains:    orch.domains,
-			Operated:   orch.operated,
-			Conns:      orch.conns,
-			Releases:   orch.releases,
-			Jobs:       orch.jobRows,
-			Runs:       orch.runs,
-			Canvas:     orch.canvas,
-			Images:     orch.images,
-			Target:     orch.deploy.Target,
-			Slice:      orch.engines.SliceWord,
-			ExtUpdates: orch.pgExtUpdateCount,
+			Orgs:           orch.orgs,
+			Stacks:         orch.stacks,
+			Envs:           orch.envs,
+			Tiles:          orch.tiles,
+			Params:         orch.params,
+			Tiers:          orch.tiers,
+			Volumes:        orch.volumes,
+			Domains:        orch.domains,
+			Operated:       orch.operated,
+			Conns:          orch.conns,
+			Releases:       orch.releases,
+			Jobs:           orch.jobRows,
+			Runs:           orch.runs,
+			Canvas:         orch.canvas,
+			Images:         orch.images,
+			Target:         orch.deploy.Target,
+			Slice:          orch.engines.SliceWord,
+			ExtUpdates:     orch.pgExtUpdateCount,
+			RestartPending: orch.RestartPending,
+			Phase:          orch.jobPhase,
+			PushFail: func(ctx context.Context, stackID string) (string, string, bool) {
+				f, ok := orch.PushFailure(ctx, stackID)
+				return f.JobID, f.Error, ok
+			},
+			Stop: orch.RolloutStop,
 		}
 	})
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {

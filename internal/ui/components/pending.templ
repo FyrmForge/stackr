@@ -1,0 +1,81 @@
+package components
+
+import "strconv"
+
+// PendingChange is one edit waiting for Apply: its label, what it was and
+// what it becomes.
+type PendingChange struct{ Label, Old, New string }
+
+// PendingView is the footer of a panel that holds edits not applied yet:
+// the changes, what applying does to running tiles, and the buttons. The
+// hidden inputs the Apply posts are its children.
+type PendingView struct {
+	ID      string // the form's id, for a request that must post what it holds; "" = none
+	Include string // an hx-include selector: more fields Apply posts (an open input); "" = none
+	Action  string // hx-post of Apply
+	Target  string // the region Apply and Cancel answer into (outerHTML), "#id"
+	Cancel  string // hx-get that draws the region without the edit
+	Changes []PendingChange
+	Impact  []string // one sentence each, in warn
+	Apply   string   // the primary button; "" = Apply
+	Later   string   // a second button that applies without restarting; "" = none
+}
+
+// PendingApply is the Apply button's words: plain when the change touches no
+// running tile, else naming how many it redeploys or starts.
+func PendingApply(verb string, tiles int) string {
+	if tiles == 0 {
+		return "Apply"
+	}
+	n := strconv.Itoa(tiles) + " tile"
+	if tiles != 1 {
+		n += "s"
+	}
+	return "Apply and " + verb + " " + n
+}
+
+// PendingFooter sits at the bottom of a `panel p-4 sm:p-6 overflow-hidden`.
+// While Apply is in flight only a busy Apply shows.
+templ PendingFooter(v PendingView) {
+	<form data-hold class="group -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 mt-4 border-t border-rw-border bg-rw-inset px-4 py-3 sm:px-6" hx-post={ v.Action } hx-target={ v.Target } hx-swap="outerHTML" if v.ID != "" { id={ v.ID } } if v.Include != "" { hx-include={ v.Include } }>
+		{ children... }
+		<p class="text-xs font-medium text-rw-muted">{ pendingCount(len(v.Changes)) }</p>
+		<ul class="mt-1.5 space-y-1">
+			for _, ch := range v.Changes {
+				<li class="flex flex-wrap items-baseline gap-x-2 text-sm">
+					<span class="text-rw-muted">{ ch.Label }</span>
+					<span class="text-xs text-rw-faint line-through">{ ch.Old }</span>
+					<span class="text-rw-faint">to</span>
+					<span class="text-rw-text">{ ch.New }</span>
+				</li>
+			}
+		</ul>
+		for _, s := range v.Impact {
+			<p class="mt-2 text-sm text-rw-warn">{ s }</p>
+		}
+		<div class="mt-3 flex flex-wrap items-center gap-2 group-[.htmx-request]:hidden">
+			<button type="submit" name="restart" value="now" class="btn btn-primary btn-sm">{ pendingApply(v) }</button>
+			if v.Later != "" {
+				<button type="submit" name="restart" value="later" class="btn btn-ghost btn-sm">{ v.Later }</button>
+			}
+			<button type="button" class="btn btn-ghost btn-sm" hx-get={ v.Cancel } hx-target={ v.Target } hx-swap="outerHTML">Cancel</button>
+		</div>
+		<div class="mt-3 hidden items-center gap-2 group-[.htmx-request]:flex">
+			<span class="btn btn-primary btn-sm opacity-60 cursor-not-allowed" aria-disabled="true"><span class="spin" style="margin-top:0;margin-right:.4rem;border-color:currentColor;border-top-color:transparent"></span>Applying</span>
+		</div>
+	</form>
+}
+
+func pendingApply(v PendingView) string {
+	if v.Apply == "" {
+		return "Apply"
+	}
+	return v.Apply
+}
+
+func pendingCount(n int) string {
+	if n == 1 {
+		return "1 change not saved"
+	}
+	return strconv.Itoa(n) + " changes not saved"
+}

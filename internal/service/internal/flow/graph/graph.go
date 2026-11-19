@@ -58,6 +58,16 @@ type Flow struct {
 	// ExtUpdates is how many extension packages of an operated instance have
 	// an update (the daily check); nil = none asked.
 	ExtUpdates func(ctx context.Context, m store.OperatedInstance) int
+	// RestartPending says a saved change waits for the tile's next restart;
+	// nil = none.
+	RestartPending func(tileID string) bool
+	// Phase is the step a live job of a tile is at ("Pulling image");
+	// "" = no word beyond the job's own. nil = none asked.
+	Phase func(ctx context.Context, j store.Job, tileSlug string) string
+	// PushFail is the error of a stack's last push when it failed; nil = none asked.
+	PushFail func(ctx context.Context, stackID string) (jobID, msg string, failed bool)
+	// Stop is the env's last promote when it failed at a tile; nil = none asked.
+	Stop func(ctx context.Context, envID string) (Stopped, bool)
 }
 
 // Node kinds besides the tile kinds (service, image, operated, cron,
@@ -132,18 +142,24 @@ type Node struct {
 	Subs   []Sub
 
 	// Tile facts (session C's footers and chips).
-	Replicas   int
-	Running    int
-	Domains    []string
-	Volumes    []string
-	Host       bool // privileged or devices
-	LastRun    *store.Run
-	NextRun    *time.Time // unpaused cron only
-	NewVersion bool       // image watch saw a newer digest
-	ExtUpdates int        // operated postgres: packages with an update; 0 = none
-	Waiting    string     // the param a parked job waits for
-	Under      string     // building/queued over a running tile: the word beneath, "running"
-	Since      time.Time  // that job's start (queued: its creation); zero = no such job
+	Replicas       int
+	Running        int
+	Domains        []string
+	Volumes        []string
+	Host           bool // privileged or devices
+	LastRun        *store.Run
+	NextRun        *time.Time // unpaused cron only
+	NewVersion     bool       // image watch saw a newer digest
+	RestartPending bool       // a saved change waits for the next restart
+	ExtUpdates     int        // operated postgres: packages with an update; 0 = none
+	Waiting        string     // the param a parked job waits for
+	Under          string     // building/queued over a running tile: the word beneath, "running"
+	Since          time.Time  // that job's start (queued: its creation); zero = no such job
+	Phase          string     // the live job's step, "" = the word alone
+	Fail           string     // the failed deploy's error, whole; "" = none
+	FailJob        string     // stack card: the failed push's job; "" = none
+	Stop, StopJob  string     // a tile the failed promote never reached: the tile it stopped at, and that job
+	Wait           int        // env card: the release the rung below runs and this one does not; 0 = none
 	// Vars card counts; never a value.
 	Params, Secrets int
 	Consumers       int // slice: the tiles that ref it, name it in slice_access or hold a cred on it
@@ -155,12 +171,23 @@ type Sub struct{ ID, Kind, Name, Status, Detail string }
 
 type Edge struct{ Kind, From, To string }
 
+// Stopped is an env's failed promote: where it stopped and which tiles it
+// never reached. Tile "" = it failed before any tile ran.
+type Stopped struct {
+	JobID   string
+	Release int
+	Tile    string
+	Pending []string
+	Error   string
+}
+
 // Rung is one env in the compare pill: the release it runs, and whether
 // the rung below it runs a newer one.
 type Rung struct {
 	EnvID, Name, Slug, Color string
 	Release                  int // 0 = none yet
 	Behind                   bool
+	Waiting                  int // Behind: the release of the rung below, waiting to be promoted here
 }
 
 // Show is what the server draws; the look toggles are the element's.
@@ -343,6 +370,14 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 			if n.Status, err = f.worstOf(ctx, "", ts); err != nil {
 				return err
 			}
+			if f.PushFail != nil {
+				if id, msg, ok := f.PushFail(ctx, st.ID); ok {
+					// a worse roll-up (crashed, building, offline...) keeps its word
+					if rank[n.Status] < rank["failed"] {
+						n.Status, n.Fail, n.FailJob = "pushfailed", msg, id
+					}
+				}
+			}
 		}
 		if n.Domains, err = f.hosts(ctx, ts); err != nil {
 			return err
@@ -386,6 +421,7 @@ func (f *Flow) stack(ctx context.Context, v *View, stackID string, in In) error 
 		n.Color = rs[i].Color
 		n.Detail = plural(len(ts), "tile") // v0's env card line
 		n.Deck = deck(len(ts))
+		n.Wait = rs[i].Waiting
 		if in.Status {
 			if n.Status, err = f.worstOf(ctx, "", ts); err != nil {
 				return err
@@ -418,6 +454,7 @@ func (f *Flow) ladder(ctx context.Context, stackID string) ([]store.Environment,
 	if err != nil {
 		return nil, nil, err
 	}
+	rungs := len(es)
 	es = append(es, rest(all, es)...)
 	hues := environment.Hues(all)
 	rs := make([]Rung, 0, len(es))
@@ -436,11 +473,24 @@ func (f *Flow) ladder(ctx context.Context, stackID string) ([]store.Environment,
 			}
 			r.Release = rel.Number
 		}
-		r.Behind = i > 0 && prev > r.Release
-		prev = r.Release
+		// an env off the ladder (a PR env) is promoted to by nothing
+		if i < rungs {
+			r.Behind = i > 0 && prev > r.Release
+			if r.Behind {
+				r.Waiting = prev
+			}
+			prev = r.Release
+		}
 		rs = append(rs, r)
 	}
 	return es, rs, nil
+}
+
+// Rungs is the stack's envs in ladder order with the release each runs and
+// whether the rung below runs a newer one.
+func (f *Flow) Rungs(ctx context.Context, stackID string) ([]Rung, error) {
+	_, rs, err := f.ladder(ctx, stackID)
+	return rs, err
 }
 
 // rest is the envs off the ladder (PR envs, ...), after it.
@@ -590,6 +640,8 @@ type status struct {
 	waiting  string
 	under    string
 	since    time.Time
+	phase    string
+	fail     string
 	replicas []Sub
 }
 
@@ -666,6 +718,15 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			s.under, s.since = under, j.CreatedAt
 			if j.StartedAt != nil && s.word == "building" {
 				s.since = *j.StartedAt
+			}
+			if f.Phase != nil {
+				s.phase = f.Phase(ctx, j, t.Slug)
+			}
+		}
+		if j.State == job.Failed && rollout[j.Kind] {
+			s.fail = j.Error
+			if s.word == "error" && under == "none" { // never ran: nothing crashed
+				s.word = "failed"
 			}
 		}
 	}
@@ -791,6 +852,11 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		}
 		v.Nodes = append(v.Nodes, n)
 	}
+	if in.Status && f.Stop != nil {
+		if st, ok := f.Stop(ctx, envID); ok {
+			f.stopped(v, st)
+		}
+	}
 	// Sync ghosts: tiles the target lacks, drawn like unsaved cards. No edges.
 	for _, t := range in.New {
 		n, err := f.tileCard(ctx, t, vols, false)
@@ -900,6 +966,28 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		v.Nodes = append(v.Nodes, n)
 	}
 	return nil
+}
+
+// stopped marks the tiles of a failed promote: the one it stopped at failed,
+// the ones after it were never deployed. A tile with a live job of its own
+// keeps that word.
+func (f *Flow) stopped(v *View, st Stopped) {
+	for i := range v.Nodes {
+		n := &v.Nodes[i]
+		switch n.Status {
+		case "building", "queued", "removing", "waiting":
+			continue
+		}
+		switch {
+		case st.Tile != "" && n.Slug == st.Tile && n.Kind != KindVolume:
+			n.Status = "failed"
+			if n.Fail == "" {
+				n.Fail = st.Error
+			}
+		case slices.Contains(st.Pending, n.Slug) && n.Kind != KindVolume:
+			n.Status, n.Stop, n.StopJob = "notdeployed", st.Tile, st.JobID
+		}
+	}
 }
 
 // nouns are what a slice is on each engine's instance, as the card says it.
@@ -1019,6 +1107,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 	n := card(t.ID, t.Kind, t.Name)
 	n.Slug, n.Replicas = t.Slug, max(t.Replicas, 1)
 	n.Host = t.Privileged || strings.TrimSpace(t.Devices) != ""
+	n.RestartPending = f.RestartPending != nil && f.RestartPending(t.ID)
 	switch {
 	case t.Kind == tile.Cron:
 		n.Detail = t.Schedule
@@ -1082,7 +1171,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 			return n, err
 		}
 		n.Status, n.LastRun, n.Waiting = st.word, st.lastRun, st.waiting
-		n.Under, n.Since = st.under, st.since
+		n.Under, n.Since, n.Phase, n.Fail = st.under, st.since, st.phase, st.fail
 		n.Running = 0
 		for _, c := range st.state.Replicas {
 			if c.State == "running" {

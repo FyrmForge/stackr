@@ -53,6 +53,8 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 			Slug:   n.Slug,
 			Detail: n.Detail,
 			Status: n.Status,
+			Fail:   n.Fail,
+			Wait:   n.Wait,
 			X:      n.X,
 			Y:      n.Y,
 			W:      n.W,
@@ -61,6 +63,11 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 			Static: n.Static,
 			Color:  n.Color,
 			Deck:   n.Deck,
+
+			Pending: n.RestartPending,
+		}
+		if n.FailJob != "" {
+			u.FailHref = l.base + "/-/jobs/" + n.FailJob
 		}
 		switch n.Kind {
 		case "org":
@@ -82,7 +89,7 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 		if l.scope.Kind == service.CanvasEnv {
 			envCard(&u, n, l.base, g)
 		} else if len(n.Domains) > 0 {
-			u.Footer = cards.Footer(n.ID, exposed(n, l.scope.Kind))
+			u.Footer = cards.Footer(n.ID, exposed(n, l.scope.Kind, u.FailHref))
 		}
 		v.Nodes = append(v.Nodes, u)
 	}
@@ -130,11 +137,14 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, 
 // exposed is a drill-down card's footer with its domains: an env card on
 // the stack canvas names its first, a stack card on the org canvas counts
 // them (v0: the hosts belong to the level below).
-func exposed(n service.GraphNode, level string) cards.FooterView {
+func exposed(n service.GraphNode, level, failHref string) cards.FooterView {
 	f := cards.FooterView{
-		Kind:   n.Kind,
-		Status: n.Status,
-		Nav:    true,
+		Kind:     n.Kind,
+		Status:   n.Status,
+		Fail:     n.Fail,
+		Wait:     n.Wait,
+		Nav:      true,
+		FailHref: failHref,
 	}
 	if level == service.CanvasOrg {
 		f.Domains = len(n.Domains)
@@ -201,6 +211,7 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 	cv.Access.Waiting = access.Waits(g.Pending, n.Slug)
 	// a sync ghost is a tile the env does not have yet: no drawer to open
 	cv.Sync, cv.Ghost = n.Sync, strings.HasPrefix(n.ID, "sync:")
+	cv.RestartPending = n.RestartPending
 	if url, tab := envDrawer(base, n.Kind, n.ID, n.Slug); url != "" && !cv.Ghost {
 		cv.Drawer, cv.Tab = url+"?tab="+tab, tab
 	}
@@ -210,8 +221,13 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 		Waiting: n.Waiting,
 		Under:   n.Under,
 		Since:   n.Since,
+		Phase:   n.Phase,
+		Fail:    n.Fail,
 		Up:      n.Running,
 		Want:    n.Replicas,
+	}
+	if n.Stop != "" {
+		f.StoppedAt, f.StopHref = n.Stop, base+"/-/jobs/"+n.StopJob
 	}
 	if n.Status == "none" && (n.Kind == "cron" || n.Kind == "function" || n.Kind == "slice") { // no runs or provision yet: idle, as their drawers say
 		f.Status = ""

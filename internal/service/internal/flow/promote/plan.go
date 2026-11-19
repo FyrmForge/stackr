@@ -453,6 +453,32 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			}
 		}
 	}
+	// a create row names its volumes: new ones say so, and the cap the file gives
+	haveVol := map[string]bool{}
+	if vs, err := d.Volumes.List(ctx, volume.Scope{Kind: "env", ID: e.ID}); err == nil {
+		for _, v := range vs {
+			haveVol[v.Slug] = true
+		}
+	}
+	var nodeName string
+	var onDisk bool
+	if f.NodeOf != nil {
+		nodeName, onDisk = f.NodeOf(ctx, e.ID)
+	}
+	volWord := func(spec string) string {
+		slug, _, _ := strings.Cut(spec, ":")
+		out := slug
+		if !haveVol[slug] {
+			out += ", new"
+			if onDisk {
+				out += ", on the node disk"
+			}
+		}
+		if vc, ok := re.Volumes[slug]; ok && vc.MaxSizeMB != nil && *vc.MaxSizeMB > 0 {
+			out += ", " + capWord(int64(*vc.MaxSizeMB))
+		}
+		return out
+	}
 	for _, name := range slices.Sorted(maps.Keys(re.Tiles)) {
 		tc := re.Tiles[name]
 		if tc.Type == tile.Operated && !deploy.KnownEngine(tc.Engine) {
@@ -512,7 +538,7 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			continue
 		}
 		if !exists {
-			p.add(Change{Kind: "create", Tile: name, New: row.Kind})
+			p.add(Change{Kind: "create", Tile: name, New: row.Kind, Details: createDetails(tc, row, nodeName, volWord)})
 			w.creates = append(w.creates, row)
 			w.redeploy[name] = true
 			w.unpin[name] = tile.Pulls(row)

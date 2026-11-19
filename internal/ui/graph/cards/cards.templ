@@ -1,6 +1,7 @@
 package cards
 
 import (
+	"strings"
 	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -35,6 +36,9 @@ templ Card(v CardView) {
 				if v.Sync != "" {
 					{{ text, class := syncChip(v.Sync) }}
 					<span class={ "absolute -top-2.5 right-3 z-10 rounded-md border bg-rw-surface px-1.5 py-0.5 text-[10px]", class }>{ text }</span>
+				}
+				if v.RestartPending && v.Sync == "" {
+					<span class="absolute -top-2.5 right-3 z-10 rounded-md border border-rw-warn/40 bg-rw-surface px-1.5 py-0.5 text-[10px] text-rw-warn">Redeploy pending</span>
 				}
 				@Footer(v.ID, v.Footer)
 			</div>
@@ -81,12 +85,30 @@ templ top(kind, name, detail string, host, newVersion bool, acc Access) {
 // (hx-target="this", or it would inherit the card's #drawer-body).
 templ Footer(id string, f FooterView) {
 	<div
-		class="node-footer mt-auto pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0"
+		class={ "node-footer mt-auto border-t border-rw-border flex items-center justify-between gap-2 min-w-0 relative", templ.KV("pt-3", f.Fail == "" && f.StoppedAt == ""), templ.KV("pt-1.5", f.Fail != "" || f.StoppedAt != "") }
 		data-kind={ f.Kind }
 		sse-swap={ "footer:" + id }
 		hx-target="this"
 		hx-swap="outerHTML"
 	>
+		if short, full := FailLine(f.Fail); short != "" {
+			if f.FailHref != "" {
+				<p class="node-fail absolute bottom-full mb-px inset-x-0 flex gap-1.5 text-[11px] leading-none text-rw-danger">
+					<span class="min-w-0 flex-1 truncate" title={ full }>{ short }</span>
+					<a href={ templ.SafeURL(f.FailHref) } hx-get={ f.FailHref } hx-target="#main" hx-push-url="true" hx-trigger="click consume" class="shrink-0 underline">Job log</a>
+				</p>
+			} else {
+				<p class="node-fail absolute bottom-full mb-px inset-x-0 truncate text-[11px] leading-none text-rw-danger" title={ full }>{ short }</p>
+			}
+		}
+		if f.StoppedAt != "" {
+			<p class="node-fail absolute bottom-full mb-px inset-x-0 truncate text-[11px] leading-none text-rw-faint">
+				{ "Stopped at " + f.StoppedAt + "." }
+				if f.StopHref != "" {
+					{ " " }<a href={ templ.SafeURL(f.StopHref) } class="underline">Job log</a>
+				}
+			</p>
+		}
 		switch f.Kind {
 			case "cron", "function":
 				@line(run(f.LastRun, f.Status), f.LastRun) {
@@ -129,6 +151,9 @@ templ Footer(id string, f FooterView) {
 				} else {
 					@Status(f.Status, f.Waiting)
 				}
+				if f.Wait > 0 {
+					<span class="node-wait flex items-center gap-1.5 text-xs min-w-0"><span class="text-rw-faint">·</span><span class="text-rw-accentHi truncate">{ "Release " + itoa(f.Wait) + " waiting" }</span></span>
+				}
 				if f.ExtUpdates > 0 {
 					<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn" title="newer extension builds are available">Extension updates</span>
 				}
@@ -142,30 +167,49 @@ templ Footer(id string, f FooterView) {
 // Status is a card's status line (v0 nodeStatus).
 templ Status(status, waiting string) {
 	{{ tone, text := word(status, waiting) }}
-	@line(tone, text)
+	@mark(tone, text, status == "waiting" || status == "queued", false)
 }
 
-// progress is a live deploy beside the tile's state: "Online · Building
-// (09:20)", the state's dot and the job muted; with nothing running yet
-// the warn word alone. <local-time since> ticks the clock in the browser; its
-// server text is fixed so a poll's footer never differs and the canvas stream
-// does not resend it.
+// progress is a live deploy beside the tile's state: "Online" with a faint
+// "updating 0:14" at the right, the step with its clock at the right, or
+// while the job only waits (queued, or for a dependency) the faint word with
+// a hollow dot and no clock. <local-time since> ticks the clock in the
+// browser; its server text is fixed so a poll's footer never differs and the
+// canvas stream does not resend it.
 templ progress(f FooterView) {
-	{{ _, w := word(f.Status, "") }}
+	{{ w := progressWord(f) }}
 	if f.Under == "running" {
-		@line("success", "Online") {
-			<span class="text-rw-faint">{ " · " + w + " (" }<local-time since={ f.Since.UTC().Format(time.RFC3339) }>00:00</local-time>{ ")" }</span>
-		}
+		@line("success", "Online")
+		<span class="text-xs text-rw-faint tabular-nums shrink-0">{ "updating " }@clock(f)</span>
+	} else if f.Status == "queued" || strings.HasPrefix(w, "Waiting for ") {
+		@mark("faint", w, true, false)
 	} else {
-		@line("warn", w+" (") {
-			<local-time since={ f.Since.UTC().Format(time.RFC3339) }>00:00</local-time>{ ")" }
-		}
+		@mark("warn", w, false, true)
+		<span class="text-xs text-rw-faint tabular-nums shrink-0">@clock(f)</span>
 	}
 }
 
+templ clock(f FooterView) {
+	<local-time since={ f.Since.UTC().Format(time.RFC3339) }>00:00</local-time>
+}
+
 templ line(tone, text string) {
+	@mark(tone, text, false, false) {
+		{ children... }
+	}
+}
+
+// mark is line with the dot of a phase: hollow while it waits, a spinner
+// while it runs.
+templ mark(tone, text string, hollow, spin bool) {
 	<span class={ "node-status flex items-center gap-2 text-xs", toneText(tone) }>
-		<span class={ "h-1.5 w-1.5 rounded-full shrink-0", toneDot(tone) }></span>
+		if spin {
+			<span class={ "h-3 w-3 rounded-full shrink-0 border-2 border-t-transparent animate-spin", toneBorder(tone) } aria-hidden="true"></span>
+		} else if hollow {
+			<span class={ "h-1.5 w-1.5 rounded-full shrink-0 border", toneBorder(tone) } aria-hidden="true"></span>
+		} else {
+			<span class={ "h-1.5 w-1.5 rounded-full shrink-0", toneDot(tone) }></span>
+		}
 		<span class="truncate">{ text }{ children... }</span>
 	</span>
 }

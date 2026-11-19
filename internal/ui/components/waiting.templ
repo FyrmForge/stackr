@@ -1,0 +1,81 @@
+package components
+
+import "strconv"
+
+// WaitingView is the Waiting on you page: what needs the viewer, grouped,
+// and what waits on someone with more rights, muted.
+type WaitingView struct {
+	Count  int
+	Groups []WaitGroupView
+	Others []WaitRowView
+	Live   string // the page's own GET, polled; "" = static
+}
+
+type WaitGroupView struct {
+	Title string
+	Rows  []WaitRowView
+}
+
+// WaitRowView is one row: a title and why, and where its button goes (Href
+// "" = no button, a muted row).
+type WaitRowView struct{ Title, Sub, Href, Act string }
+
+// Waiting is the page's body.
+templ Waiting(v WaitingView) {
+	<div id="waiting" class="px-4 sm:px-6 py-5">
+		if v.Live != "" {
+			@LiveTab(v.Live, "waiting")
+		}
+		<div class="flex flex-wrap items-center gap-3 pb-4">
+			<h2 class="text-lg font-semibold text-rw-text">Waiting on you</h2>
+			if v.Count > 0 {
+				@Chip(strconv.Itoa(v.Count), "accent")
+			}
+		</div>
+		<section class="panel p-4 sm:p-6 overflow-hidden">
+			if len(v.Groups) == 0 && len(v.Others) == 0 {
+				<p class="text-sm text-rw-muted">Nothing is waiting on you.</p>
+			}
+			for i, g := range v.Groups {
+				<h3 class={ "label mb-1", templ.KV("mt-5", i > 0) }>{ g.Title }</h3>
+				<ul class="divide-y divide-rw-border">
+					for _, r := range g.Rows {
+						<li class="py-3">@waitRow(r)</li>
+					}
+				</ul>
+			}
+			if len(v.Others) > 0 {
+				<h3 class={ "label mb-1", templ.KV("mt-5", len(v.Groups) > 0) }>Waiting on someone else</h3>
+				<ul class="divide-y divide-rw-border text-rw-muted">
+					for _, r := range v.Others {
+						<li class="py-3">@waitRow(r)</li>
+					}
+				</ul>
+			}
+		</section>
+	</div>
+}
+
+templ waitRow(r WaitRowView) {
+	<div class="flex items-center gap-3">
+		<div class="min-w-0 flex-1">
+			<p class="text-sm text-rw-text truncate">{ r.Title }</p>
+			<p class="mt-0.5 text-xs text-rw-muted truncate">{ r.Sub }</p>
+		</div>
+		if r.Href != "" {
+			<a href={ templ.SafeURL(r.Href) } hx-get={ r.Href } hx-target="#main" hx-push-url="true" class={ "btn btn-sm shrink-0", templ.KV("btn-primary", r.Act == "Set"), templ.KV("btn-ghost", r.Act != "Set") }>{ r.Act }</a>
+		}
+	</div>
+}
+
+// WaitingBadge is the top bar's count of what waits on the viewer. It is
+// always in the bar (hidden at 0) so the banners poll can swap it in place.
+templ WaitingBadge(n int, oob bool) {
+	<span
+		id="rail-you"
+		class={ "chip bg-rw-accent/15 text-rw-accentHi", templ.KV("hidden", n == 0) }
+		if oob {
+			hx-swap-oob="true"
+		}
+	>{ strconv.Itoa(n) }</span>
+}

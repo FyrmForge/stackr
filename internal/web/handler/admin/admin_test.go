@@ -444,12 +444,12 @@ func TestAdminUpdateUnderway(t *testing.T) {
 	s := webtest.New(t)
 	root := s.Session(t, s.User(t, "root@x.test", true))
 	ctx := context.Background()
-	j := service.Job{ID: uuid.NewString(), Kind: "upgrade", State: "running", Payload: "{}", CreatedAt: time.Now()}
+	j := service.Job{ID: uuid.NewString(), Kind: "upgrade", State: "running", Payload: "{}", LockSet: []string{"*"}, CreatedAt: time.Now()}
 	if err := s.Store.Jobs.Create(ctx, j); err != nil {
 		t.Fatal(err)
 	}
 	b := s.As(t, root, "GET", "/-/admin/update", nil).Body.String()
-	for _, want := range []string{"data-live", `hx-trigger="every 3s"`, "Upgrading.", "Reconnecting..."} {
+	for _, want := range []string{"data-live", `hx-trigger="every 3s"`, "Updating to", "Pulling", "Reconnecting..."} {
 		if !strings.Contains(b, want) {
 			t.Errorf("underway: no %q in\n%s", want, b)
 		}
@@ -569,7 +569,7 @@ func TestAdminSettingsEveryRefusalAndNoteBySave(t *testing.T) {
 	}
 	rec = s.As(t, root, "POST", "/-/admin/settings/jobs", url.Values{"workers": {"3"}})
 	body = rec.Body.String()
-	save, note := strings.Index(body, ">Save</button>"), strings.Index(body, "data-acted")
+	save, note := strings.Index(body, ">Apply</button>"), strings.Index(body, "data-acted")
 	if rec.Code != http.StatusOK || save < 0 || note < save || !strings.Contains(body[note:], "Saved.") {
 		t.Errorf("saved = %d, note at %d, Save at %d\n%s", rec.Code, note, save, body)
 	}

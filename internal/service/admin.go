@@ -624,7 +624,7 @@ func (o *Orchestrator) autoUpgradeCheck(ctx context.Context) {
 // the helper container swaps the panel.
 func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 	if !o.upgrade.Upgradable() {
-		return Job{}, errs.Conflictf("A dev build cannot upgrade itself. Run stackr-install from the release to move this box onto it.")
+		return Job{}, errs.Conflictf("A dev build cannot update itself. Run stackr-install from the release to move this box onto it.")
 	}
 	// Refused, not superseded: a running upgrade cannot be stopped (its flow
 	// outlives the request), so a second one would only fail at its launch
@@ -632,11 +632,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 	upgradeEnqueue.Lock()
 	defer upgradeEnqueue.Unlock()
 	if o.UpgradeUnderway(ctx) {
-		return Job{}, errs.Conflictf("An upgrade is already underway.")
+		return Job{}, errs.Conflictf("An update is already underway.")
 	}
 	// The new panel rolls the workers onto its build once it has published
 	// its image (rolloutAfterBoot); a stop from an earlier rollout is over.
-	if err := o.store.Settings.Delete(ctx, keyRolloutStopped); err != nil {
+	if err := errors.Join(o.store.Settings.Delete(ctx, keyRolloutStopped), o.store.Settings.Delete(ctx, keyUpgradeFailure)); err != nil {
 		return Job{}, err
 	}
 	if err := o.setRolloutTarget(ctx, tag); err != nil {
@@ -705,6 +705,7 @@ func (o *Orchestrator) holdUpgrade() {
 func (o *Orchestrator) watchUpgrader(ctx context.Context) {
 	defer func() {
 		o.upgrading.Store(false)
+		o.upgradeStep.Store(0)
 		if o.jobs != nil {
 			o.jobs.Wake()
 		}
@@ -764,7 +765,7 @@ func (o *Orchestrator) UpgradeWaits(ctx context.Context) (string, error) {
 			continue
 		}
 		if n := job.RunningAhead(j, live); n > 0 {
-			return "Upgrade waits for " + job.RunningJobs(n), err
+			return "Update waits for " + job.RunningJobs(n), err
 		}
 	}
 	return "", err

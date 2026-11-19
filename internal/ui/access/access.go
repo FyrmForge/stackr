@@ -21,11 +21,12 @@ const (
 	KindLAN        = "lan"
 	KindPort       = "port"
 	KindFolder     = "folder"
+	KindShare      = "share"
 	KindSource     = "source"
 	KindOther      = "other"
 )
 
-var rank = []string{KindNet, KindDocker, KindPrivileged, KindDevice, KindLAN, KindPort, KindFolder, KindSource, KindOther}
+var rank = []string{KindNet, KindDocker, KindPrivileged, KindDevice, KindLAN, KindPort, KindFolder, KindShare, KindSource, KindOther}
 
 // Perm is one grant line read for display.
 type Perm struct {
@@ -60,6 +61,8 @@ func Parse(line string) Perm {
 		p.Kind, p.Label, p.Chip, p.Detail = KindLAN, "LAN access", "lan", perm[len("lan:"):]
 	case strings.HasPrefix(perm, "port:"):
 		p.Kind, p.Label, p.Chip, p.Detail = KindPort, "Server port", "port", perm[len("port:"):]
+	case strings.HasPrefix(perm, "share:"):
+		p.Kind, p.Label, p.Chip, p.Detail = KindShare, "Share", "share", perm[len("share:"):]
 	case strings.HasPrefix(perm, "src:"):
 		p.Kind, p.Label, p.Chip = KindSource, "Image and command", "source"
 	case isDockerSock(perm):

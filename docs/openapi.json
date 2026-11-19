@@ -839,6 +839,9 @@
       },
       "Change": {
         "properties": {
+          "details": {
+            "type": "string"
+          },
           "field": {
             "type": "string"
           },
@@ -7091,6 +7094,12 @@
       },
       "PromotePlan": {
         "properties": {
+          "access": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "can_deploy": {
             "type": "boolean"
           },

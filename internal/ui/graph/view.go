@@ -31,6 +31,8 @@ type View struct {
 	Walled  bool // system cards and the rest both drawn: the server boundary between them
 	Divider int  // world x of that boundary (0 is a real place)
 	Empty   string
+	// EmptyNote is the second line under Empty, EmptyHref the "Review plan" link after it.
+	EmptyNote, EmptyHref string
 	Compare []Rung
 	Create  []Create        // the level's create dialogs the viewer may open
 	Lanes   []cards.Lane    // env traffic at the last sample; nil = no lanes layer
@@ -75,6 +77,9 @@ type Node struct {
 	ID, Kind, Name, Detail string
 	Slug                   string // the drill-down path segment; a connector's id
 	Status                 string // one word, "" = nothing to show
+	Fail                   string // the error under a failed status, "" = none
+	FailHref               string // the failed push's job log: the error line links to it, the card is then no anchor
+	Wait                   int    // env card: a release waits to be promoted here; 0 = none
 	X, Y, W, H             int    // the card's own box; sub-tiles hang below it
 	// Members makes the card a container (the Cluster map's network box):
 	// the canvas keeps it wrapped around these cards, Pad (top right bottom
@@ -87,6 +92,7 @@ type Node struct {
 	System, Static bool
 	Color          string // env hue, "" = none
 	Deck           int    // drill-down cards: 0 to 2 layers under the card
+	Pending        bool   // a saved change waits for the tile's next restart: the card says so, so the canvas redraws when it moves
 	Href           string // drill-down page; "" = none
 	Drawer         string // drawer GET, with ?drawer=&tab=; "" = none
 	Push           string // the URL the drawer pushes: ?drawer=<id>&tab=<tab>
@@ -143,7 +149,7 @@ func (n Node) Foot() templ.Component {
 	if n.Footer != nil {
 		return n.Footer
 	}
-	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status})
+	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status, Fail: n.Fail, FailHref: n.FailHref, Wait: n.Wait})
 }
 
 // Toggle is the page URL with one show param flipped.

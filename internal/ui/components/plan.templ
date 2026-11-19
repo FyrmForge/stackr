@@ -59,6 +59,37 @@ type ChangeView struct {
 	// Apply is a POST that does this row by itself (a lock change is not
 	// part of Approve); Vals is its form as JSON.
 	Apply, Vals string
+	// Details are what a create row will make; Child the new tile's own
+	// settings rows, folded under it (groupCreates).
+	Details []DetailView
+	Child   []ChangeView
+}
+
+// DetailView is one label and value of a create row.
+type DetailView struct{ Label, Value string }
+
+// groupCreates folds the operated rows of a tile the plan creates under its
+// create row, so a new database reads as one row with its settings inside.
+func groupCreates(cs []ChangeView) []ChangeView {
+	made := map[string]bool{}
+	for _, c := range cs {
+		if c.Kind == "create" {
+			made[c.Tile] = true
+		}
+	}
+	var out []ChangeView
+	for _, c := range cs {
+		if c.Kind == "operated" && made[c.Tile] {
+			for i := range out {
+				if out[i].Kind == "create" && out[i].Tile == c.Tile {
+					out[i].Child = append(out[i].Child, c)
+				}
+			}
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // Impacts is the plan's impact lines, in plan order.
@@ -144,7 +175,7 @@ templ Plan(p PlanView) {
 			<p class="text-sm text-rw-faint">Nothing changes.</p>
 		}
 		<ul class="divide-y divide-rw-border">
-			for _, c := range p.Changes {
+			for _, c := range groupCreates(p.Changes) {
 				<li class={ "py-2.5 text-sm", templ.KV("border-l-2 border-rw-warn/40 pl-3", c.Impact != "") }>
 					<div class="flex flex-wrap items-center gap-2 font-mono">
 						<span class={ planSignClass(c) } aria-hidden="true">{ planSign(c) }</span>
@@ -189,6 +220,25 @@ templ Plan(p PlanView) {
 							</span>
 						}
 					</div>
+					if len(c.Details) > 0 || len(c.Child) > 0 {
+						<details class="mt-2 pl-6">
+							<summary class="cursor-pointer text-xs text-rw-muted">What it makes</summary>
+							<dl class="mt-2 grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+								for _, d := range c.Details {
+									<dt class="text-rw-muted">{ d.Label }</dt>
+									<dd class="text-rw-text font-mono text-xs [overflow-wrap:anywhere] self-center">{ d.Value }</dd>
+								}
+							</dl>
+							if len(c.Child) > 0 {
+								<p class="mt-3 mb-1 text-xs text-rw-faint">Settings of the new tile</p>
+								<ul class="space-y-0.5 font-mono text-xs">
+									for _, ch := range c.Child {
+										<li><span class="text-rw-success">+</span> <span class="text-rw-muted">{ ch.Field }</span> <span class="text-rw-text">{ ch.New }</span></li>
+									}
+								</ul>
+							}
+						</details>
+					}
 					if c.Impact != "" {
 						<p class="mt-1 pl-6 text-xs font-medium text-rw-warn">{ c.Impact }</p>
 					}

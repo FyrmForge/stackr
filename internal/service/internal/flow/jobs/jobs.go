@@ -152,6 +152,15 @@ type Runner struct {
 	// has, so a parked job re-run every poll logs each tile's line once.
 	deployed map[string]map[string]bool
 
+	// phase is the step each running job's log last named (PhaseOf), for the
+	// tile cards. In memory only: a restart loses it, the card then reads
+	// its job word.
+	phase map[string]string
+	// tilePhase is the same inside a job that deploys several tiles (promote,
+	// env sync): its log says "deploying <slug>", and the steps that follow
+	// are that tile's. Only the tile being deployed holds one.
+	tilePhase map[string]map[string]string
+
 	// beforePark runs between a handler's return and the park write; tests
 	// land a cancel there.
 	beforePark func()
@@ -168,6 +177,25 @@ type onceLog struct {
 
 func (o onceLog) Write(p []byte) (int, error) {
 	line := string(p)
+	if slug, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), "deploying "); ok && !strings.Contains(slug, "\n") {
+		o.r.mu.Lock()
+		if o.r.tilePhase == nil {
+			o.r.tilePhase = map[string]map[string]string{}
+		}
+		o.r.tilePhase[o.id] = map[string]string{slug: ""} // the next tile: the last one is done
+		o.r.mu.Unlock()
+	}
+	if w := PhaseOf(line); w != "" {
+		o.r.mu.Lock()
+		if o.r.phase == nil {
+			o.r.phase = map[string]string{}
+		}
+		o.r.phase[o.id] = w
+		for slug := range o.r.tilePhase[o.id] {
+			o.r.tilePhase[o.id][slug] = w
+		}
+		o.r.mu.Unlock()
+	}
 	if (strings.HasPrefix(line, "deploying ") || strings.HasPrefix(line, "warning: ")) &&
 		strings.Count(line, "\n") == 1 && strings.HasSuffix(line, "\n") {
 		o.r.mu.Lock()
@@ -424,6 +452,10 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 	if state != job.Waiting {
 		delete(r.parked, j.ID)
 		delete(r.deployed, j.ID)
+		delete(r.phase, j.ID)
+		delete(r.tilePhase, j.ID)
+		// rn.Job, not j: a handler may have rewritten its payload.
+		j.Payload = rn.Job.Payload
 		err = r.jobs.Finish(fresh, j, state, reason)
 		selfmetrics.Job(j.Kind, state, time.Since(start))
 		if err == nil {
@@ -607,3 +639,44 @@ func (r *Runner) ended(j store.Job) {
 
 // Get returns one job row.
 func (r *Runner) Get(ctx context.Context, id string) (store.Job, error) { return r.jobs.Get(ctx, id) }
+
+// ParkedParam is what a job that has parked last waited on, "" for one that
+// never parked. It holds while the job is back queued or running for its
+// re-check, when its row has no waiting_param.
+func (r *Runner) ParkedParam(id string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.parked[id]
+}
+
+// Phase is the step a running job's log last named ("Pulling image"), ""
+// when it has named none. For a job that deploys tile by tile it is the
+// step of the tile slug, "" for a tile not being deployed now.
+func (r *Runner) Phase(id, slug string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if tp, ok := r.tilePhase[id]; ok {
+		return tp[slug]
+	}
+	return r.phase[id]
+}
+
+// PhaseOf is the card word a deploy log line stands for, "" for any other
+// line (build and pull progress lines are many and say nothing new).
+func PhaseOf(line string) string {
+	switch l := strings.TrimSuffix(line, "\n"); {
+	case strings.Contains(l, "\n"):
+		return ""
+	case strings.HasPrefix(l, "pulling "):
+		return "Pulling image"
+	case strings.HasPrefix(l, "Building "), strings.HasPrefix(l, "Rebuilding "):
+		return "Building image"
+	case strings.HasPrefix(l, "starting "), strings.HasPrefix(l, "creating "):
+		return "Starting"
+	case strings.HasPrefix(l, "waiting for ") && strings.HasSuffix(l, " to accept connections"):
+		return "Health check"
+	case strings.HasPrefix(l, "waiting for ") && strings.HasSuffix(l, " to be healthy"):
+		return "W" + l[1:]
+	}
+	return ""
+}

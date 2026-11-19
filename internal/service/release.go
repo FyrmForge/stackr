@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -23,6 +24,9 @@ type (
 type PromotePlan struct {
 	Plan      *Plan `json:"plan"`
 	CanDeploy bool  `json:"can_deploy"`
+	// Access is the "<tile> <perm>" lines of the elevated access the plan
+	// waits on, when that is its only blocker; nil = none.
+	Access []string `json:"access,omitempty"`
 }
 
 func (o *Orchestrator) Releases(ctx context.Context, stackID string) ([]Release, error) {
@@ -51,7 +55,13 @@ func (o *Orchestrator) PlanPromote(ctx context.Context, by *Principal, envID, re
 	if err != nil {
 		return PromotePlan{}, err
 	}
-	return PromotePlan{Plan: p, CanDeploy: !p.Blocked() || p.OnlyHostAccess()}, nil
+	out := PromotePlan{Plan: p, CanDeploy: !p.Blocked() || p.OnlyHostAccess()}
+	if p.OnlyHostAccess() {
+		if s, ok := hostgrant.Parse(p.Blockers[0]); ok {
+			out.Access = s.Lines
+		}
+	}
+	return out, nil
 }
 
 // Promote queues taking releaseID into envID, approved by by. The job

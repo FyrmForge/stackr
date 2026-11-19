@@ -51,7 +51,7 @@ func TestNodeOverviewTunnelRow(t *testing.T) {
 func TestUpdateWorkers(t *testing.T) {
 	var b strings.Builder
 	err := Update(UpdateView{Version: "1.0", Workers: &WorkersView{
-		Stopped: "h3 failed to upgrade, rolled back", Action: "/-/admin/update/workers", Button: "Retry",
+		Stopped: "h3 failed to update, rolled back", Action: "/-/admin/update/workers", Button: "Retry",
 		Rows: []WorkerRow{
 			{Name: "h3", Current: "0.9", State: "failed", Error: "health check timed out", Behind: true},
 			{Name: "h4", Current: "1.0", State: "done"},
@@ -60,14 +60,14 @@ func TestUpdateWorkers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"h3 failed to upgrade, rolled back", "failed", "health check timed out", "done", "Retry", `hx-post="/-/admin/update/workers"`} {
+	for _, want := range []string{"h3 failed to update, rolled back", "failed", "health check timed out", "done", "Retry", `hx-post="/-/admin/update/workers"`} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("no %q in\n%s", want, b.String())
 		}
 	}
 }
 
-// A live tab polls itself into #tab-update (the poller on its own element,
+// A live tab polls itself into #tab-update, guarded so a settings edit is never swapped away (the poller on its own element,
 // so no button inherits it) and carries the hidden Reconnecting note main.js
 // shows; a settled tab has neither. Pending says why there is no button.
 func TestUpdateLive(t *testing.T) {
@@ -81,7 +81,7 @@ func TestUpdateLive(t *testing.T) {
 	out := render(UpdateView{Version: "1.0", Upgrading: true, Live: "/-/admin/update",
 		Workers: &WorkersView{Pending: true, Rows: []WorkerRow{{Name: "h3", Current: "0.9", Behind: true}}}})
 	for _, want := range []string{
-		`data-live`, `<span hidden hx-get="/-/admin/update" hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML">`,
+		`data-live`, `<span hidden data-live-tab data-poll-guard="region rows fields dirty" hx-get="/-/admin/update" hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML">`,
 		`data-reconnecting hidden`, "Reconnecting...", "The rollout starts once the panel's image is published.",
 	} {
 		if !strings.Contains(out, want) {

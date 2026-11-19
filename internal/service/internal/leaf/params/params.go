@@ -60,6 +60,16 @@ func (l *Leaf) Masked(ctx context.Context, s Scope) ([]store.Param, error) {
 	return append(ps, ss...), err
 }
 
+// Secret is one stored secret, decrypted: the one row asked for. A param, or
+// no row, is errs.ErrNotFound.
+func (l *Leaf) Secret(ctx context.Context, s Scope, collection, name string) (store.Param, error) {
+	p, err := l.params.GetByName(ctx, s.Kind, s.ID, collection, name)
+	if err == nil && p.Kind != Secret {
+		return store.Param{}, errs.ErrNotFound
+	}
+	return p, err
+}
+
 // Values is a scope as the resolver's snapshot wants it: "collection.name".
 func (l *Leaf) Values(ctx context.Context, s Scope, secrets bool) (map[string]Value, error) {
 	ps, err := l.List(ctx, s, secrets)

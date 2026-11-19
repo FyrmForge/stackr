@@ -158,6 +158,18 @@ func payload[P any](f func(context.Context, *jobs.Run, P) error) jobs.Handler {
 	}
 }
 
+// withStopped records where a failed promote stopped, keeping every other
+// key: RolloutStop reads it for the canvas.
+func withStopped(payload string, st *promote.Stopped) string {
+	var m map[string]any
+	if json.Unmarshal([]byte(payload), &m) != nil || m == nil {
+		m = map[string]any{}
+	}
+	m["stopped_at"], m["not_deployed"] = st.Tile, st.Pending
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
 // withOwed sets owed in a job payload, keeping every other key (org_id).
 func withOwed(payload string, owed []string) string {
 	var m map[string]any
@@ -228,6 +240,10 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			plan, err := o.promote.ApplyTicked(context.WithValue(withMayPlace(ctx, p.MayPlace), placeAdminKey{}, p.Admin), p.EnvID, p.ReleaseID, p.Ticked, r.Log, r.Swap)
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
+			}
+			var st *promote.Stopped
+			if errors.As(err, &st) {
+				r.Job.Payload = withStopped(r.Job.Payload, st)
 			}
 			return o.parkOnApproval(ctx, r, err)
 		}),
@@ -368,7 +384,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				return err
 			}
 			archive, err := o.upgrade.Upgrade(ctx, p.Tag, r.Log)
-			if err == nil {
+			if err != nil {
+				o.upgradeStep.Store(0)
+			} else {
 				o.holdUpgrade() // the helper runs: hold until it exits
 				// The local destination is <data>/backups; the key is the path under it.
 				_, _ = fmt.Fprintf(r.Log, "pre-upgrade archive %s; the helper swaps the panel now\n"+

@@ -468,33 +468,42 @@ func TestVolumeSchedules(t *testing.T) {
 	}
 	base := "/acme/shop/dev/-/volumes/" + v.ID
 	rec := s.Do(t, "POST", base+"/schedules", url.Values{
-		"schedule": {"0 3 * * *"}, "tz": {"UTC"}, "method": {"volume"}, "keep": {"5"}, "mode": {"pause"},
+		"repeat": {"day"}, "at": {"03:00"}, "tz": {"UTC"}, "method": {"volume"}, "keep": {"5"}, "mode": {"pause"},
 	})
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "schedule added") ||
-		!strings.Contains(rec.Body.String(), "0 3 * * *") {
+		!strings.Contains(rec.Body.String(), "Every day at 03:00") {
 		t.Fatalf("add = %d\n%s", rec.Code, rec.Body)
 	}
-	rec = s.Do(t, "POST", base+"/schedules", url.Values{"schedule": {"nope"}, "method": {"volume"}})
+	rec = s.Do(t, "POST", base+"/schedules", url.Values{"repeat": {"month"}, "method": {"volume"}})
 	if rec.Code != 422 {
-		t.Errorf("bad cron = %d, want 422", rec.Code)
+		t.Errorf("bad repeat = %d, want 422", rec.Code)
 	}
 	ss, err := s.Orch.BackupSchedules(ctx, v.ID)
-	if err != nil || len(ss) != 1 || ss[0].Keep != 5 {
+	if err != nil || len(ss) != 1 || ss[0].Keep != 5 || ss[0].Cron != "0 3 * * *" {
 		t.Fatalf("schedules = %v, %v", ss, err)
+	}
+
+	// Apply on a schedule changes its keep and mode, not its time
+	rec = s.Do(t, "POST", base+"/schedules/"+ss[0].ID, url.Values{"keep": {"9"}, "mode": {"live"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "schedule saved") {
+		t.Fatalf("save = %d\n%s", rec.Code, rec.Body)
+	}
+	if ss, _ = s.Orch.BackupSchedules(ctx, v.ID); len(ss) != 1 || ss[0].Keep != 9 || ss[0].Mode != "live" || ss[0].Cron != "0 3 * * *" {
+		t.Fatalf("after save = %+v", ss)
 	}
 
 	viewer := s.User(t, "viewer@acme.test", false)
 	s.Member(t, s.Org, viewer, "viewer")
 	vs := s.Session(t, viewer)
 	rec = s.As(t, vs, "GET", base+"?tab=backups", nil)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "0 3 * * *") ||
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Every day at 03:00") ||
 		strings.Contains(rec.Body.String(), "/schedules") {
 		t.Errorf("viewer drawer = %d\n%s", rec.Code, rec.Body)
 	}
 	if rec = s.As(t, vs, "POST", base+"/schedules/"+ss[0].ID+"/delete", url.Values{}); rec.Code != 403 {
 		t.Errorf("viewer delete = %d, want 403", rec.Code)
 	}
-	if rec = s.As(t, vs, "POST", base+"/schedules", url.Values{"schedule": {"0 3 * * *"}}); rec.Code != 403 {
+	if rec = s.As(t, vs, "POST", base+"/schedules", url.Values{"repeat": {"day"}}); rec.Code != 403 {
 		t.Errorf("viewer add = %d, want 403", rec.Code)
 	}
 

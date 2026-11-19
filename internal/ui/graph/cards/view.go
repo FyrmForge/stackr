@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
 // CardView is one card on the env canvas. ID is its node id: the tile id
@@ -31,6 +33,8 @@ type CardView struct {
 	Host       bool // privileged or devices: the red "host" chip
 	Access     Access
 	NewVersion bool // image watch saw a newer digest or tag
+
+	RestartPending bool // a saved change waits for the tile's next restart
 
 	Sync  string // env sync review: new | edited | removed; "" = none
 	Ghost bool   // a tile the sync would add: dashed, no drawer, nothing running
@@ -56,6 +60,12 @@ type FooterView struct {
 	Waiting    string    // the param a "waiting" tile misses
 	Under      string    // building/queued over a running tile: "running", the word beneath
 	Since      time.Time // that job's start; zero = none, the line reads as the word alone
+	Phase      string    // that job's step ("Pulling image"); "" = the word
+	Fail       string    // the last deploy's error while it failed; "" = none
+	FailHref   string    // a stack card: the failed push's job log; "" = none
+	StoppedAt  string    // a tile the failed promote never reached: the tile it stopped at
+	StopHref   string    // that promote's job log
+	Wait       int       // env card: the release waiting to be promoted here; 0 = none
 	Up, Want   int       // replica roll-up, drawn when Want > 1
 	LastRun    string    // cron/function: "ok · ", "never run", "running · since ", LastAt follows
 	LastAt     time.Time // the last run's start; zero = none
@@ -185,6 +195,10 @@ func word(status, waiting string) (tone, text string) {
 		return "danger", "Crashed"
 	case "failed":
 		return "danger", "Deploy failed"
+	case "notdeployed":
+		return "faint", "Not deployed"
+	case "pushfailed":
+		return "danger", "Push failed"
 	case "unhealthy":
 		return "warn", "Unhealthy"
 	case "degraded":
@@ -242,6 +256,37 @@ func toneText(t string) string {
 		return "text-rw-warn"
 	}
 	return "text-rw-faint"
+}
+
+// toneBorder is toneDot's hollow form.
+func toneBorder(t string) string {
+	switch t {
+	case "success":
+		return "border-rw-success"
+	case "danger":
+		return "border-rw-danger"
+	case "warn":
+		return "border-rw-warn"
+	}
+	return "border-rw-faint"
+}
+
+// progressWord is the live job's word: its step when it has named one.
+func progressWord(f FooterView) string {
+	if f.Phase != "" {
+		return f.Phase
+	}
+	_, w := word(f.Status, "")
+	return w
+}
+
+// failMax is how much of an error a card shows; its end says most.
+const failMax = 48
+
+// FailLine is the end of a failed deploy's error for a card's line, and the
+// whole of its last line for the title; "" when nothing failed.
+func FailLine(err string) (short, full string) {
+	return c.ErrTail(err, failMax)
 }
 
 func toneDot(t string) string {

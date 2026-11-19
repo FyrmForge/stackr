@@ -88,9 +88,8 @@ func TestFooterExtUpdates(t *testing.T) {
 func TestProgressLine(t *testing.T) {
 	since := time.Now().Add(-9*time.Minute - 20*time.Second - 500*time.Millisecond)
 	for _, c := range []struct{ status, under, want string }{
-		{"building", "running", "Online<span"},
-		{"building", "", "Building ("},
-		{"queued", "", "Queued ("},
+		{"building", "running", "updating <local-time"},
+		{"building", "", ">Building<"},
 	} {
 		out := render(t, Footer("n1", FooterView{Kind: "service", Status: c.status, Under: c.under, Since: since}))
 		if !strings.Contains(out, c.want) || !strings.Contains(out, ">00:00</local-time>") {
@@ -98,7 +97,7 @@ func TestProgressLine(t *testing.T) {
 		}
 	}
 	out := render(t, Footer("n1", FooterView{Kind: "service", Status: "building", Under: "running", Since: since}))
-	if !strings.Contains(out, "text-rw-success") || !strings.Contains(out, " · Building (<local-time") || !strings.Contains(out, "</local-time>)") {
+	if !strings.Contains(out, "text-rw-success") || !strings.Contains(out, ">Online<") || !strings.Contains(out, "updating <local-time") {
 		t.Errorf("online with the build muted beside it: %s", out)
 	}
 	// the same job a poll later renders the same bytes: the canvas dedupes it
@@ -108,6 +107,45 @@ func TestProgressLine(t *testing.T) {
 	}
 	if elapsed(time.Now().Add(-3725*time.Second)) != "1:02:05" {
 		t.Error("an hour reads h:mm:ss")
+	}
+}
+
+// A live job shows its step: a hollow dot and no clock while queued, a
+// spinner and the clock while it runs.
+func TestFooterPhase(t *testing.T) {
+	since := time.Now().Add(-time.Minute)
+	q := render(t, Footer("n1", FooterView{Kind: "service", Status: "queued", Phase: "Queued", Since: since}))
+	if !strings.Contains(q, ">Queued<") || strings.Contains(q, "local-time") || !strings.Contains(q, "border border-rw-faint") {
+		t.Errorf("queued: %s", q)
+	}
+	r := render(t, Footer("n1", FooterView{Kind: "service", Status: "building", Phase: "Pulling image", Since: since}))
+	if !strings.Contains(r, ">Pulling image<") || !strings.Contains(r, "animate-spin") || !strings.Contains(r, "<local-time") {
+		t.Errorf("running: %s", r)
+	}
+}
+
+// A job that waits for a dependency is a faint word with a hollow dot and
+// no clock, not a running step.
+func TestFooterWaitsForDependency(t *testing.T) {
+	out := render(t, Footer("n1", FooterView{Kind: "service", Status: "building", Phase: "Waiting for pg to be healthy", Since: time.Now().Add(-time.Minute)}))
+	if !strings.Contains(out, ">Waiting for pg to be healthy<") || strings.Contains(out, "local-time") || strings.Contains(out, "animate-spin") || !strings.Contains(out, "border border-rw-faint") {
+		t.Errorf("waiting for a dependency: %s", out)
+	}
+}
+
+// A failed deploy shows the end of its error above the footer, the whole
+// last line in the title, until a later job replaces it.
+func TestFooterFail(t *testing.T) {
+	long := "build media-bootstrap: " + strings.Repeat("x", 60) + ": exit status 1"
+	out := render(t, Footer("n1", FooterView{Kind: "service", Status: "failed", Fail: "step 1\n" + long}))
+	if !strings.Contains(out, `title="`+long+`"`) || !strings.Contains(out, ">...") || !strings.Contains(out, "exit status 1</p>") || !strings.Contains(out, "Deploy failed") {
+		t.Errorf("failed: %s", out)
+	}
+	if ok := render(t, Footer("n1", FooterView{Kind: "service", Status: "running"})); strings.Contains(ok, "node-fail") {
+		t.Errorf("a healthy tile shows a failure line: %s", ok)
+	}
+	if s, f := FailLine("short"); s != "short" || f != "short" {
+		t.Errorf("FailLine(short) = %q, %q", s, f)
 	}
 }
 
@@ -143,5 +181,13 @@ func TestExposureOnDrillCards(t *testing.T) {
 	tile := render(t, Footer("t1", FooterView{Kind: "service", Domain: "a.dev"}))
 	if !strings.Contains(tile, `href="https://a.dev"`) {
 		t.Errorf("tile exposure lost its link: %s", tile)
+	}
+}
+
+// A stack card's push failure links to its job log from the footer.
+func TestFooterFailJobLog(t *testing.T) {
+	out := render(t, Footer("stack:1", FooterView{Kind: "stack", Status: "pushfailed", Fail: "denied", FailHref: "/acme/-/jobs/j1"}))
+	if !strings.Contains(out, `href="/acme/-/jobs/j1"`) || !strings.Contains(out, "Job log") {
+		t.Errorf("footer = %s", out)
 	}
 }

@@ -248,6 +248,9 @@ func TestShipAccessNewDomain(t *testing.T) {
 	o := w.orch
 	tl := w.tile(t, "api", false)
 	o.logship.tileOf = tileOfHost(nil)
+	// New detaches work that syncs the proxy when it ends, on its own clock:
+	// wait it out, or its sync lands after the reset below.
+	o.trustAsync.Wait()
 	o.logship.tileStale.Store(false) // the setup's syncs are behind us
 	must(t, o.store.Domains.Create(ctx, domainRow(tl.ID, "app.example.com", nil)))
 	o.shipAccess(ctx, store.Node{Name: "edge"}, docker.Container{Name: "stackr-proxy"}, time.Now(), caddyLine)

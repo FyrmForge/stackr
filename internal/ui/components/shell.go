@@ -28,6 +28,16 @@ type Shell struct {
 	NodeDown string
 	// BannersURL is where the header banners refetch themselves ("" = static).
 	BannersURL string
+	// WaitingYou is the top bar's count of what waits on the viewer; the Waiting
+	// link shows when Nav holds /-/waiting. PollBanners: the banners poll is
+	// being answered, which also carries that count.
+	WaitingYou  int
+	PollBanners bool
+	// PushFailed is the env page's line after its stack's last push failed;
+	// nil = none.
+	PushFailed *PushFailView
+	// Stopped is the env page's line after its last promote failed; nil = none.
+	Stopped *StopView
 	// Upgrading is the panel upgrade banner: jobs queue until it is done.
 	Upgrading bool
 	// MoveIngress is the banner's link when it is the env's ingress that is

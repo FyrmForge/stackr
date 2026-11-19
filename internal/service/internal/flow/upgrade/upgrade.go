@@ -43,6 +43,22 @@ type Flow struct {
 	// DataDir is the install's data dir, where the registry's socket sits;
 	// "" = the registry is left alone (dev, tests).
 	DataDir string
+	// Step is told where Upgrade is (StepPull, StepArchive, StepSwap); nil =
+	// nobody listens.
+	Step func(step string)
+}
+
+// The stages Upgrade reports to Flow.Step, in order.
+const (
+	StepPull    = "pull"
+	StepArchive = "archive"
+	StepSwap    = "swap" // the helper is launched: the panel restarts
+)
+
+func (f *Flow) step(s string) {
+	if f.Step != nil {
+		f.Step(s)
+	}
 }
 
 // ProxyDocker is the slice of the daemon the proxy recreate uses.
@@ -128,6 +144,7 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	}
 	// The request that started this dies with the old container.
 	ctx = context.WithoutCancel(ctx)
+	f.step(StepPull)
 	image := ImageRef(tag)
 	// The release declares its image's digest. That is what is pulled, and
 	// tagged as image so the rest of the upgrade runs it by the usual name; a
@@ -165,6 +182,7 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	if pinned != "" {
 		_, _ = fmt.Fprintf(log, "upgrading to %s\n", pinned)
 	}
+	f.step(StepArchive)
 	archive, err := f.Archive(ctx, log)
 	if err != nil {
 		return "", fmt.Errorf("pre-upgrade backup: %w", err)
@@ -187,6 +205,7 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	// The old container still holds its name until the new one passes.
 	spec.Name = "stackr-" + strings.TrimPrefix(tag, "v")
 	spec.Env = append(spec.Env, "STACKR_IMAGE="+image)
+	f.step(StepSwap)
 	if err := f.Panel.Launch(ctx, spec); err != nil {
 		return "", err
 	}

@@ -73,7 +73,9 @@ func page(c echo.Context, status int, s components.Shell, body, actions, drawer 
 // Banners answers a page's header-banner poll: just #banners, read from the
 // same Shell the page was drawn with (the route sits under the page's scope).
 func Banners(c echo.Context) error {
-	return respond.HTML(c, http.StatusOK, components.Banners(Shell(c, "")))
+	s := Shell(c, "")
+	s.PollBanners = true
+	return respond.HTML(c, http.StatusOK, components.Banners(s))
 }
 
 // Bare is a page with no rail and no top bar, the setup wizard's (v0's
@@ -96,7 +98,10 @@ func Shell(c echo.Context, title string) components.Shell {
 	if p := middleware.Principal(c); p != nil {
 		s.User = p.User.Email
 		s.Theme, s.TimeZone = p.User.Theme, p.User.TimeZone
-		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Account", "/account", path))
+		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Waiting", "/-/waiting", path), link("Account", "/account", path))
+		if n, ok := c.Get(waitingYouKey).(func() int); ok {
+			s.WaitingYou = n()
+		}
 		s.Admin = p.Access.Admin
 		s.AdminOn = s.Admin && strings.HasPrefix(path, "/-/admin/")
 		if s.Admin { // the Cluster map is the admin's
@@ -118,6 +123,12 @@ func Shell(c echo.Context, title string) components.Shell {
 	}
 	sc := middleware.ScopeOf(c)
 	if sc.Env != nil {
+		if pf, ok := c.Get(pushFailKey).(func() *components.PushFailView); ok {
+			s.PushFailed = pf()
+		}
+		if st, ok := c.Get(stopKey).(func() *components.StopView); ok {
+			s.Stopped = st()
+		}
 		if down, ok := c.Get(nodeDownKey).(func(envID string) string); ok {
 			if s.NodeDown = down(sc.Env.ID); s.NodeDown != "" {
 				if p := middleware.Principal(c); p != nil && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
@@ -188,11 +199,44 @@ func Shell(c echo.Context, title string) components.Shell {
 }
 
 const waitingKey = "host_waiting"
+const waitingYouKey = "waiting_on_you"
 const problemsKey = "admin_problems"
 const nodeDownKey = "env_node_down"
 const ingressDownKey = "env_ingress_down"
 const diskDownKey = "env_disk_down"
 const upgradingKey = "panel_upgrading"
+const pushFailKey = "stack_push_failed"
+const stopKey = "env_promote_stopped"
+
+// RolloutStop is the line for the env's last promote when it failed, nil
+// when it did not (or the scope has no env).
+func RolloutStop(c echo.Context, orch *service.Orchestrator) *components.StopView {
+	s := middleware.ScopeOf(c)
+	if s.Env == nil || s.Stack == nil || s.Org == nil {
+		return nil
+	}
+	st, ok := orch.RolloutStop(c.Request().Context(), s.Env.ID)
+	if !ok {
+		return nil
+	}
+	v := components.NewStop(st.Release, st.Tile, EnvURL(c)+"/-/jobs/"+st.JobID)
+	return &v
+}
+
+// PushFailure is the line for the env's stack when its last push failed,
+// nil when it did not (or the scope has no env).
+func PushFailure(c echo.Context, orch *service.Orchestrator) *components.PushFailView {
+	s := middleware.ScopeOf(c)
+	if s.Env == nil || s.Stack == nil || s.Org == nil {
+		return nil
+	}
+	f, ok := orch.PushFailure(c.Request().Context(), s.Stack.ID)
+	if !ok {
+		return nil
+	}
+	v := components.NewPushFail(f.Error, EnvURL(c)+"/-/jobs/"+f.JobID)
+	return &v
+}
 
 // NodeDown lets the shell show the offline banner on env and tile pages. It
 // leaves a lazy func, which Shell calls only when the URL has an env; the
@@ -239,9 +283,17 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 				}
 				return "The ingress serving " + hosts + " is offline."
 			})
+			c.Set(pushFailKey, func() *components.PushFailView { return PushFailure(c, orch) })
+			c.Set(stopKey, func() *components.StopView { return RolloutStop(c, orch) })
 			return next(c)
 		}
 	}
+}
+
+// WaitingCountIs lets a page that already listed what waits on the viewer give
+// the shell badge that number, not ask again.
+func WaitingCountIs(c echo.Context, n int) {
+	c.Set(waitingYouKey, func() int { return n })
 }
 
 // Waiting lets the shell show the admin rail's badge and the problem banner:
@@ -252,6 +304,9 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 func Waiting(orch *service.Orchestrator) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			if p := middleware.Principal(c); p != nil {
+				c.Set(waitingYouKey, func() int { return orch.WaitingCount(c.Request().Context(), p) })
+			}
 			if p := middleware.Principal(c); p != nil && p.Access.Admin {
 				c.Set(waitingKey, func() int {
 					n, _ := orch.HostGrantsWaiting(c.Request().Context())

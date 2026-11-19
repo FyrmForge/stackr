@@ -138,7 +138,17 @@ templ Canvas(v View) {
 			@node(v, n)
 		}
 		if v.Empty != "" {
-			<div class="absolute inset-0 flex items-center justify-center text-rw-faint text-sm pointer-events-none">{ v.Empty }</div>
+			<div class="absolute inset-0 flex flex-col items-center justify-center gap-1 text-rw-faint text-sm pointer-events-none">
+				<p class={ templ.KV("text-rw-text", v.EmptyHref != "") }>
+					{ v.Empty }
+					if v.EmptyHref != "" {
+						{ " " }<a href={ templ.SafeURL(v.EmptyHref) } class="link pointer-events-auto">Review plan</a>
+					}
+				</p>
+				if v.EmptyNote != "" {
+					<p class="text-rw-muted">{ v.EmptyNote }</p>
+				}
+			</div>
 		}
 		if len(v.Compare) > 0 {
 			@compare(v.Compare)
@@ -212,7 +222,7 @@ templ node(v View, n Node) {
 // card with a level below is a link to it, a deck with its env's colour;
 // the rest open their drawer.
 templ face(n Node) {
-	if n.Href != "" {
+	if n.Href != "" && n.FailHref == "" {
 		<a
 			href={ templ.SafeURL(n.Href) }
 			hx-get={ n.Href }
@@ -226,6 +236,23 @@ templ face(n Node) {
 		>
 			@body(n)
 		</a>
+	} else if n.Href != "" {
+		// a push failure puts a Job log link in the footer: the card is no
+		// anchor then, or the two would nest
+		<div
+			class={ cards.Class(n.Kind), templ.KV("has-env-c "+hue(n.Color), hue(n.Color) != "") }
+			data-kind={ n.Kind }
+			if n.Deck > 0 {
+				data-deck={ itoa(n.Deck) }
+			}
+			hx-get={ n.Href }
+			hx-target="#main"
+			hx-push-url="true"
+			tabindex="0"
+			role="link"
+		>
+			@body(n)
+		</div>
 	} else {
 		<div
 			class={ cards.Class(n.Kind) }

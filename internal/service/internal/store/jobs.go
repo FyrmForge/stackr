@@ -79,6 +79,11 @@ type JobStore interface {
 	// ListTouching is the newest jobs whose lock set holds any of tileIDs,
 	// optionally of one kind ("" = any), newest first, at most limit.
 	ListTouching(ctx context.Context, tileIDs []string, kind string, limit int) ([]Job, error)
+	// NewestFailedUnhealed is the newest failed job of kind with a lock-set
+	// entry LIKE lockLike that no later done job of that kind with the same
+	// entry follows: a lock-set entry is one repo@branch, so each is judged
+	// alone.
+	NewestFailedUnhealed(ctx context.Context, kind, lockLike string) (Job, bool, error)
 	Update(ctx context.Context, j Job) error
 	// RequeueIfWaiting puts a waiting job back in line; a row in any other
 	// state is left as it is (no error).
@@ -147,6 +152,23 @@ func (s jobs) ListTouching(ctx context.Context, tileIDs []string, kind string, l
 		args = append(args, kind)
 	}
 	return s.many(ctx, where+" ORDER BY created_at DESC LIMIT ?", append(args, limit)...)
+}
+
+func (s jobs) NewestFailedUnhealed(ctx context.Context, kind, lockLike string) (Job, bool, error) {
+	// job_tiles is kept by triggers on jobs.lock_set (migration 047).
+	js, err := s.many(ctx, `kind = ? AND state = 'failed' AND EXISTS (
+		SELECT 1 FROM job_tiles ft WHERE ft.job_id = jobs.id AND ft.tile_id LIKE ?
+		AND NOT EXISTS (
+			SELECT 1 FROM job_tiles dt JOIN jobs d ON d.id = dt.job_id
+			WHERE dt.tile_id = ft.tile_id AND d.kind = jobs.kind AND d.state = 'done' AND d.created_at > jobs.created_at)
+		AND NOT EXISTS (
+			SELECT 1 FROM job_tiles xt JOIN jobs x ON x.id = xt.job_id
+			WHERE xt.tile_id = ft.tile_id AND x.kind = jobs.kind AND x.state = 'failed' AND x.created_at > jobs.created_at))
+		ORDER BY created_at DESC LIMIT 1`, kind, lockLike)
+	if err != nil || len(js) == 0 {
+		return Job{}, false, err
+	}
+	return js[0], true, nil
 }
 
 // StringList is a JSON array column.

@@ -246,7 +246,7 @@ func TestCanvasHome(t *testing.T) {
 		t.Fatalf("home cards = %s, want %s", got, want)
 	}
 	ns := nodes(v)
-	if a := ns["org:"+w.acme]; a.Status != "error" || a.Slug != "acme" || a.Detail != "1 stack · 1 member" {
+	if a := ns["org:"+w.acme]; a.Status != "failed" || a.Slug != "acme" || a.Detail != "1 stack · 1 member" {
 		t.Errorf("acme = %+v, want worst-of error, slug acme, 1 stack · 1 member", a)
 	}
 	if b := ns["org:"+w.beta]; b.Status != "" || b.X == ns["org:"+w.acme].X && b.Y == ns["org:"+w.acme].Y {
@@ -270,7 +270,7 @@ func TestCanvasOrg(t *testing.T) {
 	}
 	ns := nodes(v)
 	st := ns["stack:"+w.shop]
-	if st.Status != "error" || st.Detail != "2 environments" || st.Deck != 2 {
+	if st.Status != "failed" || st.Detail != "2 environments" || st.Deck != 2 {
 		t.Errorf("shop = %+v, want error, 2 environments, deck 2", st)
 	}
 	// The shop has a domain: the proxy stands behind the wall in front of
@@ -308,7 +308,7 @@ func TestCanvasStack(t *testing.T) {
 		t.Fatal(err)
 	}
 	ns := nodes(v)
-	if d := ns["env:"+w.dev]; d.Color != "#0a0" || d.Status != "error" || d.Slug != "dev" {
+	if d := ns["env:"+w.dev]; d.Color != "#0a0" || d.Status != "failed" || d.Slug != "dev" {
 		t.Errorf("dev = %+v", d)
 	}
 	if p := ns["env:"+w.prod]; p.Status != "" || p.Detail != "0 tiles" {
@@ -364,7 +364,7 @@ func TestCanvasEnv(t *testing.T) {
 	}
 	ns := nodes(v)
 	api := ns[w.api]
-	if api.Status != "error" || len(api.Domains) != 1 || len(api.Subs) != 1 || api.Subs[0].ID != w.vols["uploads"] ||
+	if api.Status != "failed" || len(api.Domains) != 1 || len(api.Subs) != 1 || api.Subs[0].ID != w.vols["uploads"] ||
 		api.H != 104 || api.Detail != "api" {
 		t.Errorf("api = %+v", api)
 	}
@@ -669,5 +669,45 @@ func TestCanvasFirstDropKeepsStatusLayout(t *testing.T) {
 				nid, b[nid].X, b[nid].Y, n.X, n.Y,
 			)
 		}
+	}
+}
+
+// A failed push does not hide a worse roll-up word on the stack card.
+func TestCanvasStackPushFailKeepsWorse(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	fin := time.Now()
+	if err := w.e.Store.Jobs.Create(context.Background(), store.Job{
+		ID: uuid.NewString(), Kind: "push", State: "failed", Error: "denied", Payload: "{}",
+		LockSet: store.StringList{"push:" + w.shop, "push:" + w.shop + ":acme/shop@main"}, CreatedAt: fin, FinishedAt: &fin,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := w.e.Orch.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasOrg, ID: w.acme}, service.ShowAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := nodes(v)["stack:"+w.shop]; st.Status != "failed" {
+		t.Errorf("stack status = %q, want failed kept over pushfailed", st.Status)
+	}
+}
+
+// An env off the ladder (a PR env) is promoted to by nothing: it is never
+// behind, so nothing waits for it.
+func TestCanvasPREnvNeverBehind(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	pr := uuid.NewString()
+	if err := w.e.Store.Environments.Create(ctx, store.Environment{
+		ID: pr, StackID: w.shop, Name: "pr-7", Slug: "pr-7", Type: "ephemeral", FromKind: "branch", Settings: "{}", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := w.e.Orch.WaitingRelease(ctx, w.shop, pr); ok {
+		t.Error("a PR env has a release waiting for it")
+	}
+	if _, ok := w.e.Orch.WaitingRelease(ctx, w.shop, w.prod); !ok {
+		t.Error("the ladder's prod rung lost its waiting release")
 	}
 }

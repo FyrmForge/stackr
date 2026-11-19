@@ -156,3 +156,25 @@ func TestCardFooterOnBottomEdge(t *testing.T) {
 		t.Error("footer still uses mt-3")
 	}
 }
+
+// A stack card whose push failed is no anchor, so its Job log link nests in
+// nothing; one without a failure is still the link.
+func TestStackCardNoNestedAnchor(t *testing.T) {
+	render := func(n Node) string {
+		var b strings.Builder
+		v := View{Base: "/acme", Nodes: []Node{n}}
+		if err := Canvas(v).Render(context.Background(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	n := Node{ID: "stack:1", Kind: "stack", Name: "shop", Href: "/acme/shop", Status: "pushfailed", Fail: "denied", W: 220, H: 96}
+	if out := render(n); !strings.Contains(out, `<a href="/acme/shop"`) {
+		t.Error("a stack card without a log link is no longer the link")
+	}
+	n.FailHref = "/acme/-/jobs/j1"
+	out := render(n)
+	if strings.Contains(out, `<a href="/acme/shop"`) || !strings.Contains(out, `href="/acme/-/jobs/j1"`) {
+		t.Error("failing stack card nests or lacks the log link")
+	}
+}

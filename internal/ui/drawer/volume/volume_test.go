@@ -95,3 +95,34 @@ func TestMountedHasNoDelete(t *testing.T) {
 		t.Error("a mounted volume must not offer delete")
 	}
 }
+
+// The Backups tab: a flat group per schedule with its facts, the Add a
+// schedule form with nothing prefilled, and the empty state's one sentence.
+func TestBackupsFacts(t *testing.T) {
+	render := func(b BackupsView) string {
+		var sb strings.Builder
+		if err := Backups(b).Render(context.Background(), &sb); err != nil {
+			t.Fatal(err)
+		}
+		return sb.String()
+	}
+	b := BackupsView{ID: "v1", Name: "pgdata", Base: "/v", Edit: true, Methods: []string{"dump"},
+		Schedules: []Schedule{{ID: "s1", Method: "dump", Cron: "0 3 * * *", TZ: "UTC", Dest: "local disk", Keep: "7", Mode: "pause"}}}
+	got := render(b)
+	for _, w := range []string{"Database dump", "to local disk", "Every day at 03:00", "UTC, 0 3 * * *", "Keep", "While it runs", `aria-label="Edit Keep"`, "Add a schedule", "Back up now", `name="repeat"`, "Empty uses 03:00."} {
+		if !strings.Contains(got, w) {
+			t.Errorf("no %q in\n%s", w, got)
+		}
+	}
+	if strings.Contains(got, "No backups are scheduled.") || strings.Contains(got, "default</span>") {
+		t.Errorf("a schedule row carries the empty state or the default tag\n%s", got)
+	}
+	b.Schedules = nil
+	if got = render(b); !strings.Contains(got, "No backups are scheduled.") {
+		t.Errorf("no empty state\n%s", got)
+	}
+	b.Edit = false
+	if got = render(b); strings.Contains(got, "Add a schedule") {
+		t.Errorf("a viewer sees Add a schedule\n%s", got)
+	}
+}

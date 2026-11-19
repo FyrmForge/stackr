@@ -7,6 +7,7 @@ import "strings"
 // every level; the service answers what applies and who decided it.
 type SettingsFormView struct {
 	ID       string // form id, unique on the page
+	Target   string // where a save answers (outerHTML); "" = the form itself
 	Action   string
 	Scope    string // the rung being edited, for the legend
 	Rows     []SettingRowView
@@ -15,6 +16,9 @@ type SettingsFormView struct {
 	Error    string // a refusal no one row owns
 	Note     string // what a save did
 	Flat     bool   // one list, no section heads: a Section around it titles it
+	// Flush says the form ends a Section's card: the pending footer then runs
+	// edge to edge as that card's footer, as the variables build's does.
+	Flush bool
 	// Keys is the rows the form shows, in this order; nil = every row. A
 	// key with no row is skipped.
 	Keys []string
@@ -43,6 +47,21 @@ type SettingRowView struct {
 	NoInherit bool
 	// Options: a string knob with a fixed set of values, shown as a select.
 	Options []Option
+	// Sub is a line under the value in read mode, with an optional link
+	// that posts into Target ("Checked 4 min ago. Check now").
+	Sub *RowSub
+	// Fact: a value shown in the same grid, with no pencil and no field.
+	Fact bool
+}
+
+// RowSub is a row's note and its link; Action "" = no link.
+type RowSub struct{ Text, Label, Action, Target string }
+
+func (v SettingsFormView) target() string {
+	if v.Target != "" {
+		return v.Target
+	}
+	return "#" + v.ID
 }
 
 // knobSection is the v0 section each catalogue key sits in; the label is
@@ -213,33 +232,44 @@ templ ConfigRepoFields(v ConfigRepoView) {
 }
 
 templ SettingsForm(v SettingsFormView) {
-	<form id={ v.ID } if !v.ReadOnly { hx-post={ v.Action } } hx-target={ "#" + v.ID } hx-swap="outerHTML" class="space-y-4">
-		if v.ReadOnly {
+	<form id={ v.ID } if !v.ReadOnly { hx-post={ v.Action } } hx-target={ v.target() } hx-swap="outerHTML" class="group space-y-4">
+		if v.ReadOnly && v.Why != "" {
 			<p class="banner">{ v.Why }</p>
 		}
+		<settings-read class="block">
 		<fieldset disabled?={ v.ReadOnly }>
 			<legend class="sr-only">{ v.Scope } settings</legend>
 			if v.Flat {
-				<div class="space-y-4">
+				<div class="divide-y divide-rw-border [&>*]:py-2">
 					for _, r := range v.shown() {
-						@settingRow(v.ID, r)
+						@settingRow(v.ID, r, !v.ReadOnly)
 					}
 				</div>
 			} else {
 				for _, rows := range sectioned(v.shown()) {
 					@PanelSection(v.ID+"-"+strings.ReplaceAll(strings.ToLower(sectionOf(rows)), " ", "-"), sectionOf(rows), "") {
 						for _, r := range rows {
-							@settingRow(v.ID, r)
+							@settingRow(v.ID, r, !v.ReadOnly)
 						}
 					}
 				}
 			}
-			if !v.ReadOnly {
-				<div class="flex items-center gap-3 pt-6">
-					<button type="submit" class="btn btn-primary btn-sm">Save</button>
-				</div>
-			}
 		</fieldset>
+		if !v.ReadOnly {
+			// the edits held in the rows, listed; <settings-read> shows it while any is held or open
+			<div data-pending hidden class={ "mt-4 border-t border-rw-border", templ.KV("-mx-4 sm:-mx-6 -mb-4 sm:-mb-6 bg-rw-inset px-4 py-3 sm:px-6", v.Flush), templ.KV("pt-3", !v.Flush) }>
+				<p data-count class="text-xs font-medium text-rw-muted"></p>
+				<ul data-list class="mt-1.5 space-y-1"></ul>
+				<div class="mt-3 flex flex-wrap items-center gap-2 group-[.htmx-request]:hidden">
+					<button type="submit" class="btn btn-primary btn-sm">Apply</button>
+					<button type="button" class="btn btn-ghost btn-sm" data-cancel-all>Cancel</button>
+				</div>
+				<div class="mt-3 hidden items-center gap-2 group-[.htmx-request]:flex">
+					<span class="btn btn-primary btn-sm opacity-60 cursor-not-allowed" aria-disabled="true"><span class="spin" style="margin-top:0;margin-right:.4rem;border-color:currentColor;border-top-color:transparent"></span>Applying</span>
+				</div>
+			</div>
+		}
+		</settings-read>
 		// the answer by the Save that posted it, inside the form it swaps
 		if v.Error != "" {
 			@actedNote(FormError(v.Error))
@@ -252,12 +282,111 @@ templ SettingsForm(v SettingsFormView) {
 	</form>
 }
 
-templ settingRow(form string, r SettingRowView) {
-	if r.ReadOnly {
+templ settingRow(form string, r SettingRowView, read bool) {
+	if r.Fact {
+		@factOnly(r)
+	} else if r.ReadOnly {
 		@readOnlyRow(r)
+	} else if read {
+		@factRow(form, r)
 	} else {
 		@editRow(form, r)
 	}
+}
+
+// factRow is a knob as a fact: its value and a pencil. The control itself
+// sits behind the pencil (<settings-read>), open at once when a search hit it
+// or its save was refused.
+templ factRow(form string, r SettingRowView) {
+	{{ open := r.Found || r.Error != "" }}
+	<div data-row data-label={ knobLabel(r) } data-field data-find-key={ r.Key } data-changed?={ r.Changed } if r.Found { class="is-found" }>
+		<div data-read hidden?={ open }>
+			<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 py-1 text-sm sm:grid-cols-[14rem_minmax(0,1fr)_auto]">
+				<span class="col-span-2 settings-label sm:col-span-1">
+					{ knobLabel(r) }
+					@FieldMarks(r.Changed, r.From)
+				</span>
+				<span data-val class="min-w-0 text-rw-text [overflow-wrap:anywhere]">
+					@factValue(r)
+					@rowSub(r)
+				</span>
+				<span class="flex items-center justify-end">
+					<span data-undo hidden><button type="button" class="inline-flex h-7 w-7 group-[.htmx-request]:pointer-events-none group-[.htmx-request]:opacity-40 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Undo" aria-label={ "Undo " + knobLabel(r) }>@settingUndoIcon()</button></span>
+					<button type="button" data-edit class="inline-flex h-7 w-7 group-[.htmx-request]:pointer-events-none group-[.htmx-request]:opacity-40 items-center justify-center rounded-md text-rw-faint hover:text-rw-text hover:bg-rw-inset transition-colors" title="Edit" aria-label={ "Edit " + knobLabel(r) }>@settingPenIcon()</button>
+				</span>
+			</div>
+		</div>
+		<div data-editor hidden?={ !open }>
+			@editBody(form, r)
+			<button type="button" data-cancel class="btn btn-ghost btn-sm mt-1">Cancel</button>
+		</div>
+	</div>
+}
+
+// rowSub is a row's note under its value, with its link.
+templ rowSub(r SettingRowView) {
+	if r.Sub != nil {
+		<p class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-rw-faint">
+			<span>{ r.Sub.Text }</span>
+			if r.Sub.Action != "" {
+				<button type="button" class="link" hx-post={ r.Sub.Action } hx-target={ r.Sub.Target } hx-swap="outerHTML">{ r.Sub.Label }</button>
+			}
+		</p>
+	}
+}
+
+// factOnly is a fact the form never edits: the factRow grid without a pencil.
+templ factOnly(r SettingRowView) {
+	<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 py-1 text-sm sm:grid-cols-[14rem_minmax(0,1fr)_auto]">
+		<span class="col-span-2 settings-label sm:col-span-1">{ knobLabel(r) }</span>
+		<span class="min-w-0 text-rw-text [overflow-wrap:anywhere]">
+			@factValue(r)
+			@rowSub(r)
+		</span>
+	</div>
+}
+
+// factValue is what applies, in words: the value set here, else what is
+// inherited, tagged default while only the built-in default is above.
+templ factValue(r SettingRowView) {
+	if r.Secret {
+		if r.Effective == "set" {
+			<span>Set</span>
+		} else {
+			<span class="text-rw-faint">Not set</span>
+		}
+	} else if r.Value != "" {
+		<span>{ factWords(r, r.Value) }</span>
+	} else if r.Effective == "" {
+		<span class="text-rw-faint">Not set</span>
+	} else {
+		<span class="text-rw-faint">{ factWords(r, r.Effective) }</span>
+		if r.DecidedBy == "" || r.DecidedBy == "default" {
+			<span class="ml-1">@Chip("default", "")</span>
+		}
+	}
+}
+
+// factWords is a value as the row's control would say it: a bool as on or
+// off, an option by its label.
+func factWords(r SettingRowView, v string) string {
+	for _, o := range r.Options {
+		if o.Value == v {
+			return o.Label
+		}
+	}
+	if r.Type == "bool" {
+		return onOff(v)
+	}
+	return v
+}
+
+templ settingPenIcon() {
+	<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+}
+
+templ settingUndoIcon() {
+	<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"></path><path d="M3 13a9 9 0 1 0 3-7"></path></svg>
 }
 
 // readOnlyRow is a knob the installer set: its value as text, no input, so
@@ -281,13 +410,18 @@ templ readOnlyRow(r SettingRowView) {
 
 templ editRow(form string, r SettingRowView) {
 	<div data-field data-find-key={ r.Key } data-changed?={ r.Changed } if r.Found { class="is-found" }>
+		@editBody(form, r)
+	</div>
+}
+
+templ editBody(form string, r SettingRowView) {
 		<label for={ form + "-" + r.Key } class="settings-label">
 			{ knobLabel(r) }
 			@FieldMarks(r.Changed, r.From)
 		</label>
 		switch {
 			case r.Type == "bool":
-				<select id={ form + "-" + r.Key } name={ r.Key } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
+				<select id={ form + "-" + r.Key } name={ r.Key } data-stored={ r.Value } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
 					if !r.NoInherit {
 						<option value="" selected?={ Kept(ctx, r.Key, r.Value) == "" }>{ inheritChoice(r) }</option>
 					}
@@ -295,15 +429,15 @@ templ editRow(form string, r SettingRowView) {
 					<option value="false" selected?={ Kept(ctx, r.Key, r.Value) == "false" }>Off</option>
 				</select>
 			case len(r.Options) > 0:
-				<select id={ form + "-" + r.Key } name={ r.Key } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
+				<select id={ form + "-" + r.Key } name={ r.Key } data-stored={ r.Value } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
 					for _, o := range r.Options {
 						<option value={ o.Value } selected?={ Kept(ctx, r.Key, r.Value) == o.Value }>{ o.Label }</option>
 					}
 				</select>
 			case r.Secret:
-				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
+				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" data-stored="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
 			default:
-				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ Kept(ctx, r.Key, r.Value) } placeholder={ inheritHint(r) } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
+				<input id={ form + "-" + r.Key } name={ r.Key } data-stored={ r.Value } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ Kept(ctx, r.Key, r.Value) } placeholder={ inheritHint(r) } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
 		}
 		if r.Secret {
 			<span class="settings-help">{ secretHelp(r.Effective) }</span>
@@ -314,7 +448,6 @@ templ editRow(form string, r SettingRowView) {
 			<span class="settings-help">{ sentence(r.Desc) }</span>
 		}
 		@FieldError(r.Key, KeptErr(ctx, r.Key, r.Error))
-	</div>
 }
 
 // inheritHint is an empty field's placeholder: nothing on a flat knob, the

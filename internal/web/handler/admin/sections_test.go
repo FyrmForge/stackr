@@ -39,7 +39,7 @@ func TestAdminSections(t *testing.T) {
 		"org-defaults": {`name="cpu_limit"`, `name="mem_limit_mb"`, `name="protect"`, `name="protect_password"`},
 		"jobs":         {`name="workers"`, `name="backup_run_concurrency"`, `name="backup_restore_concurrency"`},
 		"config":       {`id="tab-config"`, `id="vars-editor"`, "Variables"},
-		"update":       {`id="tab-update"`, "A dev build cannot upgrade itself"},
+		"update":       {`id="tab-update"`, "A dev build cannot update itself"},
 	}
 	for _, g := range ui.Groups {
 		for _, it := range g.Items {

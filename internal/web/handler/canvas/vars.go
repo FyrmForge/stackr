@@ -99,7 +99,7 @@ func pick(cs []col, token string) (col, bool) {
 // vars is the grid of s's own params. A secret's value never reaches the view.
 // ponytail: no drift chip; the file's value per cell is not returned by any
 // verb the editor can call cheaply (the plan computes it per apply).
-func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string) (templ.Component, error) {
+func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string, mods ...func(*vars.Grid)) (templ.Component, error) {
 	ctx := c.Request().Context()
 	write := can(c, s, "variable.write")
 	cs, name, err := h.cols(ctx, s)
@@ -119,6 +119,9 @@ func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string) (te
 	if form, _ := c.FormParams(); c.Request().Method == http.MethodPost && errMsg == "" && form.Has("add_form") {
 		group := form.Get("add_form") // the note right after the add form that posted
 		g.Added, g.Note = &group, note
+	}
+	for _, m := range mods {
+		m(&g)
 	}
 	v.Grid = &g
 	return vars.Editor(v), nil
@@ -155,6 +158,24 @@ func (h *handler) grid(ctx context.Context, cs []col, write bool) (vars.Grid, er
 				plain[k] = true
 			}
 		}
+		if !write {
+			continue
+		}
+		// a value the env's tiles wait for is a declared secret: a row, unset
+		waits, err := h.orch.UnsetParams(ctx, c.ps)
+		if err != nil {
+			return g, err
+		}
+		for name, tiles := range waits {
+			coll, n, _ := strings.Cut(name, ".")
+			k := key{coll, n}
+			if cells[k] == nil {
+				cells[k] = make([]vars.Cell, len(cs))
+			}
+			if !cells[k][i].Set {
+				cells[k][i].Waits = tiles
+			}
+		}
 	}
 	for _, k := range slices.SortedFunc(maps.Keys(cells), func(a, b key) int {
 		return cmp.Or(strings.Compare(a.coll, b.coll), strings.Compare(a.name, b.name))
@@ -184,11 +205,26 @@ func (h *handler) SetVars(c echo.Context) error {
 	if form.Has("add_form") || strings.TrimSpace(form.Get("add_name")) != "" {
 		return h.addVar(c, s, cs, form)
 	}
-	col, ok := pick(cs, form.Get("scope"))
+	col, ok := pick(cs, cmp.Or(form.Get("held_scope"), form.Get("scope")))
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
-	rs, err := h.orch.SetParams(ctx, col.ps, render.ParamEntries(form))
+	if form.Get("restart") == "later" {
+		names, waiting, err := h.orch.SetParamsLater(ctx, col.ps, entriesOf(form))
+		note := "Saved."
+		if len(names) > 0 {
+			note += " " + strings.Join(names, ", ") + " redeploy later."
+		}
+		if len(waiting) > 0 {
+			verb := " wait"
+			if len(waiting) == 1 {
+				verb = " waits"
+			}
+			note += " " + vars.NaturalList(waiting) + verb + " for a deploy."
+		}
+		return h.varsAfter(c, s, note, err)
+	}
+	rs, err := h.orch.SetParams(ctx, col.ps, entriesOf(form))
 	return h.varsAfter(c, s, saved("Saved.", rs), err)
 }
 
@@ -267,6 +303,15 @@ func (h *handler) varsAfter(c echo.Context, s service.Scope, note string, err er
 		status, note = http.StatusUnprocessableEntity, ""
 		// an add or cell form shows its own refusal, open with what was typed
 		if form, _ := c.FormParams(); vars.Takes(form) {
+			// a held change reopens as an input too, with its refusal under it
+			for k, v := range form {
+				if rest, ok := strings.CutPrefix(k, "held."); ok && !form.Has(rest) {
+					form[rest] = v
+				}
+			}
+			if hs := form.Get("held_scope"); hs != "" {
+				form.Set("scope", hs)
+			}
 			r := &comp.Refused{Msg: msg, Vals: form, More: render.FieldErrs(err)}
 			c.SetRequest(c.Request().WithContext(comp.WithRefused(c.Request().Context(), r)))
 			msg = ""

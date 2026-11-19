@@ -31,6 +31,7 @@ type Docker interface {
 	StopRemove(ctx context.Context, id string) error
 	List(ctx context.Context, labels map[string]string) ([]docker.Container, error)
 	Inspect(ctx context.Context, id string) (docker.Detail, error)
+	Logs(ctx context.Context, id string, tail int) (string, error)
 	Pull(ctx context.Context, ref, auth string, log io.Writer) error
 	LocalDigest(ctx context.Context, ref string) (string, error)
 	Tag(ctx context.Context, src, dst string) error
@@ -226,6 +227,12 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		spec.Labels = map[string]string{}
 	}
 	spec.Labels[LabelRole] = "panel"
+	// A failure file of an earlier upgrade is not this trial's.
+	if db := dbPath(spec); db != "" {
+		if err := os.Remove(FailureFile(db)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("upgrade: old failure file not removed", "err", err)
+		}
+	}
 	// A rerun (the helper died and Docker started it again) finds the new
 	// panel of the first try, named spec.Name. It is not an old panel: it
 	// goes, and the database copy of the first try goes back, so the swap
@@ -297,6 +304,9 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		err = l.probe(ctx, spec)
 	}
 	if err != nil {
+		if db != "" {
+			l.recordFailure(ctx, id, db, spec.Image[strings.LastIndex(spec.Image, ":")+1:], err) // before the container, and its log, go
+		}
 		_ = l.docker.StopRemove(ctx, id)
 		if db != "" {
 			if rerr := restoreDB(db, cp); rerr != nil {
@@ -360,4 +370,53 @@ func (l *Leaf) probe(ctx context.Context, spec docker.ContainerSpec) error {
 // failed reports a real error: a missing -wal or -shm is normal.
 func failed(err error, suf string) bool {
 	return err != nil && (suf == "" || !errors.Is(err, os.ErrNotExist))
+}
+
+// Failure is why the new panel failed its trial. The helper writes it before
+// it removes the container, since the log goes with it; the old panel reads
+// it back at boot (TakeFailure). Only the exit code and the log tail are
+// kept, never the container's env.
+type Failure struct {
+	Tag      string `json:"tag"` // the image tag that was on trial
+	Reason   string `json:"reason"`
+	ExitCode int    `json:"exit_code"`
+	Log      string `json:"log"`
+}
+
+// failureTail is how many log lines of the new panel are kept.
+const failureTail = 100
+
+// FailureFile is where the helper leaves the Failure, beside the database
+// (the one dir both containers see).
+func FailureFile(db string) string { return db + ".upgrade-failed.json" }
+
+func (l *Leaf) recordFailure(ctx context.Context, id, db, tag string, cause error) {
+	f := Failure{Tag: tag, Reason: cause.Error()}
+	if d, err := l.docker.Inspect(ctx, id); err == nil && !d.Running {
+		f.ExitCode = d.ExitCode
+	}
+	f.Log, _ = l.docker.Logs(ctx, id, failureTail)
+	if b, err := json.Marshal(f); err == nil {
+		if err := os.WriteFile(FailureFile(db), b, 0o600); err != nil {
+			slog.Warn("upgrade: failure file not written", "err", err)
+		}
+	}
+}
+
+// ReadFailure is the helper's Failure for the trial of tag; false = none was
+// left, or it is another trial's. It stays on disk until RemoveFailure.
+func ReadFailure(db, tag string) (Failure, bool) {
+	var f Failure
+	b, err := os.ReadFile(FailureFile(db))
+	if err != nil || json.Unmarshal(b, &f) != nil || f.Tag != tag {
+		return Failure{}, false
+	}
+	return f, true
+}
+
+// RemoveFailure deletes the helper's Failure file.
+func RemoveFailure(db string) {
+	if err := os.Remove(FailureFile(db)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Warn("upgrade: failure file not removed", "err", err)
+	}
 }

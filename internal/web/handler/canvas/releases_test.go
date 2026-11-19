@@ -39,13 +39,16 @@ func TestEnvReleases(t *testing.T) {
 		t.Errorf("releases tab:\n%s", body)
 	}
 	body = get(t, s, base+"?tab=releases&plan="+id)
-	if !strings.Contains(body, "Promote #1 to dev?") || !strings.Contains(body, base+"/promote/"+id) {
+	if !strings.Contains(body, "Release 1 for dev") || !strings.Contains(body, `hx-post="`+base+"/promote/"+id+`"`) || !strings.Contains(body, ">Promote to dev<") || strings.Contains(body, "<confirm-dialog") {
 		t.Errorf("dry run:\n%s", body)
+	}
+	if strings.Contains(body, "hx-trigger=\"every 3s\"") && strings.Contains(body, "plan="+id) {
+		t.Errorf("an idle review polls:\n%s", body)
 	}
 	if strings.Contains(body, "hx-include") { // no removal rows: no ticks to include
 		t.Errorf("a plan with no removals includes ticks:\n%s", body)
 	}
-	if body = get(t, s, base+"?tab=releases&plan=nope"); strings.Contains(body, "Promote #") {
+	if body = get(t, s, base+"?tab=releases&plan=nope"); strings.Contains(body, "Release 1 for") {
 		t.Errorf("an unknown release was planned:\n%s", body)
 	}
 	rec := s.Do(t, "POST", base+"/promote/"+id, nil)
@@ -107,5 +110,27 @@ func TestStackReleasesPromote(t *testing.T) {
 	body = s.As(t, s.Session(t, v), "GET", base+"?tab=releases", nil).Body.String()
 	if !strings.Contains(body, "#1") || strings.Contains(body, "tab=releases&amp;env=") {
 		t.Errorf("a viewer sees Promote or Roll back:\n%s", body)
+	}
+}
+
+// A failed push of the stack shows over the env page and its Releases tab,
+// and on the stack's card, until a later push does not fail.
+func TestFailedPushShows(t *testing.T) {
+	s := webtest.New(t)
+	at := time.Now()
+	id := s.PushJob(t, s.Tile.Stack, "failed", "build x: buildx build: exit status 1", at)
+	for _, path := range []string{"/acme/shop/dev", "/acme/shop/dev/-/drawer?tab=releases"} {
+		body := get(t, s, path)
+		if !strings.Contains(body, "The last push failed: build x: buildx build: exit status 1.") ||
+			!strings.Contains(body, `href="/acme/shop/dev/-/jobs/`+id+`"`) {
+			t.Errorf("%s lacks the failed push:\n%s", path, body)
+		}
+	}
+	if body := get(t, s, "/acme"); !strings.Contains(body, ">Push failed<") || !strings.Contains(body, "exit status 1</span>") || !strings.Contains(body, `href="/acme/-/jobs/`+id+`"`) || strings.Contains(body, `<a href="/acme/shop"`) {
+		t.Errorf("stack card:\n%s", body)
+	}
+	s.PushJob(t, s.Tile.Stack, "done", "", at.Add(time.Minute))
+	if body := get(t, s, "/acme/shop/dev/-/drawer?tab=releases"); strings.Contains(body, "The last push failed") {
+		t.Errorf("a later push left the failure:\n%s", body)
 	}
 }

@@ -38,6 +38,7 @@ templ Layout(s Shell, body templ.Component) {
 			<script type="module" src={ StaticURL("js/elements/metric-chart.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/password-toggle.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/settings-find.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/settings-read.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/side-drawer.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/tab-strip.js") }></script>
 			<script src={ StaticURL("js/main.js") } defer></script>
@@ -206,8 +207,14 @@ templ topBar(s Shell, oob bool) {
 				if len(s.Crumbs) == 2 {
 					<span class="text-xs text-rw-faint">stack</span>
 				}
-				if s.Actions != nil || s.Settings != "" {
-					<div class="ml-auto flex items-center gap-2">
+				if len(s.Crumbs) >= 3 {
+					@StopChip(s.Stopped != nil, false)
+				}
+				if l, ok := s.nav("/-/waiting"); ok || s.Actions != nil || s.Settings != "" {
+					<div class="ml-auto flex items-center gap-3">
+						if ok {
+							@waitingLink(l, s.WaitingYou)
+						}
 						if s.Actions != nil {
 							@s.Actions
 						}
@@ -217,9 +224,31 @@ templ topBar(s Shell, oob bool) {
 					</div>
 				}
 			</div>
+		} else if l, ok := s.nav("/-/waiting"); ok {
+			<div class="flex items-center justify-end border-b border-rw-border bg-rw-surface px-4 sm:px-6 py-2.5">
+				@waitingLink(l, s.WaitingYou)
+			</div>
 		}
 		@Banners(s)
 	</header>
+}
+
+// waitingLink is the top bar's "Waiting" item and its count of what waits on
+// the viewer (the count is WaitingBadge, which the banners poll swaps).
+templ waitingLink(l Link, n int) {
+	<a
+		href="/-/waiting"
+		hx-get="/-/waiting"
+		hx-target="#main"
+		hx-push-url="true"
+		class={ "inline-flex items-center gap-1.5 text-sm hover:underline", templ.KV("text-rw-accentHi", l.Active), templ.KV("text-rw-text", !l.Active) }
+		if l.Active {
+			aria-current="page"
+		}
+	>
+		Waiting
+		@WaitingBadge(n, false)
+	</a>
 }
 
 // Banners is the header's problem, upgrade and node-down banners in #banners,
@@ -227,10 +256,27 @@ templ topBar(s Shell, oob bool) {
 templ Banners(s Shell) {
 	<div id="banners">
 		if s.BannersURL != "" {
-			@LiveTab(s.BannersURL, "banners")
+			// the poll also swaps the top bar's waiting count, out of band
+			<span hidden data-live-tab data-poll-guard="region rows fields dirty" hx-get={ s.BannersURL } hx-trigger="every 3s" hx-select="#banners" hx-select-oob="#rail-you" hx-target="#banners" hx-swap="outerHTML"></span>
+		}
+		if s.PollBanners && s.User != "" {
+			@WaitingBadge(s.WaitingYou, true)
 		}
 		if len(s.Problems) > 0 {
 			@problems(s)
+		}
+		if s.PollBanners && s.User != "" && len(s.Crumbs) >= 3 {
+			@StopChip(s.Stopped != nil, true)
+		}
+		if s.Stopped != nil {
+			<div class="px-4 sm:px-6 pt-3">
+				@RolloutStopped(*s.Stopped)
+			</div>
+		}
+		if s.PushFailed != nil {
+			<div class="px-4 sm:px-6 pt-3">
+				@PushFailed(*s.PushFailed)
+			</div>
 		}
 		if s.Upgrading {
 			<div id="upgrading" role="status" class="border-b border-rw-warn/40 bg-rw-warn/10 px-4 sm:px-6 py-2 text-sm text-rw-warn">

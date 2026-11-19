@@ -37,6 +37,9 @@ type Change struct {
 	Impact   string `json:"impact,omitempty"`
 	Optional bool   `json:"optional,omitempty"`
 	Key      string `json:"key,omitempty"`
+	// Details are what a create row will make, one "Label: value" per line,
+	// for the review to open. A string, so a Change stays comparable.
+	Details string `json:"details,omitempty"`
 }
 
 // Line is the change as one job-log line: "update api port: 80 -> 8080 (note)".
