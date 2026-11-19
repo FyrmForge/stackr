@@ -32,6 +32,11 @@ type col struct {
 // forms may write: org = its tiers and pr, or all and pr while it has no
 // tiers; stack = its static envs and pr; env = that env alone.
 func (h *handler) cols(ctx context.Context, s service.Scope) ([]col, string, error) {
+	return h.colsIn(ctx, s, nil)
+}
+
+// colsIn is cols with the stack's ladder already read (nil = read it here).
+func (h *handler) colsIn(ctx context.Context, s service.Scope, es []service.Environment) ([]col, string, error) {
 	tiers, err := h.orch.Tiers(ctx, s.Org.ID)
 	if err != nil {
 		return nil, "", err
@@ -53,9 +58,11 @@ func (h *handler) cols(ctx context.Context, s service.Scope) ([]col, string, err
 		inTier[t.Slug] = t
 	}
 	pr = col{vars.Col{Token: "stack_pr", Label: "pr", Sub: "sandbox", Hue: "teal"}, service.ParamScope{Kind: "stack_pr", ID: s.Stack.ID}}
-	es, err := h.orch.Ladder(ctx, s.Stack.ID)
-	if err != nil {
-		return nil, "", err
+	if es == nil {
+		var err error
+		if es, err = h.orch.Ladder(ctx, s.Stack.ID); err != nil {
+			return nil, "", err
+		}
 	}
 	hues := service.EnvHues(es)
 	var out []col
@@ -108,7 +115,7 @@ func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string, mod
 	}
 	base := urlOf(s) + "/-/vars"
 	v := vars.View{Scope: name, Error: errMsg, Note: note}
-	g, err := h.grid(ctx, cs, write)
+	g, err := h.grid(ctx, cs, write, true)
 	if err != nil {
 		return nil, err
 	}
@@ -128,12 +135,24 @@ func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string, mod
 }
 
 // grid reads every column's scope. A writer sees secret names (masked: the
-// value is never read); a reader sees params only.
-func (h *handler) grid(ctx context.Context, cs []col, write bool) (vars.Grid, error) {
+// value is never read); a reader sees params only. waits false skips the
+// parked-job lookup (a count of set rows needs none).
+func (h *handler) grid(ctx context.Context, cs []col, write, waits bool) (vars.Grid, error) {
 	g := vars.Grid{}
 	type key struct{ coll, name string }
 	cells := map[key][]vars.Cell{}
 	plain := map[key]bool{} // a name with a plain cell is not a secret row
+	var unset []map[string][]string
+	if write && waits {
+		ps := make([]service.ParamScope, len(cs))
+		for i, c := range cs {
+			ps[i] = c.ps
+		}
+		var err error
+		if unset, err = h.orch.UnsetParamsOf(ctx, ps); err != nil {
+			return g, err
+		}
+	}
 	for i, c := range cs {
 		g.Cols = append(g.Cols, c.Col)
 		var rows []service.Param
@@ -158,15 +177,11 @@ func (h *handler) grid(ctx context.Context, cs []col, write bool) (vars.Grid, er
 				plain[k] = true
 			}
 		}
-		if !write {
+		if unset == nil {
 			continue
 		}
 		// a value the env's tiles wait for is a declared secret: a row, unset
-		waits, err := h.orch.UnsetParams(ctx, c.ps)
-		if err != nil {
-			return g, err
-		}
-		for name, tiles := range waits {
+		for name, tiles := range unset[i] {
 			coll, n, _ := strings.Cut(name, ".")
 			k := key{coll, n}
 			if cells[k] == nil {

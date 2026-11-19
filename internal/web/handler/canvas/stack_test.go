@@ -96,7 +96,7 @@ func TestStackSettingsRows(t *testing.T) {
 	body := get(t, s, d+"?tab=settings&open=order")
 	for _, w := range []string{
 		`data-acc="order" open`, "dev, staging",
-		`data-acc="variables"`, `id="vars-editor"`,
+		`data-acc="variables"`, `hx-get="/acme/shop/-/vars?bare=1"`,
 		`data-acc="placement"`, `hx-get="/acme/shop/-/placement"`, "inherits org (default)",
 		`data-acc="config"`, "managed from the UI",
 		`data-acc="resources"`, "inherits org",
@@ -106,6 +106,17 @@ func TestStackSettingsRows(t *testing.T) {
 		if !strings.Contains(body, w) {
 			t.Errorf("no %s in\n%s", w, body)
 		}
+	}
+	// wide for the side drawer, but only the grid lifts the full-screen cap
+	if !strings.Contains(body, "data-wide") || strings.Contains(body, "data-grid") {
+		t.Error("the tab must be wide and carry no grid marker")
+	}
+	// the variables grid loads after the drawer is on screen, as the editor alone
+	if strings.Contains(body, `id="vars-editor"`) {
+		t.Error("the grid is built into the first answer")
+	}
+	if bare := get(t, s, "/acme/shop/-/vars?bare=1"); !strings.Contains(bare, `id="vars-editor"`) || strings.Contains(bare, `id="drawer-view"`) {
+		t.Errorf("bare vars is not the editor alone:\n%s", bare)
 	}
 	for _, gone := range []string{"tab=params", "tab=placement"} {
 		if strings.Contains(body, gone) {

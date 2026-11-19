@@ -36,8 +36,8 @@ func TestDrawerStickyHead(t *testing.T) {
 	if !strings.HasSuffix(out, "<p>BODY</p></div></div>") {
 		t.Errorf("body is not the last child:\n%s", out)
 	}
-	if !strings.Contains(out, "max-w-5xl") || !strings.Contains(out, "has-[[data-wide]]:max-w-none") {
-		t.Errorf("no full-screen centring or data-wide escape:\n%s", out)
+	if !strings.Contains(out, "max-w-5xl") {
+		t.Errorf("no full-screen centring:\n%s", out)
 	}
 }
 
