@@ -693,6 +693,22 @@ func TestReleaseGetShowsPins(t *testing.T) {
 	}
 }
 
+// release ls shows each release's source, where it runs and its state, and
+// --env reads the list as that env sees it.
+func TestReleaseLsStateAndEnv(t *testing.T) {
+	var query string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.RawQuery
+		_, _ = io.WriteString(w, `[{"id":"r3","number":3,"commit":"b653b0c","message":"depends_on","source":"push","runs_in":"prod","state":"waiting"}]`)
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	code, out, _ := cli(t, "release", "ls", "--stack", "shop", "--env", "prod")
+	if code != 0 || query != "env=prod" || !strings.Contains(out, "push") || !strings.Contains(out, "waiting") {
+		t.Errorf("release ls = %d %q query %q", code, out, query)
+	}
+}
+
 func TestEnvTrafficNamesAndRates(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `[{"from":"a","to":"b","from_name":"api","to_name":"infra/staging/pg-db","bps":695995.3}]`)

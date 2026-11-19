@@ -46,6 +46,9 @@ type level struct {
 	base  string // "" on home
 	title string
 	empty string // v0's line for a canvas with nothing on it yet
+	// viewOnly: the viewer cannot promote here, so the window's links read
+	// "View plan".
+	viewOnly bool
 }
 
 func where(c echo.Context) level {
@@ -58,6 +61,8 @@ func where(c echo.Context) level {
 			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug,
 			title: sc.Env.Name,
 			empty: "No tiles in this environment yet.",
+
+			viewOnly: !can(c, sc, "env.write"),
 		}
 	case sc.Stack != nil:
 		return level{
@@ -65,6 +70,8 @@ func where(c echo.Context) level {
 			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug,
 			title: sc.Stack.Name,
 			empty: "This stack has no environments yet.",
+
+			viewOnly: !can(c, sc, "env.write"),
 		}
 	case sc.Org != nil:
 		return level{
@@ -147,6 +154,9 @@ func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focu
 			v.Empty = "Release " + strconv.Itoa(rel.Number) + " is waiting."
 			v.EmptyNote = "Nothing runs here until it is promoted."
 			v.EmptyHref = l.base + "?drawer=" + url.QueryEscape("env:"+l.scope.ID) + "&tab=releases&plan=" + rel.ID
+			if l.viewOnly {
+				v.EmptyLink = "View plan"
+			}
 		}
 	}
 	if v.Empty != "" && l.scope.Kind == service.CanvasStack {

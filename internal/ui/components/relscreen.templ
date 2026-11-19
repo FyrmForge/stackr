@@ -1,0 +1,222 @@
+package components
+
+import "strconv"
+
+// RelScreen is the Releases screen (releases view RFC, section 5, mock 5):
+// the scope tree on the left, the state filter, source and search above one
+// list of every release, failure and config plan in scope. The list is the
+// page; there is no filled button.
+type RelScreen struct {
+	Action  string // GET of the page, without a query
+	Live    string // the page's own address, polled
+	Scopes  []RelScope
+	Scope   string // the picked scope key
+	State   string
+	Source  string
+	Q       string
+	States  []RelStateLink
+	Sources []RelOption
+	Rows    []RelRow
+	Total   int    // rows that matched
+	Empty   string // the sentence for no rows
+	Clear   string // the address with no filters; "" = none are set
+}
+
+// RelScope is one entry of the tree: Depth 0 is an org's, 1 what is in it.
+// No Href = a heading.
+type RelScope struct {
+	Label, Href string
+	Depth       int
+	Waiting     int
+	Active      bool
+}
+
+// RelStateLink is one stop of the state switch.
+type RelStateLink struct {
+	Label, Href string
+	Count       int
+	Active      bool
+}
+
+// RelOption is one source the filter offers.
+type RelOption struct{ Value, Label string }
+
+const relGrid = "grid grid-cols-[5rem_3.25rem_4.25rem_minmax(12rem,1fr)_5rem_4.5rem_10.5rem_6.5rem_6.5rem] items-center gap-x-2 px-3"
+
+templ RelScreenView(v RelScreen) {
+	<div id="rel-screen" class="px-4 sm:px-6 py-5">
+		@LiveTab(v.Live, "rel-screen")
+		<h2 class="pb-4 text-lg font-semibold text-rw-text">Releases</h2>
+		<section class="panel flex flex-col overflow-hidden md:flex-row">
+			<nav aria-label="Scopes" class="flex shrink-0 flex-row gap-1 overflow-x-auto border-b border-rw-border p-2 md:w-44 md:flex-col md:overflow-visible md:border-b-0 md:border-r">
+				for _, s := range v.Scopes {
+					if s.Href == "" {
+						<span class="mt-2 flex h-6 shrink-0 items-center whitespace-nowrap px-2 text-xs text-rw-faint">{ s.Label }</span>
+					} else {
+					<a
+						href={ templ.SafeURL(s.Href) }
+						hx-get={ s.Href }
+						hx-target="#main"
+						hx-push-url="true"
+						class={ "flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 text-sm",
+							templ.KV("pl-6", s.Depth > 0),
+							templ.KV("bg-rw-inset text-rw-text", s.Active), templ.KV("text-rw-muted hover:text-rw-text", !s.Active) }
+						if s.Active {
+							aria-current="page"
+						}
+					>
+						<span class="truncate">{ s.Label }</span>
+						if s.Waiting > 0 {
+							<span class="ml-auto text-xs text-rw-accentHi">{ strconv.Itoa(s.Waiting) }</span>
+						}
+					</a>
+					}
+				}
+			</nav>
+			<div class="min-w-0 flex-1">
+				<form
+					action={ templ.SafeURL(v.Action) }
+					method="get"
+					class="flex flex-wrap items-center gap-3 border-b border-rw-border p-3"
+					hx-get={ v.Action }
+					hx-target="#rel-screen"
+					hx-select="#rel-screen"
+					hx-swap="outerHTML"
+					hx-push-url="true"
+					hx-trigger="change, submit, input delay:400ms from:#rel-q"
+				>
+					<input type="hidden" name="scope" value={ v.Scope }/>
+					<input type="hidden" name="state" value={ v.State }/>
+					<nav aria-label="State" class="inline-flex rounded-md bg-rw-inset p-0.5 text-sm">
+						for _, s := range v.States {
+							<a
+								href={ templ.SafeURL(s.Href) }
+								hx-get={ s.Href }
+								hx-target="#main"
+								hx-push-url="true"
+								class={ "flex h-7 items-center gap-1.5 whitespace-nowrap rounded px-2.5",
+									templ.KV("bg-rw-raised text-rw-text", s.Active), templ.KV("text-rw-muted hover:text-rw-text", !s.Active) }
+								if s.Active {
+									aria-current="true"
+								}
+							>
+								{ s.Label }
+								if s.Count > 0 {
+									<span class="text-xs text-rw-accentHi">{ strconv.Itoa(s.Count) }</span>
+								}
+							</a>
+						}
+					</nav>
+					<select id="rel-source" name="source" class="input !w-auto !py-1.5 text-sm" aria-label="Source">
+						<option value="">Any source</option>
+						for _, o := range v.Sources {
+							<option value={ o.Value } selected?={ o.Value == v.Source }>{ o.Label }</option>
+						}
+					</select>
+					<input id="rel-q" type="search" name="q" value={ v.Q } class="input !w-60 !py-1.5 text-sm" placeholder="Search commit or message" aria-label="Search commit or message"/>
+				</form>
+				if len(v.Rows) == 0 {
+					<div class="flex flex-col items-start gap-2 p-4 text-sm text-rw-muted">
+						<p>{ v.Empty }</p>
+						if v.Clear != "" {
+							<a href={ templ.SafeURL(v.Clear) } hx-get={ v.Clear } hx-target="#main" hx-push-url="true" class="link">Clear filters</a>
+						}
+					</div>
+				} else {
+					<div class="overflow-x-auto">
+						<div class="min-w-[56rem]">
+							<div class={ relGrid, "h-9 border-b border-rw-border text-xs font-medium text-rw-faint" }>
+								<span>Scope</span>
+								<span>Release</span>
+								<span>Commit</span>
+								<span>Message</span>
+								<span>Source</span>
+								<span>Runs in</span>
+								<span>State</span>
+								<span>When</span>
+								<span></span>
+							</div>
+							<ul class="divide-y divide-rw-border">
+								for _, r := range v.Rows {
+									@relScreenRow(r)
+								}
+							</ul>
+						</div>
+					</div>
+					if v.Total > len(v.Rows) {
+						<p class="border-t border-rw-border px-3 py-2 text-xs text-rw-faint">{ "Showing the newest " + strconv.Itoa(len(v.Rows)) + " of " + strconv.Itoa(v.Total) + ". Narrow the scope or search to see the rest." }</p>
+					}
+				}
+			</div>
+		</section>
+	</div>
+}
+
+// relScreenRow is one 36 px line; a release opens in place to its jobs, the
+// rest are plain lines.
+templ relScreenRow(r RelRow) {
+	<li>
+		if r.Kind == "release" {
+			<details data-id={ r.ID } class="group">
+				<summary class={ relGrid, "h-9 cursor-pointer list-none text-sm hover:bg-rw-inset [&::-webkit-details-marker]:hidden" }>
+					@relCells(r)
+				</summary>
+				@relOpen(r)
+			</details>
+			if r.Lacks != "" {
+				<div class="px-3 pb-2 pl-[7.5rem]">
+					@Chip("Does not hold release "+r.Lacks, "warn")
+				</div>
+			}
+		} else {
+			<div class={ relGrid, "h-9 text-sm" }>
+				@relCells(r)
+			</div>
+		}
+	</li>
+}
+
+templ relCells(r RelRow) {
+	<span class="truncate text-rw-muted" title={ r.Scope }>{ r.Scope }</span>
+	<span class="font-mono text-xs text-rw-faint whitespace-nowrap">
+		if r.Plan {
+			plan
+		} else {
+			{ r.Number }
+		}
+	</span>
+	<span class="font-mono text-xs whitespace-nowrap text-rw-text">{ r.Commit }</span>
+	<span class="min-w-0 truncate text-rw-text" title={ r.Message }>
+		if r.Kind == "building" {
+			if r.Queued {
+				Waiting to build
+			} else {
+				Building
+			}
+		} else {
+			{ r.Message }
+		}
+	</span>
+	<span class="truncate text-rw-muted">{ r.Source }</span>
+	<span class="flex min-w-0 items-center gap-1">
+		for _, e := range r.Envs {
+			<span class={ "chip bg-rw-inset text-rw-text", envClass(e.Color) }><span class="env-dot mr-1"></span>{ e.Name }</span>
+		}
+	</span>
+	<span class="flex min-w-0 items-center gap-1.5">
+		if r.State != "" {
+			@Chip(r.State, r.Tone)
+		}
+		if r.Newest {
+			@Chip("newest", "success")
+		}
+	</span>
+	<span class="whitespace-nowrap text-xs text-rw-faint">
+		@Time(r.At, "Jan 2, 15:04")
+	</span>
+	<span class="text-right">
+		if r.Link.Label != "" {
+			@relLink(r.Link, "link whitespace-nowrap")
+		}
+	</span>
+}
