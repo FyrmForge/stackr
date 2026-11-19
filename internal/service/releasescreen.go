@@ -327,7 +327,7 @@ func planRows(scope, org, orgID string, can bool, ps []planFields) []ScreenRow {
 	cured := false // a newer plan applied or had nothing to do
 	for _, p := range ps {
 		row := ScreenRow{Scope: scope, Org: org, OrgID: orgID, CanPromote: can,
-			WindowRow: WindowRow{Kind: RowPlan, ID: p.ID, Commit: p.Commit, Message: p.Summary, At: p.At, By: SourceKeyOf(p.Source), Err: configErrLine(p.Err)}}
+			WindowRow: WindowRow{Kind: RowPlan, ID: p.ID, Commit: p.Commit, Message: p.Summary, At: p.At, By: SourceKeyOf(p.Source), Err: ConfigErrLine(p.Err)}}
 		switch p.Status {
 		case orgplan.Pending:
 			row.State = StateWaiting

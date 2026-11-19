@@ -156,7 +156,7 @@ func planRow(p service.ServerPlan) comp.PlanRow {
 		When:    p.CreatedAt,
 		Commit:  p.Commit[:min(8, len(p.Commit))],
 		Source:  p.Source,
-		Error:   p.Error,
+		Error:   service.ConfigErrLine(p.Error),
 	}
 }
 
