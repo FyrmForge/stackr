@@ -499,21 +499,39 @@ type Route struct {
 // address is locked ("" = not locked).
 type GateInfo = deploy.GateInfo
 
-// DomainGates is the gate of each domain id, in one pass. A domain with no
+// DomainGates is the gate of each domain id of env envID, in one pass: one
+// read of the domains and of the env's tiles, then Gates. A domain with no
 // gate is absent from the map; one that fails to read is locked with the
 // error as its reason.
-func (o *Orchestrator) DomainGates(ctx context.Context, ids []string) map[string]GateInfo {
-	var ds []store.Domain
+func (o *Orchestrator) DomainGates(ctx context.Context, envID string, ids []string) map[string]GateInfo {
 	out := map[string]GateInfo{}
-	for _, id := range ids {
-		d, err := o.domains.Get(ctx, id) // reads are redacted; the gate needs the stored password
-		if err != nil {
-			out[id] = GateInfo{Locked: err.Error()}
-			continue
-		}
-		ds = append(ds, d)
+	ts, err := o.tiles.List(ctx, envID)
+	var all []store.Domain
+	if err == nil {
+		all, err = o.domains.List(ctx) // raw rows: the gate needs the stored password
 	}
-	for id, g := range o.deploy.Gates(ctx, ds) {
+	if err != nil {
+		for _, id := range ids {
+			out[id] = GateInfo{Locked: err.Error()}
+		}
+		return out
+	}
+	tiles := make(map[string]store.Tile, len(ts))
+	for _, t := range ts {
+		tiles[t.ID] = t
+	}
+	var ds []store.Domain
+	for _, d := range all {
+		if slices.Contains(ids, d.ID) {
+			ds = append(ds, d)
+		}
+	}
+	for _, id := range ids {
+		if !slices.ContainsFunc(ds, func(d store.Domain) bool { return d.ID == id }) {
+			out[id] = GateInfo{Locked: errs.ErrNotFound.Error()}
+		}
+	}
+	for id, g := range o.deploy.Gates(ctx, ds, tiles) {
 		out[id] = g
 	}
 	return out

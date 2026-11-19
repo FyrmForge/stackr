@@ -22,12 +22,12 @@ templ Routes(v View) {
 
 templ routes(v View) {
 	@c.Section("Routes", "env", "Every host this environment's tiles answer on. Add or change one in the tile's Settings.") {
-		if len(v.Rows) == 0 {
-			<p class="text-sm text-rw-muted">No tile in this env has a domain.</p>
-		}
 		<div id="proxy-routes">
 		if v.Live != "" {
 			@c.LiveTab(v.Live, "proxy-routes")
+		}
+		if len(v.Rows) == 0 {
+			<p class="text-sm text-rw-muted">No tile in this env has a domain.</p>
 		}
 		<ul class="divide-y divide-rw-border">
 			for _, r := range v.Rows {

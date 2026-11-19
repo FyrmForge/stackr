@@ -338,7 +338,7 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		for i := range rows {
 			ids[i] = rows[i].ID
 		}
-		gates := h.orch.DomainGates(ctx, ids)
+		gates := h.orch.DomainGates(ctx, t.EnvironmentID, ids)
 		for i := range rows {
 			rows[i].Gate, rows[i].Locked = gates[rows[i].ID].User, gates[rows[i].ID].Locked
 			cs, ok := h.orch.CertState(rows[i].Host)

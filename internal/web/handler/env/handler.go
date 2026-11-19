@@ -1453,7 +1453,7 @@ func (h *handler) proxyView(c echo.Context, rs []service.Route) proxy.View {
 	for i, r := range rs {
 		ids[i] = r.ID
 	}
-	gates := h.orch.DomainGates(c.Request().Context(), ids)
+	gates := h.orch.DomainGates(c.Request().Context(), scope(c).Env.ID, ids)
 	v := proxy.View{Live: render.EnvURL(c) + "/-/proxy"}
 	for _, r := range rs {
 		cs, ok := h.orch.CertState(r.Host)
