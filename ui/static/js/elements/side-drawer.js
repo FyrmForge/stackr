@@ -42,6 +42,10 @@ class SideDrawer extends HTMLElement {
         if (this.body()?.querySelector("[data-loading]"))
             this.close(true);
     };
+    onDone = (e) => {
+        if (e.detail?.target === this.body())
+            this.onLost();
+    };
     onClick = (e) => {
         const el = e.target;
         if (el.closest("[data-expand]"))
@@ -100,6 +104,7 @@ class SideDrawer extends HTMLElement {
         document.addEventListener("htmx:beforeRequest", this.onBefore);
         document.addEventListener("htmx:sendError", this.onLost);
         document.addEventListener("htmx:timeout", this.onLost);
+        document.addEventListener("htmx:afterRequest", this.onDone);
         document.addEventListener("htmx:afterSwap", this.onSwap);
         document.addEventListener("htmx:afterSettle", this.onSettle);
         document.addEventListener("htmx:responseError", this.onError, true);
@@ -112,6 +117,7 @@ class SideDrawer extends HTMLElement {
         document.removeEventListener("htmx:beforeRequest", this.onBefore);
         document.removeEventListener("htmx:sendError", this.onLost);
         document.removeEventListener("htmx:timeout", this.onLost);
+        document.removeEventListener("htmx:afterRequest", this.onDone);
         document.removeEventListener("htmx:afterSwap", this.onSwap);
         document.removeEventListener("htmx:afterSettle", this.onSettle);
         document.removeEventListener("htmx:responseError", this.onError, true);

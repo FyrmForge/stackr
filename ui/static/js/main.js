@@ -166,13 +166,20 @@ document.addEventListener('click', function (evt) {
 
     // filter shows what matches and marks where, so a long list reads as an
     // answer rather than as a wall to scroll.
+    function connectorOf(p) {
+        var sel = p.closest('form').querySelector('[name="connector_id"]');
+        return sel ? sel.value : '';
+    }
+
     function filter(p) {
+        var cid = connectorOf(p);
         var input = p.querySelector('[data-combo-input]');
         var q = input.value.trim().toLowerCase();
         var shown = 0;
         options(p).forEach(function (o) {
             var v = o.dataset.value, i = q ? v.toLowerCase().indexOf(q) : -1;
-            var hit = !q || i >= 0;
+            // repos tagged with a connector are offered only to that one
+            var hit = (!q || i >= 0) && (!cid || !o.dataset.connector || o.dataset.connector === cid);
             o.hidden = !hit;
             o.setAttribute('aria-selected', 'false');
             if (hit && i >= 0) {
@@ -290,6 +297,12 @@ document.addEventListener('click', function (evt) {
         if (!p) return;
         if (e.target.matches('[data-combo-input]')) filter(p);
         if (e.target.matches('[data-branch-input], [data-path-input]')) checkFile(p);
+    });
+    // another connector reads other repos: the list, branches and file lookups follow it
+    document.addEventListener('change', function (e) {
+        if (!e.target.matches || !e.target.matches('[name="connector_id"]')) return;
+        var p = e.target.closest('form').querySelector('[data-repo-picker]');
+        if (p) { close(p); checkFile(p); }
     });
     document.addEventListener('focusin', function (e) {
         var p = pickerOf(e.target);

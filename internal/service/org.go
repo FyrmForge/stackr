@@ -415,12 +415,35 @@ func (o *Orchestrator) ConnectedConnectors(ctx context.Context, orgID string) ([
 // once, and one its provider will not answer for is skipped, as v0 did: the
 // step then asks for an install rather than failing.
 func (o *Orchestrator) OrgRepos(ctx context.Context, orgID string) ([]Repo, error) {
-	cs, err := o.conns.ListConnected(ctx, orgID)
+	cr, err := o.OrgConnectorRepos(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
 	var out []Repo
 	seen := map[string]bool{}
+	for _, r := range cr {
+		if !seen[r.FullName] {
+			seen[r.FullName] = true
+			out = append(out, r.Repo)
+		}
+	}
+	return out, nil
+}
+
+// ConnectorRepo is a repo and the connector that can read it.
+type ConnectorRepo struct {
+	Repo
+	ConnectorID string
+}
+
+// OrgConnectorRepos is OrgRepos without the merge: a repo two connectors can
+// read appears once per connector, so a picker can offer each connector its own.
+func (o *Orchestrator) OrgConnectorRepos(ctx context.Context, orgID string) ([]ConnectorRepo, error) {
+	cs, err := o.conns.ListConnected(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	var out []ConnectorRepo
 	for _, c := range cs {
 		rs, err := o.conns.Repos(ctx, orgID, c.ID)
 		if err != nil {
@@ -428,10 +451,7 @@ func (o *Orchestrator) OrgRepos(ctx context.Context, orgID string) ([]Repo, erro
 			continue
 		}
 		for _, r := range rs {
-			if !seen[r.FullName] {
-				seen[r.FullName] = true
-				out = append(out, r)
-			}
+			out = append(out, ConnectorRepo{Repo: r, ConnectorID: c.ID})
 		}
 	}
 	return out, nil

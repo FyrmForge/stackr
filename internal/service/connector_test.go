@@ -344,17 +344,16 @@ func TestMakeServerConnector(t *testing.T) {
 	push()
 	before := len(r.jobs(t))
 
-	admin := &service.Principal{Access: authz.User{ID: "u", Active: true, Admin: true}}
-	owner := &service.Principal{Access: authz.User{ID: "o", Active: true, Roles: map[string]string{r.acme: "owner"}}}
-	if _, err := o.MakeServerConnector(ctx, owner, r.acme, own); !errors.Is(err, errs.ErrNotFound) {
-		t.Errorf("an org owner moving it up = %v", err)
-	}
-	if _, err := o.MakeServerConnector(ctx, admin, r.other, own); !errors.Is(err, errs.ErrNotFound) {
+	// who may move it is the route's connector.admin, not this verb
+	if _, err := o.MakeServerConnector(ctx, r.other, own); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("another org's connector = %v", err)
 	}
-	sc, err := o.MakeServerConnector(ctx, admin, r.acme, own)
+	sc, err := o.MakeServerConnector(ctx, r.acme, own)
 	if err != nil || sc.OrgID != nil || sc.ID != own || !slices.Equal(sc.OrgIDs, []string{r.acme}) || sc.Settings != "" {
 		t.Fatalf("move = %+v %v", sc, err)
+	}
+	if es, err := o.SecurityLog(ctx, service.SecurityFilter{Action: "connector.server"}); err != nil || len(es) != 1 || es[0].TargetID != own {
+		t.Errorf("security log = %+v %v", es, err)
 	}
 	if ss, _ := o.ServerConnectors(ctx); len(ss) != 2 {
 		t.Errorf("server connectors = %+v", ss)
@@ -377,7 +376,7 @@ func TestMakeServerConnector(t *testing.T) {
 	if err := o.DeleteConnector(ctx, r.acme, own); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("org delete after the move = %v", err)
 	}
-	if _, err := o.MakeServerConnector(ctx, admin, r.acme, own); !errors.Is(err, errs.ErrNotFound) {
+	if _, err := o.MakeServerConnector(ctx, r.acme, own); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("moving it twice = %v", err)
 	}
 }
@@ -390,8 +389,7 @@ func TestMakeServerConnectorNameTaken(t *testing.T) {
 	o := r.env.Orch
 	own := r.env.Connector(t, r.acme, "whsec") // named "github"
 	_ = r.env.ServerConnector(t, "github", "x")
-	admin := &service.Principal{Access: authz.User{ID: "u", Active: true, Admin: true}}
-	if _, err := o.MakeServerConnector(ctx, admin, r.acme, own); !isConflict(err) || !strings.Contains(err.Error(), "rename") {
+	if _, err := o.MakeServerConnector(ctx, r.acme, own); !isConflict(err) || !strings.Contains(err.Error(), "rename") {
 		t.Fatalf("move onto a taken name = %v", err)
 	}
 	if cs, _ := o.Connectors(ctx, r.acme); len(cs) != 1 || cs[0].ID != own || cs[0].Shared {

@@ -97,26 +97,35 @@ func (o *Orchestrator) placingOf(ctx context.Context, kind, id string, pin *stri
 // No config repo: nil. A file that cannot be read refuses, as the stack
 // plan does, rather than let a pin through unchecked.
 func (o *Orchestrator) stackFileNeeds(ctx context.Context, og store.Org, st store.Stack) (map[string]planfile.Needs, error) {
-	if st.ConfigRepo == "" {
+	r, err := o.stackFileResolved(ctx, og, st)
+	if err != nil {
+		return nil, errs.Conflictf("stack %s: its file cannot be read to check the pin: %v", st.Slug, err)
+	}
+	if r == nil {
 		return nil, nil
-	}
-	_, sha, err := o.configHead(ctx, st)
-	if err != nil {
-		return nil, errs.Conflictf("stack %s: its file cannot be read to check the pin: %v", st.Slug, err)
-	}
-	data, fetch, err := o.stackFile(ctx, st, sha, io.Discard)
-	var r *promote.Resolved
-	if err == nil {
-		r, err = promote.Load(data, fetch, og.Slug)
-	}
-	if err != nil {
-		return nil, errs.Conflictf("stack %s: its file cannot be read to check the pin: %v", st.Slug, err)
 	}
 	out := make(map[string]planfile.Needs, len(r.Envs))
 	for slug, e := range r.Envs {
 		out[slug] = promote.FileNeeds(e)
 	}
 	return out, nil
+}
+
+// stackFileResolved is the stack's file at its config branch's head, parsed;
+// nil with no config repo.
+func (o *Orchestrator) stackFileResolved(ctx context.Context, og store.Org, st store.Stack) (*promote.Resolved, error) {
+	if st.ConfigRepo == "" {
+		return nil, nil
+	}
+	_, sha, err := o.configHead(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	data, fetch, err := o.stackFile(ctx, st, sha, io.Discard)
+	if err != nil {
+		return nil, err
+	}
+	return promote.Load(data, fetch, og.Slug)
 }
 
 // envPath is "stack/env", the key plans use for an env.
@@ -184,7 +193,8 @@ func (o *Orchestrator) orgPlacements(ctx context.Context, live *orgconfig.Live) 
 // pin: EnvNeeds, what the envs the org pin covers ask of their node, and
 // Moves, the envs the pin would move. A stack with its own pin is not covered.
 func (o *Orchestrator) orgMoves(ctx context.Context, live *orgconfig.Live, f *orgconfig.File) error {
-	live.Moves, live.EnvNeeds, live.FileErrors, live.DNS, live.DNSNotes = nil, nil, nil, nil, nil
+	live.Moves, live.EnvNeeds, live.FileErrors, live.DNS, live.DNSNotes, live.FileNotes = nil, nil, nil, nil, nil, nil
+	o.orgFileWarns(ctx, live, f)
 	var ws []promote.PlacementWrite
 	if f.Pin != "" && f.Pin != live.Current.Pin {
 		ws = append(ws, promote.PlacementWrite{Scope: ScopeOrg, ScopeID: live.Org.ID, Field: "pin", Refs: []string{f.Pin}})
@@ -197,6 +207,38 @@ func (o *Orchestrator) orgMoves(ctx context.Context, live *orgconfig.Live, f *or
 		return err
 	}
 	return o.orgPinMoves(ctx, live, f)
+}
+
+// orgFileWarns notes, before approval, an env a stack's file declares that is
+// not made yet and gives no branch or promote: the push would skip it. The
+// stack files are read at the binding the org file gives (as orgFileNeeds
+// does); one that cannot be read is no warning here, the stack plan says so.
+// ponytail: a second read of each file when a pin is set too; share the read
+// if a git fetch per stack on every org plan shows up.
+func (o *Orchestrator) orgFileWarns(ctx context.Context, live *orgconfig.Live, f *orgconfig.File) {
+	for _, slug := range slices.Sorted(maps.Keys(f.Stacks)) {
+		st := store.Stack{ID: "new-" + live.Org.ID + "-" + slug, OrgID: live.Org.ID, Slug: slug}
+		for _, sl := range live.Stacks {
+			if sl.Stack.Slug == slug {
+				st = sl.Stack
+			}
+		}
+		b := f.Stacks[slug].Binding(live.Org, live.Connectors)
+		st.ConfigRepo, st.ConfigBranch, st.ConfigPath, st.ConfigConnectorID = b.Repo, b.Branch, b.Path, b.ConnectorID
+		r, err := o.stackFileResolved(ctx, live.Org, st)
+		if err != nil || r == nil {
+			continue
+		}
+		have, err := o.envs.Ladder(ctx, st.ID)
+		if err != nil {
+			continue
+		}
+		for _, name := range r.Order {
+			if r.Envs[name].FromKind == "" && !slices.ContainsFunc(have, func(e store.Environment) bool { return e.Slug == name }) {
+				live.FileNotes = append(live.FileNotes, slug+"/"+name+": the file gives it no branch or promote")
+			}
+		}
+	}
 }
 
 // orgPinMoves is the part of orgMoves that only a pin asks for.
