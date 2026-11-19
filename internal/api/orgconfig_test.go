@@ -143,3 +143,29 @@ func TestApproveBody(t *testing.T) {
 		}
 	}
 }
+
+// A removal-only plan: a body without keep closes it as v0.8.30 did, an
+// explicit keep false gets the refusal.
+func TestApproveRemovalOnlyKeep(t *testing.T) {
+	w := newWorld(t)
+	for _, c := range []struct {
+		name, body string
+		code       int
+	}{
+		{"no body", "", 202},
+		{"empty object", `{}`, 202},
+		{"keep true", `{"keep":true}`, 202},
+		{"keep false", `{"keep":false}`, 409},
+	} {
+		p := service.OrgPlan{
+			ID: uuid.NewString(), OrgID: w.acme, Status: "pending", Ticked: []string{}, CreatedAt: time.Now(),
+			Plan: `{"changes":[{"kind":"share-delete","key":"share:old","optional":true}]}`,
+		}
+		if err := w.env.Store.OrgPlans.Create(context.Background(), p); err != nil {
+			t.Fatal(err)
+		}
+		if code, out := w.do(t, w.owner, "POST", "/orgs/acme/config/plans/"+p.ID+"/approve", c.body); code != c.code {
+			t.Errorf("%s = %d %s, want %d", c.name, code, out, c.code)
+		}
+	}
+}
