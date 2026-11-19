@@ -43,8 +43,18 @@ func (w Waiting) Count() int {
 }
 
 // waitCountTTL is how long a user's count serves the badge: it is drawn on
-// every page and polled every few seconds.
-const waitCountTTL = 10 * time.Second
+// every page and polled every 3 seconds, so it has to be younger than a poll
+// for a change made elsewhere (a job ending, a push) to show on the next one;
+// the cache only spares the page load and its banner fetch a second read.
+const waitCountTTL = 2 * time.Second
+
+// ForgetWaitingCounts drops every cached count, after a write that may have
+// changed what waits on someone: the acting tab's next read is fresh.
+func (o *Orchestrator) ForgetWaitingCounts() {
+	o.waitCounts.mu.Lock()
+	clear(o.waitCounts.m)
+	o.waitCounts.mu.Unlock()
+}
 
 type waitCountCache struct {
 	mu sync.Mutex

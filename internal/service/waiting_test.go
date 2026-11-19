@@ -93,6 +93,11 @@ func TestWaitingCountIsCached(t *testing.T) {
 	if w, _ := env.Orch.WaitingOnYou(ctx, p); w.Count() != 1 {
 		t.Errorf("the list is stale: %+v", w)
 	}
+	// after a write the acting tab reads fresh (item 55)
+	env.Orch.ForgetWaitingCounts()
+	if n := env.Orch.WaitingCount(ctx, p); n != 1 {
+		t.Errorf("count = %d after a forget, want 1", n)
+	}
 }
 
 // A release row says what promoting it does, not what the rung below runs.

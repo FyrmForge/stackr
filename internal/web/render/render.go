@@ -345,7 +345,11 @@ func Waiting(orch *service.Orchestrator) echo.MiddlewareFunc {
 					return ps
 				})
 			}
-			return next(c)
+			err := next(c)
+			if m := c.Request().Method; m != http.MethodGet && m != http.MethodHead && m != http.MethodOptions {
+				orch.ForgetWaitingCounts() // the acting tab's next count is fresh
+			}
+			return err
 		}
 	}
 }
