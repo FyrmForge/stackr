@@ -1,8 +1,10 @@
 package promote
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -29,5 +31,32 @@ func TestCreateDetailsVolumes(t *testing.T) {
 	got := createDetails(TileConf{Volumes: []string{"pgdata:/var/lib/postgresql"}}, store.Tile{}, "", word)
 	if got != "Volumes: pgdata, new, 5120 MB" {
 		t.Errorf("details = %q", got)
+	}
+}
+
+// A changed domain names each field, never a password; an equal row says nothing.
+func TestDomainDiff(t *testing.T) {
+	row := store.Domain{ContainerPort: 8080, HTTPS: true, ForceHTTPS: true, ProxyJSON: `{"basic_auth":{"user":"u","password":"s3cret"}}`}
+	sp := domain.Spec{Port: 9090, Extras: domain.Extras{ForwardAuth: &domain.ForwardAuth{URL: "https://auth.x"}}}
+	det, note := domainDiff(row, sp)
+	for _, w := range []string{"port: 8080 to 9090", "basic_auth: removed", "forward_auth url: added https://auth.x"} {
+		if !strings.Contains(det, w) {
+			t.Errorf("details %q lack %q", det, w)
+		}
+	}
+	if note != "port changed, basic_auth removed, forward_auth added" {
+		t.Errorf("note = %q", note)
+	}
+	sp = domain.Spec{Port: 8080, Extras: domain.Extras{BasicAuth: &domain.BasicAuth{User: "u", Password: "other"}}}
+	det, _ = domainDiff(row, sp)
+	if det != "basic_auth password: changed" || strings.Contains(det, "other") || strings.Contains(det, "s3cret") {
+		t.Errorf("details = %q", det)
+	}
+	if det, note := domainDiff(row, domain.Spec{Port: 8080, Extras: domain.Extras{BasicAuth: &domain.BasicAuth{User: "u", Password: "s3cret"}}}); det != "" || note != "" {
+		t.Errorf("equal rows differ: %q %q", det, note)
+	}
+	det, note = resDiff(store.DomainResource{ACMEEmail: "a@x"}, store.DomainResource{IncludeEnvOnDefault: true, ACMEEmail: "b@x"})
+	if det != "include_env_on_default: false to true\nacme_email: a@x to b@x" || note != "include_env_on_default changed, acme_email changed" {
+		t.Errorf("res: %q %q", det, note)
 	}
 }

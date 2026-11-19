@@ -191,9 +191,9 @@ templ Plan(p PlanView) {
 									@Chip("kept", "")
 								}
 							} else if p.Ticks {
-								<label class="flex cursor-pointer items-center gap-2 rounded border border-rw-warn/40 bg-rw-warn/10 px-2 py-1 text-rw-warn">
-									<input type="checkbox" name="ticked" value={ c.Key } class="h-4 w-4 accent-rw-accent" aria-label={ "Remove " + c.Field }/>
-									remove?
+								<label class="flex cursor-pointer items-center gap-2 rounded border border-rw-warn/60 bg-rw-warn/10 px-3 py-1.5 text-sm font-medium text-rw-warn">
+									<input type="checkbox" name="ticked" value={ c.Key } class="h-5 w-5 accent-rw-accent" aria-label={ "Remove " + c.Field }/>
+									Remove
 								</label>
 							} else {
 								@Chip("remove?", "warn")
@@ -339,7 +339,7 @@ func planSignClass(c ChangeView) string {
 // ticked keys; a plan with impact lines asks "are you sure?" first and the
 // yes adds confirm.
 templ PlanReview(v PlanReviewView) {
-	<form novalidate class="space-y-4">
+	<form novalidate class="group/rm space-y-4">
 		if v.Origin != "" {
 			<p class="text-xs text-rw-muted">{ v.Origin }</p>
 		}
@@ -350,19 +350,27 @@ templ PlanReview(v PlanReviewView) {
 		if (v.Approve != "" && len(v.Plan.Blockers) == 0) || v.Reject != "" {
 			<div class="flex flex-wrap items-center gap-2">
 				if v.Approve != "" && len(v.Plan.Blockers) == 0 {
-					if impacts := v.Plan.Impacts(); len(impacts) > 0 {
-						@Confirm(ConfirmView{
-							Button:  "Approve",
-							Title:   "Are you sure?",
-							Warning: "This plan has impact lines. Approve only when you are ready for them.",
-							Body:    impactList(impacts),
-							Action:  v.Approve,
-							Target:  orDrawer(v.Target),
-							Vals:    `{"confirm":"1"}`,
-							Primary: true,
-						})
+					if removalOnly(v.Plan) {
+						// Nothing ticked: ask first. The form's group sees a tick
+						// and swaps the prompt for the real Approve.
+						<div class="group-has-[input[name=ticked]:checked]/rm:hidden">
+							@Confirm(ConfirmView{
+								Button:  "Approve",
+								Title:   "Approve this plan?",
+								Warning: "Nothing will change. Tick the removal to apply it.",
+								Action:  v.Approve,
+								Target:  orDrawer(v.Target),
+								Vals:    `{"keep":"1","confirm":"1"}`, // confirm: a kept plan applies nothing, but Approvable still asks it of a risky one
+								Primary: true,
+								Yes:     "Keep it and close the plan",
+								Cancel:  "Go back",
+							})
+						</div>
+						<div class="hidden group-has-[input[name=ticked]:checked]/rm:block">
+							@planApprove(v)
+						</div>
 					} else {
-						<button type="button" class="btn btn-primary btn-sm" hx-post={ v.Approve } hx-target={ orDrawer(v.Target) } hx-swap="outerHTML">Approve</button>
+						@planApprove(v)
 					}
 				}
 				if v.Reject != "" {
@@ -371,6 +379,31 @@ templ PlanReview(v PlanReviewView) {
 			</div>
 		}
 	</form>
+}
+
+// planApprove is the Approve answer: behind an "are you sure?" while the plan
+// has impact lines.
+templ planApprove(v PlanReviewView) {
+	if impacts := v.Plan.Impacts(); len(impacts) > 0 {
+		@Confirm(ConfirmView{
+			Button:  "Approve",
+			Title:   "Are you sure?",
+			Warning: "This plan has impact lines. Approve only when you are ready for them.",
+			Body:    impactList(impacts),
+			Action:  v.Approve,
+			Target:  orDrawer(v.Target),
+			Vals:    `{"confirm":"1"}`,
+			Primary: true,
+		})
+	} else {
+		<button type="button" class="btn btn-primary btn-sm" hx-post={ v.Approve } hx-target={ orDrawer(v.Target) } hx-swap="outerHTML">Approve</button>
+	}
+}
+
+// removalOnly: every row is a removal the approver may tick, so an approve
+// with none ticked would change nothing.
+func removalOnly(p PlanView) bool {
+	return len(p.Changes) > 0 && !slices.ContainsFunc(p.Changes, func(c ChangeView) bool { return !c.Optional })
 }
 
 // reviewPlan is the plan with its ticks on when the viewer can approve.

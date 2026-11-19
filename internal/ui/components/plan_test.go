@@ -25,7 +25,7 @@ func TestPlanReviewRemovalTicks(t *testing.T) {
 	if !strings.Contains(body, `name="ticked"`) || !strings.Contains(body, `value="route:pve.example.com"`) {
 		t.Errorf("no tick for the removal:\n%s", body)
 	}
-	if strings.Contains(body, "checked") {
+	if strings.Contains(body, " checked") {
 		t.Errorf("a removal is ticked by default:\n%s", body)
 	}
 	if !strings.Contains(body, "<form") || !strings.Contains(body, `hx-post="/a"`) {
@@ -138,7 +138,7 @@ func TestPlanDonePastTense(t *testing.T) {
 // The removal tick is a visible control, not a bare checkbox.
 func TestPlanTickIsAControl(t *testing.T) {
 	body := renderPlan(t, PlanReviewView{Plan: PlanView{Changes: []ChangeView{removal}}, Approve: "/a"})
-	if !strings.Contains(body, "border-rw-warn/40 bg-rw-warn/10") || !strings.Contains(body, "h-4 w-4") {
+	if !strings.Contains(body, "border-rw-warn/60 bg-rw-warn/10") || !strings.Contains(body, "h-5 w-5") {
 		t.Errorf("tick not a control:\n%s", body)
 	}
 }
@@ -159,5 +159,23 @@ func TestPlanCreateRowDetails(t *testing.T) {
 	}
 	if n := strings.Count(body, "<li class=\"py-2.5"); n != 2 {
 		t.Errorf("rows = %d, want the create (settings inside) and web's own", n)
+	}
+}
+
+// A removal-only plan asks before an approve with nothing ticked; one with a
+// plain row too does not.
+func TestPlanReviewRemovalOnlyPrompt(t *testing.T) {
+	body := renderPlan(t, PlanReviewView{Plan: PlanView{Changes: []ChangeView{removal}}, Approve: "/a"})
+	for _, want := range []string{
+		"Nothing will change. Tick the removal to apply it.", "Keep it and close the plan", "Go back",
+		`{&#34;keep&#34;:&#34;1&#34;,&#34;confirm&#34;:&#34;1&#34;}`, "group-has-[input[name=ticked]:checked]/rm:hidden",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("removal-only plan lacks %q:\n%s", want, body)
+		}
+	}
+	mixed := PlanReviewView{Plan: PlanView{Changes: []ChangeView{removal, {Kind: "setting", Field: "workers", New: "3"}}}, Approve: "/a"}
+	if body := renderPlan(t, mixed); strings.Contains(body, "Nothing will change") {
+		t.Errorf("a plan with a change asks the removal question:\n%s", body)
 	}
 }
