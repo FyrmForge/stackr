@@ -360,3 +360,52 @@ func TestAskOwnRegistry(t *testing.T) {
 		t.Errorf("other host: %+v calls %v", a, reg.calls)
 	}
 }
+
+// A promote into the env that is queued or running holds the check for the
+// tick: no release is cut on top of the one it is landing.
+func TestCheckWaitsForAPromote(t *testing.T) {
+	for _, busy := range []bool{true, false} {
+		s := storetest.Store(t)
+		fake := dockerfake.New()
+		reg := &fakeRegistry{digests: map[string]string{"nginx:1": "sha256:n2"}}
+		f := &Flow{
+			Orgs:      org.New(s.Orgs, s.OrgMembers, s.Invites),
+			Stacks:    stack.New(s.Stacks),
+			Envs:      environment.New(s.Environments, fake),
+			Tiles:     tile.New(s.Tiles, fake, vipStub{}),
+			Images:    image.New(s.Images, fake),
+			Releases:  release.New(s.Releases, s.ReleaseTiles),
+			Cred:      credential.New(s.Credentials).For,
+			Settings:  settings.New(s.Settings, nil),
+			Digest:    reg.Digest,
+			Tags:      reg.Tags,
+			Promoting: func(context.Context, string) (bool, error) { return busy, nil },
+		}
+		now := time.Now()
+		o, stID := uuid.NewString(), uuid.NewString()
+		must(t, s.Orgs.Create(ctx, store.Org{ID: o, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
+		must(t, s.Stacks.Create(ctx, store.Stack{ID: stID, OrgID: o, Name: "s", Slug: "s", Settings: "{}", CreatedAt: now}))
+		dev := store.Environment{
+			ID: uuid.NewString(), StackID: stID, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
+			Network: "n", FromKind: "branch", FromBranch: "main", Auto: true, CreatedAt: now,
+		}
+		must(t, s.Environments.Create(ctx, dev))
+		_, err := f.Tiles.Create(ctx, store.Tile{
+			StackID: stID, EnvironmentID: dev.ID, Name: "api", Kind: tile.Image, ImageRef: "nginx:1", UpdatePolicy: "auto",
+		})
+		must(t, err)
+		cur, err := f.Releases.Create(ctx, stID, "test", []release.Pin{{Slug: "api", Repo: "nginx", Digest: "sha256:n1"}})
+		must(t, err)
+		dev.ReleaseID = &cur.ID
+		must(t, s.Environments.Update(ctx, dev))
+		var log strings.Builder
+		ups, err := f.Check(ctx, Scope{}, &log)
+		must(t, err)
+		if busy && (len(ups) != 0 || !strings.Contains(log.String(), "promote running; image check waits")) {
+			t.Fatalf("busy: updates %+v log %q", ups, log.String())
+		}
+		if !busy && len(ups) != 1 {
+			t.Fatalf("idle: updates %+v", ups)
+		}
+	}
+}

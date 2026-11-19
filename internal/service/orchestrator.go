@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -825,14 +826,18 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.container = build("flow/container", func() *container.Flow { return &container.Flow{Tiles: orch.tiles} })
 	orch.watch = build("flow/imagewatch", func() *imagewatch.Flow {
 		return &imagewatch.Flow{
-			Orgs:      orch.orgs,
-			Stacks:    orch.stacks,
-			Envs:      orch.envs,
-			Tiles:     orch.tiles,
-			Images:    orch.images,
-			Releases:  orch.releases,
-			Cred:      orch.pullCred,
-			Settings:  orch.settings,
+			Orgs:     orch.orgs,
+			Stacks:   orch.stacks,
+			Envs:     orch.envs,
+			Tiles:    orch.tiles,
+			Images:   orch.images,
+			Releases: orch.releases,
+			Cred:     orch.pullCred,
+			Settings: orch.settings,
+			Promoting: func(ctx context.Context, envID string) (bool, error) {
+				js, err := st.Jobs.ListTouching(ctx, []string{"env:" + envID}, string(kindPromote), 10)
+				return slices.ContainsFunc(js, func(j Job) bool { return j.State == job.Queued || j.State == job.Running }), err
+			},
 			OwnDigest: orch.regs.Resolve,
 			OwnTags: func(ctx context.Context, repo string) ([]string, error) {
 				vs, err := orch.regs.Versions(ctx, repo)

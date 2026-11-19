@@ -50,6 +50,10 @@ type Flow struct {
 	OwnDigest func(ctx context.Context, repo, tag string) (string, error)
 	OwnTags   func(ctx context.Context, repo string) ([]string, error)
 
+	// Promoting reports a promote into the env that is queued or running;
+	// nil = none. The env waits a tick: once it lands, the base is what runs.
+	Promoting func(ctx context.Context, envID string) (bool, error)
+
 	last time.Time // the last timed sweep
 }
 
@@ -167,6 +171,16 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 	}
 	if len(swap) == 0 {
 		return nil, nil
+	}
+	if f.Promoting != nil {
+		busy, err := f.Promoting(ctx, e.ID)
+		if err != nil {
+			return nil, err
+		}
+		if busy {
+			logf(log, "%s: promote running; image check waits\n", e.Slug)
+			return nil, nil
+		}
 	}
 	// ponytail: one release per env, auto only when every swapped tile is;
 	// a mixed env waits for the chip's button.
