@@ -51,6 +51,13 @@ func TestBuilding(t *testing.T) {
 	if _, ok := env.Orch.Building(ctx, "s2"); ok {
 		t.Error("another stack's build leaks")
 	}
+	w := push("s3", "waiting", "wwwwwwwwwwww")
+	if _, ok := env.Orch.Building(ctx, "s3"); ok {
+		t.Error("a waiting push shows as building")
+	}
+	if p, ok := env.Orch.PushState(ctx, "s3"); !ok || p.JobID != w || p.Queued || p.Waits == "" {
+		t.Errorf("waiting = %+v, %v", p, ok)
+	}
 	push("s1", "failed", "eeeeeeeeeeee")
 	if _, ok := env.Orch.Building(ctx, "s1"); !ok {
 		t.Error("an older running push stopped being the build")

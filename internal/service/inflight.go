@@ -29,6 +29,7 @@ type PushState struct {
 	Done    bool
 	Error   string
 	Skipped []string
+	Waits   string // a parked push: what it waits for; it is not building
 }
 
 // Building is the stack's live push job; running wins over a queued one.
@@ -36,7 +37,7 @@ type PushState struct {
 // branch only; narrow it by the envs' branches when that misleads.
 func (o *Orchestrator) Building(ctx context.Context, stackID string) (Building, bool) {
 	p, ok := o.PushState(ctx, stackID)
-	if !ok || p.Failed || p.Done {
+	if !ok || p.Failed || p.Done || p.Waits != "" {
 		return Building{}, false
 	}
 	return p.Building, true
@@ -70,14 +71,21 @@ func pushState(j Job) PushState {
 		Skipped []string `json:"skipped"`
 	}
 	_ = json.Unmarshal([]byte(j.Payload), &m)
-	b := Building{JobID: j.ID, Sha: p.Event.Commit, Started: j.CreatedAt, Queued: j.State != job.Running}
+	b := Building{JobID: j.ID, Sha: p.Event.Commit, Started: j.CreatedAt, Queued: j.State == job.Queued}
 	if len(b.Sha) > 7 {
 		b.Sha = b.Sha[:7]
 	}
-	if j.StartedAt != nil && !b.Queued {
+	if j.StartedAt != nil && j.State == job.Running {
 		b.Started = *j.StartedAt
 	}
-	return PushState{Building: b, Failed: j.State == job.Failed, Done: j.State == job.Done, Error: j.Error, Skipped: m.Skipped}
+	waits := ""
+	if j.State == job.Waiting {
+		waits = "Waiting"
+		if j.WaitingParam != nil {
+			waits = "Waits for " + *j.WaitingParam
+		}
+	}
+	return PushState{Building: b, Waits: waits, Failed: j.State == job.Failed, Done: j.State == job.Done, Error: j.Error, Skipped: m.Skipped}
 }
 
 // ParkedOn is a value a job of the stack waits for, and where to set it.
