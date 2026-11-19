@@ -144,24 +144,62 @@ func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Setting
 	return r, nil
 }
 
-// Gate is a domain's basic-auth login as the proxy would resolve it: the user
-// ("" when the domain has no gate or the user did not resolve) and why the
-// address is locked ("" when it is not). Never the password.
-func (f *Flow) Gate(ctx context.Context, d store.Domain) (user, locked string, err error) {
-	x, err := domain.ExtrasOf(d)
-	if err != nil || x.BasicAuth == nil {
-		return "", "", err
+// GateInfo is a domain's gate as the panel shows it: User as written (a ref
+// stays a ref, a resolved secret never leaves), and why the address is
+// locked ("" when it is not). Never the password.
+type GateInfo struct{ User, Locked string }
+
+// Gates reports every domain's gate with one settings read and one secret
+// snapshot per env. A domain that cannot be read is locked with the error as
+// its reason; it never fails the others. Domains with no gate are absent.
+func (f *Flow) Gates(ctx context.Context, ds []store.Domain) map[string]GateInfo {
+	out := map[string]GateInfo{}
+	expands := map[string]domain.Expand{} // env id -> expander
+	for _, d := range ds {
+		x, err := domain.ExtrasOf(d)
+		if err == nil && x.BasicAuth == nil {
+			continue
+		}
+		if err != nil {
+			out[d.ID] = GateInfo{Locked: err.Error()}
+			continue
+		}
+		t, err := f.Tiles.Get(ctx, d.TileID)
+		var ex domain.Expand
+		if err == nil {
+			var ok bool
+			if ex, ok = expands[t.EnvironmentID]; !ok {
+				ex, err = f.gateExpand(ctx, t)
+				if err == nil {
+					expands[t.EnvironmentID] = ex
+				}
+			}
+		}
+		if err != nil {
+			out[d.ID] = GateInfo{User: x.BasicAuth.User, Locked: err.Error()}
+			continue
+		}
+		_, _, locked := domain.GateLogin(*x.BasicAuth, ex)
+		out[d.ID] = GateInfo{User: x.BasicAuth.User, Locked: locked}
 	}
-	server, err := f.Settings.Defaults(ctx)
+	return out
+}
+
+func (f *Flow) gateExpand(ctx context.Context, t store.Tile) (domain.Expand, error) {
+	e, err := f.Envs.Get(ctx, t.EnvironmentID)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
-	r, err := f.tileRoute(ctx, d.TileID, server)
+	st, err := f.Stacks.Get(ctx, t.StackID)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
-	user, _, locked = domain.GateLogin(*x.BasicAuth, r.Expand)
-	return user, locked, nil
+	snap, err := f.ParamSnapshot(ctx, e, st, true)
+	if err != nil {
+		return nil, err
+	}
+	rr := params.NewResolver(snap)
+	return func(s string) (string, error) { return rr.Expand(params.InGate, s) }, nil
 }
 
 // OrgReplicaNames are the container names (lower case, any state) of every

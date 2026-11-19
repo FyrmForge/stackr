@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -149,9 +150,7 @@ func (o *Orchestrator) stageParams(ctx context.Context, s ParamScope, skipEnv st
 	if err != nil {
 		return nil, err
 	}
-	if err := o.syncGateReaders(ctx, s, ts, keys); err != nil {
-		return nil, err
-	}
+	all := ts
 	if skipEnv != "" {
 		ts = slices.DeleteFunc(ts, func(t Tile) bool { return t.EnvironmentID == skipEnv })
 	}
@@ -159,9 +158,11 @@ func (o *Orchestrator) stageParams(ctx context.Context, s ParamScope, skipEnv st
 		return nil, err
 	}
 	if s.Kind != "stack_pr" {
+		o.syncGateReaders(ctx, s, all, keys)
 		return ts, nil
 	}
 	more, err := o.pushPRSecrets(ctx, s, before, after, keys)
+	o.syncGateReaders(ctx, s, all, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -181,9 +182,16 @@ func (o *Orchestrator) stageParams(ctx context.Context, s ParamScope, skipEnv st
 // syncGateReaders rebuilds the proxy rules when a domain's basic-auth login
 // reads a key that moved: the hash lives in the proxy config, no container
 // restarts. It reuses readers by showing it each tile with only its gates'
-// refs as env. ponytail: a PR env's copied secrets (pushPRSecrets) land after
-// this, so their gates wait for the next sync.
-func (o *Orchestrator) syncGateReaders(ctx context.Context, s ParamScope, ts []Tile, keys map[string]bool) error {
+// refs as env. It runs after the value is stored and the readers are known,
+// and a failure is logged, never returned: the save stands and the readers
+// still redeploy.
+func (o *Orchestrator) syncGateReaders(ctx context.Context, s ParamScope, ts []Tile, keys map[string]bool) {
+	if err := o.syncGates(ctx, s, ts, keys); err != nil {
+		slog.Warn("gate sync after a param change", "scope", s.Kind, "id", s.ID, "err", err)
+	}
+}
+
+func (o *Orchestrator) syncGates(ctx context.Context, s ParamScope, ts []Tile, keys map[string]bool) error {
 	ds, err := o.domains.List(ctx)
 	if err != nil {
 		return err
@@ -275,9 +283,11 @@ func (o *Orchestrator) pushPRSecrets(ctx context.Context, s ParamScope, before, 
 		if err != nil {
 			return nil, err
 		}
+		all := ts
 		if ts, err = o.readers(ctx, sc, ts, moved, false); err != nil {
 			return nil, err
 		}
+		o.syncGateReaders(ctx, sc, all, moved)
 		out = append(out, ts...)
 	}
 	return out, nil
