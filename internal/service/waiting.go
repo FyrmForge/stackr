@@ -136,14 +136,14 @@ func (o *Orchestrator) waitingOnYou(ctx context.Context, p *Principal, plans boo
 			if err != nil {
 				return w, err
 			}
-			for i, r := range rungs {
+			for _, r := range rungs {
 				if r.Behind {
 					sub := ""
 					if plans {
 						sub = o.releaseWaitSub(ctx, p, st.ID, r)
 					}
 					add("Releases to promote", WaitItem{
-						Title: st.Name + " / " + r.Name + ", release " + strconv.Itoa(rungs[i-1].Release),
+						Title: st.Name + " / " + r.Name + ", release " + strconv.Itoa(r.Waiting),
 						Sub:   sub,
 						Href:  "/" + og.Slug + "/" + st.Slug + "/" + r.Slug + "?drawer=env%3A" + r.EnvID + "&tab=releases", Act: "Review plan",
 					})
