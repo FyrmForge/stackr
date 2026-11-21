@@ -37,7 +37,7 @@ func TestAdminSections(t *testing.T) {
 		"keys":         {`id="master-key"`, `id="recovery"`, "Cluster root"},
 		"security-log": {`id="tab-security"`},
 		"org-defaults": {`name="cpu_limit"`, `name="mem_limit_mb"`, `name="protect"`, `name="protect_password"`},
-		"jobs":         {`name="workers"`, `name="backup_run_concurrency"`, `name="backup_restore_concurrency"`},
+		"jobs":         {`name="workers"`, `name="seed_max_gb"`},
 		"config":       {`id="tab-config"`, `id="vars-editor"`, "Variables"},
 		"update":       {`id="tab-update"`, "A dev build cannot update itself"},
 	}

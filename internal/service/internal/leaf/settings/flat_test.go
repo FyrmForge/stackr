@@ -22,7 +22,7 @@ func TestFlat(t *testing.T) {
 			t.Errorf("%s = %d, %v; want %d", key, got, err, want)
 		}
 	}
-	check("workers", 2)               // catalogue default
+	check("workers", 16)              // catalogue default
 	check("orphan_retention_days", 7) // boot value over the default
 	if err := l.Set(ctx, "orphan_retention_days", "14"); err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestFlat(t *testing.T) {
 			t.Errorf("workers %q: %v, want Invalid", bad, err)
 		}
 	}
-	check("workers", 2)
+	check("workers", 16)
 	if err := l.Set(ctx, "image_check_interval", "0"); err != nil {
 		t.Errorf("image_check_interval 0 (off) refused: %v", err)
 	}

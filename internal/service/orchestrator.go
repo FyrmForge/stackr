@@ -948,6 +948,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true, kindBucketRestore: true},
+			// Rollouts of different stacks run in parallel; lock sets order the rest.
+			Unpooled: map[jobs.Kind]bool{kindPromote: true, kindDeploy: true},
 			// Kinds that copy a volume or database outrun the 30 minute default.
 			Caps: dataCaps,
 			Hold: orch.upgrading.Load,

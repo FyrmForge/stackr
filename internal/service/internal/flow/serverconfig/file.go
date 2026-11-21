@@ -189,6 +189,10 @@ func Parse(data []byte) (*File, error) {
 
 func (f *File) checkSettings() error {
 	for key, v := range f.Settings {
+		if settings.Retired(key) {
+			delete(f.Settings, key) // a removed setting: accepted, ignored
+			continue
+		}
 		k, ok := knob(key)
 		switch {
 		case !ok:

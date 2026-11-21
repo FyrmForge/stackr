@@ -123,7 +123,7 @@ var Catalogue = []Knob{
 		Key:     "workers",
 		Label:   "Job workers",
 		Type:    TInt,
-		Default: "2",
+		Default: "16",
 		Scopes:  Flat,
 		Desc:    "jobs that run at once",
 	},
@@ -160,22 +160,6 @@ var Catalogue = []Knob{
 		Scopes:    Flat,
 		AllowZero: true,
 		Desc:      "processes and threads one container may hold, so a fork bomb stays in it; 0 is unlimited",
-	},
-	{
-		Key:     "backup_run_concurrency",
-		Label:   "Backups at once",
-		Type:    TInt,
-		Default: "2",
-		Scopes:  Flat,
-		Desc:    "backups that run at once",
-	},
-	{
-		Key:     "backup_restore_concurrency",
-		Label:   "Restores at once",
-		Type:    TInt,
-		Default: "1",
-		Scopes:  Flat,
-		Desc:    "restores that run at once",
 	},
 	{
 		Key:    "panel_domain",
@@ -478,6 +462,16 @@ var cronKnobs = map[string]bool{
 
 // IsCron says whether key holds a cron line.
 func IsCron(key string) bool { return cronKnobs[key] }
+
+// retired are keys that once were settings. A server file or API call that
+// still names one is accepted and ignored, so prod configs do not break.
+var retired = map[string]bool{
+	"backup_run_concurrency":     true,
+	"backup_restore_concurrency": true,
+}
+
+// Retired reports a key that was removed from the catalogue.
+func Retired(key string) bool { return retired[key] }
 
 func lookup(key string) (Knob, bool) {
 	i := slices.IndexFunc(Catalogue, func(k Knob) bool { return k.Key == key })

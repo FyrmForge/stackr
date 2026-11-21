@@ -119,6 +119,7 @@ type active struct {
 	swapping   bool
 	superseded bool
 	idle       bool // waiting on other jobs: not counted against the workers
+	unpooled   bool // kind never takes a worker slot
 }
 
 // Options are the runner's clock and hooks; zero values are the defaults.
@@ -128,6 +129,8 @@ type Options struct {
 	// Uncapped kinds have no wall-clock limit: their handler holds its own
 	// (a cron or function run's timeout_minutes).
 	Uncapped map[Kind]bool
+	// Unpooled kinds never take a worker slot; lock sets still order them.
+	Unpooled map[Kind]bool
 	// Caps overrides Cap for a kind (data-moving jobs run for hours).
 	Caps map[Kind]time.Duration
 	// Workers is re-read every pass, so a settings change applies within
@@ -389,9 +392,9 @@ func (r *Runner) unpark(ctx context.Context) {
 }
 
 // pass starts every job that may start now: the oldest queued job whose
-// lock set is free, repeatedly, until the workers are full. A queued job
-// that cannot start still holds its tiles against newer ones, so each tile
-// sees its jobs in order.
+// lock set is free, repeatedly, until the workers are full (unpooled kinds
+// ignore the workers). A queued job that cannot start still holds its tiles
+// against newer ones, so each tile sees its jobs in order.
 func (r *Runner) pass(ctx context.Context) error {
 	n, err := r.opt.Workers(ctx)
 	if err != nil {
@@ -413,12 +416,11 @@ func (r *Runner) pass(ctx context.Context) error {
 		busy = append(busy, a.lock)
 	}
 	for _, j := range queued {
-		if r.busyWorkers() >= n {
-			return nil
-		}
+		pooled := !r.opt.Unpooled[Kind(j.Kind)]
+		full := pooled && r.busyWorkers() >= n
 		blocked := slices.ContainsFunc(busy, func(b []string) bool { return job.Overlaps(j.LockSet, b) })
 		busy = append(busy, j.LockSet)
-		if blocked {
+		if blocked || full {
 			continue
 		}
 		// Asked only when a job would start, so an idle queue costs Hold nothing.
@@ -436,7 +438,7 @@ func (r *Runner) pass(ctx context.Context) error {
 func (r *Runner) busyWorkers() int {
 	n := 0
 	for _, a := range r.running {
-		if !a.idle {
+		if !a.idle && !a.unpooled {
 			n++
 		}
 	}
@@ -450,7 +452,7 @@ func (r *Runner) start(j store.Job) error {
 		return err
 	}
 	cctx, cancel := context.WithCancelCause(context.Background())
-	a := &active{lock: j.LockSet, cancel: cancel}
+	a := &active{lock: j.LockSet, cancel: cancel, unpooled: r.opt.Unpooled[Kind(j.Kind)]}
 	r.running[j.ID] = a
 	r.wg.Add(1)
 	go func() {

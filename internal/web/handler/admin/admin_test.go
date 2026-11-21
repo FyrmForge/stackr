@@ -561,11 +561,11 @@ func TestAdminSettingsEveryRefusalAndNoteBySave(t *testing.T) {
 	s := webtest.New(t)
 	root := s.Session(t, s.User(t, "root@x.test", true))
 	rec := s.As(t, root, "POST", "/-/admin/settings/jobs", url.Values{
-		"workers": {"-5"}, "backup_run_concurrency": {"-5"}, "backup_restore_concurrency": {"-5"},
+		"workers": {"-5"}, "seed_max_gb": {"-5"},
 	})
 	body := rec.Body.String()
-	if rec.Code != http.StatusUnprocessableEntity || strings.Count(body, `aria-invalid="true"`) != 3 {
-		t.Errorf("refused = %d, %d fields marked, want 3\n%s", rec.Code, strings.Count(body, `aria-invalid="true"`), body)
+	if rec.Code != http.StatusUnprocessableEntity || strings.Count(body, `aria-invalid="true"`) != 2 {
+		t.Errorf("refused = %d, %d fields marked, want 2\n%s", rec.Code, strings.Count(body, `aria-invalid="true"`), body)
 	}
 	rec = s.As(t, root, "POST", "/-/admin/settings/jobs", url.Values{"workers": {"3"}})
 	body = rec.Body.String()

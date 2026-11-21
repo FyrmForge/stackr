@@ -38,3 +38,40 @@ func TestIdleFreesTheWorker(t *testing.T) {
 func TestIdleOutsideAJobIsANoop(t *testing.T) {
 	jobs.Idle(context.Background())()
 }
+
+// Unpooled kinds start with the pool full; their lock sets still order them.
+func TestUnpooledIgnoresWorkers(t *testing.T) {
+	g := newGate(false)
+	u := newGate(false)
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"pool": g.run, "u": u.run},
+		jobs.Options{
+			Workers:  func(context.Context) (int, error) { return 1, nil },
+			Unpooled: map[jobs.Kind]bool{"u": true},
+		})
+	start(t, r)
+	enqueue(t, r, "pool", "p")
+	started(t, g)
+	enqueue(t, r, "u", "t1")
+	enqueue(t, r, "u", "t2")
+	started(t, u)
+	started(t, u)
+	close(u.release)
+
+	// Same tile: one after another.
+	o := newGate(false)
+	r2, l2 := setup(t, map[jobs.Kind]jobs.Handler{"u": o.run, "v": o.run},
+		jobs.Options{
+			Workers:  func(context.Context) (int, error) { return 1, nil },
+			Unpooled: map[jobs.Kind]bool{"u": true, "v": true},
+		})
+	start(t, r2)
+	a := enqueue(t, r2, "u", "env")
+	b := enqueue(t, r2, "v", "env")
+	started(t, o)
+	notStarted(t, o)
+	close(o.release)
+	waitState(t, l2, a, job.Done)
+	waitState(t, l2, b, job.Done)
+	close(g.release)
+	_ = l
+}

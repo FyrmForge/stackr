@@ -56,7 +56,7 @@ An export writes a secret by name only. A stored literal `protect_password` is l
 
 Settings keys:
 
-- Cascade and limits: `workers`, `image_check_interval`, `orphan_retention_days`, `backup_run_concurrency`, `backup_restore_concurrency`.
+- Cascade and limits: `workers`, `image_check_interval`, `orphan_retention_days`.
 - Domains and proxy: `panel_domain`, `panel_address` (`auto`, an IP address or `self`), `root_domain`, `acme_email`, `ipv6`, `trusted_proxies`, `proxy_custom`.
 - Updates: `update_check` (`off`, `1h`, `6h`, `daily` or `weekly`).
 - Cleanup: `cleanup_enabled`, `cleanup_schedule`, `registry_cleanup_schedule`, `registry_keep`, `orphans_enabled`, `orphans_schedule`.
