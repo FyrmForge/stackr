@@ -5,7 +5,7 @@
 // with pad="top right bottom left" and min-w is kept wrapped around the cards it names. Cards, notes and lines
 // live in a [data-world] child that one transform moves; "selected"/"lit" on nodes, "data-lit" on paths and lanes;
 // fires "selection-changed" (detail.ids). Look attributes follow [data-look] inputs (a checkbox, or radios valued 1/0), kept in localStorage.
-const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP, FLOOR] = [0.3, 2.5, 24, 220, 96, 14, 0.05];
+const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP, FLOOR] = [0.3, 2.5, 24, 220, 124, 14, 0.05];
 const TEXT = "input, textarea, select, [contenteditable]";
 const LOOKS = ["snap", "straight", "fan-out", "arrows", "hover-focus", "nooverlap", "badges", "boundary", "legend"];
 

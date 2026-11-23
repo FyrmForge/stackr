@@ -136,7 +136,7 @@ func TestEgressLooks(t *testing.T) {
 
 // A card's body is a full-height column and the footer pins to its bottom.
 func TestCardFooterOnBottomEdge(t *testing.T) {
-	body := render(t, View{Nodes: []Node{{ID: "t", Kind: "env", Name: "web", W: 220, H: 104, Href: "/h"}}})
+	body := render(t, View{Nodes: []Node{{ID: "t", Kind: "env", Name: "web", W: 220, H: 124, Href: "/h"}}})
 	for _, want := range []string{"flex h-full flex-col p-3.5", "node-footer mt-auto"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("card lacks %q", want)

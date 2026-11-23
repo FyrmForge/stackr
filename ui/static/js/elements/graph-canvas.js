@@ -1,4 +1,4 @@
-const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP, FLOOR] = [0.3, 2.5, 24, 220, 96, 14, 0.05];
+const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP, FLOOR] = [0.3, 2.5, 24, 220, 124, 14, 0.05];
 const TEXT = "input, textarea, select, [contenteditable]";
 const LOOKS = ["snap", "straight", "fan-out", "arrows", "hover-focus", "nooverlap", "badges", "boundary", "legend"];
 const NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };

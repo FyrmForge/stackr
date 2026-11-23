@@ -107,7 +107,7 @@ const (
 // Card sizes and gaps in world pixels, v0's geometry (graph-ref §6).
 const (
 	CardW  = 220
-	CardH  = 104 // border 2 + p-3.5 28 + head 45.5 (name, image, tags) + footer pt-3/border/line 29 = 104.5; head rows are tight on purpose
+	CardH  = 124 // border 2 + p-3.5 28 + head 54.5 (name, image, one chip row) + footer 23 with its 16px fail/stop/note line above it, which must clear the chip row; was 104 before UI 10
 	ShortH = 62  // a detached volume
 	SubH   = 30  // the room each sub-tile strip takes when placing (never drawn height)
 	Grid   = 22
@@ -117,7 +117,7 @@ const (
 	colSystemX = -280
 	colGap     = 360
 	rowStart   = 80
-	rowGap     = 140
+	rowGap     = CardH + 36 // a row pitch that clears a card and GapY, 140 at the old 104 height
 	localGap   = CardW + 80 // column pitch inside a cluster
 	wallGap    = 60         // the divider stands this far right of the system column
 )

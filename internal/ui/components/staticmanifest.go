@@ -12,7 +12,7 @@ var StaticManifest = map[string]string{
 	"images/logo-mark.png": "images/logo-mark.c7991eef2bbb.png",
 	"js/elements/confirm-dialog.js": "js/elements/confirm-dialog.27d1234ce5b9.js",
 	"js/elements/flash-toast.js": "js/elements/flash-toast.614ea70a3063.js",
-	"js/elements/graph-canvas.js": "js/elements/graph-canvas.c6ad3f9cca30.js",
+	"js/elements/graph-canvas.js": "js/elements/graph-canvas.01ece0cdb091.js",
 	"js/elements/graph-node.js": "js/elements/graph-node.ed9177732c49.js",
 	"js/elements/local-time.js": "js/elements/local-time.2ab6a8dea30d.js",
 	"js/elements/log-pane.js": "js/elements/log-pane.695cb2926c42.js",
