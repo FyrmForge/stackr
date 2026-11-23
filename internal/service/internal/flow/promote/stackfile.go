@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -204,6 +205,117 @@ func (s *Standby) UnmarshalYAML(n *yaml.Node) error {
 	return n.Decode((*plain)(s))
 }
 
+// HealthConf is the health: block. A nil half is absent; an empty one is
+// refused at decode.
+type HealthConf struct {
+	HTTP *HealthHTTP `yaml:"http"`
+	Exec *HealthExec `yaml:"exec"`
+}
+
+func (c *HealthConf) UnmarshalYAML(n *yaml.Node) error {
+	type plain HealthConf
+	if n.Kind != yaml.MappingNode {
+		return planfile.LineError(n.Line, "health: health is a block with http: or exec:")
+	}
+	return strictNode(n, (*plain)(c))
+}
+
+type HealthHTTP struct {
+	Path     string       `yaml:"path"`
+	Status   HealthStatus `yaml:"status"`
+	Interval int          `yaml:"interval"`
+	Timeout  int          `yaml:"timeout"`
+	Retries  int          `yaml:"retries"`
+	// StartPeriod is read only to be refused.
+	StartPeriod *int `yaml:"start_period"`
+}
+
+type HealthExec struct {
+	Cmd         string `yaml:"cmd"`
+	Interval    int    `yaml:"interval"`
+	Timeout     int    `yaml:"timeout"`
+	Retries     int    `yaml:"retries"`
+	StartPeriod int    `yaml:"start_period"`
+}
+
+func (h *HealthHTTP) UnmarshalYAML(n *yaml.Node) error {
+	type plain HealthHTTP
+	if n.Kind != yaml.MappingNode {
+		return planfile.LineError(n.Line, "health.http: health.http is a block with path:")
+	}
+	if err := strictNode(n, (*plain)(h)); err != nil {
+		return err
+	}
+	h.Path = strings.TrimSpace(h.Path)
+	if *h == (HealthHTTP{}) {
+		return planfile.LineError(n.Line, "health.http.path: health.http needs a path")
+	}
+	if h.StartPeriod != nil {
+		return planfile.LineError(n.Line, "health.http.start_period: health.http.start_period is not supported yet; it comes with stackr's own health probe")
+	}
+	return nil
+}
+
+func (h *HealthExec) UnmarshalYAML(n *yaml.Node) error {
+	type plain HealthExec
+	if n.Kind != yaml.MappingNode {
+		return planfile.LineError(n.Line, "health.exec: health.exec is a block with cmd:")
+	}
+	if err := strictNode(n, (*plain)(h)); err != nil {
+		return err
+	}
+	h.Cmd = strings.TrimSpace(h.Cmd)
+	if *h == (HealthExec{}) {
+		return planfile.LineError(n.Line, "health.exec.cmd: health.exec needs a cmd")
+	}
+	return nil
+}
+
+// HealthStatus is the expected HTTP status: 200-599 as is, or 1..5 for a
+// class written "1xx".."5xx". 0 is unset.
+type HealthStatus int
+
+func (s *HealthStatus) UnmarshalYAML(n *yaml.Node) error {
+	bad := planfile.LineError(n.Line, "health.http.status: use a status code like 200 or a class like 2xx")
+	if n.Kind != yaml.ScalarNode {
+		return bad
+	}
+	switch n.Tag {
+	case "!!int":
+		v, err := strconv.Atoi(n.Value)
+		if err != nil || v < 200 || v > 599 {
+			return bad
+		}
+		*s = HealthStatus(v)
+	case "!!str":
+		if len(n.Value) == 3 && strings.EqualFold(n.Value[1:], "xx") && n.Value[0] >= '1' && n.Value[0] <= '5' {
+			*s = HealthStatus(n.Value[0] - '0')
+			break
+		}
+		v, err := strconv.Atoi(n.Value)
+		if err != nil || v < 200 || v > 599 {
+			return bad
+		}
+		*s = HealthStatus(v)
+	default:
+		return bad
+	}
+	return nil
+}
+
+// MarshalYAML writes a class as "2xx" and a code as the number.
+func (s HealthStatus) MarshalYAML() (any, error) {
+	if s >= 1 && s <= 5 {
+		return fmt.Sprintf("%dxx", int(s)), nil
+	}
+	return int(s), nil
+}
+
+func (s HealthStatus) String() string {
+	v, _ := s.MarshalYAML()
+	return fmt.Sprint(v)
+}
+
 // TileConf is one merged tile. Kinds are service (a git build), image,
 // operated, cron, function and slice; with no type:, engine: makes it operated
 // and a lone image: makes it an image tile. kind: is type:'s other spelling.
@@ -230,12 +342,7 @@ type TileConf struct {
 	Port             int               `yaml:"port"`
 	PublishedPorts   []string          `yaml:"published_ports"`
 	EndpointProtocol string            `yaml:"endpoint_protocol"`
-	HealthPath       string            `yaml:"health_path"`
-	Healthcheck      string            `yaml:"healthcheck"`
-	HealthInterval   int               `yaml:"healthcheck_interval"`
-	HealthTimeout    int               `yaml:"healthcheck_timeout"`
-	HealthRetries    int               `yaml:"healthcheck_retries"`
-	HealthStart      int               `yaml:"healthcheck_start_period"`
+	Health           *HealthConf       `yaml:"health"`
 	Limits           *struct {
 		CPU      float64 `yaml:"cpu"`
 		MemoryMB int     `yaml:"memory_mb"`
@@ -438,22 +545,28 @@ func strictNode(n *yaml.Node, out any) error {
 
 // removedKeys tells an old file what replaced a key.
 var removedKeys = map[string]string{
-	"compose":          "use image: or build:",
-	"compose_inline":   "use image: or build:",
-	"compose_path":     "use image: or build:",
-	"moved":            "drop it; re-adding a slug re-adopts its orphaned volume",
-	"ui_edits":         "drop it; drift never promotes",
-	"apply_policy":     "use from: and auto: on the environment",
-	"traefik_override": "raw proxy config is admin-only",
-	"secrets":          "declare them under params: with type: secret",
-	"vars":             "declare them under params:",
-	"run_on_deploy":    "use trigger: on_deploy on a function tile",
-	"allow_overlap":    "runs of one tile never overlap; a run that would is recorded cancelled",
-	"basic_auth_user":  "use proxy: basic_auth: on the domain",
-	"security_headers": "use proxy: security_headers: on the domain",
-	"default":          "use generate: <length> on a type: secret param",
-	"length":           "use generate: <length> on a type: secret param",
-	"backup":           "backup: is not applied from the file; set a volume's schedule in the panel",
+	"compose":                  "use image: or build:",
+	"compose_inline":           "use image: or build:",
+	"compose_path":             "use image: or build:",
+	"moved":                    "drop it; re-adding a slug re-adopts its orphaned volume",
+	"ui_edits":                 "drop it; drift never promotes",
+	"apply_policy":             "use from: and auto: on the environment",
+	"traefik_override":         "raw proxy config is admin-only",
+	"secrets":                  "declare them under params: with type: secret",
+	"vars":                     "declare them under params:",
+	"run_on_deploy":            "use trigger: on_deploy on a function tile",
+	"allow_overlap":            "runs of one tile never overlap; a run that would is recorded cancelled",
+	"basic_auth_user":          "use proxy: basic_auth: on the domain",
+	"security_headers":         "use proxy: security_headers: on the domain",
+	"default":                  "use generate: <length> on a type: secret param",
+	"length":                   "use generate: <length> on a type: secret param",
+	"health_path":              "use health:",
+	"healthcheck":              "use health:",
+	"healthcheck_interval":     "use health:",
+	"healthcheck_timeout":      "use health:",
+	"healthcheck_retries":      "use health:",
+	"healthcheck_start_period": "use health:",
+	"backup":                   "backup: is not applied from the file; set a volume's schedule in the panel",
 }
 
 // Parse decodes and checks the top level.

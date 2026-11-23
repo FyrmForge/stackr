@@ -838,9 +838,9 @@ Filesystem snapshots were explored and parked (see "Later").
   add it to the VIP rules and the Caddy upstream list, remove the old one
   from both, stop it. **This is new work:** the old health gate was
   Swarm-only. The new one polls the container's health status with a
-  deadline of 60s + the tile's healthcheck start period (the old numbers).
+  deadline of 60s + the tile's `health.exec` start period (the old numbers).
   A tile with no HEALTHCHECK counts as healthy once it has been running
-  for a grace period; the tile can set a health path in its config to get
+  for a grace period; the tile can set `health.http.path` to get
   a real check. **Either way the gate reads two fields from the same
   inspect call:** healthy (or running past the grace period) **and**
   restart count still zero. A crash-looping container is "running" between

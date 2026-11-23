@@ -355,7 +355,7 @@ var (
 	runKeys      = []string{"command", "user", "restart_policy", "replicas", "shm_size_mb", "depends_on"}
 	networkKeys  = []string{"port", "endpoint_protocol"}
 	storageKeys  = []string{"volumes", "files"}
-	healthKeys   = []string{"health_path", "healthcheck_cmd", "healthcheck_interval_s", "healthcheck_timeout_s", "healthcheck_retries", "healthcheck_start_period_s"}
+	healthKeys   = []string{"health_http_path", "health_http_status", "health_http_interval_s", "health_http_timeout_s", "health_http_retries", "health_exec_cmd", "health_exec_interval_s", "health_exec_timeout_s", "health_exec_retries", "health_exec_start_period_s"}
 	resourceKeys = []string{"cpu_limit", "mem_limit_mb"}
 	hostKeys     = []string{"privileged", "devices", "lan", "published_ports", "host_network"}
 )
@@ -501,20 +501,23 @@ func storageSummary(s SettingsView) string {
 
 func healthSummary(s SettingsView) string {
 	var what []string
-	if p := s.Vals["health_path"]; p != "" {
-		what = append(what, "GET "+p)
+	if p := s.Vals["health_http_path"]; p != "" {
+		what = append(what, "HTTP GET "+p+every(s.Vals["health_http_interval_s"]))
 	}
-	if s.Vals["healthcheck_cmd"] != "" {
-		what = append(what, "a command")
+	if s.Vals["health_exec_cmd"] != "" {
+		what = append(what, "command"+every(s.Vals["health_exec_interval_s"]))
 	}
 	if len(what) == 0 {
 		return "no check"
 	}
-	every := ""
-	if i := s.Vals["healthcheck_interval_s"]; i != "" {
-		every = "every " + i + " s"
+	return strings.Join(what, ", ")
+}
+
+func every(i string) string {
+	if i == "" {
+		return ""
 	}
-	return join(strings.Join(what, " and "), every)
+	return " every " + i + " s"
 }
 
 // limit is one limit in words: its own value, or what it inherits and

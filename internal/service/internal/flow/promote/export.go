@@ -433,12 +433,9 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 	num("port", t.ContainerPort)
 	list("published_ports", t.PublishedPorts)
 	str("endpoint_protocol", t.EndpointProtocol)
-	str("health_path", t.HealthPath)
-	str("healthcheck", t.HealthcheckCmd)
-	num("healthcheck_interval", t.HealthcheckIntervalS)
-	num("healthcheck_timeout", t.HealthcheckTimeoutS)
-	num("healthcheck_retries", t.HealthcheckRetries)
-	num("healthcheck_start_period", t.HealthcheckStartPeriodS)
+	if h := exportHealth(t); len(h) > 0 {
+		b.put("health", h)
+	}
 	if t.CPULimit != 0 || t.MemLimitMB != 0 {
 		l := omap{}
 		if t.CPULimit != 0 {
@@ -644,4 +641,33 @@ func imageRepo(ref string) string {
 		ref = ref[:i]
 	}
 	return ref
+}
+
+// exportHealth is the health: block, empty parts left out.
+func exportHealth(t store.Tile) omap {
+	h := omap{}
+	put := func(o *omap, k string, v int) {
+		if v != 0 {
+			o.put(k, v)
+		}
+	}
+	if t.HealthHTTPPath != "" {
+		x := omap{{"path", t.HealthHTTPPath}}
+		if t.HealthHTTPStatus != 0 {
+			x.put("status", HealthStatus(t.HealthHTTPStatus))
+		}
+		put(&x, "interval", t.HealthHTTPIntervalS)
+		put(&x, "timeout", t.HealthHTTPTimeoutS)
+		put(&x, "retries", t.HealthHTTPRetries)
+		h.put("http", x)
+	}
+	if t.HealthExecCmd != "" {
+		x := omap{{"cmd", t.HealthExecCmd}}
+		put(&x, "interval", t.HealthExecIntervalS)
+		put(&x, "timeout", t.HealthExecTimeoutS)
+		put(&x, "retries", t.HealthExecRetries)
+		put(&x, "start_period", t.HealthExecStartPeriodS)
+		h.put("exec", x)
+	}
+	return h
 }

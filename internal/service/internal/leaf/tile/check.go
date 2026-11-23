@@ -113,10 +113,13 @@ var fields = []field{
 	{"port", func(t *store.Tile) bool { return t.ContainerPort != 0 }},
 	{"published_ports", str(func(t *store.Tile) string { return t.PublishedPorts })},
 	{"endpoint_protocol", str(func(t *store.Tile) string { return t.EndpointProtocol })},
-	{"health_path", str(func(t *store.Tile) string { return t.HealthPath })},
-	{"healthcheck", func(t *store.Tile) bool {
-		return t.HealthcheckCmd != "" || t.HealthcheckIntervalS != 0 || t.HealthcheckTimeoutS != 0 ||
-			t.HealthcheckRetries != 0 || t.HealthcheckStartPeriodS != 0
+	{"health.http", func(t *store.Tile) bool {
+		return t.HealthHTTPPath != "" || t.HealthHTTPStatus != 0 || t.HealthHTTPIntervalS != 0 ||
+			t.HealthHTTPTimeoutS != 0 || t.HealthHTTPRetries != 0
+	}},
+	{"health.exec", func(t *store.Tile) bool {
+		return t.HealthExecCmd != "" || t.HealthExecIntervalS != 0 || t.HealthExecTimeoutS != 0 ||
+			t.HealthExecRetries != 0 || t.HealthExecStartPeriodS != 0
 	}},
 	{"user", str(func(t *store.Tile) string { return t.User })},
 	{"privileged", func(t *store.Tile) bool { return t.Privileged }},
@@ -159,7 +162,8 @@ var refusals = map[string]string{
 	"devices":        "devices apply to service tiles only",
 	"lan":            "lan applies to service and image tiles only",
 	"host_network":   "network: host applies to service and image tiles only",
-	"healthcheck":    "healthcheck applies to service tiles only",
+	"health.http":    "health.http runs on service and image tiles",
+	"health.exec":    "health.exec runs on service and image tiles",
 	"provision_from": "provision_from applies to slice tiles only",
 	"default_access": "default_access applies to slice tiles only",
 	"on_remove":      "on_remove applies to slice tiles only",
@@ -202,8 +206,8 @@ var (
 		"port",
 		"published_ports",
 		"endpoint_protocol",
-		"health_path",
-		"healthcheck",
+		"health.http",
+		"health.exec",
 		"user",
 		"privileged",
 		"devices",
@@ -255,6 +259,10 @@ var Carries = map[string]map[string]bool{
 // The promote plan validates the row it builds from the file the same way,
 // so a stored default never reads as a change.
 func Validate(t *store.Tile) error {
+	// the health lead values are stored trimmed, so a padded path never
+	// reaches Caddy and a blank cmd is no check
+	t.HealthHTTPPath = strings.TrimSpace(t.HealthHTTPPath)
+	t.HealthExecCmd = strings.TrimSpace(t.HealthExecCmd)
 	allowed, ok := Carries[t.Kind]
 	if !ok {
 		return errs.Invalidf("kind", "kind must be service, image, operated, cron, function or slice")
@@ -325,8 +333,19 @@ func Validate(t *store.Tile) error {
 	if p := t.EndpointProtocol; p != "" && p != "http" && p != "https" && p != "tcp" {
 		add(errs.Invalidf("endpoint_protocol", "Use http, https or tcp."))
 	}
-	if p := strings.TrimSpace(t.HealthPath); p != "" && !strings.HasPrefix(p, "/") {
-		add(errs.Invalidf("health_path", "Start the path with /, like /healthz."))
+	if p := t.HealthHTTPPath; p != "" && !strings.HasPrefix(p, "/") {
+		add(errs.Invalidf("health.http.path", "Start the path with /, like /healthz."))
+	}
+	if st := t.HealthHTTPStatus; st != 0 && (st < 1 || st > 5) && (st < 200 || st > 599) {
+		add(errs.Invalidf("health.http.status", "use a status code like 200 or a class like 2xx"))
+	}
+	if t.HealthHTTPPath == "" && (t.HealthHTTPStatus != 0 || t.HealthHTTPIntervalS != 0 ||
+		t.HealthHTTPTimeoutS != 0 || t.HealthHTTPRetries != 0) {
+		add(errs.Invalidf("health.http.path", "health.http needs a path"))
+	}
+	if t.HealthExecCmd == "" && (t.HealthExecIntervalS != 0 || t.HealthExecTimeoutS != 0 ||
+		t.HealthExecRetries != 0 || t.HealthExecStartPeriodS != 0) {
+		add(errs.Invalidf("health.exec.cmd", "health.exec needs a cmd"))
 	}
 	for _, n := range []struct {
 		key string
@@ -336,10 +355,20 @@ func Validate(t *store.Tile) error {
 		{"limits.cpu", t.CPULimit < 0, "Use 0 or more; 0 is no limit."},
 		{"limits.memory_mb", t.MemLimitMB < 0, "Use 0 or more; 0 is no limit."},
 		{"shm_size_mb", t.ShmSizeMB < 0, "Use 0 or more."},
-		{"healthcheck_interval", t.HealthcheckIntervalS < 0, "Use 0 or more."},
-		{"healthcheck_timeout", t.HealthcheckTimeoutS < 0, "Use 0 or more."},
-		{"healthcheck_retries", t.HealthcheckRetries < 0, "Use 0 or more."},
-		{"healthcheck_start_period", t.HealthcheckStartPeriodS < 0, "Use 0 or more."},
+		{"health.http.interval", t.HealthHTTPIntervalS < 0, "Use 0 or more."},
+		{"health.http.interval", t.HealthHTTPIntervalS > 86400, "Use 86400 or less."},
+		{"health.http.timeout", t.HealthHTTPTimeoutS < 0, "Use 0 or more."},
+		{"health.http.timeout", t.HealthHTTPTimeoutS > 86400, "Use 86400 or less."},
+		{"health.http.retries", t.HealthHTTPRetries < 0, "Use 0 or more."},
+		{"health.http.retries", t.HealthHTTPRetries > 100, "Use 100 or less."},
+		{"health.exec.interval", t.HealthExecIntervalS < 0, "Use 0 or more."},
+		{"health.exec.interval", t.HealthExecIntervalS > 86400, "Use 86400 or less."},
+		{"health.exec.timeout", t.HealthExecTimeoutS < 0, "Use 0 or more."},
+		{"health.exec.timeout", t.HealthExecTimeoutS > 86400, "Use 86400 or less."},
+		{"health.exec.retries", t.HealthExecRetries < 0, "Use 0 or more."},
+		{"health.exec.retries", t.HealthExecRetries > 100, "Use 100 or less."},
+		{"health.exec.start_period", t.HealthExecStartPeriodS < 0, "Use 0 or more."},
+		{"health.exec.start_period", t.HealthExecStartPeriodS > 86400, "Use 86400 or less."},
 		{"replicas", t.Replicas < 0, "Use a whole number, 1 or more."},
 		{"timeout_minutes", t.TimeoutMinutes < 0, "Use 0 or more."},
 		{"port", t.ContainerPort < 0 || t.ContainerPort > 65535, "Use a port from 1 to 65535."},

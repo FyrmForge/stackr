@@ -656,7 +656,11 @@ func changed(c *cobra.Command, keys map[string]string) (map[string]any, error) {
 		case "bool":
 			body[key], err = strconv.ParseBool(s)
 		default:
-			body[key] = s
+			if key == "health_http_status" {
+				body[key], err = healthStatus(s)
+			} else {
+				body[key] = s
+			}
 		}
 	})
 	if len(body) == 0 {

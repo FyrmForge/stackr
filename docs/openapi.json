@@ -3143,7 +3143,13 @@
           "last_tag": {
             "type": "string"
           },
+          "last_version": {
+            "type": "string"
+          },
           "ref": {
+            "type": "string"
+          },
+          "version_err": {
             "type": "string"
           }
         },
@@ -3154,6 +3160,8 @@
           "last_digest",
           "last_tag",
           "last_error",
+          "last_version",
+          "version_err",
           "created_at"
         ],
         "type": "object"
@@ -5145,7 +5153,7 @@
               }
             ]
           },
-          "health_path": {
+          "health_exec_cmd": {
             "oneOf": [
               {
                 "type": "string"
@@ -5155,7 +5163,57 @@
               }
             ]
           },
-          "healthcheck_cmd": {
+          "health_exec_interval_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_exec_retries": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_exec_start_period_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_exec_timeout_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_http_interval_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_http_path": {
             "oneOf": [
               {
                 "type": "string"
@@ -5165,7 +5223,7 @@
               }
             ]
           },
-          "healthcheck_interval_s": {
+          "health_http_retries": {
             "oneOf": [
               {
                 "type": "integer"
@@ -5175,7 +5233,7 @@
               }
             ]
           },
-          "healthcheck_retries": {
+          "health_http_status": {
             "oneOf": [
               {
                 "type": "integer"
@@ -5185,17 +5243,7 @@
               }
             ]
           },
-          "healthcheck_start_period_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_timeout_s": {
+          "health_http_timeout_s": {
             "oneOf": [
               {
                 "type": "integer"
@@ -6802,6 +6850,12 @@
           },
           "slug": {
             "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "version_err": {
+            "type": "string"
           }
         },
         "required": [
@@ -6809,7 +6863,8 @@
           "repo",
           "branch",
           "commit_sha",
-          "digest"
+          "digest",
+          "version"
         ],
         "type": "object"
       },
@@ -9333,7 +9388,7 @@
               }
             ]
           },
-          "health_path": {
+          "health_exec_cmd": {
             "oneOf": [
               {
                 "type": "string"
@@ -9343,7 +9398,57 @@
               }
             ]
           },
-          "healthcheck_cmd": {
+          "health_exec_interval_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_exec_retries": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_exec_start_period_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_exec_timeout_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_http_interval_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_http_path": {
             "oneOf": [
               {
                 "type": "string"
@@ -9353,7 +9458,7 @@
               }
             ]
           },
-          "healthcheck_interval_s": {
+          "health_http_retries": {
             "oneOf": [
               {
                 "type": "integer"
@@ -9363,7 +9468,7 @@
               }
             ]
           },
-          "healthcheck_retries": {
+          "health_http_status": {
             "oneOf": [
               {
                 "type": "integer"
@@ -9373,17 +9478,7 @@
               }
             ]
           },
-          "healthcheck_start_period_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_timeout_s": {
+          "health_http_timeout_s": {
             "oneOf": [
               {
                 "type": "integer"
@@ -9797,7 +9892,7 @@
               }
             ]
           },
-          "health_path": {
+          "health_exec_cmd": {
             "oneOf": [
               {
                 "type": "string"
@@ -9807,7 +9902,57 @@
               }
             ]
           },
-          "healthcheck_cmd": {
+          "health_exec_interval_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_exec_retries": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_exec_start_period_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_exec_timeout_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_http_interval_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_http_path": {
             "oneOf": [
               {
                 "type": "string"
@@ -9817,7 +9962,7 @@
               }
             ]
           },
-          "healthcheck_interval_s": {
+          "health_http_retries": {
             "oneOf": [
               {
                 "type": "integer"
@@ -9827,7 +9972,7 @@
               }
             ]
           },
-          "healthcheck_retries": {
+          "health_http_status": {
             "oneOf": [
               {
                 "type": "integer"
@@ -9837,17 +9982,7 @@
               }
             ]
           },
-          "healthcheck_start_period_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_timeout_s": {
+          "health_http_timeout_s": {
             "oneOf": [
               {
                 "type": "integer"
@@ -10167,22 +10302,34 @@
           "git_url": {
             "type": "string"
           },
-          "health_path": {
+          "health_exec_cmd": {
             "type": "string"
           },
-          "healthcheck_cmd": {
+          "health_exec_interval_s": {
+            "type": "integer"
+          },
+          "health_exec_retries": {
+            "type": "integer"
+          },
+          "health_exec_start_period_s": {
+            "type": "integer"
+          },
+          "health_exec_timeout_s": {
+            "type": "integer"
+          },
+          "health_http_interval_s": {
+            "type": "integer"
+          },
+          "health_http_path": {
             "type": "string"
           },
-          "healthcheck_interval_s": {
+          "health_http_retries": {
             "type": "integer"
           },
-          "healthcheck_retries": {
+          "health_http_status": {
             "type": "integer"
           },
-          "healthcheck_start_period_s": {
-            "type": "integer"
-          },
-          "healthcheck_timeout_s": {
+          "health_http_timeout_s": {
             "type": "integer"
           },
           "host_network": {
@@ -10346,12 +10493,16 @@
           "command",
           "container_port",
           "endpoint_protocol",
-          "health_path",
-          "healthcheck_cmd",
-          "healthcheck_interval_s",
-          "healthcheck_timeout_s",
-          "healthcheck_retries",
-          "healthcheck_start_period_s",
+          "health_http_path",
+          "health_http_status",
+          "health_http_interval_s",
+          "health_http_timeout_s",
+          "health_http_retries",
+          "health_exec_cmd",
+          "health_exec_interval_s",
+          "health_exec_timeout_s",
+          "health_exec_retries",
+          "health_exec_start_period_s",
           "cpu_limit",
           "mem_limit_mb",
           "user",

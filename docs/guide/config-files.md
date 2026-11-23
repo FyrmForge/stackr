@@ -105,7 +105,70 @@ A plan never deletes anything on its own. A removal row applies only when you ti
 
 ## stackr-compose.yml
 
-Written by hand or with `stkr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stkr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `healthcheck`, `limits`, `depends_on`, and so on). A tile's `build` takes `context` (a repo folder) and `dockerfile`. With no `dockerfile:`, stackr uses `Dockerfile` in the context folder, then `Dockerfile` at the repo root; if neither exists the build error names both paths. An explicit `dockerfile:` is always relative to the repo root. `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel. `volumes.<name>.max_size_mb` is the volume's size cap in MB: absent leaves the cap as it is, `0` removes it. See [Size caps](nodes.md#size-caps).
+Written by hand or with `stkr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stkr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `health`, `limits`, `depends_on`, and so on). A tile's `build` takes `context` (a repo folder) and `dockerfile`. With no `dockerfile:`, stackr uses `Dockerfile` in the context folder, then `Dockerfile` at the repo root; if neither exists the build error names both paths. An explicit `dockerfile:` is always relative to the repo root. `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel. `volumes.<name>.max_size_mb` is the volume's size cap in MB: absent leaves the cap as it is, `0` removes it. See [Size caps](nodes.md#size-caps).
+
+### Health checks
+
+A tile can carry a `health` block with an `http` check, an `exec` check, or both. The field names are the same in both.
+
+```yaml
+huginn:
+  build:
+    context: .
+    dockerfile: cmd/site/Dockerfile
+  port: 8080
+  health:
+    http:
+      path: /api/health
+      status: 2xx
+      interval: 30
+      timeout: 3
+      retries: 3
+    exec:
+      cmd: |
+        wget -qO- http://localhost:8080/api/health || exit 1
+      interval: 30
+      timeout: 3
+      retries: 3
+      start_period: 10
+```
+
+All times are in seconds. Both checks run on service and image tiles.
+
+`health.http` sends a GET to the replica. If it fails, stackr's proxy routes traffic away from that replica until it passes again. It does not hold a deploy.
+
+| Field | Meaning | Default |
+|---|---|---|
+| `path` | Path to request, starts with `/`. | No check |
+| `status` | A code like `200` or a class like `2xx`. | Any 2xx |
+| `interval` | Seconds between checks. | 5 |
+| `timeout` | Seconds before one check counts as failed. | 3 |
+| `retries` | Failures before the replica is pulled. | 1 |
+
+`retries` counts failures since the replica last turned healthy. They are not required to be in a row, so a few stray failures spread over time can still pull a replica for one interval.
+
+`health.exec` runs a command inside the container through the shell. Exit 0 is healthy. A deploy waits for it, and so does `depends_on`.
+
+| Field | Meaning | Default |
+|---|---|---|
+| `cmd` | The command. A YAML block can span lines. | No check |
+| `interval` | Seconds between checks. | 5 when `cmd` is set |
+| `timeout` | Seconds before one run counts as failed. | Docker's |
+| `retries` | Failures before the container is unhealthy. | Docker's |
+| `start_period` | Grace after start, failures do not count. | Docker's |
+
+Timings above 86400 seconds and `retries` above 100 are refused.
+
+A file is refused when:
+
+- an `http` field is set without `http.path`
+- an `exec` field is set without `exec.cmd`
+- `http.start_period` is set (not supported yet)
+- `status` is not a code from 200 to 599 or a class from `1xx` to `5xx`
+
+Leaving `http:` or `exec:` empty (null) means no check, which is how an env override turns a base check off.
+
+The old keys `health_path` and `healthcheck*` are refused. Use `health:`.
 
 ## Operated and slice tiles
 
