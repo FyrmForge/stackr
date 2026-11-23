@@ -2,12 +2,16 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
+	"github.com/google/uuid"
 )
 
 // Waiting on you: an owner sees the value a parked deploy waits for; access
@@ -170,4 +174,212 @@ func TestWaitingReleaseAtBottomEnv(t *testing.T) {
 		}
 	}
 	t.Fatalf("no row naming release 2: %+v", w)
+}
+
+// A release row carries what the Waiting page draws: the release, the env it
+// waits for and the one below; PromoteClean checks each pair on its own.
+func TestWaitingReleaseRowAndPromoteClean(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	p, err := w.e.Orch.SessionPrincipal(ctx, w.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := w.e.Orch.WaitingOnYou(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rel *service.WaitRelease
+	for _, g := range wt.Groups {
+		if g.Title == "Releases to promote" {
+			rel = g.Items[0].Rel
+		}
+	}
+	if rel == nil || rel.ID == "" || rel.Number != 2 || rel.EnvID != w.prod || rel.From != "dev" || rel.At.IsZero() {
+		t.Fatalf("release row = %+v", rel)
+	}
+	// dev is the top rung: nothing waits there, so a pair for it is not the newest waiting one
+	outs := w.e.Orch.PromoteClean(ctx, p, []service.PromotePair{{ReleaseID: rel.ID, EnvID: w.dev}})
+	if outs[0].Skip != service.SkipNewer || outs[0].Err != nil {
+		t.Errorf("a release not waiting for the env: %+v", outs[0])
+	}
+	// someone who may not write the env gets an error per pair, never a job
+	stranger, err := w.e.Orch.SessionPrincipal(ctx, w.e.User(t, "x@y.io", false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	outs = w.e.Orch.PromoteClean(ctx, stranger, []service.PromotePair{{ReleaseID: rel.ID, EnvID: w.prod}})
+	if outs[0].Err == nil || outs[0].Job.ID != "" {
+		t.Errorf("a stranger promoted: %+v", outs[0])
+	}
+}
+
+// The worker's clean-only guard re-checks that the release is still the env's
+// newest waiting one: a newer cut after the enqueue refuses it.
+func TestCleanGuardRefusesAfterNewerRelease(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	rels, err := w.e.Store.Releases.ListByStack(ctx, w.shop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var two string
+	for _, r := range rels {
+		if r.Number == 2 {
+			two = r.ID
+		}
+	}
+	if err := w.e.Orch.CleanGuardRefusal(ctx, w.prod, two); err != nil {
+		t.Fatalf("newest waiting refused: %v", err)
+	}
+	// a release cut for prod's own line on top of what prod runs
+	prod, err := w.e.Store.Environments.Get(ctx, w.prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := "env:" + w.prod
+	if err := w.e.Store.Releases.Create(ctx, store.Release{ID: "rel-3", StackID: w.shop, Number: 3, CreatedAt: time.Now(), BuiltOn: prod.ReleaseID, Line: &line}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.e.Store.ReleaseTiles.Create(ctx, store.ReleaseTile{ID: "t-rel-3", ReleaseID: "rel-3", Slug: "api", Repo: "nginx:1", Digest: "sha256:3"}); err != nil {
+		t.Fatal(err)
+	}
+	err = w.e.Orch.CleanGuardRefusal(ctx, w.prod, two)
+	if !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), service.SkipNewer) {
+		t.Fatalf("want refused %q, got %v", service.SkipNewer, err)
+	}
+}
+
+// Every pair of a batch is authorized on its own: the one the person may
+// promote is judged, each mismatched or foreign one is not found, and no job
+// is queued for those.
+func TestPromoteCleanAuthorizesEachPair(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	e := w.e
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	rel := func(stack string, n int) string {
+		id := "rel-" + stack + "-" + string(rune('a'+n))
+		must(e.Store.Releases.Create(ctx, store.Release{ID: id, StackID: stack, Number: n, CreatedAt: time.Now()}))
+		return id
+	}
+	// a second stack in acme, and a stack in beta, each with an env
+	other, err := e.Orch.CreateStack(ctx, w.acme, "other", "")
+	must(err)
+	oenv, err := e.Orch.CreateEnv(ctx, other.ID, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
+	must(err)
+	bstack, err := e.Orch.CreateStack(ctx, w.beta, "bshop", "")
+	must(err)
+	benv, err := e.Orch.CreateEnv(ctx, bstack.ID, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
+	must(err)
+	shopRel := rel(w.shop, 3)
+	otherRel := rel(other.ID, 1)
+
+	owner, err := e.Orch.SessionPrincipal(ctx, w.user)
+	must(err)
+	member := e.User(t, "acme@x.io", false)
+	e.Member(t, w.acme, member, "owner")
+	acmeOwner, err := e.Orch.SessionPrincipal(ctx, member)
+	must(err)
+	scoped := *acmeOwner // a key limited to the "other" stack
+	scoped.Access.Key, scoped.Access.KeyStack = true, other.ID
+
+	queued := func() int {
+		js, err := e.Store.Jobs.ListByState(ctx, "queued")
+		must(err)
+		return len(js)
+	}
+	for _, c := range []struct {
+		name  string
+		by    *service.Principal
+		pairs []service.PromotePair
+		deny  []bool // per pair: not found and no job
+	}{
+		{"mixed batch", owner, []service.PromotePair{{ReleaseID: shopRel, EnvID: w.prod}, {ReleaseID: shopRel, EnvID: oenv.ID}, {ReleaseID: otherRel, EnvID: w.prod}}, []bool{false, true, true}},
+		{"stack-scoped key", &scoped, []service.PromotePair{{ReleaseID: otherRel, EnvID: oenv.ID}, {ReleaseID: shopRel, EnvID: w.prod}}, []bool{false, true}},
+		{"cross-org env", acmeOwner, []service.PromotePair{{ReleaseID: shopRel, EnvID: w.prod}, {ReleaseID: shopRel, EnvID: benv.ID}}, []bool{false, true}},
+		{"cross-stack release and env", owner, []service.PromotePair{{ReleaseID: otherRel, EnvID: w.prod}, {ReleaseID: shopRel, EnvID: oenv.ID}}, []bool{true, true}},
+	} {
+		before := queued()
+		outs := e.Orch.PromoteClean(ctx, c.by, c.pairs)
+		granted := 0
+		for i, o := range outs {
+			if c.deny[i] {
+				if !errors.Is(o.Err, errs.ErrNotFound) || o.Job.ID != "" || o.Skip != "" {
+					t.Errorf("%s pair %d: %+v", c.name, i, o)
+				}
+				continue
+			}
+			if errors.Is(o.Err, errs.ErrNotFound) {
+				t.Errorf("%s pair %d was refused: %+v", c.name, i, o)
+			}
+			if o.Job.ID != "" {
+				granted++
+			}
+		}
+		if got := queued() - before; got != granted {
+			t.Errorf("%s: %d jobs queued, %d for allowed pairs", c.name, got, granted)
+		}
+	}
+}
+
+// A release waiting on two envs shows its promote status on the env that is
+// promoting, not on both.
+func TestWaitingLivePromoteIsPerEnv(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	p, err := w.e.Orch.SessionPrincipal(ctx, w.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := w.e.Orch.WaitingOnYou(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rel *service.WaitRelease
+	for _, g := range wt.Groups {
+		if g.Title == "Releases to promote" {
+			rel = g.Items[0].Rel
+		}
+	}
+	if rel == nil {
+		t.Fatal("no release row")
+	}
+	now := time.Now()
+	if err := w.e.Store.Jobs.Create(ctx, store.Job{
+		ID: uuid.NewString(), Kind: "promote", State: "running", ReleaseID: &rel.ID, CreatedAt: now, StartedAt: &now,
+		Payload: `{"env_id":"` + w.dev + `","release_id":"` + rel.ID + `"}`, LockSet: store.StringList{"env:" + w.dev},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wt, err = w.e.Orch.WaitingOnYou(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range wt.Groups {
+		if g.Title == "Releases to promote" && g.Items[0].Rel.Status != "" {
+			t.Errorf("a promote on dev marked the %s row %q", g.Items[0].Rel.Env, g.Items[0].Rel.Status)
+		}
+	}
+	if err := w.e.Store.Jobs.Create(ctx, store.Job{
+		ID: uuid.NewString(), Kind: "promote", State: "running", ReleaseID: &rel.ID, CreatedAt: now, StartedAt: &now,
+		Payload: `{"env_id":"` + w.prod + `","release_id":"` + rel.ID + `"}`, LockSet: store.StringList{"env:" + w.prod},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wt, _ = w.e.Orch.WaitingOnYou(ctx, p)
+	for _, g := range wt.Groups {
+		if g.Title == "Releases to promote" && g.Items[0].Rel.Status != "Deploying" {
+			t.Errorf("status = %q, want Deploying", g.Items[0].Rel.Status)
+		}
+	}
 }

@@ -332,6 +332,7 @@ func run(log *slog.Logger, generate bool) error {
 		DevMode:       envDevMode,
 		EmailSender:   emailSender,
 		GitHubWeb:     cfg.GitHubURL,
+		GitHubAvatars: cfg.GitHubAvatars,
 	})
 
 	log.Info("starting server", "port", envPort, "devMode", envDevMode)

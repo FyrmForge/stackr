@@ -197,12 +197,11 @@ func envDrawer(base, kind, id, slug string) (url, tab string) {
 // body, chips, sub-tiles and the live footer the stream re-sends.
 func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) {
 	cv := cards.CardView{
-		ID:         n.ID,
-		Kind:       n.Kind,
-		Name:       n.Name,
-		Detail:     n.Detail,
-		Host:       n.Host,
-		NewVersion: n.NewVersion,
+		ID:     n.ID,
+		Kind:   n.Kind,
+		Name:   n.Name,
+		Detail: n.Detail,
+		Host:   n.Host,
 	}
 	if p, ok := access.Strongest(g.Lines, n.Slug); ok {
 		cv.Access.Chip, cv.Access.Title = p.Chip, p.Hint()
@@ -219,6 +218,7 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 		Status:  n.Status,
 		Waiting: n.Waiting,
 		Under:   n.Under,
+		Job:     n.Job,
 		Since:   n.Since,
 		Phase:   n.Phase,
 		Fail:    n.Fail,
@@ -250,6 +250,7 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 	}
 	f.Consumers = n.Consumers
 	f.ExtUpdates = n.ExtUpdates
+	f.NewVersion = n.NewVersion
 	cv.Footer = f
 	u.Subs = u.Subs[:0]
 	for _, s := range n.Subs {

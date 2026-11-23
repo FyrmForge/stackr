@@ -468,10 +468,11 @@ func TestPushBuildsAndReleases(t *testing.T) {
 		ctx,
 		w.st.ID,
 		Event{
-			Repo:    "git@github.com:acme/shop.git",
-			Branch:  "main",
-			Commit:  "c9",
-			Message: "ship api\n\nbody",
+			Repo:       "git@github.com:acme/shop.git",
+			Branch:     "main",
+			Commit:     "c9",
+			Message:    "ship api\n\nbody",
+			AuthorName: "Ada L", AuthorLogin: "ada",
 			// only the stack file: api has no build yet, so it builds anyway
 			Changed: []string{DefaultPath},
 		},
@@ -480,6 +481,9 @@ func TestPushBuildsAndReleases(t *testing.T) {
 	must(t, err)
 	if got, _ := w.f.D.Releases.Get(ctx, r.ID); got.Message != "ship api" {
 		t.Errorf("stored message = %q", got.Message)
+	}
+	if got, _ := w.f.D.Releases.Get(ctx, r.ID); got.AuthorName != "Ada L" || got.AuthorLogin != "ada" {
+		t.Errorf("stored author = %q %q", got.AuthorName, got.AuthorLogin)
 	}
 	if len(built) != 1 || built[0] != "api@c9" || len(auto) != 1 || auto[0].Slug != "dev" {
 		t.Fatalf("built %v auto %v", built, auto)
@@ -1005,5 +1009,31 @@ func TestPartlyStopped(t *testing.T) {
 	}
 	if _, ok := errs.IsUnset(partly("a", nil, errs.Unset{Param: "x"})); !ok {
 		t.Error("a park is lost behind the wrapper")
+	}
+}
+
+// A clean-only promote is checked on the plan the worker makes right before
+// applying: a gap that appears after the click is refused, and nothing is
+// applied.
+func TestApplyGuardedRefusesLatePlan(t *testing.T) {
+	w := setup(t)
+	w.files["c1"] = shopFile // plan has a gap (app.key), as when inputs changed since the click
+	w.fake.Digests = map[string]string{"nginx:2": "sha256:two"}
+	r := w.release(t, "c1")
+	refuse := errors.New("needs full review")
+	guard := func(p *Plan) error {
+		if len(p.Gaps) > 0 {
+			return refuse
+		}
+		return nil
+	}
+	_, err := w.f.ApplyGuarded(ctx, w.dev.ID, r.ID, nil, guard, io.Discard, nil)
+	if !errors.Is(err, refuse) {
+		t.Fatalf("err = %v", err)
+	}
+	e, err := w.f.D.Envs.Get(ctx, w.dev.ID)
+	must(t, err)
+	if e.ReleaseID != nil {
+		t.Errorf("applied despite the guard: %v", *e.ReleaseID)
 	}
 }

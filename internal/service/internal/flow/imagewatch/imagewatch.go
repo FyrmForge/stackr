@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -44,6 +45,9 @@ type Flow struct {
 	// Registry calls; nil = the real registry package.
 	Digest func(ctx context.Context, ref, user, pass string) (string, error)
 	Tags   func(ctx context.Context, ref, user, pass string) ([]string, error)
+	// Label reads the image's version label (org.opencontainers.image.version);
+	// nil = the real registry package, at the panel's platform.
+	Label func(ctx context.Context, ref, user, pass string) (string, error)
 
 	// The panel's own registry, answered from its store (no HTTP, no
 	// credential: an org has none for it). nil = the HTTP calls above.
@@ -91,6 +95,8 @@ type watched struct {
 
 type answer struct {
 	digest, tag, prev string
+	version           string // the label of digest, "" = none or not read
+	versionErr        string // why the label read failed, "" = fine
 	err               error
 	skip              bool // an env it is watched for has a promote running
 }
@@ -122,7 +128,7 @@ func (f *Flow) Check(ctx context.Context, sc Scope, log io.Writer) ([]Update, er
 				img, _ := f.Images.GetByRef(ctx, w.t.ImageRef)
 				prevs[w.t.ImageRef] = img.LastDigest
 			}
-			a = f.ask(ctx, w)
+			a = f.ask(ctx, w, log)
 			a.prev = prevs[w.t.ImageRef]
 			answers[k] = a
 			if a.err != nil {
@@ -174,7 +180,7 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 		if cur[w.t.Slug].Digest == a.digest {
 			continue // the registry caught up with what already runs
 		}
-		swap = append(swap, release.Pin{Slug: w.t.Slug, Repo: w.t.ImageRef, Digest: a.digest})
+		swap = append(swap, release.Pin{Slug: w.t.Slug, Repo: w.t.ImageRef, Digest: a.digest, Version: a.version, VersionErr: a.versionErr})
 		auto = auto && w.t.UpdatePolicy == "auto"
 		logf(log, "%s/%s: %s is now %s\n", e.Slug, w.t.Slug, w.t.ImageRef, short(a.digest))
 	}
@@ -232,7 +238,7 @@ func (f *Flow) direct(ctx context.Context, e store.Environment) bool {
 }
 
 // ask asks the registry and caches the answer on the image row.
-func (f *Flow) ask(ctx context.Context, w watched) *answer {
+func (f *Flow) ask(ctx context.Context, w watched, log io.Writer) *answer {
 	a := &answer{}
 	// The panel's own registry is the one private host an org may watch.
 	panel, _ := f.Settings.Get(ctx, "panel_domain")
@@ -241,6 +247,7 @@ func (f *Flow) ask(ctx context.Context, w watched) *answer {
 	}
 	user, pass := "", ""
 	digest, tagsOf := f.digest(), f.tags()
+	own := false // the panel's own registry: its images carry no label read
 	if host, repo, _, ok := registry.ParseRef(w.t.ImageRef); ok && f.OwnDigest != nil && f.OwnTags != nil &&
 		panel != "" && strings.EqualFold(host, "registry."+installspec.CleanHost(panel)) {
 		digest = func(_ context.Context, ref, _, _ string) (string, error) {
@@ -252,6 +259,7 @@ func (f *Flow) ask(ctx context.Context, w watched) *answer {
 			return d, err
 		}
 		tagsOf = func(context.Context, string, string, string) ([]string, error) { return f.OwnTags(ctx, repo) }
+		own = true
 	} else if c, ok, err := f.Cred(ctx, w.org, w.t.ImageRef); err != nil {
 		a.err = err
 	} else if ok {
@@ -269,10 +277,46 @@ func (f *Flow) ask(ctx context.Context, w watched) *answer {
 	if a.err == nil {
 		a.digest, a.err = digest(ctx, ref, user, pass)
 	}
-	if _, err := f.Images.Checked(ctx, w.t.ImageRef, a.digest, a.tag, a.err); err != nil && a.err == nil {
+	var read bool
+	var verr error
+	if a.err == nil && !own {
+		a.version, read, verr = f.version(ctx, w.t.ImageRef, ref, a.digest, user, pass, log)
+	}
+	if _, err := f.Images.Checked(ctx, w.t.ImageRef, a.digest, a.tag, a.version, a.err); err != nil && a.err == nil {
 		a.err = err
 	}
+	if verr != nil {
+		a.versionErr = verr.Error()
+	}
+	if read {
+		_ = f.Images.LabelRead(ctx, w.t.ImageRef, verr)
+	}
 	return a
+}
+
+// version is the version label of ref at digest. It is read once per digest:
+// the image row holds the last one seen with its label. A failed read is
+// logged and reads as no label; the row then names the tag or the digest.
+// read says a label read happened (not a cache hit); err is its failure.
+func (f *Flow) version(ctx context.Context, row, ref, digest, user, pass string, log io.Writer) (v string, read bool, err error) {
+	if img, err := f.Images.GetByRef(ctx, row); err == nil && img.LastDigest == digest {
+		if img.VersionErr != "" { // the read of this digest failed; the pin says so too
+			return img.LastVersion, false, errors.New(img.VersionErr)
+		}
+		return img.LastVersion, false, nil
+	}
+	readLabel := f.Label
+	if readLabel == nil {
+		readLabel = func(ctx context.Context, ref, user, pass string) (string, error) {
+			return registry.VersionLabel(ctx, ref, user, pass, runtime.GOARCH)
+		}
+	}
+	v, err = readLabel(ctx, ref+"@"+digest, user, pass)
+	if err != nil {
+		logf(log, "%s: version label could not be read: %v\n", ref, err)
+		return "", true, err
+	}
+	return v, true, nil
 }
 
 // scan lists the image tiles in scope (the tile leaf refuses digest-pinned

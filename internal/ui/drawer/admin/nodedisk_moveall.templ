@@ -61,7 +61,7 @@ templ nodeDiskMoveAll(d NodeDisk) {
 
 // MoveAllDialogView is the plan dialog, as an answer into #moveall-dlg.
 templ MoveAllDialogView(m MoveAllDialog) {
-	@c.DlgShell("Move all to disk", movePlural(m.Count)+" on "+m.Node, moveAllFoot(m)) {
+	@c.Modal("Move all to disk", movePlural(m.Count)+" on "+m.Node, moveAllFoot(m)) {
 		<p>Each group copies in turn. Only its own tiles are stopped.</p>
 		for i, g := range m.Groups {
 			@c.DlgHeading(g.Title, i == 0)

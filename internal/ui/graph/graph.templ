@@ -278,7 +278,7 @@ templ face(n Node) {
 // no footer (an org is not running or idle).
 templ body(n Node) {
 	<div class="flex h-full flex-col p-3.5">
-		@cards.Top(n.Kind, n.Name, n.Detail, false, false)
+		@cards.Top(n.Kind, n.Name, n.Detail, false)
 		if n.Kind != "org" {
 			@n.Foot()
 		}

@@ -16,7 +16,7 @@ type RelScreen struct {
 	Q       string
 	States  []RelStateLink
 	Sources []RelOption
-	Rows    []RelRow
+	Rows    []ReleaseLineView
 	Total   int    // rows that matched
 	Empty   string // the sentence for no rows
 	Clear   string // the address with no filters; "" = none are set
@@ -41,10 +41,10 @@ type RelStateLink struct {
 // RelOption is one source the filter offers.
 type RelOption struct{ Value, Label string }
 
-const relGrid = "grid grid-cols-[5rem_3.25rem_4.25rem_minmax(12rem,1fr)_5rem_4.5rem_10.5rem_6.5rem_6.5rem] items-center gap-x-2 px-3"
-
 templ RelScreenView(v RelScreen) {
-	<div id="rel-screen" class="px-4 sm:px-6 py-5">
+	// the modal slot sits outside #rel-screen: the live poll swaps that and would close it
+	@ReleaseModalSlot()
+	<div id="rel-screen" class="w-full max-w-[1280px] mx-auto px-4 sm:px-6 py-5">
 		@LiveTab(v.Live, "rel-screen")
 		<h2 class="pb-4 text-lg font-semibold text-rw-text">Releases</h2>
 		<section class="panel flex flex-col overflow-hidden md:flex-row">
@@ -58,7 +58,7 @@ templ RelScreenView(v RelScreen) {
 						hx-get={ s.Href }
 						hx-target="#main"
 						hx-push-url="true"
-						class={ "flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 text-sm",
+						class={ "flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 text-sm max-sm:h-11",
 							templ.KV("pl-6", s.Depth > 0),
 							templ.KV("bg-rw-inset text-rw-text", s.Active), templ.KV("text-rw-muted hover:text-rw-text", !s.Active) }
 						if s.Active {
@@ -92,7 +92,7 @@ templ RelScreenView(v RelScreen) {
 								hx-get={ s.Href }
 								hx-target="#main"
 								hx-push-url="true"
-								class={ "flex h-7 items-center gap-1.5 whitespace-nowrap rounded px-2.5",
+								class={ "flex h-7 items-center gap-1.5 whitespace-nowrap rounded px-2.5 max-sm:h-11",
 									templ.KV("bg-rw-raised text-rw-text", s.Active), templ.KV("text-rw-muted hover:text-rw-text", !s.Active) }
 								if s.Active {
 									aria-current="true"
@@ -105,13 +105,13 @@ templ RelScreenView(v RelScreen) {
 							</a>
 						}
 					</nav>
-					<select id="rel-source" name="source" class="input !w-auto !py-1.5 text-sm" aria-label="Source">
+					<select id="rel-source" name="source" class="input !w-auto !py-1.5 text-sm max-sm:!min-h-11" aria-label="Source">
 						<option value="">Any source</option>
 						for _, o := range v.Sources {
 							<option value={ o.Value } selected?={ o.Value == v.Source }>{ o.Label }</option>
 						}
 					</select>
-					<input id="rel-q" hx-preserve="true" type="search" name="q" value={ v.Q } class="input !w-60 !py-1.5 text-sm" placeholder="Search commit or message" aria-label="Search commit or message"/>
+					<input id="rel-q" hx-preserve="true" type="search" name="q" value={ v.Q } class="input !w-full sm:!w-60 !py-1.5 text-sm max-sm:!min-h-11" placeholder="Search commit or message" aria-label="Search commit or message"/>
 				</form>
 				if len(v.Rows) == 0 {
 					<div class="flex flex-col items-start gap-2 p-4 text-sm text-rw-muted">
@@ -121,26 +121,13 @@ templ RelScreenView(v RelScreen) {
 						}
 					</div>
 				} else {
-					<div class="overflow-x-auto">
-						<div class="min-w-[56rem]">
-							<div class={ relGrid, "h-9 border-b border-rw-border text-xs font-medium text-rw-faint" }>
-								<span>Scope</span>
-								<span>Release</span>
-								<span>Commit</span>
-								<span>Message</span>
-								<span>Source</span>
-								<span>Runs in</span>
-								<span>State</span>
-								<span>When</span>
-								<span></span>
-							</div>
-							<ul class="divide-y divide-rw-border">
-								for _, r := range v.Rows {
-									@relScreenRow(r)
-								}
-							</ul>
-						</div>
-					</div>
+					<ul class="divide-y divide-rw-border">
+						for _, r := range v.Rows {
+							<li>
+								@ReleaseLine(r)
+							</li>
+						}
+					</ul>
 					if v.Total > len(v.Rows) {
 						<p class="border-t border-rw-border px-3 py-2 text-xs text-rw-faint">{ "Showing the newest " + strconv.Itoa(len(v.Rows)) + " of " + strconv.Itoa(v.Total) + ". Narrow the scope or search to see the rest." }</p>
 					}
@@ -148,76 +135,4 @@ templ RelScreenView(v RelScreen) {
 			</div>
 		</section>
 	</div>
-}
-
-// relScreenRow is one 36 px line; a release opens in place to its jobs, the
-// rest are plain lines.
-templ relScreenRow(r RelRow) {
-	<li>
-		if r.Kind == "release" {
-			<details data-id={ r.ID } class="group">
-				<summary class={ relGrid, "h-9 cursor-pointer list-none text-sm hover:bg-rw-inset [&::-webkit-details-marker]:hidden" }>
-					@relCells(r)
-				</summary>
-				@relOpen(r)
-			</details>
-			if r.Lacks != "" {
-				<div class="px-3 pb-2 pl-[7.5rem]">
-					@Chip("Does not hold release "+r.Lacks, "warn")
-				</div>
-			}
-		} else {
-			<div class={ relGrid, "h-9 text-sm" }>
-				@relCells(r)
-			</div>
-		}
-		if r.Err != "" {
-			<p class="px-3 pb-2 pl-[7.5rem] text-xs text-rw-danger [overflow-wrap:anywhere]">{ r.Err }</p>
-		}
-	</li>
-}
-
-templ relCells(r RelRow) {
-	<span class="truncate text-rw-muted" title={ r.Scope }>{ r.Scope }</span>
-	<span class="font-mono text-xs text-rw-faint whitespace-nowrap">
-		if r.Plan {
-			plan
-		} else {
-			{ r.Number }
-		}
-	</span>
-	<span class="font-mono text-xs whitespace-nowrap text-rw-text">{ r.Commit }</span>
-	<span class="min-w-0 truncate text-rw-text" title={ r.Message }>
-		if r.Kind == "building" {
-			if r.Queued {
-				Waiting to build
-			} else {
-				Building
-			}
-		} else {
-			{ r.Message }
-		}
-	</span>
-	<span class="truncate text-rw-muted">{ r.Source }</span>
-	<span class="flex min-w-0 items-center gap-1">
-		for _, e := range r.Envs {
-			<span class={ "chip bg-rw-inset text-rw-text", envClass(e.Color) }><span class="env-dot mr-1"></span>{ e.Name }</span>
-		}
-	</span>
-	<span class="flex min-w-0 items-center gap-1.5">
-		if r.State != "" {
-			@Chip(r.State, r.Tone)
-		}
-		if r.Newest {
-			@Chip("newest", "success")
-		}
-	</span>
-	<span class="whitespace-nowrap text-xs text-rw-faint">
-		@Time(r.At, "Jan 2, 15:04")
-	</span>
-	<span class="text-right">
-		if r.Link.Label != "" {
-			@relLink(r.Link, "link whitespace-nowrap")
-		}
-	</span>
 }

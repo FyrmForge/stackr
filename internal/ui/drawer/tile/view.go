@@ -264,7 +264,12 @@ type JobRow struct {
 
 type ImageView struct {
 	Ref, Digest, LastDigest, LastTag, LastError string
-	Checked                                     time.Time // zero = never
+	// Status is image watch's verdict in words (Image.Status); Version the
+	// version label of LastDigest, "" = none read.
+	Status, Version string
+	// VersionUnread: the last version label read failed (shown as unknown).
+	VersionUnread bool
+	Checked       time.Time // zero = never
 }
 
 // SettingsView is the Settings tab: one accordion row per group, each row

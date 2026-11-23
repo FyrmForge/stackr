@@ -94,6 +94,9 @@ type promoteJob struct {
 	MayPlace bool `json:"may_place,omitempty"`
 	// Admin: a server admin approved it, so standbys may use any node.
 	Admin bool `json:"admin,omitempty"`
+	// CleanOnly: queued from a list with no plan read, so the job refuses
+	// unless its final plan has no problems (PlanProblems).
+	CleanOnly bool `json:"clean_only,omitempty"`
 }
 
 type envSyncJob struct {
@@ -252,7 +255,11 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			o.ensureMesh(ctx)
 			pre, _ := o.tiles.List(ctx, p.EnvID)
-			plan, err := o.promote.ApplyTicked(context.WithValue(withMayPlace(ctx, p.MayPlace), placeAdminKey{}, p.Admin), p.EnvID, p.ReleaseID, p.Ticked, lockLog{ctx, o, r, p.EnvID}, r.Swap)
+			var guard func(*promote.Plan) error
+			if p.CleanOnly {
+				guard = o.cleanGuard(ctx, p.EnvID, p.ReleaseID)
+			}
+			plan, err := o.promote.ApplyGuarded(context.WithValue(withMayPlace(ctx, p.MayPlace), placeAdminKey{}, p.Admin), p.EnvID, p.ReleaseID, p.Ticked, guard, lockLog{ctx, o, r, p.EnvID}, r.Swap)
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
@@ -499,6 +506,11 @@ func (o *Orchestrator) enqueueExclusive(ctx context.Context, kind jobs.Kind, p a
 
 // enqueuePromote locks the env and every tile it runs now.
 func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID string, mayPlace, admin bool, ticked ...string) (Job, error) {
+	return o.enqueuePromoteJob(ctx, promoteJob{EnvID: envID, ReleaseID: releaseID, Ticked: ticked, MayPlace: mayPlace, Admin: admin})
+}
+
+func (o *Orchestrator) enqueuePromoteJob(ctx context.Context, pj promoteJob) (Job, error) {
+	envID, releaseID := pj.EnvID, pj.ReleaseID
 	if err := o.gateEnv(ctx, envID, true); err != nil {
 		return Job{}, err
 	}
@@ -510,7 +522,7 @@ func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID stri
 	for _, t := range ts {
 		lock = append(lock, t.ID)
 	}
-	b, _ := json.Marshal(promoteJob{EnvID: envID, ReleaseID: releaseID, Ticked: ticked, MayPlace: mayPlace, Admin: admin})
+	b, _ := json.Marshal(pj)
 	j, err := o.jobs.Enqueue(ctx, kindPromote, lock, string(o.withOrg(ctx, b)), &releaseID)
 	return j, o.noted(ctx, err, securitylog.JobQueue, "job", j.ID, "kind=promote release="+releaseID)
 }

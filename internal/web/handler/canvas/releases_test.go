@@ -37,7 +37,7 @@ func TestEnvReleases(t *testing.T) {
 	id := rs[0].ID
 	base := "/acme/shop/dev/-/drawer"
 	body := get(t, s, base+"?tab=releases")
-	if !strings.Contains(body, `log-chip env-c-violet">dev<`) || !strings.Contains(body, ">#1<") {
+	if !strings.Contains(body, `env-dot env-c-violet`) || !strings.Contains(body, ">release 1<") {
 		t.Errorf("releases tab:\n%s", body)
 	}
 	body = get(t, s, base+"?tab=releases&plan="+id)
@@ -49,6 +49,11 @@ func TestEnvReleases(t *testing.T) {
 	}
 	if strings.Contains(body, "hx-include") { // no removal rows: no ticks to include
 		t.Errorf("a plan with no removals includes ticks:\n%s", body)
+	}
+	// the release modal is its own route; the review page stays at the id
+	body = get(t, s, "/acme/shop/dev/-/releases/"+id+"/dialog")
+	if !strings.Contains(body, `id="rel-modal"`) || !strings.Contains(body, ">shop<") || !strings.Contains(body, "Release 1") || !strings.Contains(body, `href="/acme/shop/dev/-/releases/`+id+`"`) {
+		t.Errorf("release modal:\n%s", body)
 	}
 	if body = get(t, s, base+"?tab=releases&plan=nope"); strings.Contains(body, "Release 1 for") {
 		t.Errorf("an unknown release was planned:\n%s", body)
@@ -219,5 +224,39 @@ func TestParkedValueShows(t *testing.T) {
 	}
 	if body := get(t, s, "/acme"); !strings.Contains(body, "Waiting for huginn.oidc_secret") || !strings.Contains(body, ">Set it<") {
 		t.Errorf("stack card:\n%s", body)
+	}
+}
+
+// A release cut before the author column (empty CreatedBy) is a push: its
+// commit and message still show (the test seeds the message) in the drawer's releases tab.
+func TestEnvReleasesLegacyPushShowsCommit(t *testing.T) {
+	s := webtest.New(t)
+	s.Healthy(s.Tile.Env)
+	ctx := context.Background()
+	j, err := s.Orch.Deploy(ctx, s.Tile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for end := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if j, err = s.Orch.GetJob(ctx, j.ID); err != nil || j.FinishedAt != nil || time.Now().After(end) {
+			break
+		}
+	}
+	rs, err := s.Orch.Releases(ctx, s.Tile.Stack)
+	if err != nil || len(rs) != 1 {
+		t.Fatalf("releases = %v, %v (deploy %s)", rs, err, j.State)
+	}
+	id := rs[0].ID
+	r, err := s.Store.Releases.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.CreatedBy, r.Message = "", "legacy subject line" // the commit is derived, not stored
+	if err := s.Store.Releases.Update(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, s, "/acme/shop/dev/-/drawer?tab=releases")
+	if !strings.Contains(body, "legacy subject line") {
+		t.Errorf("legacy push lost its message:\n%s", body)
 	}
 }

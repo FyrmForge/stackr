@@ -30,9 +30,8 @@ type CardView struct {
 	Drawer string // the drawer GET with its ?tab=; "" = no drawer
 	Tab    string // the tab Drawer opens on, pushed as ?tab=
 
-	Host       bool // privileged or devices: the red "host" chip
-	Access     Access
-	NewVersion bool // image watch saw a newer digest or tag
+	Host   bool // privileged or devices: the red "host" chip
+	Access Access
 
 	RestartPending bool // a saved change waits for the tile's next restart
 
@@ -59,6 +58,7 @@ type FooterView struct {
 	Status   string    // tile word (running, degraded, waiting, ...); "" = idle
 	Waiting  string    // the param a "waiting" tile misses
 	Under    string    // building/queued over a running tile: "running", the word beneath
+	Job      string    // that job's kind; "" = unknown
 	Since    time.Time // that job's start; zero = none, the line reads as the word alone
 	Phase    string    // that job's step ("Pulling image"); "" = the word
 	Fail     string    // the last deploy's error while it failed; "" = none
@@ -82,6 +82,7 @@ type FooterView struct {
 	Domains                  int       // org canvas: "N domains" in place of the hosts (v0 DomainCount)
 	Nav                      bool      // the card is itself a link: the host is text, never a nested <a>
 	Consumers                int       // slice: the tiles that reach it
+	NewVersion               bool      // image watch saw a newer digest or tag: the footer says so where the domain would be
 	ExtUpdates               int       // operated postgres: packages with a newer build; 0 = none
 }
 
@@ -172,6 +173,38 @@ func KindLabel(kind string) string {
 		return "database"
 	}
 	return ""
+}
+
+// Chip is one tag on a card's head.
+type Chip struct{ Text, Class, Title string }
+
+const maxChips = 2
+
+// Chips are the tags a card's head shows, most important first ("Waiting for
+// an admin" folds last), cut to maxChips; more is how many folded into "+N".
+func Chips(kind string, host bool, acc Access, noted bool) (shown []Chip, more int) {
+	const danger = "border-rw-danger/40 bg-rw-danger/10 text-rw-danger"
+	var all []Chip
+	if acc.Waiting {
+		all = append(all, Chip{"Waiting for an admin", "border-rw-warn/40 bg-rw-warn/10 text-rw-warn", ""})
+	}
+	if acc.Chip != "" {
+		all = append(all, Chip{acc.Chip, danger, acc.Title})
+	} else if host {
+		all = append(all, Chip{"host", danger, "runs privileged or with host devices"})
+	}
+	if l := KindLabel(kind); l != "" && !noted {
+		all = append(all, Chip{l, "border-rw-border bg-rw-inset text-rw-muted", ""})
+	}
+	// "Waiting for an admin" takes most of the head's width: alone, the rest fold into "+N"
+	n := maxChips
+	if acc.Waiting {
+		n = 1
+	}
+	if len(all) > n {
+		return all[:n], len(all) - n
+	}
+	return all, 0
 }
 
 // run is the colour a last-run line reads in, by its first word. A failed
@@ -285,8 +318,29 @@ func progressWord(f FooterView) string {
 	if f.Phase != "" {
 		return f.Phase
 	}
+	if f.Status == "building" {
+		if v := jobVerb(f.Job); v != "" {
+			return v
+		}
+	}
 	_, w := word(f.Status, "")
 	return w
+}
+
+// jobVerb is what a live job of that kind is doing to the tile, so a card
+// never keeps the word of the state the job is changing.
+func jobVerb(kind string) string {
+	switch kind {
+	case "deploy", "promote", "env-sync", "seed", "pr":
+		return "Deploying"
+	case "start":
+		return "Starting"
+	case "restart":
+		return "Restarting"
+	case "stop":
+		return "Stopping"
+	}
+	return ""
 }
 
 // failMax is how much of an error a card shows; its end says most.

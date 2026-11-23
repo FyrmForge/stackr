@@ -295,7 +295,7 @@ func MoveDialogView(d MoveDialog) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.DlgShell("Move "+d.Name+" to the node disk", d.Name+", "+d.Where, moveFoot(d)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.Modal("Move "+d.Name+" to the node disk", d.Name+", "+d.Where, moveFoot(d)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

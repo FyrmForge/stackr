@@ -401,10 +401,60 @@ func TestMoved(t *testing.T) {
 	pin := func(repo, digest string) release.Pin { return release.Pin{Repo: repo, Digest: digest} }
 	from := map[string]release.Pin{"immich-server": pin("ghcr.io/x/immich-server:3.4.1", "sha256:aaaaaaaa"), "valkey": pin("valkey:8", "sha256:1111111")}
 	to := map[string]release.Pin{"immich-server": pin("ghcr.io/x/immich-server:3.4.2", "sha256:bbbbbbbb"), "valkey": pin("valkey:8", "sha256:2222222")}
-	if got := release.Moved(from, to); got != "immich-server 3.4.1 to 3.4.2, valkey 1111111 to 2222222" {
+	if got := release.Moved(from, to); got != "immich-server 3.4.1 to 3.4.2, valkey new image 2222222" {
 		t.Errorf("Moved = %q", got)
 	}
 	if got := release.Moved(from, from); got != "" {
 		t.Errorf("nothing moved = %q", got)
+	}
+}
+
+// The version label leads, then a moved tag, then the digest.
+func TestMovedVersionLabel(t *testing.T) {
+	a := release.Pin{Repo: "x/api:latest", Digest: "sha256:aaaaaaaa", Version: "3.4.1"}
+	b := release.Pin{Repo: "x/api:latest", Digest: "sha256:bbbbbbbb", Version: "3.4.2"}
+	one := func(p release.Pin) map[string]release.Pin { p.Slug = "api"; return map[string]release.Pin{"api": p} }
+	if got := release.Moved(one(a), one(b)); got != "api 3.4.1 to 3.4.2" {
+		t.Errorf("labels = %q", got)
+	}
+	a.Version = ""
+	if got := release.Moved(one(a), one(b)); got != "api now 3.4.2" {
+		t.Errorf("new label only = %q", got)
+	}
+	b.Version = ""
+	if got := release.Moved(one(a), one(b)); got != "api new image bbbbbbb" {
+		t.Errorf("digest = %q", got)
+	}
+}
+
+// CauseOf names what cut a release that carries no commit.
+func TestCauseOf(t *testing.T) {
+	st := servicetest.Store(t)
+	org, stack := uuid.NewString(), uuid.NewString()
+	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}))
+	must(t, st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "s", Slug: "s", Settings: "{}", CreatedAt: time.Now()}))
+	l := release.New(st.Releases, st.ReleaseTiles)
+	first, err := l.Derive(ctx, stack, "", "deploy", "env:e", release.Pin{Slug: "bazarr", Repo: "bazarr:latest", Digest: "sha256:aa"})
+	must(t, err)
+	if got := l.CauseOf(ctx, first.ID); got != "bazarr:latest first deploy" {
+		t.Errorf("first deploy = %q", got)
+	}
+	tag, err := l.Derive(ctx, stack, first.ID, "deploy", "env:e", release.Pin{Slug: "bazarr", Repo: "bazarr:2.0", Digest: "sha256:bb"})
+	must(t, err)
+	if got := l.CauseOf(ctx, tag.ID); got != "bazarr tag changed to 2.0" {
+		t.Errorf("tag edit = %q", got)
+	}
+	rb, err := l.Derive(ctx, stack, tag.ID, "rebuild", "env:e")
+	must(t, err)
+	if got := l.CauseOf(ctx, rb.ID); got != "Rebuild of release 2" {
+		t.Errorf("rebuild = %q", got)
+	}
+	pr, err := l.Derive(ctx, stack, first.ID, "promote", "env:e")
+	must(t, err)
+	if got := l.CauseOf(ctx, pr.ID); got != "Images updated after promoting release 1" {
+		t.Errorf("promote = %q", got)
+	}
+	if got := l.CauseOf(ctx, "missing"); got != "" {
+		t.Errorf("missing = %q", got)
 	}
 }

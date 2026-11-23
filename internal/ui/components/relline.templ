@@ -1,0 +1,417 @@
+package components
+
+import (
+	"context"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// ReleaseLineView is one release as a two-line row, the same in the Releases
+// window, the Releases screen, the env drawer's tab and Waiting (UI 10 RFC,
+// section 2.5). The stack leads. Only a push shows a commit; the other
+// kinds say what cut them in Cause. The caller builds it; nothing here
+// decides. Name, release number and the change never truncate; only the
+// commit message does.
+type ReleaseLineView struct {
+	Stack  string
+	Number string // the release number, "" = none
+	// Change is the version change an image watch row names ("immich-server
+	// 3.4.1 to 3.4.2"); Cause says what cut any other row ("Rebuild of
+	// release 23"). Line 1 shows Change, else Cause.
+	Change, Cause string
+	// NoVersion: the version label could not be read; Change names a tag or a
+	// digest and says why on hover.
+	NoVersion bool
+	// Source is the word for where it came from ("git push", "image watch").
+	Source string
+	// Commit (short) and Message are a push's; "" on every other kind.
+	Commit, Message string
+	By              string // who or what cut it, for the initials
+	// Who is the person line 2 names (a push's author, a panel user's name;
+	// "" = none), Via where it came from ("GitHub", "panel", "image watch"),
+	// Age how long ago ("3d ago"); At is its absolute time, the title.
+	Who, Via, Age string
+	// Avatar is who caused it and where from (AvatarOf in web/render builds it).
+	Avatar Avatar
+	At              time.Time
+	// To is the env the release goes to ("prod"), "" when not known; From the
+	// env it comes from ("staging").
+	To, From    string
+	Runs        []EnvRun // envs running it
+	State, Tone string
+	Waited      string // "waiting 3d", muted, line 2; "" = none
+	// Open is the GET of the release modal; "" = the row is not clickable.
+	Open   string
+	Newest bool
+	// OfStack marks a row of a stack: the org chart's "Org config" view
+	// leaves it out.
+	OfStack bool
+	// Lacks is the number of a waiting release this one does not hold.
+	Lacks string
+	// Err is a failure's cause, on a line of its own.
+	Err string
+	// Link is the way on for a row with no modal (a failed push's job log, a
+	// config plan's review). Moves are the env drawer's buttons.
+	Link  RelLink
+	Moves []ReleaseMove
+}
+
+// ReleaseModalSlot is where ReleaseModal lands; the page holds it once.
+templ ReleaseModalSlot() {
+	<div id="rel-modal"></div>
+}
+
+// ReleaseLine is the row, with its warning and failure lines. A row with an
+// Open address opens the release modal in the slot; the rest are plain.
+templ ReleaseLine(v ReleaseLineView) {
+	<div class="flex min-w-0 items-center">
+		if v.Open != "" {
+			<button type="button" hx-get={ v.Open } hx-target="#rel-modal" hx-swap="outerHTML" class="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left text-sm hover:bg-rw-inset">
+				@relLineBody(v)
+			</button>
+		} else {
+			<div class="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-3 py-2 text-sm">
+				@relLineBody(v)
+			</div>
+		}
+		if v.Link.Label != "" {
+			<span class="shrink-0 pr-3 text-sm">@relLink(v.Link, "link whitespace-nowrap")</span>
+		}
+		if len(v.Moves) > 0 {
+			<span class="flex shrink-0 flex-wrap items-center justify-end gap-2 pr-3">
+				for _, m := range v.Moves {
+					<button type="button" class="btn btn-ghost btn-sm shrink-0" hx-get={ m.Ask } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">{ m.Label }</button>
+				}
+			</span>
+		}
+	</div>
+	if v.Lacks != "" {
+		<div class="px-3 pb-2 pl-14">
+			@Chip("Does not hold release "+v.Lacks, "warn")
+		</div>
+	}
+	if v.Err != "" {
+		<p class="px-3 pb-2 pl-14 text-xs text-rw-danger [overflow-wrap:anywhere]">{ v.Err }</p>
+	}
+}
+
+templ relLineBody(v ReleaseLineView) {
+	@AvatarMark(v.Avatar)
+	<span class="min-w-0 flex-1">
+		<span class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+			<span class="font-semibold text-rw-text [overflow-wrap:anywhere]">{ v.Stack }</span>
+			if v.Number != "" {
+				<span class="whitespace-nowrap text-xs text-rw-muted">release { v.Number }</span>
+			}
+			<span class="text-rw-text [overflow-wrap:anywhere]" title={ relNoVersion(v) }>{ relChange(v) }</span>
+		</span>
+		<span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-rw-muted">
+			for i, g := range relSegs(v) {
+				if i > 0 {
+					<span class="shrink-0" aria-hidden="true">&middot;</span>
+				}
+				<span class={ "shrink-0 whitespace-nowrap", templ.KV("font-mono", g.Mono), templ.KV("text-rw-faint", g.Muted) } title={ g.Title }>{ g.Text }</span>
+			}
+			if v.Message != "" {
+				<span class="w-full min-w-0 truncate" title={ v.Message }>{ v.Message }</span>
+			}
+		</span>
+	</span>
+	<span class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+		for _, e := range v.Runs {
+			@EnvChip(e.Name, e.Color)
+		}
+		if v.Newest {
+			@Chip("newest", "success")
+		}
+		if v.State != "" {
+			@Chip(v.State, v.Tone)
+		}
+	</span>
+}
+
+type relSeg struct {
+	Text, Title  string
+	Mono, Muted bool
+}
+
+// relSegs is line 2 before the message, split by " · ": the commit, who, how
+// long ago and from where (the absolute time on hover), then what a waiting
+// row adds ("waiting 3d", "from staging -> prod").
+func relSegs(v ReleaseLineView) []relSeg {
+	var out []relSeg
+	if v.Commit != "" {
+		out = append(out, relSeg{Text: v.Commit, Mono: true})
+	}
+	if v.Who != "" {
+		out = append(out, relSeg{Text: v.Who})
+	}
+	via := v.Via
+	if via != "" {
+		via = " via " + via
+	}
+	if v.Age != "" || via != "" {
+		g := relSeg{Text: strings.TrimSpace(v.Age + via)}
+		if !v.At.IsZero() {
+			g.Title = v.At.UTC().Format("Jan 2 2006, 15:04 UTC")
+		}
+		out = append(out, g)
+	}
+	if v.Waited != "" {
+		out = append(out, relSeg{Text: v.Waited, Muted: true})
+	}
+	switch {
+	case v.From != "" && v.To != "":
+		out = append(out, relSeg{Text: "from " + v.From + " -> " + v.To})
+	case v.From != "":
+		out = append(out, relSeg{Text: "from " + v.From})
+	case v.To != "":
+		out = append(out, relSeg{Text: "-> " + v.To})
+	}
+	return out
+}
+
+// relNoVersion is the hover note of a line that fell back from the version:
+// "" (no title) otherwise. templ drops an empty attribute.
+func relNoVersion(v ReleaseLineView) string {
+	if v.NoVersion {
+		return "version label could not be read"
+	}
+	return ""
+}
+
+func relChange(v ReleaseLineView) string {
+	if v.Change != "" {
+		return v.Change
+	}
+	return v.Cause
+}
+
+// ReleaseChangeView is one "What changed" row; New is "changed" where no
+// value is shown.
+type ReleaseChangeView struct{ Label, Old, New string }
+
+// ReleaseModalView is one release in a modal: what cut it, what its promote
+// changes, why it needs the full review, and the one action it offers.
+type ReleaseModalView struct {
+	Stack, Number, Env string
+	Source, Cause      string
+	By                 string
+	// Who, Via and Age are line 2 as the row says them (WhoWord, ViaWord, AgoWord).
+	Who, Via, Age string
+	Avatar             Avatar
+	At                 time.Time
+	// Commit is the config commit ("Config at <sha>"), CommitURL its page.
+	Commit, CommitURL, Message string
+	// Problems are the plan's reasons for the full review; set = risky, and
+	// the modal offers no Promote. The groups below are the same facts apart.
+	Problems []string
+	// Blockers, Impacts, Removals and Gaps are one section each; Changes is
+	// "What changed". State and Tone are the head's chip.
+	Blockers, Impacts, Removals, Gaps []string
+	Changes                           []ReleaseChangeView
+	State, Tone                       string
+	// Review is the full review page, opened in a new tab.
+	Review string
+	// Promote is the POST that promotes it (the Waiting page's, one pair);
+	// "" = not offered (not waiting, risky, or the viewer cannot write). Pair
+	// is "release:env". On the Waiting page (Rows) the answer swaps its rows;
+	// elsewhere only the notice shows.
+	Promote, Pair string
+	Rows          bool
+}
+
+// line is the modal's line 2 as the row's view, so relSegs words both; only a
+// push shows its commit, as in the row.
+func (v ReleaseModalView) line() ReleaseLineView {
+	l := ReleaseLineView{Who: v.Who, Via: v.Via, Age: v.Age, At: v.At}
+	if v.By == "push" || v.By == "" {
+		l.Commit = v.Commit
+	}
+	return l
+}
+
+// ReleaseModal is the release as a dialog over the page. Promote is the one
+// primary action; a risky release has none and points at the full review.
+templ ReleaseModal(v ReleaseModalView) {
+	<div id="rel-modal">
+		@releaseModalFrame(releaseModalHead(v), releaseModalFoot(v)) {
+			<p class="text-rw-text">{ relCause(v) }</p>
+			<p class="flex flex-wrap items-center gap-x-2 text-xs text-rw-muted">
+				for i, g := range relSegs(v.line()) {
+					if i > 0 {
+						<span class="shrink-0" aria-hidden="true">&middot;</span>
+					}
+					<span class={ "shrink-0 whitespace-nowrap", templ.KV("font-mono", g.Mono), templ.KV("text-rw-faint", g.Muted) } title={ g.Title }>{ g.Text }</span>
+				}
+			</p>
+			if v.Commit != "" {
+				<p class="text-xs text-rw-muted">
+					Config at
+					if v.CommitURL != "" {
+						{ " " }<a href={ templ.SafeURL(v.CommitURL) } target="_blank" rel="noopener" class="link font-mono">{ v.Commit }</a>
+					} else {
+						<span class="font-mono">{ " " + v.Commit }</span>
+					}
+					if v.Message != "" {
+						{ ": " + v.Message }
+					}
+				</p>
+			}
+			@relSection("Blocks the promote", "text-rw-danger", v.Blockers)
+			@relSection("Impact", "text-rw-warn", v.Impacts)
+			@relSection("Removes", "text-rw-warn", v.Removals)
+			@relSection("Values to set", "text-rw-warn", v.Gaps)
+			if len(v.Changes) > 0 {
+				<div>
+					<h3 class="label mb-1">What changed in { v.Env }</h3>
+					<ul class="divide-y divide-rw-border">
+						for _, c := range v.Changes {
+							<li class="flex flex-wrap items-baseline gap-x-2 py-1.5 text-xs [overflow-wrap:anywhere]">
+								<span class="text-rw-text">{ c.Label }</span>
+								if c.Old != "" {
+									<span class="text-rw-faint line-through">{ c.Old }</span>
+								}
+								<span class="text-rw-success">{ c.New }</span>
+							</li>
+						}
+					</ul>
+				</div>
+			} else if len(v.Problems) == 0 {
+				<p class="text-rw-faint">No changes in { v.Env }.</p>
+			}
+		}
+	</div>
+}
+
+// relSection is one group of the plan's problems, flat rows; nothing when empty.
+templ relSection(title, tone string, rows []string) {
+	if len(rows) > 0 {
+		<div>
+			<h3 class="label mb-1">{ title }</h3>
+			<ul class="divide-y divide-rw-border">
+				for _, r := range rows {
+					<li class={ "py-1.5 text-xs [overflow-wrap:anywhere]", tone }>{ r }</li>
+				}
+			</ul>
+		</div>
+	}
+}
+
+// releaseModalFrame is the release dialog: the shared modal panel plus a grab
+// handle on phones, where it is a bottom sheet; the body scrolls between the
+// head and the foot, which stay in view.
+templ releaseModalFrame(head, foot templ.Component) {
+	<confirm-dialog open>
+		<dialog class="modal-panel modal-sheet text-rw-text" aria-labelledby="rel-modal-title rel-modal-num">
+			<div class="modal-grab" aria-hidden="true"></div>
+			@head
+			<div class="modal-body">
+				{ children... }
+			</div>
+			<div class="modal-foot">
+				@foot
+			</div>
+		</dialog>
+	</confirm-dialog>
+}
+
+templ releaseModalHead(v ReleaseModalView) {
+	<div class="modal-head items-center">
+		<div class="flex min-w-0 items-center gap-3">
+			@AvatarMark(v.Avatar)
+			<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+				<h2 id="rel-modal-title" class="modal-title [overflow-wrap:anywhere]">{ v.Stack }</h2>
+				<span id="rel-modal-num" class="font-mono text-xs text-rw-faint">Release { v.Number }</span>
+				if v.State != "" {
+					@Chip(v.State, v.Tone)
+				}
+				if len(v.Problems) > 0 {
+					@Chip("Needs full review", "warn")
+				}
+			</div>
+		</div>
+		@dlgClose()
+	</div>
+}
+
+func relCause(v ReleaseModalView) string {
+	if v.Cause != "" {
+		return v.Cause
+	}
+	return v.Message
+}
+
+templ releaseModalFoot(v ReleaseModalView) {
+	<button type="button" class="btn btn-ghost btn-sm" data-cancel>Close</button>
+	<a href={ templ.SafeURL(v.Review) } target="_blank" rel="noopener" class={ "btn btn-sm", templ.KV("btn-ghost", v.Promote != ""), templ.KV("btn-primary", v.Promote == "") }>Open full review</a>
+	if v.Promote != "" {
+		if v.Rows {
+			<button type="button" class="btn btn-primary btn-sm" data-cancel hx-post={ v.Promote } hx-vals={ templ.JSONString(map[string]string{"pair": v.Pair}) } hx-target="#waiting" hx-select="#waiting" hx-swap="outerHTML">Promote</button>
+		} else {
+			<button type="button" class="btn btn-primary btn-sm" data-cancel hx-post={ v.Promote } hx-vals={ templ.JSONString(map[string]string{"pair": v.Pair}) } hx-swap="none">Promote</button>
+		}
+	}
+}
+
+// Avatar is the mark of who caused a release. Initials sit underneath; Img (the
+// author's picture, when there is one) is layered on top, so a blocked or
+// failed load, or no JS, leaves the initials (prod script-src blocks inline
+// onerror). Bot draws a rounded square. Icon "eye" replaces the initials (an
+// image watch), "github" stands for a person we know nothing of (a push cut
+// before authors were kept), "stackr" for a panel action (no person). Badge
+// "github" marks a push; "" = none.
+//
+// Login is the GitHub login whose picture layers over the initials; the host it
+// loads from comes from the request context (WithAvatarHost), so it is the
+// serving panel's own setting and no global.
+type Avatar struct {
+	Initials, Login, Icon, Badge string
+	Bot                          bool
+}
+
+type avatarHostKey struct{}
+
+// DefaultAvatarHost is where GitHub serves avatars.
+const DefaultAvatarHost = "https://avatars.githubusercontent.com"
+
+// WithAvatarHost puts the avatar origin on ctx for AvatarMark.
+func WithAvatarHost(ctx context.Context, host string) context.Context {
+	return context.WithValue(ctx, avatarHostKey{}, host)
+}
+
+func avatarSrc(ctx context.Context, login string) string {
+	host, _ := ctx.Value(avatarHostKey{}).(string)
+	if host == "" {
+		host = DefaultAvatarHost
+	}
+	return host + "/" + url.PathEscape(login) + "?s=64"
+}
+
+templ AvatarMark(a Avatar) {
+	<span class="relative inline-flex h-8 w-8 shrink-0" aria-hidden="true">
+		<span class={ "relative flex h-full w-full items-center justify-center overflow-hidden bg-rw-accent/15 text-xs font-semibold uppercase text-rw-accentHi", templ.KV("rounded-full", !a.Bot), templ.KV("rounded-md", a.Bot) }>
+			switch a.Icon {
+				case "eye":
+					<svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+				case "github":
+					@githubMark("h-3.5 w-3.5")
+				case "stackr":
+					<img src={ StaticURL("images/logo-mark.png") } alt="" class="h-4 w-4"/>
+				default:
+					{ a.Initials }
+			}
+			if a.Login != "" {
+				<img src={ avatarSrc(ctx, a.Login) } alt="" referrerpolicy="no-referrer" loading="lazy" class="absolute inset-0 h-full w-full object-cover"/>
+			}
+		</span>
+		if a.Badge == "github" {
+			<span class="absolute -bottom-[5px] -right-1.5 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-white text-[#1f2328] ring-2 ring-rw-bg">@githubMark("h-3 w-3")</span>
+		}
+	</span>
+}
+
+templ githubMark(class string) {
+	<svg viewBox="0 0 16 16" class={ class } fill="currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path></svg>
+}

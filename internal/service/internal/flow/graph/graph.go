@@ -107,7 +107,7 @@ const (
 // Card sizes and gaps in world pixels, v0's geometry (graph-ref §6).
 const (
 	CardW  = 220
-	CardH  = 104 // border 2 + p-3.5 28 + head 38.5 + footer pt-3/border/line 29 = 97.5, so a ~6 px gap over the footer
+	CardH  = 104 // border 2 + p-3.5 28 + head 45.5 (name, image, tags) + footer pt-3/border/line 29 = 104.5; head rows are tight on purpose
 	ShortH = 62  // a detached volume
 	SubH   = 30  // the room each sub-tile strip takes when placing (never drawn height)
 	Grid   = 22
@@ -162,6 +162,7 @@ type Node struct {
 	ExtUpdates     int        // operated postgres: packages with an update; 0 = none
 	Waiting        string     // the param a parked job waits for
 	Under          string     // building/queued over a running tile: the word beneath, "running"
+	Job            string     // the kind of that live job ("deploy", "start", "stop"): the card names it
 	Since          time.Time  // that job's start (queued: its creation); zero = no such job
 	Phase          string     // the live job's step, "" = the word alone
 	Fail           string     // the failed deploy's error, whole; "" = none
@@ -759,6 +760,7 @@ type status struct {
 	lastRun  *store.Run
 	waiting  string
 	under    string
+	job      string
 	since    time.Time
 	phase    string
 	fail     string
@@ -844,7 +846,7 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		}
 		under := s.word
 		if s.word = LayerJob(under, up, tile.RunToCompletion(t.Kind), j); s.word == "building" || s.word == "queued" {
-			s.under, s.since = under, j.CreatedAt
+			s.under, s.since, s.job = under, j.CreatedAt, j.Kind
 			if j.StartedAt != nil && s.word == "building" {
 				s.since = *j.StartedAt
 			}
@@ -1389,7 +1391,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 			return n, err
 		}
 		n.Status, n.LastRun, n.Waiting = st.word, st.lastRun, st.waiting
-		n.Under, n.Since, n.Phase, n.Fail = st.under, st.since, st.phase, st.fail
+		n.Under, n.Since, n.Phase, n.Fail, n.Job = st.under, st.since, st.phase, st.fail, st.job
 		n.Running = 0
 		for _, c := range st.state.Replicas {
 			if c.State == "running" {

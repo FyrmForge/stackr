@@ -330,11 +330,13 @@ func (o *Orchestrator) orgWebhook(ctx context.Context, orgID string, d delivery)
 			_, err = o.enqueuePush(ctx, pushJob{
 				StackID: st.ID,
 				Event: promote.Event{
-					Repo:    d.repo,
-					Branch:  d.branch,
-					Commit:  p.Commit,
-					Message: p.Message,
-					Changed: p.Changed,
+					Repo:        d.repo,
+					Branch:      d.branch,
+					Commit:      p.Commit,
+					Message:     p.Message,
+					AuthorName:  p.AuthorName,
+					AuthorLogin: p.AuthorLogin,
+					Changed:     p.Changed,
 				},
 				DefaultBranch: p.DefaultBranch,
 			})

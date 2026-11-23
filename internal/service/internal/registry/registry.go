@@ -383,3 +383,75 @@ func parseChallenge(h string) (string, map[string]string) {
 	}
 	return strings.ToLower(scheme), params
 }
+
+// VersionLabelKey is the OCI label an image names its version in.
+const VersionLabelKey = "org.opencontainers.image.version"
+
+// VersionLabel reads the version label of what ref points at, "" when the
+// image has none. A ref "repo:tag@sha256:..." is read by that digest, never by
+// the tag, so a tag that moved cannot give another image's label. A multi-arch index is read at its linux/arch entry.
+// ponytail: the caller passes the arch (the panel's own); a tile pinned to
+// another node's platform reads the panel's, whose label rarely differs.
+func VersionLabel(ctx context.Context, ref, user, pass, arch string) (string, error) {
+	ref, dig, _ := strings.Cut(ref, "@")
+	host, repoPath, tag, ok := ParseRef(ref)
+	if !ok {
+		return "", fmt.Errorf("%w: %q", ErrBadRef, ref)
+	}
+	if dig != "" {
+		tag = dig
+	}
+	base := "https://" + host + "/v2/" + repoPath
+	get := func(kind, id string, v any) error {
+		resp, err := do(ctx, http.MethodGet, base+"/"+kind+"/"+id, repoPath, user, pass)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(v)
+	}
+	type manifest struct {
+		Manifests []struct {
+			Digest   string `json:"digest"`
+			Platform struct {
+				OS   string `json:"os"`
+				Arch string `json:"architecture"`
+			} `json:"platform"`
+		} `json:"manifests"`
+		Config struct {
+			Digest string `json:"digest"`
+		} `json:"config"`
+	}
+	var m manifest
+	if err := get("manifests", tag, &m); err != nil {
+		return "", err
+	}
+	if len(m.Manifests) > 0 { // an index: the entry of this platform
+		pick := ""
+		for _, e := range m.Manifests {
+			if e.Platform.OS == "linux" && e.Platform.Arch == arch {
+				pick = e.Digest
+				break
+			}
+		}
+		if pick == "" {
+			return "", fmt.Errorf("registry %s: %s:%s has no linux/%s image", host, repoPath, tag, arch)
+		}
+		m = manifest{}
+		if err := get("manifests", pick, &m); err != nil {
+			return "", err
+		}
+	}
+	if m.Config.Digest == "" {
+		return "", fmt.Errorf("registry %s: %s:%s has no config", host, repoPath, tag)
+	}
+	var cfg struct {
+		Config struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"config"`
+	}
+	if err := get("blobs", m.Config.Digest, &cfg); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(cfg.Config.Labels[VersionLabelKey]), nil
+}

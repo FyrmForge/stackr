@@ -1209,6 +1209,15 @@ templ image(v View, i ImageView) {
 			<dd class="truncate font-mono text-rw-text" title={ i.Digest }>{ orNone(shortDigest(i.Digest)) }</dd>
 			<dt class="text-rw-faint">Latest seen</dt>
 			<dd class="truncate font-mono text-rw-text" title={ i.LastDigest }>{ orNone(shortDigest(i.LastDigest)) } { i.LastTag }</dd>
+			if i.Version != "" {
+				<dt class="text-rw-faint">Latest version</dt>
+				<dd class="text-rw-text">{ i.Version }</dd>
+			} else if i.VersionUnread {
+				<dt class="text-rw-faint">Latest version</dt>
+				<dd class="text-rw-text" title="version label could not be read">unknown</dd>
+			}
+			<dt class="text-rw-faint">Status</dt>
+			<dd class="text-rw-text">{ orUnknown(i.Status) }</dd>
 			<dt class="text-rw-faint">Checked</dt>
 			<dd class="text-rw-text">
 				if i.Checked.IsZero() {
@@ -1225,6 +1234,14 @@ templ image(v View, i ImageView) {
 			@c.PostButton("Check now", v.Base+"/image/check?open=source")
 		}
 	</div>
+}
+
+// orUnknown: a status that was not given reads "unknown", never blank.
+func orUnknown(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
 }
 
 func orNone(s string) string {

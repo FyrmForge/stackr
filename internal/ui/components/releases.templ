@@ -8,6 +8,7 @@ import "time"
 // when a row's button asked for it.
 // ponytail: v0's config plans list, Plan now and Review have no verb here.
 type ReleasesView struct {
+	Stack  string // the stack's name, which leads each row
 	Ladder []EnvRun
 	Rows   []ReleaseRow
 	Job    *JobStatusView
@@ -24,6 +25,7 @@ type EnvRun struct{ Name, Color, Runs string }
 type ReleaseRow struct {
 	Number string
 	By     string // who or what cut it
+	Avatar Avatar
 	Commit string // full commit sha ("" = none)
 	Message string // commit message, first line ("" = none)
 	When   time.Time
@@ -31,6 +33,24 @@ type ReleaseRow struct {
 	Moves  []ReleaseMove
 	// Waiting: the env below runs it and the viewed env does not.
 	Waiting bool
+	// Cause says what cut a release that is no push ("Rebuild of release 23");
+	// Push marks a push, the only kind that shows its commit.
+	Cause string
+	Push  bool
+	// Who, Via and Age are line 2's person, source and age (web/render builds them).
+	Who, Via, Age string
+}
+
+// Line is the row as the shared ReleaseLine shows it.
+func (r ReleaseRow) Line(stack string) ReleaseLineView {
+	v := ReleaseLineView{Stack: stack, Number: r.Number, Cause: r.Cause, Source: r.By, By: r.By, Avatar: r.Avatar, Who: r.Who, Via: r.Via, Age: r.Age, At: r.When, Runs: r.Envs, Moves: r.Moves}
+	if r.Waiting {
+		v.State, v.Tone = "waiting", "accent"
+	}
+	if r.Push {
+		v.Commit, v.Message = r.Commit[:min(7, len(r.Commit))], r.Message
+	}
+	return v
 }
 
 // ReleaseMove is one env's button on a row; it opens the review.
@@ -76,49 +96,8 @@ templ Releases(v ReleasesView) {
 		} else {
 			<ul class="panel divide-y divide-rw-border">
 				for _, r := range v.Rows {
-					<li class="flex flex-col gap-1.5 px-4 py-2.5 text-sm min-w-0 sm:flex-row sm:items-center sm:gap-2">
-						<span class="flex items-center gap-2 min-w-0 flex-1">
-							<span class="flex h-5 w-5 items-center justify-center rounded bg-rw-inset text-[9px] font-bold uppercase text-rw-accentHi shrink-0">{ Initials(r.By) }</span>
-							<span class="font-mono text-xs text-rw-muted shrink-0">#{ r.Number }</span>
-							<span class="min-w-0 flex-1">
-								<span class="block text-rw-text sm:truncate [overflow-wrap:anywhere]">
-									Release { r.Number }
-									if r.Waiting {
-										{ " " }
-										@Chip("Waiting", "accent")
-									}
-								</span>
-								<span class="block text-[10px] text-rw-faint sm:truncate [overflow-wrap:anywhere]">
-									{ r.By + " · " }
-									@When(r.When)
-								</span>
-								if r.Message != "" {
-									<span class="block text-[10px] text-rw-muted sm:truncate [overflow-wrap:anywhere]" title={ r.Message }>{ r.Message }</span>
-								}
-							</span>
-						</span>
-						<span class="flex flex-wrap items-center gap-2 pl-7 sm:pl-0 sm:shrink-0 empty:hidden">
-						if r.Commit != "" {
-							<span class="font-mono text-[10px] text-rw-faint" title={ r.Commit }>{ r.Commit[:min(12, len(r.Commit))] }</span>
-						}
-						for _, e := range r.Envs {
-							<span class={ "log-chip", envClass(e.Color) }>{ e.Name }</span>
-						}
-						if len(r.Moves) > 0 {
-							// the buttons wrap as one group, on their own line on a phone
-							<span class="flex flex-wrap items-center gap-2 basis-full sm:basis-auto">
-								for _, m := range r.Moves {
-									<button
-										type="button"
-										class="btn btn-ghost btn-sm shrink-0"
-										hx-get={ m.Ask }
-										hx-target={ "#" + DrawerRoot }
-										hx-swap="outerHTML"
-									>{ m.Label }</button>
-								}
-							</span>
-						}
-						</span>
+					<li>
+						@ReleaseLine(r.Line(v.Stack))
 					</li>
 				}
 			</ul>

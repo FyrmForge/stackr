@@ -8,5 +8,12 @@ package components
 // Put it as a direct child of #id: when the region leaves the page htmx
 // stops the poll.
 templ LiveTab(url, id string) {
-	<span hidden data-live-tab data-poll-guard="region rows fields dirty" hx-get={ url } hx-trigger="every 3s" hx-select={ "#" + id } hx-target={ "#" + id } hx-swap="outerHTML"></span>
+	@LiveTabGuard(url, id, "region rows fields dirty")
+}
+
+// LiveTabGuard is LiveTab with its own poll guard tokens. The Waiting page
+// passes "rows": a ticked box is focused and dirty, and the poll must go on
+// (the page rehydrates its ticks); only an open dialog or details pause it.
+templ LiveTabGuard(url, id, guard string) {
+	<span hidden data-live-tab data-poll-guard={ guard } hx-get={ url } hx-trigger="every 3s" hx-select={ "#" + id } hx-target={ "#" + id } hx-swap="outerHTML"></span>
 }

@@ -1,6 +1,10 @@
 package service
 
-import "context"
+import (
+	"context"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
+)
 
 // SetPanelSeams is WithPanelSeams after New, for a test that changes what
 // the outside answers between syncs (none running).
@@ -29,4 +33,10 @@ func (o *Orchestrator) CheckPanelName(ctx context.Context) {
 		o.panelDueAt.Store(1)
 	}
 	o.checkPanelName(ctx)
+}
+
+// CleanGuardRefusal runs the clean-only promote guard on an empty plan and
+// returns what it refuses with.
+func (o *Orchestrator) CleanGuardRefusal(ctx context.Context, envID, releaseID string) error {
+	return o.cleanGuard(ctx, envID, releaseID)(&promote.Plan{})
 }

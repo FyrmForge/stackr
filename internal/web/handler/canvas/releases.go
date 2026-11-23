@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -56,7 +57,7 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		return number[*e.ReleaseID]
 	}
 	hues := service.EnvHues(es)
-	var v comp.ReleasesView
+	v := comp.ReleasesView{Stack: st.Name}
 	for _, e := range es {
 		run := comp.EnvRun{Name: e.Name, Color: hues[e.ID]}
 		if n := runs(e); n > 0 {
@@ -78,7 +79,8 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	}
 	rows := make([]comp.ReleaseRow, len(rs))
 	for i, r := range rs {
-		rows[i] = comp.ReleaseRow{Number: strconv.Itoa(r.Number), By: byWord(r.CreatedBy, who), Commit: r.Commit, Message: r.Message, When: r.CreatedAt}
+		rows[i] = comp.ReleaseRow{Number: strconv.Itoa(r.Number), By: byWord(r.CreatedBy, who), Avatar: render.AvatarOf(r.CreatedBy, r.AuthorName, r.AuthorLogin), Commit: r.Commit, Message: r.Message, When: r.CreatedAt, Push: r.CreatedBy == "push" || r.CreatedBy == "",
+			Who: render.WhoWord(r.CreatedBy, r.AuthorName, r.AuthorLogin, who), Via: render.ViaWord(r.CreatedBy), Age: render.AgoWord(time.Since(r.CreatedAt))}
 		for _, e := range es {
 			if runs(e) == r.Number {
 				rows[i].Envs = append(rows[i].Envs, comp.EnvRun{Name: e.Name, Color: hues[e.ID]})
@@ -101,11 +103,15 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 			})
 		}
 	}
+	envScope := ""
 	if cd.kind == "env" {
-		if win, err := h.orch.ReleaseWindow(ctx, st.ID, cd.s.Env.ID); err == nil {
-			for i := range rows {
-				rows[i].Waiting = rowOf(win, rs[i].ID).State == service.StateWaiting
-			}
+		envScope = cd.s.Env.ID
+	}
+	if win, err := h.orch.ReleaseHistory(ctx, st.ID, envScope); err == nil {
+		for i := range rows {
+			wr := rowOf(win, rs[i].ID)
+			rows[i].Cause = wr.Cause
+			rows[i].Waiting = cd.kind == "env" && wr.State == service.StateWaiting
 		}
 	}
 	v.Rows = rows

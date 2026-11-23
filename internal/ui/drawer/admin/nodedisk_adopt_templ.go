@@ -153,7 +153,7 @@ func AdoptDialogView(a AdoptDialog) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = c.DlgShell("Adopt this disk", a.View.Sub, adoptFoot(a)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Modal("Adopt this disk", a.View.Sub, adoptFoot(a)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -214,7 +214,7 @@ func AdoptDialogView(a AdoptDialog) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = c.DlgShell("Adopt a disk", "Take over a disk whose node is gone. Its volumes stay on it.", adoptFoot(a)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Modal("Adopt a disk", "Take over a disk whose node is gone. Its volumes stay on it.", adoptFoot(a)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -75,7 +75,7 @@ func TestWaitingReleaseShows(t *testing.T) {
 		t.Errorf("empty env page:\n%s", body)
 	}
 	body = get(t, s, "/acme/shop/staging/-/drawer?tab=releases")
-	if !strings.Contains(body, ">Waiting<") || !strings.Contains(body, ">Review plan<") || strings.Contains(body, ">Promote to") {
+	if !strings.Contains(body, ">waiting<") || !strings.Contains(body, ">Review plan<") || strings.Contains(body, ">Promote to") {
 		t.Errorf("releases tab:\n%s", body)
 	}
 	body = get(t, s, "/acme/shop/staging/-/drawer?tab=releases&plan="+r2)
@@ -146,14 +146,22 @@ func TestReleasesWindowAllLinkAndViewOnly(t *testing.T) {
 		}
 	}
 	body := get(t, s, "/acme/shop")
-	if !strings.Contains(body, `href="/-/releases?scope=acme%2Fshop"`) || !strings.Contains(body, ">All releases<") || !strings.Contains(body, ">Review plan for staging<") {
+	dialog := `hx-get="/acme/shop/staging/-/releases/` + r2 + `/dialog"`
+	if !strings.Contains(body, `href="/-/releases?scope=acme%2Fshop"`) || !strings.Contains(body, ">All releases<") || !strings.Contains(body, dialog) || !strings.Contains(body, `id="rel-modal"`) {
 		t.Errorf("owner's window:\n%s", body)
+	}
+	if strings.Contains(body, "Updates by itself") || strings.Contains(body, ">Review plan for staging<") {
+		t.Errorf("the window keeps a footer note or an inline review link:\n%s", body)
 	}
 	viewer := s.User(t, "viewer@acme.test", false)
 	s.Member(t, s.Org, viewer, "viewer")
 	rec := s.As(t, s.Session(t, viewer), "GET", "/acme/shop", nil)
-	if b := rec.Body.String(); !strings.Contains(b, ">View plan for staging<") || strings.Contains(b, "Review plan") {
+	if b := rec.Body.String(); !strings.Contains(b, dialog) || strings.Contains(b, ">View plan for staging<") {
 		t.Errorf("viewer's window:\n%s", b)
+	}
+	// the viewer's modal offers no Promote
+	if b := s.As(t, s.Session(t, viewer), "GET", "/acme/shop/staging/-/releases/"+r2+"/dialog", nil).Body.String(); !strings.Contains(b, "Open full review") || strings.Contains(b, ">Promote<") {
+		t.Errorf("viewer's modal:\n%s", b)
 	}
 }
 

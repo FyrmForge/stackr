@@ -3,7 +3,6 @@ package components
 import (
 	"cmp"
 	"strconv"
-	"time"
 )
 
 // RelWindow is the releases window, bottom left of the stack and env canvas
@@ -13,7 +12,7 @@ import (
 type RelWindow struct {
 	Envs            []RelEnv
 	Waiting, Failed int
-	Rows            []RelRow
+	Rows            []ReleaseLineView
 	All             string // the Releases screen at this scope
 	Err             bool   // the rows could not be read
 	// Retry is the page to load again when they could not be; AsOf is the
@@ -44,46 +43,6 @@ type RelEnv struct{ Name, Color, Href string }
 // into the side drawer instead of a page load (the Releases screen opens a
 // review that way, full width); Href stays the fallback.
 type RelLink struct{ Label, Href, Ask string }
-
-// RelJob is one job of a release, for its open row.
-type RelJob struct {
-	Text string
-	Href string
-}
-
-// RelRow is one line: a release, a failed push or a build under way.
-type RelRow struct {
-	Kind    string // release | failed | building | plan
-	ID            string
-	Number        string // "" = none
-	// Scope stands in place of Number on the org chart: where the row belongs
-	// ("org config", "media 15").
-	Scope string
-	// OfStack marks a row of a stack: the org chart's "Org config" view
-	// leaves it out.
-	OfStack bool
-	Commit        string // short
-	Message       string // the headline; the source when the cut had none
-	State, Tone   string // one word, a Chip tone
-	Envs          []EnvRun
-	Newest        bool
-	Lacks         string // the number of a waiting release this one does not hold
-	Link          RelLink
-	Reviews       []RelLink
-	Log           string
-	At            time.Time
-	By            string
-	Jobs          []RelJob
-	CommitURL     string
-	CommitFull    string
-	Stack         string // building: the stack
-	Queued        bool
-	// The Releases screen's column: what cut it. (Scope is above.)
-	Source string
-	Plan   bool // a config plan, not a release
-	Fixed  bool // a failure a later push or promote cured
-	Err    string // a failed release: the end of its error, on a line of its own
-}
 
 // RelBody is what the "releases" event swaps: the bar's markers and the list.
 templ RelBody(w RelWindow) {
@@ -151,73 +110,14 @@ templ relRows(w RelWindow) {
 		default:
 			<ul class="divide-y divide-rw-border">
 				for _, r := range w.Rows {
-					@relRow(r)
+					<li data-stack?={ r.OfStack }>
+						@ReleaseLine(r)
+					</li>
 				}
 			</ul>
 			if w.Switch && w.Note.Text != "" {
 				<p data-for="org" class="border-t border-rw-border px-3 py-2 text-sm text-rw-muted">@relNote(w.Note)</p>
 			}
-	}
-}
-
-templ relRow(r RelRow) {
-	<li data-stack?={ r.OfStack }>
-		if r.Kind == "release" {
-			<details data-id={ r.ID } class="group">
-				<summary class="flex min-h-9 cursor-pointer list-none items-center gap-2 px-3 py-1 text-sm hover:bg-rw-inset [&::-webkit-details-marker]:hidden">
-					@relHead(r)
-				</summary>
-				@relOpen(r)
-			</details>
-			if r.Lacks != "" {
-				<div class="px-3 pb-2 pl-12">
-					@Chip("Does not hold release "+r.Lacks, "warn")
-				</div>
-			}
-		} else {
-			<div class="flex min-h-9 items-center gap-2 px-3 py-1 text-sm">
-				@relHead(r)
-			</div>
-		}
-		if r.Err != "" {
-			<p class="px-3 pb-2 pl-12 text-xs text-rw-danger [overflow-wrap:anywhere]">{ r.Err }</p>
-		}
-	</li>
-}
-
-templ relHead(r RelRow) {
-	if r.Scope != "" {
-		<span class="w-24 shrink-0 truncate text-xs text-rw-faint" title={ r.Scope }>{ r.Scope }</span>
-	} else if r.Kind != "plan" {
-		<span class="w-7 shrink-0 font-mono text-xs text-rw-faint">{ r.Number }</span>
-	}
-	if r.Kind == "building" {
-		<span class="min-w-0 flex-1 truncate text-rw-text">
-			if r.Queued {
-				Waiting to build { r.Stack } at <span class="font-mono text-xs">{ r.Commit }</span>
-			} else {
-				Building { r.Stack } at <span class="font-mono text-xs">{ r.Commit }</span>, started
-				{ " " }
-				@Time(r.At, "15:04")
-			}
-		</span>
-	} else {
-		if r.Commit != "" {
-			<span class={ "shrink-0 font-mono text-xs whitespace-nowrap", templ.KV("text-rw-text", r.Number == "" || r.State == "waiting"), templ.KV("text-rw-muted", r.Number != "" && r.State != "waiting") }>{ r.Commit }</span>
-		}
-		<span class="min-w-0 flex-1 truncate text-rw-text" title={ r.Message }>{ r.Message }</span>
-		for _, e := range r.Envs {
-			<span class={ "chip bg-rw-inset text-rw-text", envClass(e.Color) }><span class="env-dot mr-1"></span>{ e.Name }</span>
-		}
-	}
-	if r.Newest {
-		@Chip("newest", "success")
-	}
-	if r.State != "" {
-		@Chip(r.State, r.Tone)
-	}
-	if r.Link.Label != "" {
-		@relLink(r.Link, "link shrink-0 whitespace-nowrap")
 	}
 }
 
@@ -230,32 +130,6 @@ templ relLink(l RelLink, class string) {
 	}
 }
 
-templ relOpen(r RelRow) {
-	<div class="flex flex-col gap-1 border-t border-rw-border bg-rw-inset py-2 pl-12 pr-3 text-xs text-rw-muted">
-		<div>
-			<span class="text-rw-faint">Cut</span>
-			{ " " }
-			@When(r.At)
-			{ " by " + r.By }
-		</div>
-		for _, j := range r.Jobs {
-			<div>
-				<span class="text-rw-faint">Job</span> { j.Text }
-				{ " " }<a href={ templ.SafeURL(j.Href) } class="link">Job log</a>
-			</div>
-		}
-		for _, l := range r.Reviews {
-			<div>@relLink(l, "link")</div>
-		}
-		if r.CommitURL != "" {
-			<div>
-				<span class="text-rw-faint">Commit</span>
-				{ " " }<a href={ templ.SafeURL(r.CommitURL) } target="_blank" rel="noopener" class="link">Open { r.Commit } on the git host</a>
-			</div>
-		}
-	</div>
-}
-
 // RelWindowView is the window: a <details> whose summary is the bar, so it
 // opens and closes with no script of its own (main.js keeps it open across
 // reloads and the open rows across the stream's patches). The env links sit
@@ -266,7 +140,7 @@ templ RelWindowView(w RelWindow) {
 		if w.Switch {
 			data-view={ cmp.Or(w.View, "all") }
 		}
-		class="env-compare group absolute bottom-4 left-4 z-10 open:w-[34rem] open:max-w-[calc(100%-2rem)]"
+		class="env-compare group absolute bottom-4 left-4 z-10 open:w-[38rem] open:max-w-[calc(100%-2rem)]"
 		open?={ w.Open }
 	>
 		<summary class="flex h-9 cursor-pointer list-none items-center gap-2 whitespace-nowrap px-3 text-sm [&::-webkit-details-marker]:hidden">
@@ -296,11 +170,11 @@ templ RelWindowView(w RelWindow) {
 		</summary>
 		@RelBody(w)
 		<div class="flex h-8 items-center border-t border-rw-border px-3 text-xs text-rw-faint">
-			<span>Updates by itself</span>
 			<span class="flex-1"></span>
 			if w.All != "" {
 				<a href={ templ.SafeURL(w.All) } hx-get={ w.All } hx-target="#main" hx-push-url="true" class="link">All releases</a>
 			}
 		</div>
+		@ReleaseModalSlot()
 	</details>
 }

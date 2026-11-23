@@ -53,6 +53,10 @@ type Push struct {
 	Deleted    bool   `json:"deleted"` // branch/tag deletion push
 	HeadCommit struct {
 		Message string `json:"message"`
+		Author  struct {
+			Name     string `json:"name"`
+			Username string `json:"username"`
+		} `json:"author"`
 	} `json:"head_commit"`
 	Commits []struct {
 		Added    []string `json:"added"`
@@ -102,6 +106,8 @@ func neutral(ev Event) connectors.Event {
 			Branch:        strings.TrimPrefix(p.Ref, "refs/heads/"),
 			Commit:        p.After,
 			Message:       p.HeadCommit.Message,
+			AuthorName:    p.HeadCommit.Author.Name,
+			AuthorLogin:   p.HeadCommit.Author.Username,
 			DefaultBranch: p.Repository.DefaultBranch,
 			Changed:       p.ChangedFiles(),
 		}}

@@ -264,11 +264,11 @@ func TestReleaseWindowImageWatchHeadline(t *testing.T) {
 		if r.Number == 2 {
 			seen = true
 		}
-		if r.Number == 2 && r.Message != "immich-server 3.4.1 to 3.4.2" {
-			t.Errorf("image watch headline = %q", r.Message)
+		if r.Number == 2 && (r.Cause != "immich-server 3.4.1 to 3.4.2" || r.Message != "") {
+			t.Errorf("image watch cause = %q, message %q", r.Cause, r.Message)
 		}
-		if r.Number == 1 && r.Message != "" {
-			t.Errorf("a push release without a message grew %q", r.Message)
+		if r.Number == 1 && (r.Message != "" || r.Cause != "") {
+			t.Errorf("a push release without a message grew %q / %q", r.Message, r.Cause)
 		}
 	}
 	if !seen {
@@ -474,5 +474,55 @@ func TestOrgReleaseWindowPlacesJobsAndReleasesPerStack(t *testing.T) {
 	}
 	if !deploying {
 		t.Errorf("shop release 3 is not deploying: %+v", win.Rows)
+	}
+}
+
+// A pin carried over unchanged keeps its old version error; a later release
+// that moved only another tile is not "unread" for it.
+func TestReleaseWindowNoVersionOnlyChangedPins(t *testing.T) {
+	t.Parallel()
+	e := servicetest.New(t)
+	ctx := context.Background()
+	st, err := e.Orch.CreateStack(ctx, e.Org(t, "acme"), "mix", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	built := ""
+	rel := func(n int, a, b, aErr string) string {
+		t.Helper()
+		id := uuid.NewString()
+		r := store.Release{ID: id, StackID: st.ID, Number: n, CreatedAt: time.Now(), CreatedBy: "image-watch"}
+		if built != "" {
+			line := "branch:main"
+			r.BuiltOn, r.Line = &built, &line
+		}
+		if err := e.Store.Releases.Create(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+		for slug, dig := range map[string]string{"a": a, "b": b} {
+			rt := store.ReleaseTile{ID: uuid.NewString(), ReleaseID: id, Slug: slug, Repo: "ghcr.io/x/" + slug + ":latest", Digest: "sha256:" + dig}
+			if slug == "a" {
+				rt.VersionErr = aErr
+			}
+			if err := e.Store.ReleaseTiles.Create(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+		}
+		built = id
+		return id
+	}
+	rel(1, "a1", "b1", "")
+	rel(2, "a2", "b1", "no label") // a moved, label unread
+	rel(3, "a2", "b2", "no label") // only b moved; a carried its old error
+	win, err := e.Orch.ReleaseWindow(ctx, st.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[int]bool{}
+	for _, r := range win.Rows {
+		got[r.Number] = r.NoVersion
+	}
+	if !got[2] || got[3] {
+		t.Errorf("NoVersion by release = %v, want 2 true, 3 false", got)
 	}
 }

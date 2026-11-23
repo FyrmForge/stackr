@@ -54,14 +54,14 @@ func TestReleasesScreen(t *testing.T) {
 	s.Member(t, s.Org, viewer, "viewer")
 	// the row links the review as a page of its own, for that exact release
 	page := "/acme/shop/staging/-/releases/" + r2
-	if !strings.Contains(body, ">Review plan<") || !strings.Contains(body, `href="`+page+`"`) {
+	if !strings.Contains(body, `hx-get="`+page+`/dialog"`) || !strings.Contains(body, `id="rel-modal"`) || strings.Contains(body, ">Review plan<") {
 		t.Errorf("owner's waiting row:\n%s", body)
 	}
 	if d := s.Do(t, "GET", page, nil); d.Code != http.StatusOK || !strings.Contains(d.Body.String(), "Release 2 for staging") || !strings.Contains(d.Body.String(), `id="drawer-view"`) {
 		t.Errorf("the review page = %d:\n%s", d.Code, d.Body)
 	}
 	vb := s.As(t, s.Session(t, viewer), "GET", "/-/releases?state=waiting", nil).Body.String()
-	if strings.Contains(vb, "Review plan") || !strings.Contains(vb, ">View plan<") {
-		t.Errorf("viewer sees Review plan:\n%s", vb)
+	if strings.Contains(vb, "Review plan") || !strings.Contains(vb, `hx-get="`+page+`/dialog"`) {
+		t.Errorf("viewer's waiting row:\n%s", vb)
 	}
 }

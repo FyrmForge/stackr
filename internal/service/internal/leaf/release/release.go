@@ -44,6 +44,10 @@ type Pin struct {
 	CommitSHA string  `json:"commit_sha"`
 	ImageID   *string `json:"image_id"`
 	Digest    string  `json:"digest"`
+	// Version is the image's version label at Digest ("" = none read).
+	Version string `json:"version"`
+	// VersionErr is why the label read failed when it was cut ("" = fine).
+	VersionErr string `json:"version_err,omitempty"`
 }
 
 func (l *Leaf) Get(ctx context.Context, id string) (store.Release, error) {
@@ -127,6 +131,16 @@ func (l *Leaf) SetMessage(ctx context.Context, r store.Release, msg string) (sto
 	return r, l.releases.Update(ctx, r)
 }
 
+// SetAuthor stores a push's commit author on r and returns r with it. Both ""
+// is a no-op.
+func (l *Leaf) SetAuthor(ctx context.Context, r store.Release, name, login string) (store.Release, error) {
+	if name == "" && login == "" {
+		return r, nil
+	}
+	r.AuthorName, r.AuthorLogin = name, login
+	return r, l.releases.Update(ctx, r)
+}
+
 // Digest is the digest a release pins for slug: what a pulled tile runs
 // (the images table only knows builds). "" when nothing is pinned.
 func (l *Leaf) Digest(ctx context.Context, releaseID *string, slug string) (string, error) {
@@ -143,12 +157,14 @@ func (l *Leaf) Pins(ctx context.Context, releaseID string) (map[string]Pin, erro
 	out := make(map[string]Pin, len(rts))
 	for _, r := range rts {
 		out[r.Slug] = Pin{
-			Slug:      r.Slug,
-			Repo:      r.Repo,
-			Branch:    r.Branch,
-			CommitSHA: r.CommitSHA,
-			ImageID:   r.ImageID,
-			Digest:    r.Digest,
+			Slug:       r.Slug,
+			Repo:       r.Repo,
+			Branch:     r.Branch,
+			CommitSHA:  r.CommitSHA,
+			ImageID:    r.ImageID,
+			Digest:     r.Digest,
+			Version:    r.Version,
+			VersionErr: r.VersionErr,
 		}
 	}
 	return out, err
@@ -213,14 +229,16 @@ func (l *Leaf) create(ctx context.Context, stackID, by, builtOn, line string, pi
 	}
 	for _, p := range pins {
 		rt := store.ReleaseTile{
-			ID:        uuid.NewString(),
-			ReleaseID: r.ID,
-			Slug:      p.Slug,
-			Repo:      p.Repo,
-			Branch:    p.Branch,
-			CommitSHA: p.CommitSHA,
-			ImageID:   p.ImageID,
-			Digest:    p.Digest,
+			ID:         uuid.NewString(),
+			ReleaseID:  r.ID,
+			Slug:       p.Slug,
+			Repo:       p.Repo,
+			Branch:     p.Branch,
+			CommitSHA:  p.CommitSHA,
+			ImageID:    p.ImageID,
+			Digest:     p.Digest,
+			Version:    p.Version,
+			VersionErr: p.VersionErr,
 		}
 		if err := l.tiles.Create(ctx, rt); err != nil {
 			return r, err
@@ -372,7 +390,11 @@ func (l *Leaf) Carry(ctx context.Context, stackID, was, now string, lines ...str
 	if err != nil {
 		return err
 	}
-	_, err = l.SetMessage(ctx, r, w.Message)
+	r, err = l.SetMessage(ctx, r, w.Message)
+	if err != nil {
+		return err
+	}
+	_, err = l.SetAuthor(ctx, r, w.AuthorName, w.AuthorLogin)
 	return err
 }
 
@@ -486,9 +508,65 @@ func (l *Leaf) MovedOf(ctx context.Context, id string) string {
 	return Moved(from, to)
 }
 
-// Moved is the line of Diff's changed tiles: a tag moves as "old to new"; a
-// pin whose tag stayed (or has none) reads its digests. At most two tiles
-// are named.
+// CauseOf says in a line what cut release id, for the kinds that carry no
+// commit: an image watch names what moved ("immich-server 3.4.1 to 3.4.2"), a
+// rebuild or a promote the release it built on ("Rebuild of release 23",
+// "Images updated after promoting release 21"), a deploy the tile it pinned
+// ("bazarr:latest first deploy", "bazarr tag changed to 2.0"). "" for a push
+// or a person, and when the base is gone.
+func (l *Leaf) CauseOf(ctx context.Context, id string) string {
+	r, err := l.releases.Get(ctx, id)
+	if err != nil {
+		return ""
+	}
+	if r.CreatedBy == "image-watch" {
+		return l.MovedOf(ctx, id)
+	}
+	var base store.Release // none for the first release of a stack
+	if r.BuiltOn != nil {
+		if base, err = l.releases.Get(ctx, *r.BuiltOn); err != nil {
+			return ""
+		}
+	}
+	n := strconv.Itoa(base.Number)
+	if base.ID == "" && r.CreatedBy != "deploy" {
+		return ""
+	}
+	switch r.CreatedBy {
+	case "rebuild":
+		return "Rebuild of release " + n
+	case "promote":
+		return "Images updated after promoting release " + n
+	case "deploy":
+		from := map[string]Pin{}
+		if base.ID != "" {
+			if from, err = l.Pins(ctx, base.ID); err != nil {
+				return ""
+			}
+		}
+		to, err := l.Pins(ctx, r.ID)
+		if err != nil {
+			return ""
+		}
+		for _, c := range Diff(from, to) {
+			a, b := from[c.Slug], to[c.Slug]
+			switch {
+			case c.Kind == "added" && b.Branch == "":
+				return b.Repo + " first deploy"
+			case c.Kind == "added":
+				return c.Slug + " first deploy"
+			case c.Kind == "changed" && tagOf(b.Repo) != "" && tagOf(b.Repo) != tagOf(a.Repo):
+				return c.Slug + " tag changed to " + tagOf(b.Repo)
+			case c.Kind == "changed":
+				return c.Slug + " deployed again"
+			}
+		}
+	}
+	return ""
+}
+
+// Moved is the line of Diff's changed tiles, at most two named. Each says
+// the version change (change).
 func Moved(from, to map[string]Pin) string {
 	var parts []string
 	n := 0
@@ -500,20 +578,33 @@ func Moved(from, to map[string]Pin) string {
 		if n > 2 {
 			continue
 		}
-		a, b := from[c.Slug], to[c.Slug]
-		ta, tb := tagOf(a.Repo), tagOf(b.Repo)
-		if ta == "" || tb == "" || ta == tb {
-			ta, tb = shortDigest(a), shortDigest(b)
+		if ch := change(from[c.Slug], to[c.Slug]); ch != "" {
+			parts = append(parts, c.Slug+" "+ch)
 		}
-		if ta == "" || tb == "" {
-			continue
-		}
-		parts = append(parts, c.Slug+" "+ta+" to "+tb)
 	}
 	if n > 2 {
 		parts = append(parts, "and "+strconv.Itoa(n-2)+" more")
 	}
 	return strings.Join(parts, ", ")
+}
+
+// change is what moved in one tile, in the order of what a person knows: the
+// version label ("3.4.1 to 3.4.2", or "now 3.4.2" when the old pin has none),
+// else a tag that moved, else "new image" and the short digest.
+func change(a, b Pin) string {
+	ta, tb := tagOf(a.Repo), tagOf(b.Repo)
+	switch {
+	case a.Version != "" && b.Version != "" && a.Version != b.Version:
+		return a.Version + " to " + b.Version
+	case ta != "" && tb != "" && ta != tb:
+		return ta + " to " + tb
+	case b.Version != "" && b.Version != a.Version:
+		return "now " + b.Version
+	}
+	if d := shortDigest(b); d != "" {
+		return "new image " + d
+	}
+	return ""
 }
 
 // tagOf is the tag of an image ref, "" when it names none.

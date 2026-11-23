@@ -2,6 +2,7 @@ package web
 
 import (
 	"cmp"
+	"net/url"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/email"
@@ -47,6 +48,9 @@ type Deps struct {
 	// GitHubWeb is the site the GitHub connector's setup form posts to; ""
 	// means github.com (dev.env points it at a fake).
 	GitHubWeb string
+	// GitHubAvatars is the host release author pictures load from; "" means
+	// avatars.githubusercontent.com (dev.env points it at the fake).
+	GitHubAvatars string
 }
 
 // CookieSecure reports whether cookies carry Secure: always, whoever
@@ -86,11 +90,19 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	if ghWeb == "" {
 		ghWeb = "https://github.com"
 	}
-	csp := "default-src 'self'; script-src " + script + "; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+	avatars := AvatarOrigin(deps.GitHubAvatars, deps.DevMode)
+	csp := "default-src 'self'; script-src " + script + "; style-src 'self' 'unsafe-inline'; img-src 'self' data: " + avatars + "; " +
 		"base-uri 'self'; form-action 'self' " + ghWeb + "; object-src 'none'; frame-ancestors 'none'"
 
 	// Site routes.
 	site := e.Group("")
+	site.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			r := c.Request()
+			c.SetRequest(r.WithContext(components.WithAvatarHost(r.Context(), avatars)))
+			return next(c)
+		}
+	})
 	site.Use(middleware.Logging())
 	site.Use(hamrmw.ErrorPages(components.ErrorPage))
 	site.Use(hamrmw.SecureWithConfig(hamrmw.SecureConfig{
@@ -168,7 +180,9 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.GET("/cli/authorize", cli.Page, page, authed)
 	site.POST("/cli/authorize", cli.Approve, authed)
 
-	site.GET("/-/waiting", waiting.NewHandler(deps.Orch).Page, page, authed)
+	wt := waiting.NewHandler(deps.Orch)
+	site.GET("/-/waiting", wt.Page, page, authed)
+	site.POST("/-/waiting/promote", wt.Promote, authed) // env.write is checked per pair in the service
 	site.GET("/-/releases", releases.NewHandler(deps.Orch).Page, page, authed)
 
 	acct := account.NewHandler(deps.Orch)
@@ -232,4 +246,17 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 func RegisterStaticPages(srv *server.Server) {
 	h := about.NewHandler()
 	srv.StaticPage("/about", h.About)
+}
+
+// AvatarOrigin is the origin author pictures load from and the CSP img-src
+// names: GitHub's, or the dev fake's when it is a bare https origin (http
+// only in dev mode). Anything else, a path or a script scheme, is ignored.
+func AvatarOrigin(set string, dev bool) string {
+	set = strings.TrimRight(set, "/")
+	u, err := url.Parse(set)
+	if err != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.User != nil || strings.ContainsAny(set, " ;'") ||
+		(u.Scheme != "https" && !(dev && u.Scheme == "http")) {
+		return components.DefaultAvatarHost
+	}
+	return set
 }

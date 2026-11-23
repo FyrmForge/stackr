@@ -161,6 +161,10 @@ type Image struct {
 	LastDigest string     `db:"last_digest" json:"last_digest"`
 	LastTag    string     `db:"last_tag" json:"last_tag"`
 	LastError  string     `db:"last_error" json:"last_error"`
+	// LastVersion is the version label of LastDigest ("" = none or not read).
+	LastVersion string `db:"last_version" json:"last_version"`
+	// VersionErr is set when the last label read failed ("" = fine).
+	VersionErr string     `db:"version_err" json:"version_err"`
 	CheckedAt  *time.Time `db:"checked_at" json:"checked_at"`
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
 }

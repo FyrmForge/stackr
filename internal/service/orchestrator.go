@@ -117,6 +117,8 @@ type Config struct {
 	// a Namecheap API URL replacing the real one, and a fake GitHub's URL
 	// with the PEM file (a path in the panel container) that signs it.
 	ACMECA, ACMECARoot, NamecheapAPI, GitHubURL, GitHubCA string
+	// GitHubAvatars is the fake GitHub's avatar host (img-src).
+	GitHubAvatars string
 
 	CookieSecure bool
 	CookieDomain string

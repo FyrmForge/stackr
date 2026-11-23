@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"github.com/google/uuid"
 	"slices"
 	"strings"
 	"time"
@@ -62,7 +63,7 @@ type ReleaseScreen struct {
 
 // SourceKey is the filter key of a release's CreatedBy.
 func SourceKey(by string) string {
-	if strings.HasPrefix(by, "user:") {
+	if strings.HasPrefix(by, "user:") || uuid.Validate(by) == nil {
 		return "user"
 	}
 	if by == "" {

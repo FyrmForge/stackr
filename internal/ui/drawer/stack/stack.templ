@@ -107,7 +107,7 @@ templ order(v OrderView) {
 				<li class="flex items-center gap-3 py-2">
 					<span class="text-rw-faint w-4">{ strconv.Itoa(i + 1) }</span>
 					<span class="flex-1">
-						@c.EnvBadge(r.Name, r.Color)
+						@c.EnvChip(r.Name, r.Color)
 					</span>
 					if r.Detail != "" {
 						<span class="text-xs text-rw-faint">{ r.Detail }</span>

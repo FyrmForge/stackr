@@ -889,7 +889,7 @@ func DiskFormatDialog(f DiskFormat) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = c.DlgShell(f.title(), f.Node, diskCloseFoot()).Render(templ.WithChildren(ctx, templ_7745c5c3_Var33), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Modal(f.title(), f.Node, diskCloseFoot()).Render(templ.WithChildren(ctx, templ_7745c5c3_Var33), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
