@@ -255,7 +255,7 @@ func AvatarOrigin(set string, dev bool) string {
 	set = strings.TrimRight(set, "/")
 	u, err := url.Parse(set)
 	if err != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.User != nil || strings.ContainsAny(set, " ;'") ||
-		(u.Scheme != "https" && !(dev && u.Scheme == "http")) {
+		(u.Scheme != "https" && (!dev || u.Scheme != "http")) {
 		return components.DefaultAvatarHost
 	}
 	return set
