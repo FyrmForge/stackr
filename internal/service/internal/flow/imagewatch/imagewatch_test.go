@@ -208,8 +208,9 @@ func TestCheck(t *testing.T) {
 	if ups, err = f.Check(ctx, Scope{}, io.Discard); err != nil || len(ups) != 0 {
 		t.Errorf("unchanged round: %v %+v", err, ups)
 	}
-	if len(reg.reads) != 2 {
-		t.Errorf("an unchanged digest read its label again: %v", reg.reads)
+	// only the failed read of redis comes round again; nginx's label is cached
+	if len(reg.reads) != 3 || reg.reads[2] != "redis:7.2.0@sha256:r72" {
+		t.Errorf("reads after round 2 = %v, want only the failed one read again", reg.reads)
 	}
 
 	// Round 3: a registry error is never an update and keeps the last answer.
@@ -220,6 +221,14 @@ func TestCheck(t *testing.T) {
 	}
 	if img, _ := f.Images.GetByRef(ctx, "nginx:1"); img.LastDigest != "sha256:n1" || img.LastError == "" {
 		t.Errorf("after error: %+v", img)
+	}
+
+	// the blip is over: the failed label is read again and its error cleared
+	if len(reg.reads) != 4 {
+		t.Errorf("reads after round 3 = %v, want the failed one read a third time", reg.reads)
+	}
+	if img, _ := f.Images.GetByRef(ctx, "redis:7.0.1"); img.VersionErr != "" {
+		t.Errorf("version_err stuck after a good read: %q", img.VersionErr)
 	}
 
 	// Round 4: nginx moves to what dev already runs: no release.

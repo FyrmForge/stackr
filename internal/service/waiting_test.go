@@ -383,3 +383,43 @@ func TestWaitingLivePromoteIsPerEnv(t *testing.T) {
 		}
 	}
 }
+
+// A doubled Promote click queues one job: the second pair is skipped as live.
+// And once the env runs the release, the worker's guard has nothing to refuse.
+func TestPromoteCleanDoubleClick(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	p, err := w.e.Orch.SessionPrincipal(ctx, w.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rels, err := w.e.Store.Releases.ListByStack(ctx, w.shop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var two string
+	for _, r := range rels {
+		if r.Number == 2 {
+			two = r.ID
+		}
+	}
+	pair := []service.PromotePair{{ReleaseID: two, EnvID: w.prod}}
+	if _, err := w.e.Orch.Promote(ctx, p, w.prod, two); err != nil { // the first click's job
+		t.Fatal(err)
+	}
+	if second := w.e.Orch.PromoteClean(ctx, p, pair)[0]; second.Skip != service.SkipLive || second.Job.ID != "" {
+		t.Errorf("second click = %+v, want skip %q", second, service.SkipLive)
+	}
+	prod, err := w.e.Store.Environments.Get(ctx, w.prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prod.ReleaseID = &two
+	if err := w.e.Store.Environments.Update(ctx, prod); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.e.Orch.CleanGuardRefusal(ctx, w.prod, two); err != nil {
+		t.Errorf("env already runs the release: guard = %v", err)
+	}
+}

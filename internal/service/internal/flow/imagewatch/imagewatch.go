@@ -299,10 +299,8 @@ func (f *Flow) ask(ctx context.Context, w watched, log io.Writer) *answer {
 // logged and reads as no label; the row then names the tag or the digest.
 // read says a label read happened (not a cache hit); err is its failure.
 func (f *Flow) version(ctx context.Context, row, ref, digest, user, pass string, log io.Writer) (v string, read bool, err error) {
-	if img, err := f.Images.GetByRef(ctx, row); err == nil && img.LastDigest == digest {
-		if img.VersionErr != "" { // the read of this digest failed; the pin says so too
-			return img.LastVersion, false, errors.New(img.VersionErr)
-		}
+	// a stored VersionErr is a miss: the failed read is tried again next round
+	if img, err := f.Images.GetByRef(ctx, row); err == nil && img.LastDigest == digest && img.VersionErr == "" {
 		return img.LastVersion, false, nil
 	}
 	readLabel := f.Label

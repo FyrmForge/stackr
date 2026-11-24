@@ -453,5 +453,9 @@ func VersionLabel(ctx context.Context, ref, user, pass, arch string) (string, er
 	if err := get("blobs", m.Config.Digest, &cfg); err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(cfg.Config.Labels[VersionLabelKey]), nil
+	v := strings.TrimSpace(cfg.Config.Labels[VersionLabelKey])
+	if r := []rune(v); len(r) > 64 {
+		v = string(r[:64])
+	}
+	return v, nil
 }

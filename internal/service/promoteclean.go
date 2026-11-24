@@ -24,6 +24,7 @@ type PromoteOutcome struct {
 const (
 	SkipReview = "needs full review"
 	SkipNewer  = "a newer release is waiting"
+	SkipLive   = "already promoting"
 )
 
 // PromoteClean promotes each pair from a list, where nobody reads the plan: it
@@ -60,6 +61,9 @@ func (o *Orchestrator) promoteClean(ctx context.Context, by *Principal, pr Promo
 	}
 	if r.StackID != st.ID {
 		return "", j, errs.ErrNotFound
+	}
+	if o.livePromotes(ctx)[r.ID+"|"+e.ID] != "" { // a double click: the first job has it
+		return SkipLive, j, nil
 	}
 	newest, err := o.newestWaiting(ctx, st.ID, e.ID, r.Number)
 	if err != nil {
@@ -109,6 +113,9 @@ func (o *Orchestrator) cleanGuard(ctx context.Context, envID, releaseID string) 
 		e, err := o.envs.Get(ctx, envID)
 		if err != nil {
 			return err
+		}
+		if e.ReleaseID != nil && *e.ReleaseID == releaseID {
+			return nil // already running it: the plan finds nothing to change
 		}
 		r, err := o.releases.Get(ctx, releaseID)
 		if err != nil {

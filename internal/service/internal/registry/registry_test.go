@@ -190,6 +190,10 @@ func TestVersionLabel(t *testing.T) {
 			_, _ = w.Write([]byte(`{"config":{"digest":"sha256:cfg"}}`))
 		case "/v2/app/blobs/sha256:cfg":
 			_, _ = w.Write([]byte(`{"config":{"Labels":{"org.opencontainers.image.version":" 3.4.2 "}}}`))
+		case "/v2/long/manifests/1":
+			_, _ = w.Write([]byte(`{"config":{"digest":"sha256:long"}}`))
+		case "/v2/long/blobs/sha256:long":
+			_, _ = w.Write([]byte(`{"config":{"Labels":{"org.opencontainers.image.version":"` + strings.Repeat("é", 100) + `"}}}`))
 		case "/v2/bare/manifests/1":
 			_, _ = w.Write([]byte(`{"config":{"digest":"sha256:none"}}`))
 		case "/v2/bare/blobs/sha256:none":
@@ -206,6 +210,9 @@ func TestVersionLabel(t *testing.T) {
 	ctx := context.Background()
 	if v, err := VersionLabel(ctx, host+"/app:1", "", "", "amd64"); err != nil || v != "3.4.2" {
 		t.Fatalf("label = %q, %v", v, err)
+	}
+	if v, err := VersionLabel(ctx, host+"/long:1", "", "", "amd64"); err != nil || v != strings.Repeat("é", 64) {
+		t.Fatalf("long label = %q, %v", v, err)
 	}
 	if v, err := VersionLabel(ctx, host+"/bare:1", "", "", "amd64"); err != nil || v != "" {
 		t.Fatalf("no label = %q, %v", v, err)
