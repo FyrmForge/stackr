@@ -65,10 +65,14 @@ func LogHistory(c echo.Context, orch *service.Orchestrator, s service.Scope) (co
 		return v, err
 	}
 	for _, l := range ls {
-		v.Lines = append(v.Lines, components.LogHistoryLine{
+		hl := components.LogHistoryLine{
 			Time: l.Time, Tile: l.Tile, Source: l.Source,
 			Text: logText(l), Level: logLevel(l.Msg, l.Stream),
-		})
+		}
+		if msg, fs, ok := components.ParseJSONLog(hl.Text); ok {
+			hl.Text, hl.Fields = msg, fs
+		}
+		v.Lines = append(v.Lines, hl)
 	}
 	if len(ls) == service.LogsPage {
 		p := url.Values{}

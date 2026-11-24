@@ -38,6 +38,7 @@ type LogHistoryLine struct {
 	Source string
 	Text   string
 	Level  string
+	Fields []LogField // a JSON line's other keys; Text is then its message
 }
 
 // LogRanges are the time ranges the viewer offers, as Go durations.
@@ -92,13 +93,23 @@ templ LogHistory(v LogHistoryView) {
 // button swaps itself for the next page.
 templ LogHistoryMore(v LogHistoryView) {
 	for _, l := range v.Lines {
-		<div class="flex flex-wrap sm:flex-nowrap gap-x-2" data-source={ l.Source }>
-			<span class="shrink-0 text-rw-faint">@Time(l.Time, "Jan 2, 15:04:05")</span>
-			if len(v.Tiles) > 0 {
-				<span class="shrink-0 text-rw-muted">{ l.Tile }</span>
-			}
-			<span class={ "basis-full sm:basis-auto min-w-0 whitespace-pre-wrap break-all", templ.KV("text-rw-danger", l.Level == "error"), templ.KV("text-rw-warn", l.Level == "warn"), templ.KV("text-rw-muted", l.Source == "access") }>{ StripStamp(l.Text) }</span>
-		</div>
+		if len(l.Fields) > 0 {
+			<details data-source={ l.Source } class="open:bg-rw-inset/40 open:rounded-sm">
+				<summary class="flex flex-wrap sm:flex-nowrap gap-x-2 cursor-pointer list-none">
+					@logRowCells(v, l)
+					<span class="shrink-0 text-rw-faint">{ fieldsLabel(len(l.Fields)) }@logChevron()</span>
+				</summary>
+				if len(v.Tiles) > 0 {
+					@logFields(l.Fields, "sm:pl-[calc(30ch+1rem)]")
+				} else {
+					@logFields(l.Fields, "sm:pl-[calc(16ch+0.5rem)]")
+				}
+			</details>
+		} else {
+			<div class="flex flex-wrap sm:flex-nowrap gap-x-2" data-source={ l.Source }>
+				@logRowCells(v, l)
+			</div>
+		}
 	}
 	if len(v.Lines) == 0 && v.Error == "" {
 		if v.Filtered {
@@ -110,6 +121,14 @@ templ LogHistoryMore(v LogHistoryView) {
 	if v.Older != "" {
 		<button type="button" id="log-older" class="btn btn-ghost btn-sm mt-2" hx-get={ v.Older } hx-target="this" hx-swap="outerHTML">Older</button>
 	}
+}
+
+templ logRowCells(v LogHistoryView, l LogHistoryLine) {
+	<span class="shrink-0 w-[16ch] text-rw-faint">@Time(l.Time, "Jan 2, 15:04:05")</span>
+	if len(v.Tiles) > 0 {
+		<span class="shrink-0 w-[14ch] truncate text-rw-muted" title={ l.Tile }>{ l.Tile }</span>
+	}
+	<span class={ "basis-full sm:basis-auto min-w-0 whitespace-pre-wrap break-all", templ.KV("text-rw-danger", l.Level == "error"), templ.KV("text-rw-warn", l.Level == "warn"), templ.KV("text-rw-muted", l.Source == "access") }>{ StripStamp(l.Text) }</span>
 }
 
 templ logSelect(name, label, cur string, opts []LogOption) {

@@ -29,9 +29,16 @@ var jsonLevels = map[string]string{
 
 // NewLogLine reads a line's level: a JSON object's level, lvl or severity
 // key, else the first level word in the text, which is also drawn bold.
-// ponytail: JSON lines keep their raw text; v0's key=value expand is not
-// ported.
+// A JSON object line shows its message and keeps the other keys as Fields.
 func NewLogLine(at time.Time, text string) LogLineView {
+	l := newLogLine(at, text)
+	if msg, fields, ok := ParseJSONLog(l.Text); ok {
+		l.Text, l.Fields, l.Segs = msg, fields, nil
+	}
+	return l
+}
+
+func newLogLine(at time.Time, text string) LogLineView {
 	l := LogLineView{Time: at}
 	if !at.IsZero() {
 		text = StripStamp(text)
