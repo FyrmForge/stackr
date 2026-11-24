@@ -40,6 +40,15 @@ func TestEnvReleases(t *testing.T) {
 	if !strings.Contains(body, `env-dot env-c-violet`) || !strings.Contains(body, ">release 1<") {
 		t.Errorf("releases tab:\n%s", body)
 	}
+	if strings.Contains(body, `<ul class="flex flex-wrap gap-2 mb-6">`) {
+		t.Errorf("env releases tab repeats the env chips:\n%s", body)
+	}
+	if d := get(t, s, base+"?tab=releases"); !strings.Contains(d, `id="drawer-title" class="text-lg font-semibold text-rw-text truncate sr-only"`) {
+		t.Errorf("env drawer title is visible:\n%s", d)
+	}
+	if st := get(t, s, "/acme/shop/-/drawer?tab=releases"); !strings.Contains(st, `<ul class="flex flex-wrap gap-2 mb-6">`) {
+		t.Errorf("stack releases tab lost its ladder:\n%s", st)
+	}
 	body = get(t, s, base+"?tab=releases&plan="+id)
 	if !strings.Contains(body, "Release 1 for dev") || !strings.Contains(body, `hx-post="`+base+"/promote/"+id+`"`) || !strings.Contains(body, ">Promote to dev<") || strings.Contains(body, "<confirm-dialog") {
 		t.Errorf("dry run:\n%s", body)

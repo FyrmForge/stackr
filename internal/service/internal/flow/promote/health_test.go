@@ -135,6 +135,26 @@ func TestPlanShowsHealthBlock(t *testing.T) {
 	t.Error("no health.http change")
 }
 
+// A cmd-only health.exec change prints "(changed)" and never either command.
+func TestPlanHealthExecCmdChanged(t *testing.T) {
+	w := syncWorld(t)
+	d := imgTile("nginx:1", 80)
+	d.HealthExecCmd, d.HealthExecIntervalS = "curl -u a:old-secret localhost", 30
+	w.mk(t, w.dev, "api", d)
+	p := imgTile("nginx:1", 80)
+	p.HealthExecCmd, p.HealthExecIntervalS = "curl -u a:new-secret localhost", 30
+	w.mk(t, w.prd, "api", p)
+	for _, c := range w.syncPlan(t).Changes {
+		if c.Field == "health.exec" {
+			if c.Old != "command every 30s" || c.New != "command every 30s (changed)" {
+				t.Errorf("health.exec = %+v", c)
+			}
+			return
+		}
+	}
+	t.Error("no health.exec change")
+}
+
 // A YAML `cmd: |` block ends in a newline; the row stores it trimmed, like a
 // panel Save, so the next apply sees no health.exec change.
 func TestHealthCmdBlockTrimmed(t *testing.T) {

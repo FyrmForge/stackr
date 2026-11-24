@@ -30,13 +30,14 @@ type LogHistoryView struct {
 type LogOption struct{ Value, Label string }
 
 // LogHistoryLine is one stored line: Text is ready to show (an access line
-// reads "GET /path 200 12ms"); Err marks stderr.
+// reads "GET /path 200 12ms"); Level is "error" or "warn"
+// (as the app wrote it, else stderr is an error), or empty.
 type LogHistoryLine struct {
 	Time   time.Time
 	Tile   string
 	Source string
 	Text   string
-	Err    bool
+	Level  string
 }
 
 // LogRanges are the time ranges the viewer offers, as Go durations.
@@ -96,7 +97,7 @@ templ LogHistoryMore(v LogHistoryView) {
 			if len(v.Tiles) > 0 {
 				<span class="shrink-0 text-rw-muted">{ l.Tile }</span>
 			}
-			<span class={ "basis-full sm:basis-auto min-w-0 whitespace-pre-wrap break-all", templ.KV("text-rw-danger", l.Err), templ.KV("text-rw-muted", l.Source == "access") }>{ StripStamp(l.Text) }</span>
+			<span class={ "basis-full sm:basis-auto min-w-0 whitespace-pre-wrap break-all", templ.KV("text-rw-danger", l.Level == "error"), templ.KV("text-rw-warn", l.Level == "warn"), templ.KV("text-rw-muted", l.Source == "access") }>{ StripStamp(l.Text) }</span>
 		</div>
 	}
 	if len(v.Lines) == 0 && v.Error == "" {

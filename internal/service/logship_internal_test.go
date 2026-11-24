@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -55,9 +56,12 @@ func (d *streamDocker) StreamLogs(ctx context.Context, id string, _ int) (<-chan
 		d.since[id] = t
 	}
 	d.mu.Unlock()
-	ch := make(chan string, 4)
+	ch := make(chan string, 8)
 	ch <- "O 2026-10-21T10:00:00.5Z hello"
 	ch <- "E 2026-10-21T10:00:01Z boom"
+	ch <- "O 2026-10-21T10:00:01.1Z "      // blank: not shipped
+	ch <- "O 2026-10-21T10:00:01.2Z \t \r" // whitespace only: not shipped
+	ch <- "O 2026-10-21T10:00:01.3Z     at Foo()\r"
 	go func() {
 		<-ctx.Done()
 		d.ended <- id
@@ -112,7 +116,7 @@ func TestLogshipFollow(t *testing.T) {
 		docker.Container{ID: "run1", State: "running", Labels: map[string]string{docker.LabelManaged: "true", tile.LabelTile: api.ID, tile.LabelRole: "run"}})
 
 	must(t, o.logshipTick(ctx))
-	waitFor(t, "four lines", func() bool { return o.bufLen() == 4 })
+	waitFor(t, "six lines", func() bool { return o.bufLen() == 6 })
 	must(t, o.logshipTick(ctx)) // already followed: no second stream
 	if sd.count("c-api") != 1 || sd.count("pause") != 0 || sd.count("run1") != 0 {
 		t.Errorf("streams: api %d pause %d run %d", sd.count("c-api"), sd.count("pause"), sd.count("run1"))
@@ -125,7 +129,18 @@ func TestLogshipFollow(t *testing.T) {
 			got = l
 		}
 	}
+	var foo int
+	for _, l := range mem.ls {
+		if l.Msg == "    at Foo()" {
+			foo++
+		} else if strings.TrimSpace(l.Msg) == "" {
+			t.Errorf("blank line shipped: %q", l.Msg)
+		}
+	}
 	mem.mu.Unlock()
+	if foo != 2 {
+		t.Errorf("indented line kept %d times, want 2", foo)
+	}
 	if got.Msg != "boom" || got.Org != "acme" || got.OrgID != w.org || got.Stack != "shop" || got.Env != "dev" ||
 		got.EnvID != w.env || got.Tile != "api" || got.Kind != tile.Image || got.Source != logs.SourceApp || got.Container != "c-api" ||
 		!got.Time.Equal(time.Date(2026, 10, 21, 10, 0, 1, 0, time.UTC)) {

@@ -65,3 +65,36 @@ func TestReleasesScreen(t *testing.T) {
 		t.Errorf("viewer's waiting row:\n%s", vb)
 	}
 }
+
+// The title is in the top bar, not the page; 50 rows fit a page, more bring a
+// pager whose links page the list and whose filters start over at page 1.
+func TestReleasesScreenPages(t *testing.T) {
+	s := webtest.New(t)
+	for n := 1; n <= 50; n++ {
+		s.Release(t, s.Tile.Stack, n)
+	}
+	small := s.Do(t, "GET", "/-/releases", nil).Body.String()
+	if !strings.Contains(small, `<h1 class="text-lg font-semibold text-rw-text tracking-tight">Releases</h1>`) || strings.Contains(small, "<h2") {
+		t.Errorf("title belongs in the top bar:\n%s", small)
+	}
+	if strings.Contains(small, `aria-label="Pagination"`) {
+		t.Errorf("50 rows need no pager:\n%s", small)
+	}
+	s.Release(t, s.Tile.Stack, 51)
+	p1 := s.Do(t, "GET", "/-/releases", nil).Body.String()
+	if !strings.Contains(p1, "1-50 of 51") || !strings.Contains(p1, `>Older</a>`) || strings.Contains(p1, `>Newer</a>`) || !strings.Contains(p1, `hx-get="/-/releases?page=2"`) {
+		t.Errorf("page 1:\n%s", p1)
+	}
+	if !strings.Contains(p1, `hx-get="/-/releases?state=failed"`) && strings.Contains(p1, "page=2&") {
+		t.Errorf("filter links must drop the page:\n%s", p1)
+	}
+	for _, u := range []string{"/-/releases?page=2", "/-/releases?page=9"} {
+		p2 := s.Do(t, "GET", u, nil).Body.String()
+		if !strings.Contains(p2, "51-51 of 51") || !strings.Contains(p2, `>Newer</a>`) || strings.Contains(p2, `>Older</a>`) {
+			t.Errorf("%s:\n%s", u, p2)
+		}
+	}
+	if bad := s.Do(t, "GET", "/-/releases?page=x", nil).Body.String(); !strings.Contains(bad, "1-50 of 51") {
+		t.Errorf("a bad page is page 1:\n%s", bad)
+	}
+}

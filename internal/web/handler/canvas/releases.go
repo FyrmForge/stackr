@@ -63,7 +63,9 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		if n := runs(e); n > 0 {
 			run.Runs = strconv.Itoa(n)
 		}
-		v.Ladder = append(v.Ladder, run)
+		if cd.kind != "env" { // the env drawer's page already names its env
+			v.Ladder = append(v.Ladder, run)
+		}
 	}
 	// every rung, the bottom one too: v0 gave it no moves, which left a
 	// one-env stack no way to roll back. A viewer, who cannot finish one,

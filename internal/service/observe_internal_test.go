@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,5 +113,58 @@ func TestObserveLogsSwitchSurvivesMetricsOff(t *testing.T) {
 	}
 	if s.LogsEnabled || !s.LogsSet {
 		t.Errorf("logs enabled %v set %v, want false true", s.LogsEnabled, s.LogsSet)
+	}
+}
+
+// Two writes in a row that cannot reach observe open the banner, the first
+// that does clears it, and switching observe off clears it too.
+func TestObserveDownProblem(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	o := newWorld(t).orch
+	if err := o.SetSettings(ctx, map[string]string{"observe_enabled": "true"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.ReadAll(r.Body) }))
+	url := srv.URL
+	srv.Close() // refused from here on
+	o.observe.vmOnce.Do(func() {})
+	o.observe.vm = &metrics.Victoria{URL: url}
+	pts := []metrics.Point{{Key: "node:n1", Name: "cpu_pct", T: time.Now(), V: 1}}
+	write := func() {
+		reach, _ := o.metricsStore().(tieredStore).write(ctx, pts)
+		o.observeReach(ctx, reach)
+	}
+
+	write()
+	if o.hasProblem(ctx, observeDownKey) {
+		t.Fatal("opened on one failed write")
+	}
+	write()
+	raw, ok, _ := o.store.Settings.Get(ctx, problemKey(observeDownKey))
+	if !ok || !strings.Contains(raw, "Observe is not running. Logs and metrics history are unavailable; charts show the last 24 hours.") {
+		t.Fatalf("down: %v %q", ok, raw)
+	}
+
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.ReadAll(r.Body) }))
+	defer up.Close()
+	o.observe.vm = &metrics.Victoria{URL: up.URL}
+	write()
+	if o.hasProblem(ctx, observeDownKey) {
+		t.Fatal("not cleared when writes succeed")
+	}
+
+	o.observe.vm = &metrics.Victoria{URL: url}
+	write()
+	write()
+	if !o.hasProblem(ctx, observeDownKey) {
+		t.Fatal("not reopened")
+	}
+	if err := o.SetSettings(ctx, map[string]string{"observe_enabled": "false"}); err != nil {
+		t.Fatal(err)
+	}
+	write()
+	if o.hasProblem(ctx, observeDownKey) {
+		t.Fatal("kept after observe off")
 	}
 }

@@ -20,3 +20,9 @@ UPDATE tiles SET
 UPDATE tiles SET health_exec_interval_s = 0, health_exec_timeout_s = 0,
     health_exec_retries = 0, health_exec_start_period_s = 0
 WHERE health_exec_cmd = '';
+-- Cap exec values at the limits tile validation enforces, so a pre-cap row
+-- is not refused on its next save.
+UPDATE tiles SET health_exec_interval_s = max(0, min(health_exec_interval_s, 86400)),
+    health_exec_timeout_s = max(0, min(health_exec_timeout_s, 86400)),
+    health_exec_start_period_s = max(0, min(health_exec_start_period_s, 86400)),
+    health_exec_retries = max(0, min(health_exec_retries, 100));

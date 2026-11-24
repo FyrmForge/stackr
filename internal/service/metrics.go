@@ -123,9 +123,11 @@ func (o *Orchestrator) metricsTick(ctx context.Context) error {
 	pts = append(pts, o.panelPoints(now)...)
 	pts = append(pts, o.pgTick(ctx)...)
 	if len(pts) > 0 {
-		if err := o.metricsStore().Write(ctx, pts); err != nil {
+		reach, err := o.metricsStore().(tieredStore).write(ctx, pts)
+		if err != nil {
 			return err
 		}
+		o.observeReach(ctx, reach)
 	}
 	o.metrics.mu.Lock()
 	defer o.metrics.mu.Unlock()

@@ -22,9 +22,15 @@ import (
 // read from before memory began (a restarted panel holds no older points).
 
 type observeState struct {
-	on      atomic.Bool
-	down    atomic.Bool // the last write failed (logged once per change)
-	mu      sync.Mutex  // one ensure at a time
+	on    atomic.Bool
+	down  atomic.Bool // the last write failed (logged once per change)
+	reach struct {    // the banner's state, serialized by its own mutex
+		sync.Mutex
+		fails int  // consecutive metrics rounds that could not reach the store
+		open  bool // the banner row is set
+		seen  bool // a stale row was cleared once since start
+	}
+	mu      sync.Mutex // one ensure at a time
 	lastErr atomic.Pointer[string]
 	vm      *metrics.Victoria
 	vmOnce  sync.Once
@@ -211,18 +217,25 @@ type tieredStore struct {
 }
 
 func (s tieredStore) Write(ctx context.Context, ps []metrics.Point) error {
+	_, err := s.write(ctx, ps)
+	return err
+}
+
+// write stores ps and also returns the error of the observe write, which
+// only the main metrics round turns into the banner (see observeReach).
+func (s tieredStore) write(ctx context.Context, ps []metrics.Point) (reach, err error) {
 	if err := s.mem.Write(ctx, ps); err != nil {
-		return err
+		return nil, err
 	}
 	s.o.observe.memFrom.CompareAndSwap(0, time.Now().UnixNano())
 	if !s.o.ObserveOn() {
-		return nil
+		return nil, nil
 	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	// A history write that fails never fails the round: the live graphs
 	// run from memory.
-	err := s.o.victoria().Write(cctx, ps)
+	err = s.o.victoria().Write(cctx, ps)
 	if down := err != nil; s.o.observe.down.Swap(down) != down {
 		if down {
 			slog.Warn("observe: metrics write failed", "err", err)
@@ -230,7 +243,38 @@ func (s tieredStore) Write(ctx context.Context, ps []metrics.Point) error {
 			slog.Info("observe: metrics writes back")
 		}
 	}
-	return nil
+	return err, nil
+}
+
+const observeDownKey = "observe.down"
+
+// observeReach keeps the "observe is not running" banner from the main
+// metrics round (metricsTick, with a non-empty batch). It opens after two
+// rounds in a row fail to reach the store and clears on the first that
+// does, or when observe is off; settings are written only on a flip, plus
+// one clear of a stale row on the first round. A round that lands while
+// observe is still being ensured says nothing. No alert: there is no event.
+func (o *Orchestrator) observeReach(ctx context.Context, err error) {
+	if !o.observe.mu.TryLock() {
+		return // syncObserve is ensuring the container
+	}
+	o.observe.mu.Unlock()
+	r := &o.observe.reach
+	r.Lock()
+	defer r.Unlock()
+	if o.ObserveOn() && err != nil && observeUnreachable(err) {
+		r.seen = true
+		if r.fails++; r.fails >= 2 && !r.open {
+			r.open = true
+			o.openProblem(ctx, observeDownKey, SevWarning, "Observe is not running. Logs and metrics history are unavailable; charts show the last 24 hours.")
+		}
+		return
+	}
+	r.fails = 0
+	if (r.open || !r.seen) && o.store != nil {
+		o.clearProblem(ctx, observeDownKey)
+	}
+	r.open, r.seen = false, true
 }
 
 func (s tieredStore) Query(ctx context.Context, key string, from, to time.Time, step time.Duration) (map[string][]metrics.Sample, error) {

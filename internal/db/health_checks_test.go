@@ -21,7 +21,8 @@ func TestHealthChecksMigration(t *testing.T) {
 	execAll(t, db, []stmt{
 		{`UPDATE tiles SET health_path=' /up ', healthcheck_cmd='', healthcheck_interval_s=7, healthcheck_retries=3 WHERE id=?`, []any{tid}},
 		{`UPDATE tiles SET healthcheck_cmd='  ' || char(10) || char(9), healthcheck_interval_s=8, healthcheck_timeout_s=2, healthcheck_retries=3, healthcheck_start_period_s=4 WHERE id='reporter'`, nil},
-		{`UPDATE tiles SET healthcheck_cmd='curl -f x' || char(10), healthcheck_interval_s=10, healthcheck_timeout_s=2, healthcheck_retries=5, healthcheck_start_period_s=6 WHERE id='pg'`, nil},
+		{`UPDATE tiles SET healthcheck_cmd='curl -f x' || char(10), healthcheck_interval_s=10, healthcheck_timeout_s=-5, healthcheck_retries=5, healthcheck_start_period_s=6 WHERE id='pg'`, nil},
+		{`UPDATE tiles SET healthcheck_cmd='x', healthcheck_interval_s=100000, healthcheck_timeout_s=90000, healthcheck_retries=500, healthcheck_start_period_s=200000 WHERE id='api-db'`, nil},
 		{read("023_health_checks.up.sql"), nil},
 	})
 	var path string
@@ -41,8 +42,12 @@ func TestHealthChecksMigration(t *testing.T) {
 		}
 	}
 	row("pg")
-	if cmd != "curl -f x" || iv != 10 || to != 2 || retries != 5 || sp != 6 {
-		t.Errorf("kept exec = %q %d %d %d %d", cmd, iv, to, retries, sp)
+	if cmd != "curl -f x" || iv != 10 || to != 0 || retries != 5 || sp != 6 {
+		t.Errorf("kept exec (negative timeout clamped to 0) = %q %d %d %d %d", cmd, iv, to, retries, sp)
+	}
+	row("api-db")
+	if iv != 86400 || to != 86400 || retries != 100 || sp != 86400 {
+		t.Errorf("capped exec = %d %d %d %d, want 86400 86400 100 86400", iv, to, retries, sp)
 	}
 	row("reporter")
 	if iv != 0 || to != 0 || retries != 0 || sp != 0 {

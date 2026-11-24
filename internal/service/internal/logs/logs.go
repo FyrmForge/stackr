@@ -213,6 +213,35 @@ func (v *Victoria) Newest(ctx context.Context, from time.Time) (time.Time, error
 }
 
 func (v *Victoria) Query(ctx context.Context, f Filter, from, to time.Time, limit int) ([]Line, error) {
+	var out []Line
+	// Blank lines are dropped after the fetch, so a full raw page can come back
+	// short; refill (bounded) so callers can still read "full page" as "more".
+	// ponytail: >10 pages of blank lines in a row looks like the end; same-nanosecond rows at a page edge can be skipped, as the Older cursor already does
+	for round := 0; round < 10 && len(out) < limit; round++ {
+		raw, err := v.query(ctx, f, from, to, limit)
+		if err != nil {
+			return nil, err
+		}
+		for _, l := range raw {
+			if l.Msg != "" && l.Msg != missingMsg {
+				out = append(out, l)
+			}
+		}
+		if len(raw) < limit {
+			break
+		}
+		to = raw[len(raw)-1].Time.Add(-time.Nanosecond)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// missingMsg is what VictoriaLogs stores for a line with an empty message.
+const missingMsg = "missing _msg field; see https://docs.victoriametrics.com/victorialogs/keyconcepts/#message-field"
+
+func (v *Victoria) query(ctx context.Context, f Filter, from, to time.Time, limit int) ([]Line, error) {
 	q, err := f.Query(limit)
 	if err != nil {
 		return nil, err

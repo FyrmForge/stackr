@@ -684,6 +684,10 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 		ch := Change{Kind: "update", Tile: name, Field: k}
 		if v, ok := shownValues[k]; ok {
 			ch.Old, ch.New = v(old), v(row)
+			// the command is never printed, so a cmd-only change would read as no change
+			if k == "health.exec" && ch.Old != "none" && ch.New != "none" && ch.Old == ch.New && old.HealthExecCmd != row.HealthExecCmd {
+				ch.New += " (changed)"
+			}
 		}
 		p.add(ch)
 	}

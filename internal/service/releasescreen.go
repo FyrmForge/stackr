@@ -19,14 +19,21 @@ const (
 	ScopeServer    = "server"
 	ScopeOrgConfig = "-config"
 
-	// screenMax caps the list; the screen says so.
-	// ponytail: no paging; a cursor when an install passes this.
-	screenMax = 300
+	// ScreenPage is the rows a page of the screen holds.
+	ScreenPage = 50
+
+	// planFetch is how many plans per scope the screen reads before hiding
+	// and paging. ponytail: plans past the newest 500 never show; page the store if that bites.
+	planFetch = 500
 )
 
 // ScreenQuery narrows the screen. State is "" (all), "waiting", "failed" or
-// "running"; Source a SourceKey; Q a substring of a commit or message.
-type ScreenQuery struct{ Scope, State, Source, Q string }
+// "running"; Source a SourceKey; Q a substring of a commit or message; Page
+// is 1-based (below 1 = 1, past the end = the last).
+type ScreenQuery struct {
+	Scope, State, Source, Q string
+	Page                    int
+}
 
 // ScreenScope is one entry of the scope tree. Org entries (Depth 0) are the
 // "All of <org>" scope; Depth 1 are its file and stacks.
@@ -54,7 +61,8 @@ type ReleaseScreen struct {
 	Scopes  []ScreenScope
 	Rows    []ScreenRow
 	Sources []string
-	Total   int // rows that matched, before the cap
+	Total   int // rows that matched, over every page
+	Page    int // the page Rows are, after clamping
 	// Counts are what waits and what failed (not yet fixed) in the scope,
 	// source and search, whatever the state filter says.
 	Counts  map[string]int
@@ -109,7 +117,7 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 	}
 	if p.Access.Admin {
 		sc.Scopes = append(sc.Scopes, ScreenScope{Key: ScopeServer, Label: "Server config"})
-		ps, err := o.ServerPlans(ctx, 50)
+		ps, err := o.ServerPlans(ctx, planFetch)
 		if err != nil {
 			return sc, err
 		}
@@ -128,7 +136,7 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		// the org canvas shows the plans to owners only (org.owner.read, as the API)
 		if authz.Can(p.Access, "org.owner.read", authz.Resource{OrgID: og.ID}) == nil {
 			sc.Scopes = append(sc.Scopes, ScreenScope{Key: og.Slug + "/" + ScopeOrgConfig, Label: "Org config", Depth: 1})
-			ps, err := o.OrgPlans(ctx, og.ID, 50)
+			ps, err := o.OrgPlans(ctx, og.ID, planFetch)
 			if err != nil {
 				return sc, err
 			}
@@ -179,6 +187,7 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 	srcs := map[string]bool{}
 	waiting := map[string]bool{}
 	needle := strings.ToLower(strings.TrimSpace(q.Q))
+	var match []ScreenRow
 	for _, r := range all {
 		if !inScope(r, q.Scope) {
 			continue
@@ -199,10 +208,11 @@ func (o *Orchestrator) ReleaseScreen(ctx context.Context, p *Principal, q Screen
 		if !matchState(r, q.State) {
 			continue
 		}
-		if sc.Total++; len(sc.Rows) < screenMax {
-			sc.Rows = append(sc.Rows, r)
-		}
+		match = append(match, r)
 	}
+	sc.Total = len(match)
+	sc.Page = min(max(q.Page, 1), max((sc.Total+ScreenPage-1)/ScreenPage, 1))
+	sc.Rows = match[min((sc.Page-1)*ScreenPage, sc.Total):min(sc.Page*ScreenPage, sc.Total)]
 	sc.Counts[StateWaiting] = len(waiting)
 	sc.Sources = slices.Sorted(func(yield func(string) bool) {
 		for k := range srcs {
@@ -342,6 +352,9 @@ func planRows(scope, org, orgID string, can bool, ps []planFields) []ScreenRow {
 			row.State, cured = p.Status, true
 		default:
 			row.State = p.Status // rejected, superseded
+		}
+		if p.Status == orgplan.Clean || p.Status == orgplan.Superseded {
+			continue // noise (nothing to change, or replaced by a newer plan): no row, no count
 		}
 		out = append(out, row)
 	}

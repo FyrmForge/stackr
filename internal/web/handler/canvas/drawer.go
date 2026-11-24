@@ -56,6 +56,7 @@ func (cd card) frame(tab string) comp.DrawerView {
 		f.Node, f.Title, f.Tabs = "stack:"+s.Stack.ID, s.Stack.Name, stackui.Tabs
 	case "env":
 		f.Node, f.Title, f.Tabs = "env:"+s.Env.ID, s.Env.Name, envui.Tabs
+		f.Kind, f.HideTitle = "", true // the breadcrumb names the env
 	case "connector":
 		f.Node, f.Title, f.Tabs = "connector:"+cd.conn.ID, cd.conn.Name, connui.Tabs
 		f.Icon, f.Kind = "connector", "connector"

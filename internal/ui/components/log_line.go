@@ -63,6 +63,9 @@ func NewLogLine(at time.Time, text string) LogLineView {
 // (cursor moves, clears) means nothing in a log and goes.
 var ansiSeq = regexp.MustCompile("\x1b\\[([0-9;?]*)([A-Za-z])")
 
+// StripANSI is s without its terminal escapes.
+func StripANSI(s string) string { return ansiSeq.ReplaceAllString(s, "") }
+
 // ansiColors names the 8 SGR foregrounds; the CSS maps names to the palette.
 var ansiColors = [8]string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}
 
