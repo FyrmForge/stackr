@@ -1078,7 +1078,12 @@ func TestDeviceDiskNeedsTheBindOnTheControllerOfAnInstalledPanel(t *testing.T) {
 	if _, err := d.orch.NodeDevices(ctx, adminP(), d.ctl.ID); !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), "Upgrade the panel once more, or rerun the installer, to let it see this server's disks.") {
 		t.Fatalf("devices on an upgradable host: %v", err)
 	}
+	// the bind is there but cut off from the host (not a slave): refused
 	must(t, os.WriteFile(mi, []byte("1 0 8:1 / / rw - ext4 /dev/sda1 rw\n2 1 8:1 /x /host/var/lib/stackr-disks ro - ext4 /dev/sda1 rw\n"), 0o600))
+	if err := d.orch.deviceDiskOK(ctx, d.ctl); !errors.Is(err, errs.ErrRefused) {
+		t.Fatalf("a bind host mounts no longer reach: %v", err)
+	}
+	must(t, os.WriteFile(mi, []byte("1 0 8:1 / / rw - ext4 /dev/sda1 rw\n2 1 8:1 /x /host/var/lib/stackr-disks ro master:1 - ext4 /dev/sda1 rw\n"), 0o600))
 	if err := d.orch.deviceDiskOK(ctx, d.ctl); err != nil {
 		t.Fatalf("with the bind: %v", err)
 	}

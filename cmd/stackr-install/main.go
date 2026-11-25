@@ -605,14 +605,16 @@ func (r runner) quietDocker(ctx context.Context, args ...string) error {
 	return r.exec(ctx, "docker", args...)
 }
 
-// exec runs a command; its output shows with --verbose, else it is kept
-// and its last lines go into the error when the command fails.
+// exec runs a command; its output shows with --verbose, and is always kept
+// so its last lines go into the error when the command fails (runPanel reads
+// Docker's refusal there).
 func (r runner) exec(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	if r.verbose {
-		cmd.Stdout, cmd.Stderr = r.out, r.out
+		w := io.MultiWriter(r.out, &buf)
+		cmd.Stdout, cmd.Stderr = w, w
 	}
 	err := cmd.Run()
 	if out := strings.TrimSpace(buf.String()); err != nil && out != "" {

@@ -348,7 +348,9 @@ func (o *Orchestrator) deviceDiskOK(ctx context.Context, n store.Node) error {
 	}
 	b, _ := os.ReadFile(cmp.Or(o.cfg.SelfMountinfo, "/proc/self/mountinfo"))
 	for _, m := range hostdisk.ParseMounts(b) {
-		if m.Point == installspec.HostRoot+installspec.DisksDir {
+		// a slave bind (master:N): host mounts still reach it; one cut off by
+		// a host turned private since would hide the next disk
+		if m.Point == installspec.HostRoot+installspec.DisksDir && m.Propagates {
 			return nil
 		}
 	}
