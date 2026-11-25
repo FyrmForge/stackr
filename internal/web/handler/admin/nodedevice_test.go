@@ -184,6 +184,8 @@ func TestFormatNeedsTheTypedName(t *testing.T) {
 			t.Fatalf("typed %q = %d\n%s", typed, code, body)
 		}
 		has(t, "queued", body, "Formatting sdb.", "disk.add_device")
+		// the note goes with its job: the drawer reloads when the job ends
+		has(t, "reloads", body, `hx-get="/-/admin/nodes/`+id+`?tab=overview" hx-trigger="sse:end"`)
 	}
 	js := formatJobs(t, s)
 	if len(js) != 1 {
