@@ -232,7 +232,9 @@ templ DiskChoose(d DiskDialog) {
 
 // DiskPicked is the answer to a pick: Continue, out of band.
 templ DiskPicked(d DiskDialog) {
-	@diskContinue(d)
+	<div hx-swap-oob="innerHTML:#disk-foot">
+		@diskFoot(d)
+	</div>
 }
 
 // DiskFormatDialog is the Format dialog an answer puts into #disk-fmt-dlg.

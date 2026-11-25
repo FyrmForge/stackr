@@ -210,7 +210,7 @@ func TestNodeDiskInstalledPanelControllerIsRefused(t *testing.T) {
 	id := diskNode(t, s)
 	const why = "The panel cannot use a folder disk yet. Add the disk on a worker node."
 	body := s.As(t, root, "GET", "/-/admin/nodes/"+id, nil).Body.String()
-	has(t, "installed", body, why)
+	has(t, "installed", body, "This server cannot show the panel a disk added later. Add the disk on a worker node.")
 	if card := section(t, body); strings.Contains(card, "Add disk") {
 		t.Errorf("a button on the installed panel's controller\n%s", card)
 	}

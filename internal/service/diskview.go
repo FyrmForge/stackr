@@ -56,8 +56,8 @@ func (o *Orchestrator) NodeDiskPanel(ctx context.Context, nodeID string) (NodeDi
 			if nerr != nil {
 				return p, nerr
 			}
-			if o.deviceDiskOK(ctx, n) != nil {
-				p.Refusal = err.Error()
+			if derr := o.deviceDiskOK(ctx, n); derr != nil {
+				p.Refusal = derr.Error() // the whole-disk reason is the one to act on
 			}
 		}
 		return p, nil

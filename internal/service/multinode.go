@@ -45,6 +45,13 @@ func (o *Orchestrator) startMesh(ctlID string) {
 			DiskPath:   o.cfg.DataDir,
 		})
 		local.ReplayDisks() // the registry the panel last pushed, before the first poll
+		// A reboot drops the kernel interface; bring it up now so the boot's
+		// node dials do not wait on a mesh that only starts later.
+		if ns, err := o.store.Nodes.List(context.Background()); err == nil && len(ns) >= 2 {
+			if err := local.ReplayMesh(); err != nil {
+				slog.Warn("mesh: boot replay failed", "err", err)
+			}
+		}
 	}
 	o.mesh = newMeshSvc(o.store, func(id string) (MeshNode, bool) {
 		if id == ctlID {

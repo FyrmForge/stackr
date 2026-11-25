@@ -1017,9 +1017,25 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		slog.Warn("domains: instance resource not seeded", "root", root, "err", err)
 	}
 	// Before the workers start, so no deploy can declare a chain first.
-	if err := orch.rebuildVIPs(ctx); err != nil {
-		slog.Warn("vip: boot rebuild failed", "err", err)
+	// A node that does not answer must not eat the boot's budget: wait a while
+	// for the reachable ones, then carry on and let the rebuild finish alone.
+	vipDone := make(chan struct{})
+	vipCtx := context.WithoutCancel(ctx)
+	orch.track(func() {
+		defer close(vipDone)
+		if err := orch.rebuildVIPs(vipCtx); err != nil {
+			slog.Warn("vip: boot rebuild failed", "err", err)
+		}
+	})
+	select {
+	case <-vipDone:
+	case <-time.After(8 * time.Second):
+		slog.Warn("vip: boot rebuild still running, continuing")
 	}
+	// The wait may have spent the budget; the local steps get a fresh one. The
+	// first cancel is already deferred and still runs.
+	ctx, cancel = context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	orch.vipLegacy(ctx)
 	orch.detach(context.Background(), orch.startMembers) // after a panel or host restart
 	orch.settleRestored(ctx)

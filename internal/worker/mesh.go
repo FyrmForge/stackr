@@ -602,6 +602,18 @@ func (s *Server) getMesh(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(info)
 }
 
+// ReplayMesh re-applies the saved mesh interface, which a reboot drops.
+// No saved mesh is a no-op.
+func (s *Server) ReplayMesh() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ms, err := s.savedMesh()
+	if err != nil || ms == nil {
+		return err
+	}
+	return s.meshNet(*ms)
+}
+
 // savedMesh is the last applied mesh spec, nil when none was applied.
 func (s *Server) savedMesh() (*MeshSpec, error) {
 	b, err := os.ReadFile(s.meshPath())
