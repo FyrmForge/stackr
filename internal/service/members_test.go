@@ -264,7 +264,7 @@ func TestStandbyRestartPolicy(t *testing.T) {
 	}
 
 	// no standby: an exited primary is not the tick's to start
-	n.ctlFake.Containers[len(n.ctlFake.Containers)-1].State = "exited"
+	n.ctlFake.Locked(func() { n.ctlFake.Containers[len(n.ctlFake.Containers)-1].State = "exited" })
 	n.orch.startMembers(ctx)
 	if sawCall(n.ctlFake, "Start(") {
 		t.Errorf("started a single instance: %v", callNames(n.ctlFake))

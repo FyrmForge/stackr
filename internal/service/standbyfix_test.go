@@ -143,7 +143,7 @@ func TestStandbyLeavesAtOnceWhenDown(t *testing.T) {
 	if got, _ := n.orch.members.Get(ctx, r.ID); got.Phase != opmember.Streaming {
 		t.Fatalf("phase %q", got.Phase)
 	}
-	n.wFake.Containers[len(n.wFake.Containers)-1].State = "exited"
+	n.wFake.Locked(func() { n.wFake.Containers[len(n.wFake.Containers)-1].State = "exited" })
 	n.orch.observeStandbys(ctx)
 	if got, _ := n.orch.members.Get(ctx, r.ID); got.Phase != opmember.Starting {
 		t.Errorf("a stopped standby is still %q", got.Phase)
@@ -163,7 +163,7 @@ func TestRemoveStandbyKeepsRowUntilSlotDropped(t *testing.T) {
 	n.orch.vipAsync.Wait()
 	for i := range n.ctlFake.Containers {
 		if n.ctlFake.Containers[i].ID == "pg" {
-			n.ctlFake.Containers[i].State = "exited"
+			n.ctlFake.Locked(func() { n.ctlFake.Containers[i].State = "exited" })
 		}
 	}
 	if err := n.orch.RemoveStandby(ctx, r.ID); !errors.Is(err, errPrimaryDown) {
@@ -177,7 +177,7 @@ func TestRemoveStandbyKeepsRowUntilSlotDropped(t *testing.T) {
 		t.Fatal("finished while the primary is still down")
 	}
 	for i := range n.ctlFake.Containers {
-		n.ctlFake.Containers[i].State = "running"
+		n.ctlFake.Locked(func() { n.ctlFake.Containers[i].State = "running" })
 	}
 	n.orch.finishRemovals(ctx)
 	if _, err := n.orch.members.Get(ctx, r.ID); err == nil {
@@ -305,7 +305,7 @@ func TestSettingsReachStandbys(t *testing.T) {
 		t.Errorf("no conf written on the standby: %v", callNames(n.wFake)[before:])
 	}
 	// a stopped standby is not asked; it takes the settings at its next start
-	n.wFake.Containers[len(n.wFake.Containers)-1].State = "exited"
+	n.wFake.Locked(func() { n.wFake.Containers[len(n.wFake.Containers)-1].State = "exited" })
 	if sbs, err := n.orch.applyToStandbys(ctx, tl, m.ID, map[string]string{"work_mem": "9MB"}, []string{"work_mem"}, nil); err != nil || len(sbs) != 0 {
 		t.Errorf("stopped standby: %d, %v", len(sbs), err)
 	}

@@ -35,6 +35,14 @@ type VolumeCreate struct {
 	Opts, Labels map[string]string
 }
 
+// Locked runs fn under the fake's lock, for a test that edits Containers
+// while the code under test may read them from another goroutine.
+func (f *Fake) Locked(fn func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fn()
+}
+
 type Fake struct {
 	mu      sync.Mutex
 	calls   []Call

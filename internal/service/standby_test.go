@@ -194,7 +194,7 @@ func TestObserveStandbys(t *testing.T) {
 	if !n.orch.hasProblem(ctx, "alert."+AlertPGRebuild+"."+m.ID) {
 		t.Error("no problem for a standby that needs a rebuild")
 	}
-	n.wFake.Containers[len(n.wFake.Containers)-1].State = "exited"
+	n.wFake.Locked(func() { n.wFake.Containers[len(n.wFake.Containers)-1].State = "exited" })
 	before := len(n.wFake.Specs)
 	n.orch.startMembers(ctx)
 	if sawCall(n.wFake, "Start(rep1)") || len(n.wFake.Specs) != before {
