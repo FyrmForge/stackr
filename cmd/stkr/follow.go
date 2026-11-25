@@ -202,7 +202,13 @@ func (a *app) browserLogin(server, name string) (string, error) {
 		}),
 	}
 	go func() { _ = srv.Serve(ln) }()
-	defer func() { _ = srv.Close() }()
+	defer func() {
+		// Shutdown, not Close: the handler hands the code over before its
+		// response is flushed, and Close would cut that response off.
+		sc, stop := context.WithTimeout(context.Background(), 2*time.Second)
+		defer stop()
+		_ = srv.Shutdown(sc)
+	}()
 
 	_, _ = fmt.Fprintf(a.errw, "Approve the login in your browser:\n  %s\n", u)
 	openBrowser(u)

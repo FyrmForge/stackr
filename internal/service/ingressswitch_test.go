@@ -14,14 +14,26 @@ import (
 // fakeDNS answers resolveHost from a table; a host it does not know fails.
 func fakeDNS(t *testing.T, table map[string][]string) {
 	t.Helper()
-	old := resolveHost
-	resolveHost = func(_ context.Context, host string) ([]string, error) {
+	swapResolver(t, func(_ context.Context, host string) ([]string, error) {
 		if ips, ok := table[host]; ok {
 			return ips, nil
 		}
 		return nil, errors.New("no such host")
-	}
-	t.Cleanup(func() { resolveHost = old })
+	})
+}
+
+// swapResolver installs f as the resolver until the test ends.
+func swapResolver(t *testing.T, f func(context.Context, string) ([]string, error)) {
+	t.Helper()
+	resolveMu.Lock()
+	old := resolveImpl
+	resolveImpl = f
+	resolveMu.Unlock()
+	t.Cleanup(func() {
+		resolveMu.Lock()
+		resolveImpl = old
+		resolveMu.Unlock()
+	})
 }
 
 // ingressNode is an online ingress worker whose public address the map
