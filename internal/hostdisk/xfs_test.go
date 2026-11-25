@@ -1180,7 +1180,8 @@ func TestContainerNodeRefusesDevices(t *testing.T) {
 		}
 	}
 	// Docker and Podman leave their own marker files
-	_ = os.Remove(filepath.Join(x.env.Root, "proc/1/environ"))
+	_ = os.Remove(filepath.Join(x.env.Root, "proc/1/environ")) // map order: either marker may be left
+	_ = os.Remove(filepath.Join(x.env.Root, "run/systemd/container"))
 	for _, m := range []string{".dockerenv", "run/.containerenv"} {
 		if inContainer(x.env.Root) {
 			t.Fatalf("a container before %s", m)
