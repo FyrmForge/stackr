@@ -55,7 +55,7 @@ func TestSettingsRows(t *testing.T) {
 		}},
 		Delete: c.ConfirmView{Word: "shop", Kept: []string{"x"}, Action: "/o/s/-/drawer/delete"},
 	}).Render(context.Background(), &b)
-	_ = c.Releases(c.ReleasesView{Rows: []c.ReleaseRow{{Number: "3", By: "dev", Message: "fix <b>x</b>"}}}).Render(context.Background(), &b)
+	_ = c.Releases(c.ReleasesView{Rows: []c.ReleaseRow{{Number: "3", By: "dev", Message: "fix <b>x</b>", Push: true}}}).Render(context.Background(), &b)
 	_ = Settings(SettingsView{Name: "ro"}).Render(context.Background(), &b)
 	got := b.String()
 	for _, w := range []string{
@@ -70,7 +70,7 @@ func TestSettingsRows(t *testing.T) {
 		`<option value="k1" selected>`,
 		`value="acme/infra"`,
 		"<confirm-dialog",
-		"#3",
+		"release 3",
 		`title="fix &lt;b&gt;x&lt;/b&gt;"`,
 		`<fieldset disabled`,
 	} {

@@ -3802,47 +3802,51 @@ stkr tile create <name> [flags]
 ```
 
 ```
-      --branch string             git branch
-      --build-args string         build args, a JSON object of strings: '{"ARG":"value"}'
-      --command string            the command, split like a shell would (quotes work, nothing expands)
-      --context string            build context
-      --cpus float                CPU limit
-      --depends-on string         tiles to start first, one per line: tile[:started|healthy|completed]
-      --devices string            devices, one per line: host[:container[:perms]] (needs admin approval)
-      --dockerfile string         Dockerfile path
-      --env string                the environment (default: the linked one)
-      --env-json string           environment, a JSON object of strings: '{"KEY":"value"}'
-      --files string              files from the repo to mount, one per line: repo/path:/container/path[:template]
-      --git string                git URL (service tiles)
-      --health-interval int       health check interval, seconds
-      --health-path string        HTTP health path
-      --health-retries int        health check retries
-      --health-start-period int   health check start period, seconds
-      --health-timeout int        health check timeout, seconds
-      --healthcheck string        health check command, run in the container
-      --host-network              use the server's network (needs admin approval)
-      --image string              image ref (image tiles)
-      --kind string               image, service (built from git), cron or function (default "image")
-      --lan string                LAN access, one ip|cidr[:port] per line (needs admin approval)
-      --memory int                memory limit, MB
-      --port int                  container port
-      --privileged                run privileged (needs admin approval)
-      --protocol string           endpoint protocol
-      --published-ports string    ports published on the host, one per line: host:container[/udp]
-      --replicas int              replica count
-      --restart string            restart policy
-      --schedule string           cron expression, CRON_TZ= prefix allowed (cron tiles)
-      --shared-net string         shared network
-      --shm-size int              shm size, MB
-      --stack string              the stack (default: the linked one)
-      --tag-policy string         tag policy
-      --tile string               the tile (default: the linked one)
-      --timeout int               a run's timeout, minutes (cron and function tiles; 0 = 30)
-      --trigger string            manual or on_deploy (function tiles)
-      --update-policy string      update policy
-      --user string               run as user
-      --volumes string            mounts, one per line: volume:/path[:ro], host:/host/path:/path[:ro] (needs admin approval) or share:name/sub:/path[:ro]
-      --watch-paths string        paths whose change triggers a build, one per line
+      --branch string                  git branch
+      --build-args string              build args, a JSON object of strings: '{"ARG":"value"}'
+      --command string                 the command, split like a shell would (quotes work, nothing expands)
+      --context string                 build context
+      --cpus float                     CPU limit
+      --depends-on string              tiles to start first, one per line: tile[:started|healthy|completed]
+      --devices string                 devices, one per line: host[:container[:perms]] (needs admin approval)
+      --dockerfile string              Dockerfile path
+      --env string                     the environment (default: the linked one)
+      --env-json string                environment, a JSON object of strings: '{"KEY":"value"}'
+      --files string                   files from the repo to mount, one per line: repo/path:/container/path[:template]
+      --git string                     git URL (service tiles)
+      --health-exec-cmd string         health check command, run in the container
+      --health-exec-interval int       command health check interval, seconds
+      --health-exec-retries int        command health check retries
+      --health-exec-start-period int   command health check start period, seconds
+      --health-exec-timeout int        command health check timeout, seconds
+      --health-http-interval int       HTTP health check interval, seconds
+      --health-http-path string        HTTP health check path
+      --health-http-retries int        HTTP health check retries
+      --health-http-status string      HTTP health check expected status: a code like 200 or a class like 2xx
+      --health-http-timeout int        HTTP health check timeout, seconds
+      --host-network                   use the server's network (needs admin approval)
+      --image string                   image ref (image tiles)
+      --kind string                    image, service (built from git), cron or function (default "image")
+      --lan string                     LAN access, one ip|cidr[:port] per line (needs admin approval)
+      --memory int                     memory limit, MB
+      --port int                       container port
+      --privileged                     run privileged (needs admin approval)
+      --protocol string                endpoint protocol
+      --published-ports string         ports published on the host, one per line: host:container[/udp]
+      --replicas int                   replica count
+      --restart string                 restart policy
+      --schedule string                cron expression, CRON_TZ= prefix allowed (cron tiles)
+      --shared-net string              shared network
+      --shm-size int                   shm size, MB
+      --stack string                   the stack (default: the linked one)
+      --tag-policy string              tag policy
+      --tile string                    the tile (default: the linked one)
+      --timeout int                    a run's timeout, minutes (cron and function tiles; 0 = 30)
+      --trigger string                 manual or on_deploy (function tiles)
+      --update-policy string           update policy
+      --user string                    run as user
+      --volumes string                 mounts, one per line: volume:/path[:ro], host:/host/path:/path[:ro] (needs admin approval) or share:name/sub:/path[:ro]
+      --watch-paths string             paths whose change triggers a build, one per line
 ```
 
 Example:
@@ -4274,47 +4278,51 @@ stkr tile set [tile] [flags]
 ```
 
 ```
-      --branch string             git branch
-      --build-args string         build args, a JSON object of strings: '{"ARG":"value"}'
-      --command string            the command, split like a shell would (quotes work, nothing expands)
-      --context string            build context
-      --cpus float                CPU limit
-      --depends-on string         tiles to start first, one per line: tile[:started|healthy|completed]
-      --devices string            devices, one per line: host[:container[:perms]] (needs admin approval)
-      --dockerfile string         Dockerfile path
-      --env string                the environment (default: the linked one)
-      --env-json string           environment, a JSON object of strings: '{"KEY":"value"}'
-      --files string              files from the repo to mount, one per line: repo/path:/container/path[:template]
-      --git string                git URL (service tiles)
-      --health-interval int       health check interval, seconds
-      --health-path string        HTTP health path
-      --health-retries int        health check retries
-      --health-start-period int   health check start period, seconds
-      --health-timeout int        health check timeout, seconds
-      --healthcheck string        health check command, run in the container
-      --host-network              use the server's network (needs admin approval)
-      --image string              image ref (image tiles)
-      --lan string                LAN access, one ip|cidr[:port] per line (needs admin approval)
-      --memory int                memory limit, MB
-      --port int                  container port
-      --privileged                run privileged (needs admin approval)
-      --protocol string           endpoint protocol
-      --published-ports string    ports published on the host, one per line: host:container[/udp]
-      --replicas int              replica count
-      --restart string            restart policy
-      --schedule string           cron expression, CRON_TZ= prefix allowed (cron tiles)
-      --shared-net string         shared network
-      --shm-size int              shm size, MB
-      --stack string              the stack (default: the linked one)
-      --tag-policy string         tag policy
-      --tile string               the tile (default: the linked one)
-      --timeout int               a run's timeout, minutes (cron and function tiles; 0 = 30)
-      --trigger string            manual or on_deploy (function tiles)
-      --update-policy string      update policy
-      --user string               run as user
-      --volumes string            mounts, one per line: volume:/path[:ro], host:/host/path:/path[:ro] (needs admin approval) or share:name/sub:/path[:ro]
-      --wait                      follow the redeploys to their end; exit 1 if one fails
-      --watch-paths string        paths whose change triggers a build, one per line
+      --branch string                  git branch
+      --build-args string              build args, a JSON object of strings: '{"ARG":"value"}'
+      --command string                 the command, split like a shell would (quotes work, nothing expands)
+      --context string                 build context
+      --cpus float                     CPU limit
+      --depends-on string              tiles to start first, one per line: tile[:started|healthy|completed]
+      --devices string                 devices, one per line: host[:container[:perms]] (needs admin approval)
+      --dockerfile string              Dockerfile path
+      --env string                     the environment (default: the linked one)
+      --env-json string                environment, a JSON object of strings: '{"KEY":"value"}'
+      --files string                   files from the repo to mount, one per line: repo/path:/container/path[:template]
+      --git string                     git URL (service tiles)
+      --health-exec-cmd string         health check command, run in the container
+      --health-exec-interval int       command health check interval, seconds
+      --health-exec-retries int        command health check retries
+      --health-exec-start-period int   command health check start period, seconds
+      --health-exec-timeout int        command health check timeout, seconds
+      --health-http-interval int       HTTP health check interval, seconds
+      --health-http-path string        HTTP health check path
+      --health-http-retries int        HTTP health check retries
+      --health-http-status string      HTTP health check expected status: a code like 200 or a class like 2xx
+      --health-http-timeout int        HTTP health check timeout, seconds
+      --host-network                   use the server's network (needs admin approval)
+      --image string                   image ref (image tiles)
+      --lan string                     LAN access, one ip|cidr[:port] per line (needs admin approval)
+      --memory int                     memory limit, MB
+      --port int                       container port
+      --privileged                     run privileged (needs admin approval)
+      --protocol string                endpoint protocol
+      --published-ports string         ports published on the host, one per line: host:container[/udp]
+      --replicas int                   replica count
+      --restart string                 restart policy
+      --schedule string                cron expression, CRON_TZ= prefix allowed (cron tiles)
+      --shared-net string              shared network
+      --shm-size int                   shm size, MB
+      --stack string                   the stack (default: the linked one)
+      --tag-policy string              tag policy
+      --tile string                    the tile (default: the linked one)
+      --timeout int                    a run's timeout, minutes (cron and function tiles; 0 = 30)
+      --trigger string                 manual or on_deploy (function tiles)
+      --update-policy string           update policy
+      --user string                    run as user
+      --volumes string                 mounts, one per line: volume:/path[:ro], host:/host/path:/path[:ro] (needs admin approval) or share:name/sub:/path[:ro]
+      --wait                           follow the redeploys to their end; exit 1 if one fails
+      --watch-paths string             paths whose change triggers a build, one per line
 ```
 
 Example:

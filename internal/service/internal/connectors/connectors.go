@@ -234,6 +234,8 @@ type Event struct {
 type Push struct {
 	Repo, Branch, Commit, Message, DefaultBranch string
 	Changed                                      []string
+	// Author is the head commit's author: name and login ("" = unknown).
+	AuthorName, AuthorLogin string
 }
 
 // PullRequest is one opened, reopened, synchronize(d) or closed: Head at

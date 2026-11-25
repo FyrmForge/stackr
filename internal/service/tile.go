@@ -20,6 +20,7 @@ import (
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
@@ -28,6 +29,15 @@ import (
 )
 
 type Image = store.Image
+
+// ImageState is what image watch knows of a tile's image, with the words for
+// it: Status is "unknown", "up to date" or "newer image available"; Newer says
+// the last digest seen is not the running one.
+type ImageState struct {
+	Image
+	Status string
+	Newer  bool
+}
 
 // TileStatus is the box's word for a tile plus its newest job (DECIDE 8).
 // A cron or function adds its newest run; a cron its next tick and pause.
@@ -706,9 +716,14 @@ func (o *Orchestrator) redeploy(ctx context.Context, ts []Tile) ([]Redeploy, err
 	return out, nil
 }
 
-// TileImage is what image watch knows of the tile's image ref; the zero
-// Image when it was never built, pulled or checked.
-func (o *Orchestrator) TileImage(ctx context.Context, tileID string) (Image, error) {
+// TileImage is what image watch knows of the tile's image ref; zero when it
+// was never built, pulled or checked.
+func (o *Orchestrator) TileImage(ctx context.Context, tileID string) (ImageState, error) {
+	i, err := o.tileImage(ctx, tileID)
+	return ImageState{Image: i, Status: image.Status(i), Newer: i.Newer()}, err
+}
+
+func (o *Orchestrator) tileImage(ctx context.Context, tileID string) (Image, error) {
 	t, err := o.tiles.Get(ctx, tileID)
 	if err != nil || t.ImageRef == "" {
 		return Image{}, err

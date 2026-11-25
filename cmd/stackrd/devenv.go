@@ -18,7 +18,7 @@ import (
 // comments and blank lines ignored. A missing file changes nothing. It is
 // the playground's way to point stackrd at a private ACME CA, a fake
 // Namecheap and a fake GitHub; production has no such file. Keys: ACME_CA,
-// ACME_CA_ROOT, NAMECHEAP_API, GITHUB_URL, GITHUB_CA, EXTRA_CA_DIR.
+// ACME_CA_ROOT, NAMECHEAP_API, GITHUB_URL, GITHUB_AVATARS, GITHUB_CA, EXTRA_CA_DIR.
 func devSettings(log *slog.Logger, dataDir string, cfg *service.Config) {
 	f, err := os.Open(filepath.Join(dataDir, "dev.env"))
 	if err != nil {
@@ -49,6 +49,8 @@ func devSettings(log *slog.Logger, dataDir string, cfg *service.Config) {
 			cfg.NamecheapAPI = v
 		case "GITHUB_URL":
 			cfg.GitHubURL = v
+		case "GITHUB_AVATARS":
+			cfg.GitHubAvatars = v
 		case "GITHUB_CA": // a full path inside the panel container
 			cfg.GitHubCA = v
 		case "EXTRA_CA_DIR": // a dir of PEM roots inside the panel container, read once by Go at first TLS use

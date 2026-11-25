@@ -86,19 +86,23 @@ templ dlgHead(title, sub string) {
 				<p class="text-sm text-rw-muted mt-0.5">{ sub }</p>
 			}
 		</div>
-		<button type="button" class="ml-auto text-rw-faint hover:text-rw-text transition-colors" data-cancel aria-label="Close">
-			<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-				<line x1="18" y1="6" x2="6" y2="18"></line>
-				<line x1="6" y1="6" x2="18" y2="18"></line>
-			</svg>
-		</button>
+		@dlgClose()
 	</div>
 }
 
-// DlgShell is a dialog that opens on arrival: what a plan POST answers. The
+templ dlgClose() {
+	<button type="button" class="-m-3.5 ml-auto rounded-lg p-3.5 text-rw-faint hover:text-rw-text transition-colors" data-cancel aria-label="Close">
+		<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+			<line x1="18" y1="6" x2="6" y2="18"></line>
+			<line x1="6" y1="6" x2="18" y2="18"></line>
+		</svg>
+	</button>
+}
+
+// Modal is a dialog that opens on arrival: what a plan POST answers. The
 // children are the body, foot the buttons. The caller wraps it in the element
 // the answer replaces.
-templ DlgShell(title, sub string, foot templ.Component) {
+templ Modal(title, sub string, foot templ.Component) {
 	<confirm-dialog open>
 		<dialog class="modal-panel text-rw-text">
 			@dlgHead(title, sub)

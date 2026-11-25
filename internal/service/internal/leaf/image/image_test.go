@@ -27,7 +27,7 @@ func TestCleanupKeepsReleased(t *testing.T) {
 	released, _ := l.Built(ctx, "stkr/a:1111111", "sha256:r")
 	old, _ := l.Built(ctx, "stkr/a:2222222", "sha256:o")
 	fresh, _ := l.Built(ctx, "stkr/a:3333333", "sha256:f")
-	watched, _ := l.Checked(ctx, "nginx:1", "sha256:w", "", nil)
+	watched, _ := l.Checked(ctx, "nginx:1", "sha256:w", "", "", nil)
 	// Age the unreleased build past the grace period.
 	aged := time.Now().Add(-2 * image.Grace)
 	old.BuiltAt = &aged
@@ -73,13 +73,31 @@ func TestNameAndWatchCache(t *testing.T) {
 		t.Errorf("second build of a commit = %s", again)
 	}
 
-	_, _ = l.Checked(ctx, "nginx:1", "sha256:a", "", nil)
-	i, _ := l.Checked(ctx, "nginx:1", "", "", errors.New("429"))
+	_, _ = l.Checked(ctx, "nginx:1", "sha256:a", "", "", nil)
+	i, _ := l.Checked(ctx, "nginx:1", "", "", "", errors.New("429"))
 	if i.LastDigest != "sha256:a" || i.LastError != "429" {
 		t.Errorf("an error dropped the last good answer: %+v", i)
 	}
-	if i, _ = l.Checked(ctx, "nginx:1", "sha256:b", "", nil); i.LastError != "" || i.LastDigest != "sha256:b" {
+	if i, _ = l.Checked(ctx, "nginx:1", "sha256:b", "", "", nil); i.LastError != "" || i.LastDigest != "sha256:b" {
 		t.Errorf("success kept the error: %+v", i)
+	}
+}
+
+func TestLabelReadKeepsAndClearsError(t *testing.T) {
+	st := servicetest.Store(t)
+	l := image.New(st.Images, dockerfake.New())
+	_, _ = l.Checked(ctx, "nginx:1", "sha256:a", "", "", nil)
+	if err := l.LabelRead(ctx, "nginx:1", errors.New("blob 500")); err != nil {
+		t.Fatal(err)
+	}
+	if i, _ := st.Images.GetByRef(ctx, "nginx:1"); i.VersionErr != "blob 500" {
+		t.Errorf("failed read = %q", i.VersionErr)
+	}
+	if err := l.LabelRead(ctx, "nginx:1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if i, _ := st.Images.GetByRef(ctx, "nginx:1"); i.VersionErr != "" {
+		t.Errorf("good read kept %q", i.VersionErr)
 	}
 }
 

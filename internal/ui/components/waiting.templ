@@ -1,6 +1,9 @@
 package components
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 // WaitingView is the Waiting on you page: what needs the viewer, grouped,
 // and what waits on someone with more rights, muted.
@@ -9,6 +12,11 @@ type WaitingView struct {
 	Groups []WaitGroupView
 	Others []WaitRowView
 	Live   string // the page's own GET, polled; "" = static
+	// Promote is the POST per-row and bulk promote share (one or many pairs).
+	Promote string
+	// Notice is the outcome of the last promote ("1 of 3 skipped: needs full
+	// review"); "" = none.
+	Notice string
 }
 
 type WaitGroupView struct {
@@ -18,42 +26,171 @@ type WaitGroupView struct {
 
 // WaitRowView is one row: a title and why, and where its button goes (Href
 // "" = no button, a muted row).
-type WaitRowView struct{ Title, Sub, Href, Act string }
+type WaitRowView struct {
+	Title, Sub, Href, Act string
+	Rel                   *WaitReleaseView
+}
 
-// Waiting is the page's body.
-templ Waiting(v WaitingView) {
-	<div id="waiting" class="px-4 sm:px-6 py-5">
-		if v.Live != "" {
-			@LiveTab(v.Live, "waiting")
+// WaitReleaseView is a release row: the shared line, and what the page adds
+// to it. A risky row has no Promote and no tick; it says why in plan words.
+type WaitReleaseView struct {
+	Line ReleaseLineView
+	// Pair is the tick's value and the pair a Promote posts: "release:env".
+	Pair string
+	// Risky: Problems are the plan's words, shown first one then "and N more".
+	Problems []string
+	// Review is the full review page; a phone's tap on a risky row goes there.
+	Review string
+	// Status is a promote under way or its refusal ("Queued", "Needs full
+	// review", a failure); Failed colours it.
+	Status string
+	Failed bool
+	// Promote: the plan was read, is clean, and the viewer may promote this
+	// row from the list. PlanFailed: the plan could not be read.
+	Promote    bool
+	PlanFailed bool
+}
+
+// Pickable says the row can be ticked: clean, not already moving.
+func (r WaitReleaseView) Pickable() bool { return r.Promote && len(r.Problems) == 0 && r.Status == "" }
+
+// firstProblem is the first reason in plan words, then "and N more".
+func (r WaitReleaseView) firstProblem() string {
+	if len(r.Problems) < 2 {
+		return strings.Join(r.Problems, "")
+	}
+	return r.Problems[0] + ", and " + strconv.Itoa(len(r.Problems)-1) + " more"
+}
+
+func (v WaitingView) pickable() bool {
+	for _, g := range v.Groups {
+		for _, r := range g.Rows {
+			if r.Rel != nil && r.Rel.Pickable() {
+				return true
+			}
 		}
-		<div class="flex flex-wrap items-center gap-3 pb-4">
-			<h2 class="text-lg font-semibold text-rw-text">Waiting on you</h2>
-			if v.Count > 0 {
-				@Chip(strconv.Itoa(v.Count), "accent")
+	}
+	return false
+}
+
+// Waiting is the page's body. The release modal's slot sits beside #waiting,
+// not in it: the poll and a promote swap only #waiting (hx-select).
+templ Waiting(v WaitingView) {
+	@ReleaseModalSlot()
+	<div id="waiting" class="w-full max-w-[1280px] mx-auto px-4 sm:px-6 py-5">
+		if v.Live != "" {
+			@LiveTabGuard(v.Live, "waiting", "rows")
+		}
+		<waiting-select class="block">
+			<div class="flex flex-wrap items-center gap-3 pb-4">
+				<h2 class="text-lg font-semibold text-rw-text">Waiting on you</h2>
+				if v.Count > 0 {
+					@Chip(strconv.Itoa(v.Count), "accent")
+				}
+				if v.pickable() {
+					<label class="hidden sm:flex items-center gap-2 text-xs text-rw-muted">
+						<input type="checkbox" data-all aria-label="Select all releases that can be promoted"/>
+						Select all
+					</label>
+					<span class="hidden text-sm text-rw-muted sm:inline" data-count></span>
+					<form id="waiting-bulk" class="hidden sm:block" hx-select="#waiting">
+						<div data-bulk hidden>
+							@Confirm(ConfirmView{
+								Button:  "Promote",
+								Title:   "Promote the selected releases",
+								Warning: "Each one is planned again first. A release that needs full review is skipped.",
+								Action:  v.Promote,
+								Target:  "#waiting",
+								Primary: true,
+								Yes:     "Promote",
+							})
+						</div>
+					</form>
+				}
+			</div>
+			if v.Notice != "" {
+				<p class="pb-3 text-sm text-rw-muted" role="status">{ v.Notice }</p>
+			}
+			<section class="panel p-4 sm:p-6 overflow-hidden">
+				if len(v.Groups) == 0 && len(v.Others) == 0 {
+					<p class="text-sm text-rw-muted">Nothing is waiting on you.</p>
+				}
+				for i, g := range v.Groups {
+					<h3 class={ "label mb-1", templ.KV("mt-5", i > 0) }>{ g.Title }</h3>
+					<ul class="divide-y divide-rw-border">
+						for _, r := range g.Rows {
+							if r.Rel != nil {
+								<li class="py-2">@waitRelease(r, v.Promote)</li>
+							} else {
+								<li class="py-3">@waitRow(r)</li>
+							}
+						}
+					</ul>
+				}
+				if len(v.Others) > 0 {
+					<h3 class={ "label mb-1", templ.KV("mt-5", len(v.Groups) > 0) }>Waiting on someone else</h3>
+					<ul class="divide-y divide-rw-border text-rw-muted">
+						for _, r := range v.Others {
+							<li class="py-3">@waitRow(r)</li>
+						}
+					</ul>
+				}
+			</section>
+		</waiting-select>
+	</div>
+}
+
+// waitRelease is a release row: a tick (not on phones), the shared line, and
+// one action. A risky row says why under the line and opens the modal; on a
+// phone it links straight to the full review.
+templ waitRelease(row WaitRowView, promote string) {
+	@waitReleaseRow(row, *row.Rel, promote)
+}
+
+templ waitReleaseRow(row WaitRowView, r WaitReleaseView, promote string) {
+	<div class="flex flex-wrap items-center gap-1 sm:flex-nowrap">
+		<input
+			type="checkbox"
+			data-pick
+			name="pair"
+			form="waiting-bulk"
+			value={ r.Pair }
+			disabled?={ !r.Pickable() }
+			aria-label={ "Select " + r.Line.Stack + " release " + r.Line.Number }
+			class="hidden h-5 w-5 shrink-0 accent-rw-accent sm:block ml-2"
+		/>
+		<div class="min-w-0 flex-1 max-sm:basis-full">
+			if len(r.Problems) > 0 {
+				<div class="hidden sm:block">@ReleaseLine(r.Line)</div>
+				<a href={ templ.SafeURL(r.Review) } class="block sm:hidden">@ReleaseLine(r.lineNoOpen())</a>
+				<p class="px-3 pb-2 pl-14 text-xs text-rw-warn [overflow-wrap:anywhere]">
+					<span class="font-semibold">Needs full review</span>{ ": " + r.firstProblem() }
+				</p>
+			} else {
+				@ReleaseLine(r.Line)
+				if r.PlanFailed {
+					<p class="px-3 pb-2 pl-14 text-xs text-rw-warn" role="status">Plan could not be read</p>
+				}
+			}
+			if r.Status != "" {
+				<p class={ "px-3 pb-2 pl-14 text-xs", templ.KV("text-rw-danger", r.Failed), templ.KV("text-rw-muted", !r.Failed) } role="status">{ r.Status }</p>
 			}
 		</div>
-		<section class="panel p-4 sm:p-6 overflow-hidden">
-			if len(v.Groups) == 0 && len(v.Others) == 0 {
-				<p class="text-sm text-rw-muted">Nothing is waiting on you.</p>
+		<div class="flex shrink-0 items-center gap-1 max-sm:pb-1 max-sm:pl-14">
+			if row.Href != "" {
+				<a href={ templ.SafeURL(row.Href) } hx-get={ row.Href } hx-target="#main" hx-push-url="true" class="btn btn-ghost btn-sm shrink-0">{ row.Act }</a>
 			}
-			for i, g := range v.Groups {
-				<h3 class={ "label mb-1", templ.KV("mt-5", i > 0) }>{ g.Title }</h3>
-				<ul class="divide-y divide-rw-border">
-					for _, r := range g.Rows {
-						<li class="py-3">@waitRow(r)</li>
-					}
-				</ul>
+			if r.Pickable() {
+				<button type="button" class="btn btn-primary btn-sm mr-2 shrink-0" hx-post={ promote } hx-vals={ templ.JSONString(map[string]string{"pair": r.Pair}) } hx-target="#waiting" hx-select="#waiting" hx-swap="outerHTML">Promote</button>
 			}
-			if len(v.Others) > 0 {
-				<h3 class={ "label mb-1", templ.KV("mt-5", len(v.Groups) > 0) }>Waiting on someone else</h3>
-				<ul class="divide-y divide-rw-border text-rw-muted">
-					for _, r := range v.Others {
-						<li class="py-3">@waitRow(r)</li>
-					}
-				</ul>
-			}
-		</section>
+		</div>
 	</div>
+}
+
+func (r WaitReleaseView) lineNoOpen() ReleaseLineView {
+	l := r.Line
+	l.Open = ""
+	return l
 }
 
 templ waitRow(r WaitRowView) {

@@ -2,7 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
 	"slices"
+	"syscall"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -13,6 +18,21 @@ import (
 // LogsPage is how many lines one search returns. A search reaches back as
 // far as observe_logs_retention.
 const LogsPage = 500
+
+// ErrObserveDown is a read of the observe store that could not reach it (not
+// running, socket gone, timed out). It is an errs.ErrBusy, so the API says 503.
+var ErrObserveDown = fmt.Errorf("observe is not reachable: %w", errs.ErrBusy)
+
+// observeUnreachable is whether err is the transport failing, not the store
+// answering: a dial or socket error, a refused or reset connection, a timeout.
+func observeUnreachable(err error) bool {
+	var op *net.OpError
+	var ne net.Error
+	return errors.As(err, &op) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		(errors.As(err, &ne) && ne.Timeout())
+}
 
 // LogsOn says whether log history is kept (observe and observe_logs_enabled).
 func (o *Orchestrator) LogsOn() bool { return o.logship.on.Load() }
@@ -105,6 +125,9 @@ func (o *Orchestrator) SearchLogs(ctx context.Context, s Scope, in LogsIn) ([]Lo
 		to = in.Before.Add(-time.Nanosecond)
 	}
 	ls, err := o.logStore().Query(ctx, f, from, to, LogsPage)
+	if observeUnreachable(err) {
+		return nil, fmt.Errorf("%w: %w", ErrObserveDown, err)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -26,8 +26,8 @@ func TestCSPAllowsDataImages(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
 	csp := rec.Header().Get("Content-Security-Policy")
-	if !strings.Contains(csp, "img-src 'self' data:") {
-		t.Errorf("CSP = %q, want img-src 'self' data:", csp)
+	if !strings.Contains(csp, "img-src 'self' data: https://avatars.githubusercontent.com;") {
+		t.Errorf("CSP = %q, want img-src 'self' data: https://avatars.githubusercontent.com", csp)
 	}
 }
 
@@ -65,6 +65,20 @@ func TestCSPGitHubWeb(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
 	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'self' https://github.stackr.test:8443;") {
+		t.Errorf("CSP = %q", csp)
+	}
+}
+
+func TestCSPGitHubAvatars(t *testing.T) {
+	env := servicetest.New(t)
+	srv, err := server.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), BaseURL: "https://panel.example.com", GitHubAvatars: "https://avatars.stackr.test:8443"})
+	rec := httptest.NewRecorder()
+	srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "img-src 'self' data: https://avatars.stackr.test:8443;") {
 		t.Errorf("CSP = %q", csp)
 	}
 }
@@ -118,5 +132,24 @@ func TestWebRefusesKeys(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("POST %s with a key = %d, want 401", path, rec.Code)
 		}
+	}
+}
+
+// Only a bare https origin (http in dev mode) is let into the CSP.
+func TestAvatarOriginValidated(t *testing.T) {
+	for set, want := range map[string]string{
+		"https://avatars.stackr.test:8443/": "https://avatars.stackr.test:8443",
+		"http://a.test":                     "https://avatars.githubusercontent.com",
+		"https://a.test/x":                  "https://avatars.githubusercontent.com",
+		"https://a.test; script-src *":      "https://avatars.githubusercontent.com",
+		"javascript:alert(1)":               "https://avatars.githubusercontent.com",
+		"":                                  "https://avatars.githubusercontent.com",
+	} {
+		if got := web.AvatarOrigin(set, false); got != want {
+			t.Errorf("AvatarOrigin(%q) = %q, want %q", set, got, want)
+		}
+	}
+	if got := web.AvatarOrigin("http://a.test:9", true); got != "http://a.test:9" {
+		t.Errorf("dev http = %q", got)
 	}
 }

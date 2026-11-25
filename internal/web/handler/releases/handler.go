@@ -4,6 +4,7 @@
 package releases
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -24,13 +25,17 @@ func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orc
 
 const path = "/-/releases"
 
-// href is the screen at a scope and filters; empty ones stay out of it.
-func href(scope, state, source, q string) string {
+// href is the screen at a scope, filters and page; empty ones stay out of it
+// (page 1 is no page).
+func href(scope, state, source, q string, page int) string {
 	v := url.Values{}
 	for k, s := range map[string]string{"scope": scope, "state": state, "source": source, "q": q} {
 		if s != "" {
 			v.Set(k, s)
 		}
+	}
+	if page > 1 {
+		v.Set("page", strconv.Itoa(page))
 	}
 	if len(v) == 0 {
 		return path
@@ -38,10 +43,11 @@ func href(scope, state, source, q string) string {
 	return path + "?" + v.Encode()
 }
 
-// GET /-/releases?scope=&state=&source=&q=
+// GET /-/releases?scope=&state=&source=&q=&page=
 func (h *handler) Page(c echo.Context) error {
 	ctx := c.Request().Context()
 	q := service.ScreenQuery{Scope: c.QueryParam("scope"), State: c.QueryParam("state"), Source: c.QueryParam("source"), Q: strings.TrimSpace(c.QueryParam("q"))}
+	q.Page, _ = strconv.Atoi(c.QueryParam("page")) // a bad one is 0, which is page 1
 	sc, err := h.orch.ReleaseScreen(ctx, middleware.Principal(c), q)
 	if err != nil {
 		return middleware.HTTPError(err)
@@ -60,7 +66,7 @@ func (h *handler) Page(c echo.Context) error {
 	// the tree
 	scopeName := ""
 	if len(sc.Scopes) > 1 {
-		v.Scopes = append(v.Scopes, components.RelScope{Label: "All scopes", Href: href("", q.State, q.Source, q.Q), Active: q.Scope == ""})
+		v.Scopes = append(v.Scopes, components.RelScope{Label: "All scopes", Href: href("", q.State, q.Source, q.Q, 0), Active: q.Scope == ""})
 	}
 	org := ""
 	for _, s := range sc.Scopes {
@@ -68,7 +74,7 @@ func (h *handler) Page(c echo.Context) error {
 			org = s.Name
 			v.Scopes = append(v.Scopes, components.RelScope{Label: s.Name}) // the heading
 		}
-		v.Scopes = append(v.Scopes, components.RelScope{Label: s.Label, Href: href(s.Key, q.State, q.Source, q.Q), Depth: s.Depth, Waiting: s.Waiting, Active: s.Key == q.Scope})
+		v.Scopes = append(v.Scopes, components.RelScope{Label: s.Label, Href: href(s.Key, q.State, q.Source, q.Q, 0), Depth: s.Depth, Waiting: s.Waiting, Active: s.Key == q.Scope})
 		if s.Key == q.Scope {
 			scopeName = s.Label
 			if s.Depth > 0 {
@@ -80,7 +86,7 @@ func (h *handler) Page(c echo.Context) error {
 	}
 	// the state switch
 	for _, st := range []struct{ key, label string }{{"", "All"}, {service.StateWaiting, "Waiting"}, {service.StateFailed, "Failed"}, {service.StateRunning, "Running"}} {
-		v.States = append(v.States, components.RelStateLink{Label: st.label, Count: sc.Counts[st.key], Href: href(q.Scope, st.key, q.Source, q.Q), Active: q.State == st.key})
+		v.States = append(v.States, components.RelStateLink{Label: st.label, Count: sc.Counts[st.key], Href: href(q.Scope, st.key, q.Source, q.Q, 0), Active: q.State == st.key})
 	}
 	sourceLabel := func(key string) string {
 		if key == "user" {
@@ -95,7 +101,17 @@ func (h *handler) Page(c echo.Context) error {
 		v.Rows = append(v.Rows, row(r, who))
 	}
 	if q.State != "" || q.Source != "" || q.Q != "" {
-		v.Clear = href(q.Scope, "", "", "")
+		v.Clear = href(q.Scope, "", "", "", 0)
+	}
+	if sc.Total > service.ScreenPage {
+		from := (sc.Page-1)*service.ScreenPage + 1
+		v.Range = fmt.Sprintf("%d-%d of %d", from, from+len(sc.Rows)-1, sc.Total)
+		if sc.Page > 1 {
+			v.Newer = href(q.Scope, q.State, q.Source, q.Q, sc.Page-1)
+		}
+		if from+len(sc.Rows) <= sc.Total {
+			v.Older = href(q.Scope, q.State, q.Source, q.Q, sc.Page+1)
+		}
 	}
 	v.Empty = "No releases yet. A push or a first deploy makes one."
 	if v.Clear != "" {
@@ -117,25 +133,25 @@ func (h *handler) Page(c echo.Context) error {
 	} else if q.Scope != "" && scopeName != "" {
 		v.Empty = "No releases in " + scopeName + " yet."
 	}
-	return render.Page(c, http.StatusOK, "Releases", components.RelScreenView(v))
+	return render.PageBar(c, http.StatusOK, "Releases", "", components.RelScreenView(v), nil, nil)
 }
 
-// row is a screen row: the window's row, with the screen's columns.
-func row(r service.ScreenRow, who map[string]string) components.RelRow {
+// row is a screen row: the window's row, plus the screen's plans and fixed
+// failures. A release opens its modal; a plan's link opens its review.
+func row(r service.ScreenRow, who map[string]string) components.ReleaseLineView {
 	base := "/" + r.Org + "/" + r.StackSlug
 	jobHref := func(id string) string { return base + "/" + r.LogEnv + "/-/jobs/" + id }
 	envs := map[string]components.EnvRun{}
 	for _, e := range r.Envs {
 		envs[e.ID] = components.EnvRun{Name: e.Name, Color: e.Color}
 	}
-	out := render.RelRowOf(r.WindowRow, r.Scope, who, envs, jobHref)
-	out.Scope, out.Source, out.Plan = r.Scope, out.By, r.Kind == service.RowPlan
-	verb := "Review"
-	if !r.CanPromote {
-		verb = "View" // the review says who can promote
-	}
+	out := render.ReleaseLineOf(r.WindowRow, r.Scope, base, who, envs, jobHref)
 	if r.Kind == service.RowPlan {
-		out.Message = strings.TrimRight(out.Message, ".")
+		verb := "Review"
+		if !r.CanPromote {
+			verb = "View" // the review says who can promote
+		}
+		out.Number, out.Message, out.Cause = "", "", strings.TrimRight(r.Message, ".")
 		if r.State == service.StateWaiting || r.State == service.StateFailed || r.State == "applying" {
 			// the exact plan: the config tab opens its review, not the newest one's
 			out.Link = components.RelLink{Label: verb + " plan", Href: "/-/admin/config?plan=" + url.QueryEscape(r.ID)}
@@ -149,22 +165,6 @@ func row(r service.ScreenRow, who map[string]string) components.RelRow {
 		out.State, out.Tone = "failed, fixed by release "+strconv.Itoa(r.FixedBy), ""
 	case r.Fixed:
 		out.State, out.Tone = "failed, fixed", ""
-	}
-	for _, rv := range r.Reviews {
-		label := verb + " plan"
-		if rv.Rollback {
-			label = verb + " rollback"
-		}
-		out.Reviews = append(out.Reviews, components.RelLink{
-			Label: label + " for " + rv.Env,
-			Href:  base + "/" + rv.EnvSlug + "/-/releases/" + r.ID, // the review as a page of its own
-		})
-	}
-	if r.State == service.StateWaiting && len(out.Reviews) > 0 {
-		out.Link = out.Reviews[0]
-		if len(out.Reviews) == 1 {
-			out.Link.Label = strings.TrimSuffix(out.Link.Label, " for "+r.Reviews[0].Env)
-		}
 	}
 	return out
 }

@@ -104,9 +104,9 @@ func TestHook(t *testing.T) {
 		return http.Header{"X-Github-Event": {event}, "X-Hub-Signature-256": {"sha256=" + hex.EncodeToString(mac.Sum(nil))}}
 	}
 	ctx := context.Background()
-	push := `{"ref":"refs/heads/main","after":"abc","head_commit":{"message":"m"},"repository":{"clone_url":"https://github.com/a/b.git","default_branch":"main"}}`
+	push := `{"ref":"refs/heads/main","after":"abc","head_commit":{"message":"m","author":{"name":"Ada L","username":"ada"}},"repository":{"clone_url":"https://github.com/a/b.git","default_branch":"main"}}`
 	ev, err := c.Hook(ctx, h("push", push), []byte(push))
-	if err != nil || ev.Push == nil || ev.Push.Branch != "main" || ev.Push.Commit != "abc" || ev.Push.Message != "m" ||
+	if err != nil || ev.Push == nil || ev.Push.Branch != "main" || ev.Push.Commit != "abc" || ev.Push.Message != "m" || ev.Push.AuthorName != "Ada L" || ev.Push.AuthorLogin != "ada" ||
 		ev.Push.Repo != "https://github.com/a/b.git" || ev.Push.DefaultBranch != "main" || ev.Push.Changed != nil {
 		t.Fatalf("push = %+v %v", ev.Push, err)
 	}

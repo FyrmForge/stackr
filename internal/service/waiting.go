@@ -14,11 +14,40 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 )
 
 // WaitItem is one thing that needs a person: what, why, where to act, and
-// the button's word.
-type WaitItem struct{ Title, Sub, Href, Act string }
+// the button's word. Rel is set on a release to promote.
+type WaitItem struct {
+	Title, Sub, Href, Act string
+	Rel                   *WaitRelease
+}
+
+// WaitRelease is what a release row on the Waiting page shows, read for the
+// env it waits for.
+type WaitRelease struct {
+	ID, Stack, StackSlug, OrgSlug, OrgID string
+	Number                               int
+	EnvID, Env, EnvSlug                  string
+	From                                 string // the env below it ("staging"), "" = none
+	By, Commit, Message, Cause           string
+	NoVersion                            bool // see WindowRow.NoVersion
+	AuthorName, AuthorLogin              string
+	At                                   time.Time
+	// Change is what the env would move to, per tile ("immich-server 3.4.1 to
+	// 3.4.2"), from the pins; "" = not known.
+	Change string
+	// Problems are why it needs the full review (PlanProblems); Risky = any.
+	// Both are empty when the plan was not read (the count path).
+	Problems []string
+	Risky    bool
+	// Promotable: the plan was read and is clean, so the list may promote it.
+	// PlanFailed: the plan could not be read, so the row says so and is no pick.
+	Promotable, PlanFailed bool
+	// Status is a promote already under way: "Queued" or "Deploying"; "" = none.
+	Status string
+}
 
 // WaitGroup is the items of one kind.
 type WaitGroup struct {
@@ -114,6 +143,10 @@ func (o *Orchestrator) waitingOnYou(ctx context.Context, p *Principal, plans boo
 		slices.SortStableFunc(w.Groups, func(a, b WaitGroup) int { return rank(a.Title) - rank(b.Title) })
 	}()
 
+	var live map[string]string
+	if plans {
+		live = o.livePromotes(ctx)
+	}
 	var orgs []Org
 	var err error
 	if p.Access.Admin {
@@ -146,16 +179,21 @@ func (o *Orchestrator) waitingOnYou(ctx context.Context, p *Principal, plans boo
 			if err != nil {
 				return w, err
 			}
-			for _, r := range rungs {
+			for i, r := range rungs {
 				if r.Behind {
+					rel := &WaitRelease{StackSlug: st.Slug, OrgSlug: og.Slug, OrgID: og.ID, Stack: st.Name, Number: r.Waiting, EnvID: r.EnvID, Env: r.Name, EnvSlug: r.Slug}
+					if i > 0 {
+						rel.From = rungs[i-1].Name
+					}
 					sub := ""
 					if plans {
-						sub = o.releaseWaitSub(ctx, p, st.ID, r)
+						sub = o.releaseWait(ctx, p, st.ID, r, rel)
+						rel.Status = live[rel.ID+"|"+r.EnvID]
 					}
 					add("Releases to promote", WaitItem{
 						Title: st.Name + " / " + r.Name + ", release " + strconv.Itoa(r.Waiting),
-						Sub:   sub,
-						Href:  "/" + og.Slug + "/" + st.Slug + "/" + r.Slug + "?drawer=env%3A" + r.EnvID + "&tab=releases", Act: "Review plan",
+						Sub:   sub, Rel: rel,
+						Href: "/" + og.Slug + "/" + st.Slug + "/" + r.Slug + "?drawer=env%3A" + r.EnvID + "&tab=releases", Act: "Review plan",
 					})
 				}
 			}
@@ -178,10 +216,36 @@ func (o *Orchestrator) waitingOnYou(ctx context.Context, p *Principal, plans boo
 	return w, nil
 }
 
-// releaseWaitSub is a release row's words: what promoting it would do, as
-// the review's summary counts it ("2 to add, 1 to change"); the plain fact
-// when the plan cannot be made.
-func (o *Orchestrator) releaseWaitSub(ctx context.Context, p *Principal, stackID string, r GraphRung) string {
+// livePromotes maps "<release id>|<env id>" to "Queued" or "Deploying" for the
+// promote jobs in flight: a release waiting on two envs is promoting on one.
+func (o *Orchestrator) livePromotes(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	for _, st := range []string{job.Running, job.Queued} { // a running job wins
+		js, _ := o.jobRows.List(ctx, st)
+		for _, j := range js {
+			if j.Kind != string(kindPromote) || j.ReleaseID == nil {
+				continue
+			}
+			var p promoteJob
+			if json.Unmarshal([]byte(j.Payload), &p) != nil || p.EnvID == "" {
+				continue
+			}
+			k := *j.ReleaseID + "|" + p.EnvID
+			if st == job.Running {
+				out[k] = "Deploying"
+			} else if out[k] == "" {
+				out[k] = "Queued"
+			}
+		}
+	}
+	return out
+}
+
+// releaseWait fills rel (the release, who cut it, what moves, why it needs
+// the full review) and returns the row's words: what promoting it would do,
+// as the review's summary counts it ("2 to add, 1 to change"); the plain
+// fact when the plan cannot be made. The plan is read only when plans.
+func (o *Orchestrator) releaseWait(ctx context.Context, p *Principal, stackID string, r GraphRung, rel *WaitRelease) string {
 	fact := "release " + strconv.Itoa(r.Waiting) + " is not on " + r.Name
 	rs, err := o.releases.List(ctx, stackID)
 	if err != nil {
@@ -191,10 +255,26 @@ func (o *Orchestrator) releaseWaitSub(ctx context.Context, p *Principal, stackID
 	if i < 0 {
 		return fact
 	}
-	pl, err := o.PlanPromote(ctx, p, r.EnvID, rs[i].ID)
+	x := rs[i]
+	rel.ID, rel.By, rel.At, rel.Commit, rel.Message = x.ID, x.CreatedBy, x.CreatedAt, x.Commit, x.Message
+	rel.AuthorName, rel.AuthorLogin = x.AuthorName, x.AuthorLogin
+	rel.Cause = o.releases.CauseOf(ctx, x.ID)
+	rel.NoVersion = o.versionUnread(ctx, x.ID)
+	if e, err := o.envs.Get(ctx, r.EnvID); err == nil && e.ReleaseID != nil {
+		if from, err := o.releases.Pins(ctx, *e.ReleaseID); err == nil {
+			if to, err := o.releases.Pins(ctx, x.ID); err == nil {
+				rel.Change = release.Moved(from, to)
+			}
+		}
+	}
+	pl, err := o.PlanPromote(ctx, p, r.EnvID, x.ID)
 	if err != nil {
+		rel.PlanFailed = true
 		return fact
 	}
+	rel.Problems = PlanProblems(pl.Plan)
+	rel.Risky = len(rel.Problems) > 0
+	rel.Promotable = pl.CanDeploy && !rel.Risky
 	var parts []string
 	add, change, remove := planCounts(pl.Plan.Changes)
 	for _, c := range []struct {

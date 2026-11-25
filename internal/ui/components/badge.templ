@@ -19,9 +19,9 @@ templ JobBadge(state string) {
 	@badge(state, jobTone[state])
 }
 
-// EnvBadge is an environment's name beside its colour dot, so prod looks
+// EnvChip is an environment's name beside its colour dot, so prod looks
 // like prod everywhere. Color is one of EnvColors; anything else, no dot.
-templ EnvBadge(name, color string) {
+templ EnvChip(name, color string) {
 	<span class="inline-flex items-center gap-1.5 text-xs text-rw-text">
 		if dot := envClass(color); dot != "" {
 			<span class={ "env-dot", dot }></span>

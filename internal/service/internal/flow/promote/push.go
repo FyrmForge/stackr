@@ -22,6 +22,8 @@ import (
 type Event struct {
 	Repo, Branch, Commit, Message string
 	Changed                       []string
+	// AuthorName and AuthorLogin credit the release ("" = unknown).
+	AuthorName, AuthorLogin string
 	// PR marks a pull request event, the only thing that builds a PR env.
 	PR bool
 	// PRNumber is the pull request's; with PR set only env pr-<n> is built.
@@ -155,6 +157,9 @@ func (f *Flow) Push(
 		if r, err = d.Releases.SetMessage(ctx, r, ev.Message); err != nil {
 			return store.Release{}, nil, err
 		}
+	}
+	if r, err = d.Releases.SetAuthor(ctx, r, ev.AuthorName, ev.AuthorLogin); err != nil {
+		return store.Release{}, nil, err
 	}
 	var auto []store.Environment
 	for i, e := range from {

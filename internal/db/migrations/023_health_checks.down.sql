@@ -1,0 +1,10 @@
+ALTER TABLE tiles DROP COLUMN health_http_retries;
+ALTER TABLE tiles DROP COLUMN health_http_timeout_s;
+ALTER TABLE tiles DROP COLUMN health_http_interval_s;
+ALTER TABLE tiles DROP COLUMN health_http_status;
+ALTER TABLE tiles RENAME COLUMN health_exec_start_period_s TO healthcheck_start_period_s;
+ALTER TABLE tiles RENAME COLUMN health_exec_retries TO healthcheck_retries;
+ALTER TABLE tiles RENAME COLUMN health_exec_timeout_s TO healthcheck_timeout_s;
+ALTER TABLE tiles RENAME COLUMN health_exec_interval_s TO healthcheck_interval_s;
+ALTER TABLE tiles RENAME COLUMN health_exec_cmd TO healthcheck_cmd;
+ALTER TABLE tiles RENAME COLUMN health_http_path TO health_path;

@@ -2,10 +2,18 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/url"
+	"os"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/logs"
 )
 
@@ -144,5 +152,48 @@ func TestPurgeLogs(t *testing.T) {
 	}
 	if len(st.got) != 1 || st.got[0].Org != sc.Org.ID || st.got[0].Env != sc.Env.ID {
 		t.Errorf("deleted %+v", st.got)
+	}
+}
+
+func TestObserveUnreachable(t *testing.T) {
+	t.Parallel()
+	dial := &url.Error{Op: "Post", URL: "http://observe/x", Err: &net.OpError{Op: "dial", Net: "unix", Err: os.ErrNotExist}}
+	for _, c := range []struct {
+		err  error
+		want bool
+	}{
+		{dial, true},
+		{fmt.Errorf("w: %w", syscall.ECONNREFUSED), true},
+		{fmt.Errorf("w: %w", syscall.ENOENT), true},
+		{context.DeadlineExceeded, true},
+		{fmt.Errorf("w: %w", io.EOF), true},
+		{io.ErrUnexpectedEOF, true},
+		{errors.New("victorialogs /x: 400 Bad Request"), false},
+		{context.Canceled, false},
+		{nil, false},
+	} {
+		if got := observeUnreachable(c.err); got != c.want {
+			t.Errorf("observeUnreachable(%v) = %v, want %v", c.err, got, c.want)
+		}
+	}
+}
+
+type downLogs struct{ memLogs }
+
+func (*downLogs) Query(context.Context, logs.Filter, time.Time, time.Time, int) ([]logs.Line, error) {
+	return nil, &net.OpError{Op: "dial", Net: "unix", Err: syscall.ENOENT}
+}
+
+// A store that cannot be reached is ErrObserveDown (a 503 on the API), not a
+// bare dial error.
+func TestSearchLogsObserveDown(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	o := w.orch
+	o.logship.store = &downLogs{}
+	o.logship.on.Store(true)
+	_, err := o.SearchLogs(context.Background(), Scope{Org: &Org{ID: w.org}}, LogsIn{})
+	if !errors.Is(err, ErrObserveDown) || !errors.Is(err, errs.ErrBusy) {
+		t.Fatalf("err = %v", err)
 	}
 }

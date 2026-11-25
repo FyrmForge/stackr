@@ -179,3 +179,72 @@ func TestGuard(t *testing.T) {
 		t.Fatal("private realm dialled")
 	}
 }
+
+// The version label is read through an index to the platform's config.
+func TestVersionLabel(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/app/manifests/1":
+			_, _ = w.Write([]byte(`{"manifests":[{"digest":"sha256:arm","platform":{"os":"linux","architecture":"arm64"}},{"digest":"sha256:amd","platform":{"os":"linux","architecture":"amd64"}}]}`))
+		case "/v2/app/manifests/sha256:amd":
+			_, _ = w.Write([]byte(`{"config":{"digest":"sha256:cfg"}}`))
+		case "/v2/app/blobs/sha256:cfg":
+			_, _ = w.Write([]byte(`{"config":{"Labels":{"org.opencontainers.image.version":" 3.4.2 "}}}`))
+		case "/v2/long/manifests/1":
+			_, _ = w.Write([]byte(`{"config":{"digest":"sha256:long"}}`))
+		case "/v2/long/blobs/sha256:long":
+			_, _ = w.Write([]byte(`{"config":{"Labels":{"org.opencontainers.image.version":"` + strings.Repeat("é", 100) + `"}}}`))
+		case "/v2/bare/manifests/1":
+			_, _ = w.Write([]byte(`{"config":{"digest":"sha256:none"}}`))
+		case "/v2/bare/blobs/sha256:none":
+			_, _ = w.Write([]byte(`{"config":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	old := HTTP
+	HTTP = srv.Client()
+	t.Cleanup(func() { HTTP = old })
+	host := strings.TrimPrefix(srv.URL, "https://")
+	ctx := context.Background()
+	if v, err := VersionLabel(ctx, host+"/app:1", "", "", "amd64"); err != nil || v != "3.4.2" {
+		t.Fatalf("label = %q, %v", v, err)
+	}
+	if v, err := VersionLabel(ctx, host+"/long:1", "", "", "amd64"); err != nil || v != strings.Repeat("é", 64) {
+		t.Fatalf("long label = %q, %v", v, err)
+	}
+	if v, err := VersionLabel(ctx, host+"/bare:1", "", "", "amd64"); err != nil || v != "" {
+		t.Fatalf("no label = %q, %v", v, err)
+	}
+	if _, err := VersionLabel(ctx, host+"/app:1", "", "", "riscv64"); err == nil {
+		t.Fatal("a platform the index lacks must fail")
+	}
+}
+
+// With a digest the label is read from it, not from the tag, which may have
+// moved to another image since the digest was resolved.
+func TestVersionLabelByDigest(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/app/manifests/1": // the tag now points at B
+			_, _ = w.Write([]byte(`{"config":{"digest":"sha256:cfgB"}}`))
+		case "/v2/app/manifests/sha256:A":
+			_, _ = w.Write([]byte(`{"config":{"digest":"sha256:cfgA"}}`))
+		case "/v2/app/blobs/sha256:cfgA":
+			_, _ = w.Write([]byte(`{"config":{"Labels":{"org.opencontainers.image.version":"A"}}}`))
+		case "/v2/app/blobs/sha256:cfgB":
+			_, _ = w.Write([]byte(`{"config":{"Labels":{"org.opencontainers.image.version":"B"}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	old := HTTP
+	HTTP = srv.Client()
+	t.Cleanup(func() { HTTP = old })
+	host := strings.TrimPrefix(srv.URL, "https://")
+	if v, err := VersionLabel(context.Background(), host+"/app:1@sha256:A", "", "", "amd64"); err != nil || v != "A" {
+		t.Fatalf("label = %q, %v", v, err)
+	}
+}

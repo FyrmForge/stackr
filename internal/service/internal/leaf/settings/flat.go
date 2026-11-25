@@ -62,6 +62,9 @@ func (l *Leaf) Int(ctx context.Context, key string) (int, error) {
 // knob outright. The empty string removes the row, falling back to the boot
 // value or default (an EmptyOff knob keeps it as empty).
 func (l *Leaf) Set(ctx context.Context, key, raw string) error {
+	if retired[key] {
+		return nil
+	}
 	if err := Check(key, raw); err != nil {
 		return err
 	}
@@ -77,6 +80,9 @@ func (l *Leaf) Set(ctx context.Context, key, raw string) error {
 // Check is everything Set refuses, without writing: a form with several
 // knobs checks them all before saving any.
 func Check(key, raw string) error {
+	if retired[key] {
+		return nil
+	}
 	k, ok := lookup(key)
 	if !ok || k.Scopes != Flat {
 		return unknown(key)

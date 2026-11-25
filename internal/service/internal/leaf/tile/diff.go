@@ -128,12 +128,16 @@ func Diff(old, cur store.Tile) Changed {
 	mark("port", old.ContainerPort == cur.ContainerPort)
 	mark("published_ports", old.PublishedPorts == cur.PublishedPorts)
 	mark("endpoint_protocol", old.EndpointProtocol == cur.EndpointProtocol)
-	mark("health_path", old.HealthPath == cur.HealthPath)
-	mark("healthcheck", old.HealthcheckCmd == cur.HealthcheckCmd &&
-		old.HealthcheckIntervalS == cur.HealthcheckIntervalS &&
-		old.HealthcheckTimeoutS == cur.HealthcheckTimeoutS &&
-		old.HealthcheckRetries == cur.HealthcheckRetries &&
-		old.HealthcheckStartPeriodS == cur.HealthcheckStartPeriodS)
+	mark("health.http", old.HealthHTTPPath == cur.HealthHTTPPath &&
+		old.HealthHTTPStatus == cur.HealthHTTPStatus &&
+		old.HealthHTTPIntervalS == cur.HealthHTTPIntervalS &&
+		old.HealthHTTPTimeoutS == cur.HealthHTTPTimeoutS &&
+		old.HealthHTTPRetries == cur.HealthHTTPRetries)
+	mark("health.exec", old.HealthExecCmd == cur.HealthExecCmd &&
+		old.HealthExecIntervalS == cur.HealthExecIntervalS &&
+		old.HealthExecTimeoutS == cur.HealthExecTimeoutS &&
+		old.HealthExecRetries == cur.HealthExecRetries &&
+		old.HealthExecStartPeriodS == cur.HealthExecStartPeriodS)
 	mark("limits", old.CPULimit == cur.CPULimit && old.MemLimitMB == cur.MemLimitMB)
 	mark("user", old.User == cur.User)
 	mark("shm_size_mb", old.ShmSizeMB == cur.ShmSizeMB)

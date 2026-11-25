@@ -9,7 +9,7 @@ import (
 
 // The env viewer has the tile picker and an Older button when a page is full;
 // a tile viewer has no picker, keeps its tile in a hidden field and offers
-// Live; stderr and access lines are marked. A line's time is a <time> in UTC
+// Live; error and access lines are marked. A line's time is a <time> in UTC
 // that <local-time> rewrites in the viewer's zone.
 func TestLogHistory(t *testing.T) {
 	render := func(v LogHistoryView) string {
@@ -21,7 +21,7 @@ func TestLogHistory(t *testing.T) {
 	}
 	lines := []LogHistoryLine{
 		{Time: time.Date(2026, 10, 21, 12, 0, 0, 0, time.FixedZone("CEST", 2*3600)), Tile: "api", Source: "access", Text: "GET /a 200 12ms"},
-		{Time: time.Date(2026, 10, 21, 9, 59, 59, 0, time.UTC), Tile: "api", Source: "app", Text: "boom", Err: true},
+		{Time: time.Date(2026, 10, 21, 9, 59, 59, 0, time.UTC), Tile: "api", Source: "app", Text: "boom", Level: "error"},
 	}
 	env := render(LogHistoryView{
 		Action: "/a/s/e/-/logs", Range: "1h", Lines: lines, Older: "/a/s/e/-/logs?before=x",

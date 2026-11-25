@@ -689,11 +689,16 @@ first: it says which subfolder takes what.
 
 - RFCs, build plans and audits go in `rfc`, research in `research`, UI boards
   in `design`, write-ups of finished parts in `architecture`.
-- Every artifact you publish gets a card on the
-  [timeline board](https://fraedi.ai/artifacts/fed49ad1-71d4-45db-92b4-e4aedc9646d1)
-  in the same session, under the day of its first revision, in its
-  workstream's frame. The board's agent notes say how to add one. Never
-  regenerate the board: it holds hand-placed items.
+- Any and all artifacts are linked, one way or another, to the main project
+  board, the
+  [timeline board](https://fraedi.ai/artifacts/fed49ad1-71d4-45db-92b4-e4aedc9646d1).
+  Nothing published may be reachable only by its URL. Default: a card on the
+  timeline board in the same session, under the day of its first revision, in
+  its workstream's frame. A sticky note link or a card on a board that is
+  itself on the timeline also counts. The board's agent notes say how to add
+  one. Never regenerate the board: it holds hand-placed items.
+- When an artifact is replaced or trashed, its card or link on the board is
+  repointed or removed in the same session.
 - An RFC or plan says at the top whether it is agreed and whether it is built.
   When that changes, update the page and the note at the end of its frame on
   the board.

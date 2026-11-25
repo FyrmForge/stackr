@@ -11,15 +11,15 @@ import (
 )
 
 // A component call written mid-text ("by x · @When(t)") is printed as text
-// by templ; the release row renders the date instead.
+// by templ; the release row renders its age, the date on hover, instead.
 func TestReleaseRowRendersDate(t *testing.T) {
 	when := time.Date(2026, 10, 24, 18, 2, 0, 0, time.UTC)
-	v := ReleasesView{Rows: []ReleaseRow{{Number: "5", By: "git push", When: when}}}
+	v := ReleasesView{Rows: []ReleaseRow{{Number: "5", By: "git push", Via: "GitHub", Age: "3d ago", When: when}}}
 	var b strings.Builder
 	if err := Releases(v).Render(context.Background(), &b); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(b.String(), "@When") || !strings.Contains(b.String(), "Oct 24, 18:02") {
+	if strings.Contains(b.String(), "@When") || !strings.Contains(b.String(), "3d ago via GitHub") || !strings.Contains(b.String(), `title="Oct 24 2026, 18:02 UTC"`) {
 		t.Errorf("release row date not rendered:\n%s", b.String())
 	}
 }

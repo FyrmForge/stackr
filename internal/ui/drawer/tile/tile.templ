@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
-	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
+	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 )
 
@@ -189,8 +189,9 @@ templ LiveJob(v View, s StatusView) {
 		<span class="text-sm text-rw-faint">never deployed</span>
 	} else {
 		@c.JobStatus(*s.Job)
-		<div class="text-xs text-rw-faint mt-1.5">@c.When(s.JobWhen)
-</div>
+		<div class="text-xs text-rw-faint mt-1.5">
+			@c.When(s.JobWhen)
+		</div>
 	}
 }
 
@@ -383,8 +384,9 @@ templ Jobs(v View, j JobsView) {
 						if r.Line != "" {
 							<span class="text-xs text-rw-muted">{ r.Line }</span>
 						}
-						<span class="text-xs text-rw-faint whitespace-nowrap">@c.When(r.When)
-</span>
+						<span class="text-xs text-rw-faint whitespace-nowrap">
+							@c.When(r.When)
+						</span>
 						<span class="ml-auto flex items-center gap-2">
 							if r.Cancel != "" {
 								@c.Confirm(c.ConfirmView{
@@ -489,17 +491,17 @@ templ Access(v View, a AccessView) {
 							if v.ReadOnly {
 								<span class="text-rw-muted">{ e.Access }</span>
 							} else {
-							<form novalidate hx-post={ v.Base + "/access?open=dbaccess" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex items-center gap-2">
-								<input type="hidden" name="slice" value={ e.Slice }/>
-								<label for={ "access-entry-" + e.Slice } class="sr-only">{ e.Slice } access</label>
-								@accessSelect("access-entry-"+e.Slice, e.Access)
-								<button type="submit" class="btn btn-ghost btn-sm">Save</button>
-							</form>
-							<form novalidate hx-post={ v.Base + "/access?open=dbaccess" } hx-target={ "#" + Root } hx-swap="outerHTML">
-								<input type="hidden" name="slice" value={ e.Slice }/>
-								<input type="hidden" name="access" value="default"/>
-								<button type="submit" class="text-rw-faint hover:text-rw-danger" title="Use default" aria-label={ "Use the default access on " + e.Slice }>×</button>
-							</form>
+								<form novalidate hx-post={ v.Base + "/access?open=dbaccess" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex items-center gap-2">
+									<input type="hidden" name="slice" value={ e.Slice }/>
+									<label for={ "access-entry-" + e.Slice } class="sr-only">{ e.Slice } access</label>
+									@accessSelect("access-entry-"+e.Slice, e.Access)
+									<button type="submit" class="btn btn-ghost btn-sm">Save</button>
+								</form>
+								<form novalidate hx-post={ v.Base + "/access?open=dbaccess" } hx-target={ "#" + Root } hx-swap="outerHTML">
+									<input type="hidden" name="slice" value={ e.Slice }/>
+									<input type="hidden" name="access" value="default"/>
+									<button type="submit" class="text-rw-faint hover:text-rw-danger" title="Use default" aria-label={ "Use the default access on " + e.Slice }>×</button>
+								</form>
 							}
 						</li>
 					}
@@ -519,31 +521,31 @@ templ Access(v View, a AccessView) {
 		if v.ReadOnly {
 			<p class="mt-4 text-xs text-rw-faint" data-hint>Only members and owners can change its access.</p>
 		} else {
-		@c.PanelSection("access-add", "Add access", "") {
-			if len(a.Slices) == 0 {
-				if len(a.Entries) > 0 {
-					<p class="text-sm text-rw-muted">Every slice here has its access set.</p>
+			@c.PanelSection("access-add", "Add access", "") {
+				if len(a.Slices) == 0 {
+					if len(a.Entries) > 0 {
+						<p class="text-sm text-rw-muted">Every slice here has its access set.</p>
+					} else {
+						<p class="text-sm text-rw-muted">No slice tile in this environment yet.</p>
+					}
 				} else {
-					<p class="text-sm text-rw-muted">No slice tile in this environment yet.</p>
+					<form novalidate hx-post={ v.Base + "/access?open=dbaccess" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+						<div class="flex-1 min-w-32">
+							<label for="access-slice" class="label">Slice</label>
+							<select id="access-slice" name="slice" class="input">
+								for _, s := range a.Slices {
+									<option value={ s }>{ s }</option>
+								}
+							</select>
+						</div>
+						<div>
+							<label for="access-new" class="label">Access</label>
+							@accessSelect("access-new", "write")
+						</div>
+						<button type="submit" class="btn btn-ghost btn-sm">Add</button>
+					</form>
 				}
-			} else {
-				<form novalidate hx-post={ v.Base + "/access?open=dbaccess" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
-					<div class="flex-1 min-w-32">
-						<label for="access-slice" class="label">Slice</label>
-						<select id="access-slice" name="slice" class="input">
-							for _, s := range a.Slices {
-								<option value={ s }>{ s }</option>
-							}
-						</select>
-					</div>
-					<div>
-						<label for="access-new" class="label">Access</label>
-						@accessSelect("access-new", "write")
-					</div>
-					<button type="submit" class="btn btn-ghost btn-sm">Add</button>
-				</form>
 			}
-		}
 		}
 	</div>
 }
@@ -600,8 +602,9 @@ templ Runs(v View, r RunsView) {
 							<summary class="flex items-center gap-3 text-sm cursor-pointer list-none">
 								<span class={ "shrink-0", runTone(x) }>{ runWord(x) }</span>
 								<span class="text-rw-faint text-xs font-mono">{ shortID(x.ID) }</span>
-								<span class="text-rw-faint text-xs">@c.When(x.Started)
-</span>
+								<span class="text-rw-faint text-xs">
+									@c.When(x.Started)
+								</span>
 								<span class="text-rw-muted text-xs">{ x.Trigger }</span>
 								<span class="text-rw-faint text-xs ml-auto">{ x.Took }</span>
 								if x.Mem != "" {
@@ -885,15 +888,30 @@ templ mounts(v View, s SettingsView) {
 
 templ healthRow(v View, s SettingsView) {
 	@rowForm(v, s, "health", healthKeys) {
-		@text(s, "health_path", "Health path", "/healthz", "Empty means no check.", true)
-		@text(s, "healthcheck_cmd", "Healthcheck command", "curl -f http://localhost:8080/health", "", true)
-		<div class="grid grid-cols-4 gap-2">
-			@number(s, "healthcheck_interval_s", "Interval (s)", "5", "1", "")
-			@number(s, "healthcheck_timeout_s", "Timeout (s)", "30", "1", "")
-			@number(s, "healthcheck_retries", "Retries", "3", "1", "")
-			@number(s, "healthcheck_start_period_s", "Start period (s)", "0", "1", "")
+		<div class="space-y-4">
+			<div class="text-sm font-semibold text-rw-text">HTTP check</div>
+			<p class="text-xs text-rw-faint" data-hint>stackr's proxy calls this path. A replica that fails gets no traffic. Empty path turns it off.</p>
 		</div>
-		<p class="text-xs text-rw-faint" data-hint>A failing check holds a deploy and turns the tile amber.</p>
+		<div class="grid grid-cols-2 gap-2">
+			@text(s, "health_http_path", "Path", "/healthz", "", true)
+			@text(s, "health_http_status", "Expected status", "2xx", "", false)
+		</div>
+		<div class="grid grid-cols-3 gap-2">
+			@number(s, "health_http_interval_s", "Interval (s)", "5", "1", "")
+			@number(s, "health_http_timeout_s", "Timeout (s)", "3", "1", "")
+			@number(s, "health_http_retries", "Retries", "1", "1", "")
+		</div>
+		<div class="space-y-4">
+			<div class="text-sm font-semibold text-rw-text">Command check</div>
+			<p class="text-xs text-rw-faint" data-hint>Runs inside the container. A failing check holds a deploy and turns the tile amber. Empty command turns it off.</p>
+		</div>
+		@area(s, "health_exec_cmd", "Command", "curl -f http://localhost:8080/health", "")
+		<div class="grid grid-cols-4 gap-2">
+			@number(s, "health_exec_interval_s", "Interval (s)", "5", "1", "")
+			@number(s, "health_exec_timeout_s", "Timeout (s)", "30", "1", "")
+			@number(s, "health_exec_retries", "Retries", "3", "1", "")
+			@number(s, "health_exec_start_period_s", "Start period (s)", "0", "1", "")
+		</div>
 	}
 }
 
@@ -1209,6 +1227,15 @@ templ image(v View, i ImageView) {
 			<dd class="truncate font-mono text-rw-text" title={ i.Digest }>{ orNone(shortDigest(i.Digest)) }</dd>
 			<dt class="text-rw-faint">Latest seen</dt>
 			<dd class="truncate font-mono text-rw-text" title={ i.LastDigest }>{ orNone(shortDigest(i.LastDigest)) } { i.LastTag }</dd>
+			if i.Version != "" {
+				<dt class="text-rw-faint">Latest version</dt>
+				<dd class="text-rw-text">{ i.Version }</dd>
+			} else if i.VersionUnread {
+				<dt class="text-rw-faint">Latest version</dt>
+				<dd class="text-rw-text" title="version label could not be read">unknown</dd>
+			}
+			<dt class="text-rw-faint">Status</dt>
+			<dd class="text-rw-text">{ orUnknown(i.Status) }</dd>
 			<dt class="text-rw-faint">Checked</dt>
 			<dd class="text-rw-text">
 				if i.Checked.IsZero() {
@@ -1225,6 +1252,14 @@ templ image(v View, i ImageView) {
 			@c.PostButton("Check now", v.Base+"/image/check?open=source")
 		}
 	</div>
+}
+
+// orUnknown: a status that was not given reads "unknown", never blank.
+func orUnknown(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
 }
 
 func orNone(s string) string {

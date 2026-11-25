@@ -300,8 +300,6 @@ level-less k/v table (old `keys.go`), which the catalogue swallows.
 | `protect` | bool | `false` | server→env | v1 |
 | `protect_user` | string | `""` | server→env (pair) | v1 |
 | `protect_password` | string | `""` | server→env (pair) | v1 |
-| `backup_run_concurrency` | int | `2` | server | v1 |
-| `backup_restore_concurrency` | int | `1` | server | v1 |
 | `cron_timeout_min` | int min | `30` | server→env, tile | later — cron tiles |
 | `cron_run_concurrency` | int | `8` | server | later — cron tiles |
 | `run_retention_days` | int days | `30` | server→env | later — cron runs |

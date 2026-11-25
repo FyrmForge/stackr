@@ -247,7 +247,7 @@ func jobsView(drawer, slug, base string, retry bool, js []service.Job) ui.JobsVi
 	return v
 }
 
-func imageView(t service.Tile, i service.Image) ui.ImageView {
+func imageView(t service.Tile, i service.ImageState) ui.ImageView {
 	return ui.ImageView{
 		Ref:        t.ImageRef,
 		Digest:     i.Digest,
@@ -255,6 +255,10 @@ func imageView(t service.Tile, i service.Image) ui.ImageView {
 		LastTag:    i.LastTag,
 		Checked:    when(i.CheckedAt),
 		LastError:  i.LastError,
+		Status:     i.Status,
+		Version:    i.LastVersion,
+
+		VersionUnread: i.VersionErr != "",
 	}
 }
 

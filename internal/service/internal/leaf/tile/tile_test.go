@@ -345,9 +345,14 @@ func TestRunKinds(t *testing.T) {
 			then(cronRow, func(t *store.Tile) { t.Replicas = 2 }),
 		},
 		{
-			"cron with a healthcheck",
-			"healthcheck applies to service tiles only",
-			then(cronRow, func(t *store.Tile) { t.HealthcheckCmd = "true" }),
+			"cron with a health exec",
+			"health.exec runs on service and image tiles",
+			then(cronRow, func(t *store.Tile) { t.HealthExecCmd = "true" }),
+		},
+		{
+			"cron with a health http",
+			"health.http runs on service and image tiles",
+			then(cronRow, func(t *store.Tile) { t.HealthHTTPPath = "/z" }),
 		},
 		{
 			"cron with a user",
@@ -576,8 +581,13 @@ func TestSideEffects(t *testing.T) {
 		{"watch paths only", func(t *store.Tile) { t.WatchPaths = "src/**" }, nil, nil},
 		{"domain only", func(*store.Tile) {}, []string{"domain +api.x.io"}, []tile.Effect{tile.Route}},
 		{"port", func(t *store.Tile) { t.ContainerPort = 8080 }, nil, []tile.Effect{tile.Route, tile.Redeploy}},
-		{"healthcheck", func(t *store.Tile) {
-			t.HealthcheckRetries = 3
+		{"health exec", func(t *store.Tile) {
+			t.HealthExecCmd = "true"
+			t.HealthExecRetries = 3
+		}, nil, []tile.Effect{tile.Route, tile.Redeploy}},
+		{"health http", func(t *store.Tile) {
+			t.HealthHTTPPath = "/z"
+			t.HealthHTTPStatus = 2
 		}, nil, []tile.Effect{tile.Route, tile.Redeploy}},
 		{"slug is identity", func(t *store.Tile) { t.Slug = "other" }, nil, nil},
 	} {
@@ -770,16 +780,16 @@ func isInvalid(err error, field string) bool {
 // key, and refuses an image reference or tag policy that cannot work.
 func TestValidateEveryRefusal(t *testing.T) {
 	row := store.Tile{
-		Kind: tile.Image, ImageRef: "Bad Image!!", TagPolicy: "???", EndpointProtocol: "ftp", HealthPath: "nope",
-		CPULimit: -1, MemLimitMB: -5, HealthcheckIntervalS: -1, HealthcheckRetries: -3, ContainerPort: 99999,
+		Kind: tile.Image, ImageRef: "Bad Image!!", TagPolicy: "???", EndpointProtocol: "ftp", HealthHTTPPath: "nope",
+		CPULimit: -1, MemLimitMB: -5, HealthExecCmd: "true", HealthExecIntervalS: -1, HealthExecRetries: -3, HealthHTTPTimeoutS: -1, ContainerPort: 99999,
 		Volumes: "novolume", Files: "junk",
 	}
 	got := map[string]bool{}
 	for _, bad := range errs.Invalids(tile.Validate(&row)) {
 		got[bad.Field] = true
 	}
-	for _, f := range []string{"image", "tag_policy", "endpoint_protocol", "health_path", "limits.cpu", "limits.memory_mb",
-		"healthcheck_interval", "healthcheck_retries", "port", "volumes", "files"} {
+	for _, f := range []string{"image", "tag_policy", "endpoint_protocol", "health.http.path", "limits.cpu", "limits.memory_mb",
+		"health.exec.interval", "health.exec.retries", "health.http.timeout", "port", "volumes", "files"} {
 		if !got[f] {
 			t.Errorf("%s not refused; refused %v", f, got)
 		}
@@ -789,6 +799,60 @@ func TestValidateEveryRefusal(t *testing.T) {
 		if err := tile.Validate(&row); err != nil {
 			t.Errorf("%s refused: %v", ok, err)
 		}
+	}
+}
+
+func TestValidateHealth(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		edit  func(*store.Tile)
+		field string // "" = accepted
+	}{
+		{"status 2", func(r *store.Tile) { r.HealthHTTPStatus = 2 }, ""},
+		{"status 200", func(r *store.Tile) { r.HealthHTTPStatus = 200 }, ""},
+		{"status 599", func(r *store.Tile) { r.HealthHTTPStatus = 599 }, ""},
+		{"status 6", func(r *store.Tile) { r.HealthHTTPStatus = 6 }, "health.http.status"},
+		{"status 99", func(r *store.Tile) { r.HealthHTTPStatus = 99 }, "health.http.status"},
+		{"status 600", func(r *store.Tile) { r.HealthHTTPStatus = 600 }, "health.http.status"},
+		{"status 700", func(r *store.Tile) { r.HealthHTTPStatus = 700 }, "health.http.status"},
+		{"http timing without path", func(r *store.Tile) { r.HealthHTTPPath = ""; r.HealthHTTPRetries = 2 }, "health.http.path"},
+		{"http status without path", func(r *store.Tile) { r.HealthHTTPPath = ""; r.HealthHTTPStatus = 200 }, "health.http.path"},
+		{"exec timing without cmd", func(r *store.Tile) { r.HealthExecStartPeriodS = 5 }, "health.exec.cmd"},
+		{"exec with cmd", func(r *store.Tile) { r.HealthExecCmd = "true"; r.HealthExecStartPeriodS = 5 }, ""},
+		{"whitespace cmd with timing", func(r *store.Tile) { r.HealthExecCmd = " \n"; r.HealthExecRetries = 2 }, "health.exec.cmd"},
+		{"whitespace cmd alone", func(r *store.Tile) { r.HealthExecCmd = " \n" }, ""},
+		{"negative http interval", func(r *store.Tile) { r.HealthHTTPIntervalS = -1 }, "health.http.interval"},
+		{"huge health.http.interval", func(r *store.Tile) { r.HealthExecCmd = "true"; r.HealthHTTPIntervalS = 86401 }, "health.http.interval"},
+		{"huge health.http.timeout", func(r *store.Tile) { r.HealthExecCmd = "true"; r.HealthHTTPTimeoutS = 9223372037 }, "health.http.timeout"},
+		{"huge health.http.retries", func(r *store.Tile) { r.HealthExecCmd = "true"; r.HealthHTTPRetries = 101 }, "health.http.retries"},
+		{"huge health.exec.interval", func(r *store.Tile) { r.HealthExecCmd = "true"; r.HealthExecIntervalS = 86401 }, "health.exec.interval"},
+		{"huge health.exec.timeout", func(r *store.Tile) { r.HealthExecCmd = "true"; r.HealthExecTimeoutS = 86401 }, "health.exec.timeout"},
+		{"huge health.exec.retries", func(r *store.Tile) { r.HealthExecCmd = "true"; r.HealthExecRetries = 101 }, "health.exec.retries"},
+		{"huge health.exec.start_period", func(r *store.Tile) { r.HealthExecCmd = "true"; r.HealthExecStartPeriodS = 86401 }, "health.exec.start_period"},
+		{"timings at the cap", func(r *store.Tile) {
+			r.HealthExecCmd = "true"
+			r.HealthHTTPIntervalS, r.HealthExecStartPeriodS, r.HealthExecRetries = 86400, 86400, 100
+		}, ""},
+	} {
+		row := store.Tile{Kind: tile.Image, ImageRef: "nginx:1.27", TagPolicy: "semver ^1.2", HealthHTTPPath: "/z"}
+		c.edit(&row)
+		err := tile.Validate(&row)
+		if c.field == "" && err != nil || c.field != "" && !isInvalid(err, c.field) {
+			t.Errorf("%s: err %v, want field %q", c.name, err, c.field)
+		}
+	}
+}
+
+// A padded path or cmd is stored trimmed; a blank cmd is no check at all.
+func TestValidateTrimsHealth(t *testing.T) {
+	row := store.Tile{Kind: tile.Image, ImageRef: "nginx:1.27", TagPolicy: "semver ^1.2",
+		HealthHTTPPath: " /healthz ", HealthExecCmd: "\tcurl -f x\n"}
+	if err := tile.Validate(&row); err != nil || row.HealthHTTPPath != "/healthz" || row.HealthExecCmd != "curl -f x" {
+		t.Errorf("path %q cmd %q err %v", row.HealthHTTPPath, row.HealthExecCmd, err)
+	}
+	row = store.Tile{Kind: tile.Image, ImageRef: "nginx:1.27", TagPolicy: "semver ^1.2", HealthExecCmd: " "}
+	if err := tile.Validate(&row); err != nil || row.HealthExecCmd != "" {
+		t.Errorf("blank cmd = %q err %v", row.HealthExecCmd, err)
 	}
 }
 

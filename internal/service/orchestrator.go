@@ -117,6 +117,8 @@ type Config struct {
 	// a Namecheap API URL replacing the real one, and a fake GitHub's URL
 	// with the PEM file (a path in the panel container) that signs it.
 	ACMECA, ACMECARoot, NamecheapAPI, GitHubURL, GitHubCA string
+	// GitHubAvatars is the fake GitHub's avatar host (img-src).
+	GitHubAvatars string
 
 	CookieSecure bool
 	CookieDomain string
@@ -948,6 +950,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true, kindBucketRestore: true},
+			// Rollouts of different stacks run in parallel; lock sets order the rest.
+			// ponytail: no ceiling, a burst across many envs starts every rollout at once; cap at ~32 if pulls or health checks time out under load.
+			Unpooled: map[jobs.Kind]bool{kindPromote: true, kindDeploy: true},
 			// Kinds that copy a volume or database outrun the 30 minute default.
 			Caps: dataCaps,
 			Hold: orch.upgrading.Load,

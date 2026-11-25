@@ -238,7 +238,7 @@ templ DiskPicked(d DiskDialog) {
 // DiskFormatDialog is the Format dialog an answer puts into #disk-fmt-dlg.
 templ DiskFormatDialog(f DiskFormat) {
 	if f.Msg != "" {
-		@c.DlgShell(f.title(), f.Node, diskCloseFoot()) {
+		@c.Modal(f.title(), f.Node, diskCloseFoot()) {
 			<p>{ f.lead() }</p>
 			@diskFacts(f)
 			<div class="mt-3">

@@ -196,33 +196,33 @@ func bigGraph() (View, map[string]canvas.Point) {
 // layout is v0's: want is what v0's Arrange drew for this graph.
 func TestLayoutDeterministicLargeGraph(t *testing.T) {
 	want := map[string][2]int{
-		"a01":      {374, -22},
+		"a01":      {88, -44},
 		"a02":      {792, 440},
-		"a03":      {380, 264},
-		"a04":      {374, 1980},
-		"a05":      {830, 1760},
-		"a06":      {528, 1254},
-		"a07":      {830, 968},
+		"a03":      {380, 286},
+		"a04":      {682, 2310},
+		"a05":      {830, 1738},
+		"a06":      {836, 814},
+		"a07":      {1122, 814},
 		"a08":      {1130, 968},
 		"c01":      {682, 1980},
-		"c02":      {242, 2244},
+		"c02":      {836, 2134},
 		"d01":      {682, 88},
 		"d02":      {1100, 440},
-		"d03":      {682, 660},
-		"d04":      {990, 2398},
-		"d05":      {1130, 1760},
-		"d06":      {836, 1232},
-		"internet": {-280, 352},
-		"o1":       {80, 2706},
-		"o2":       {360, 2706},
-		"o3":       {640, 2706},
-		"o4":       {920, 2706},
-		"o5":       {80, 2970},
+		"d03":      {682, 594},
+		"d04":      {990, 2310},
+		"d05":      {1130, 1738},
+		"d06":      {836, 1122},
+		"internet": {-280, 242},
+		"o1":       {80, 2684},
+		"o2":       {360, 2684},
+		"o3":       {640, 2684},
+		"o4":       {920, 2684},
+		"o5":       {80, 2838},
 		"proxy":    {-280, 1034},
 		"shared":   {680, 264},
-		"x1":       {1584, 1254},
-		"x2":       {980, 1540},
-		"x3":       {1280, 1540},
+		"x1":       {1276, 1342},
+		"x2":       {980, 1496},
+		"x3":       {1280, 1496},
 	}
 	for run := range 20 {
 		v, saved := bigGraph()
@@ -404,9 +404,9 @@ func TestLayoutOrgsColumns(t *testing.T) {
 	arrange(&v, nil)
 	want := map[string][2]int{
 		"org:a": {0, 80},
-		"org:b": {0, 220},
-		"org:c": {0, 360},
-		"org:d": {0, 500},
+		"org:b": {0, 240},
+		"org:c": {0, 400},
+		"org:d": {0, 560},
 		"org:e": {360, 80},
 	}
 	for _, n := range v.Nodes {
@@ -417,18 +417,18 @@ func TestLayoutOrgsColumns(t *testing.T) {
 	}
 	// org:a keeps its column slot but was dragged onto b's row: b steps down
 	v = build()
-	arrange(&v, map[string]canvas.Point{"org:a": {X: 10, Y: 230}})
+	arrange(&v, map[string]canvas.Point{"org:a": {X: 10, Y: 240}})
 	ns := nodesByID(v)
 	b := ns["org:b"]
 	if b.X != 0 || b.Y != 80 {
 		t.Errorf("org:b at %d,%d, want 0,80 (the free row above the drag)", b.X, b.Y)
 	}
 	c := ns["org:c"]
-	if c.X != 0 || c.Y != 500 {
-		t.Errorf("org:c at %d,%d, want 0,500 (stepped over the saved card)", c.X, c.Y)
+	if c.X != 0 || c.Y != 400 {
+		t.Errorf("org:c at %d,%d, want 0,400 (stepped over the saved card)", c.X, c.Y)
 	}
 	a := ns["org:a"]
-	if !a.Saved || a.X != 10 || a.Y != 230 {
+	if !a.Saved || a.X != 10 || a.Y != 240 {
 		t.Errorf("org:a = %+v, want the saved drop", a)
 	}
 }

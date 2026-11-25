@@ -56,7 +56,7 @@ func (r fileRig) routes(t *testing.T) []string {
 
 const serverFileV1 = `version: 1
 settings:
-  backup_run_concurrency: 3
+  orphan_retention_days: 3
 params:
   app:
     region:
@@ -92,8 +92,8 @@ func TestServerLocalPlanApplies(t *testing.T) {
 	}
 	r.applied(t, pl.ID)
 
-	if v, _ := r.env.Orch.Setting(ctx, "backup_run_concurrency"); v != "3" {
-		t.Errorf("backup_run_concurrency = %q, want 3", v)
+	if v, _ := r.env.Orch.Setting(ctx, "orphan_retention_days"); v != "3" {
+		t.Errorf("orphan_retention_days = %q, want 3", v)
 	}
 	if got := r.routes(t); len(got) != 1 || got[0] != "old.example.com" {
 		t.Errorf("routes = %v", got)
@@ -496,7 +496,7 @@ settings:
 	if v, _ := r.env.Orch.Setting(ctx, "proxy_custom"); !strings.Contains(v, "good.example.com") {
 		t.Errorf("proxy_custom = %q, want the working value back", v)
 	}
-	if err := r.env.Orch.SetSetting(ctx, "backup_run_concurrency", "4"); err != nil {
+	if err := r.env.Orch.SetSetting(ctx, "orphan_retention_days", "4"); err != nil {
 		t.Errorf("a later push fails: %v", err)
 	}
 }
@@ -524,7 +524,7 @@ func TestSetSettingsTakesBackBadProxyCustom(t *testing.T) {
 	if v, _ := env.Orch.Setting(ctx, "proxy_custom"); v != good {
 		t.Errorf("proxy_custom = %q, want the working value back", v)
 	}
-	if err := env.Orch.SetSetting(ctx, "backup_run_concurrency", "4"); err != nil {
+	if err := env.Orch.SetSetting(ctx, "orphan_retention_days", "4"); err != nil {
 		t.Errorf("a later push fails: %v", err)
 	}
 }
@@ -587,5 +587,26 @@ func TestAlertWebhookURLNeverInFull(t *testing.T) {
 	}
 	if _, err := o.PreviewServerConfig(ctx, []byte("version: 1\nsettings:\n  alert_webhook_url: https://hooks.example.com/"+token+"\n")); err == nil {
 		t.Error("a file with the URL itself previews; want refused")
+	}
+}
+
+// A server file that still names a retired setting plans and applies: the
+// key is ignored, so older files keep working.
+func TestServerFileRetiredSettingIgnored(t *testing.T) {
+	ctx := context.Background()
+	r := newFileRig(t)
+	file := "version: 1\nsettings:\n  backup_run_concurrency: 3\n"
+	pl, err := r.env.Orch.PlanServerFile(ctx, []byte(file))
+	if err != nil {
+		t.Fatalf("a retired key is refused: %v", err)
+	}
+	if pl.Status != "clean" {
+		t.Errorf("plan status = %q, want clean (nothing to change)", pl.Status)
+	}
+	if _, err := r.env.Orch.Setting(ctx, "backup_run_concurrency"); err == nil {
+		t.Error("a retired key reads as a setting")
+	}
+	if err := r.env.Orch.SetSetting(ctx, "backup_run_concurrency", "3"); err != nil {
+		t.Errorf("the API refuses a retired key: %v", err)
 	}
 }

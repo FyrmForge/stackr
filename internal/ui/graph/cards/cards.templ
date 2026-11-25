@@ -32,7 +32,7 @@ templ Card(v CardView) {
 			</div>
 		} else {
 			<div class="flex h-full flex-col p-3.5">
-				@top(v.Kind, v.Name, v.Detail, v.Host, v.NewVersion, v.Access, v.Footer.Fail != "" || v.Footer.StoppedAt != "" || v.Footer.Note != "")
+				@top(v.Kind, v.Name, v.Detail, v.Host, v.Access, v.Footer.Fail != "" || v.Footer.StoppedAt != "" || v.Footer.Note != "")
 				if v.Sync != "" {
 					{{ text, class := syncChip(v.Sync) }}
 					<span class={ "absolute -top-2.5 right-3 z-10 rounded-md border bg-rw-surface px-1.5 py-0.5 text-[10px]", class }>{ text }</span>
@@ -46,38 +46,34 @@ templ Card(v CardView) {
 	</div>
 }
 
-// Top is a card's head row (v0 nodeCardBody): the icon, the name, the
-// detail and its chips.
-templ Top(kind, name, detail string, host, newVersion bool) {
-	@top(kind, name, detail, host, newVersion, Access{}, false)
+// Top is a card's head: the icon, the name, the detail (the image) on its
+// own line, and one line of tags.
+templ Top(kind, name, detail string, host bool) {
+	@top(kind, name, detail, host, Access{}, false)
 }
 
 // top: noted drops the kind chip, so the line above the footer (it sits over
-// the head's last row in the card's fixed height) never lands on it.
-templ top(kind, name, detail string, host, newVersion bool, acc Access, noted bool) {
+// the head's last row in the card's fixed height) never lands on it. The tags
+// stay on one line: past maxChips the rest fold into "+N".
+templ top(kind, name, detail string, host bool, acc Access, noted bool) {
+	{{ chips, more := Chips(kind, host, acc, noted) }}
 	<div class="flex items-center gap-2.5">
 		<span class="node-icon flex h-7 w-7 items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
 			@Icon(kind)
 		</span>
 		<div class="min-w-0">
 			<div class="font-semibold text-rw-text truncate text-sm leading-tight">{ name }</div>
-			<div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
-				<span class="text-xs text-rw-faint truncate">{ detail }</span>
-				if KindLabel(kind) != "" && !noted {
-					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted">{ KindLabel(kind) }</span>
-				}
-				if acc.Chip != "" {
-					<span class="shrink-0 rounded-md border border-rw-danger/40 bg-rw-danger/10 px-1.5 py-0.5 text-[10px] text-rw-danger" title={ acc.Title }>{ acc.Chip }</span>
-				} else if host {
-					<span class="shrink-0 rounded-md border border-rw-danger/40 bg-rw-danger/10 px-1.5 py-0.5 text-[10px] text-rw-danger" title="runs privileged or with host devices">host</span>
-				}
-				if acc.Waiting {
-					<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn">Waiting for an admin</span>
-				}
-				if newVersion {
-					<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn" title="a newer image is in the registry. Deploy to update">new version</span>
-				}
-			</div>
+			<div class="text-[11px] leading-[14px] text-rw-faint truncate">{ detail }</div>
+			if len(chips) > 0 {
+				<div class="node-chips flex flex-nowrap items-center gap-1 min-w-0 overflow-hidden">
+					for _, ch := range chips {
+						<span class={ "shrink-0 rounded-md border px-1.5 py-px text-[10px] leading-none", ch.Class } title={ ch.Title }>{ ch.Text }</span>
+					}
+					if more > 0 {
+						<span class="shrink-0 text-[10px] text-rw-faint">+{ itoa(more) }</span>
+					}
+				</div>
+			}
 		</div>
 	</div>
 }
@@ -157,17 +153,22 @@ templ Footer(id string, f FooterView) {
 					@line("warn", "degraded · "+itoa(f.Up)+"/"+itoa(f.Want))
 				} else if f.Want > 1 && f.Status == "running" {
 					@line("success", "running · "+itoa(f.Up)+"/"+itoa(f.Want))
+				} else if f.Wait > 0 {
+					@statusDot(f.Status, f.Waiting)
 				} else {
 					@Status(f.Status, f.Waiting)
 				}
 				if f.Wait > 0 {
-					<span class="node-wait flex items-center gap-1.5 text-xs min-w-0"><span class="text-rw-faint">·</span><span class="text-rw-accentHi truncate">{ "Release " + itoa(f.Wait) + " waiting" }</span></span>
+					<span class="node-wait flex items-center gap-1.5 text-xs min-w-0"><span class="text-rw-accentHi truncate" title={ "Release " + itoa(f.Wait) + " waiting" }>{ "Release " + itoa(f.Wait) + " waiting" }</span></span>
+				}
+				if f.NewVersion && f.Wait == 0 {
+					<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn" title="a newer image is in the registry. Deploy to update">New version</span>
 				}
 				if f.ExtUpdates > 0 {
 					<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn" title="newer extension builds are available">Extension updates</span>
 				}
 				// the chip yields to "Release N waiting": the card has room for one
-				if (f.Domain != "" || f.Domains > 0) && f.Wait == 0 {
+				if (f.Domain != "" || f.Domains > 0) && f.Wait == 0 && !f.NewVersion {
 					@exposure(f)
 				}
 		}
@@ -180,6 +181,21 @@ templ Status(status, waiting string) {
 	@mark(tone, text, status == "waiting" || status == "queued", false)
 }
 
+// statusDot is Status as its dot alone, for a card that also says "Release N
+// waiting": the card is 220px and the word would truncate that. The word stays
+// in the title and for screen readers.
+templ statusDot(status, waiting string) {
+	{{ tone, text := word(status, waiting) }}
+	<span class="node-status flex shrink-0 items-center" title={ text }>
+		if status == "waiting" || status == "queued" {
+			<span class={ "h-1.5 w-1.5 rounded-full shrink-0 border", toneBorder(tone) } aria-hidden="true"></span>
+		} else {
+			<span class={ "h-1.5 w-1.5 rounded-full shrink-0", toneDot(tone) } aria-hidden="true"></span>
+		}
+		<span class="sr-only">{ text }</span>
+	</span>
+}
+
 // progress is a live deploy beside the tile's state: "Online" with a faint
 // "updating 0:14" at the right, the step with its clock at the right, or
 // while the job only waits (queued, or for a dependency) the faint word with
@@ -188,7 +204,7 @@ templ Status(status, waiting string) {
 // canvas stream does not resend it.
 templ progress(f FooterView) {
 	{{ w := progressWord(f) }}
-	if f.Under == "running" {
+	if f.Under == "running" && f.Job != "stop" {
 		@line("success", "Online")
 		<span class="text-xs text-rw-faint tabular-nums shrink-0">{ "updating " }@clock(f)</span>
 	} else if f.Status == "queued" || strings.HasPrefix(w, "Waiting for ") {

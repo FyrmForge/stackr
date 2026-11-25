@@ -48,6 +48,8 @@ type fakeRegistry struct {
 	digests map[string]string
 	tags    map[string][]string
 	fail    map[string]bool
+	labels  map[string]string
+	reads   []string // refs whose label was read
 	calls   []string
 }
 
@@ -57,6 +59,16 @@ func (r *fakeRegistry) Digest(_ context.Context, ref, _, _ string) (string, erro
 		return "", errors.New("503 from registry")
 	}
 	return r.digests[ref], nil
+}
+
+// Label answers the version label per ref ("" = none).
+func (r *fakeRegistry) Label(_ context.Context, ref, _, _ string) (string, error) {
+	r.reads = append(r.reads, ref)
+	ref, _, _ = strings.Cut(ref, "@") // read by digest, answered per tag here
+	if r.fail["label "+ref] {
+		return "", errors.New("blob 500")
+	}
+	return r.labels[ref], nil
 }
 
 func (r *fakeRegistry) Tags(_ context.Context, ref, _, _ string) ([]string, error) {
@@ -70,6 +82,8 @@ func TestCheck(t *testing.T) {
 	reg := &fakeRegistry{
 		digests: map[string]string{"nginx:1": "sha256:n1", "redis:7.2.0": "sha256:r72"},
 		tags:    map[string][]string{"redis": {"7.0.1", "7.2.0", "8.0.0", "7.3.0-rc1", "6.9"}},
+		labels:  map[string]string{"nginx:1": "1.27.1"},
+		fail:    map[string]bool{"label redis:7.2.0": true},
 	}
 	f := &Flow{
 		Orgs:     org.New(s.Orgs, s.OrgMembers, s.Invites),
@@ -82,6 +96,7 @@ func TestCheck(t *testing.T) {
 		Settings: settings.New(s.Settings, nil),
 		Digest:   reg.Digest,
 		Tags:     reg.Tags,
+		Label:    reg.Label,
 	}
 
 	now := time.Now()
@@ -167,10 +182,35 @@ func TestCheck(t *testing.T) {
 	if img, _ := f.Images.GetByRef(ctx, "redis:7.0.1"); img.LastTag != "7.2.0" {
 		t.Errorf("cached tag = %q", img.LastTag)
 	}
+	// The version label is read once per image and digest; a failed read is
+	// logged and leaves no label.
+	if pins["api"].Version != "1.27.1" || pins["cache"].Version != "" {
+		t.Errorf("versions = %q, %q", pins["api"].Version, pins["cache"].Version)
+	}
+	if pins["cache"].VersionErr == "" || pins["api"].VersionErr != "" {
+		t.Errorf("pin read outcome kept: cache %q, api %q", pins["cache"].VersionErr, pins["api"].VersionErr)
+	}
+	if !slices.Equal(reg.reads, []string{"nginx:1@sha256:n1", "redis:7.2.0@sha256:r72"}) || !strings.Contains(log.String(), "version label could not be read") {
+		t.Errorf("reads = %v, log = %q", reg.reads, log.String())
+	}
+	if img, _ := f.Images.GetByRef(ctx, "nginx:1"); img.LastVersion != "1.27.1" {
+		t.Errorf("cached version = %q", img.LastVersion)
+	}
+	// A failed read is kept on the row, a good one leaves none.
+	if img, _ := f.Images.GetByRef(ctx, "redis:7.0.1"); img.VersionErr == "" {
+		t.Error("failed label read left no version_err")
+	}
+	if img, _ := f.Images.GetByRef(ctx, "nginx:1"); img.VersionErr != "" {
+		t.Errorf("good read has version_err %q", img.VersionErr)
+	}
 
 	// Round 2: nothing moved, nothing written.
 	if ups, err = f.Check(ctx, Scope{}, io.Discard); err != nil || len(ups) != 0 {
 		t.Errorf("unchanged round: %v %+v", err, ups)
+	}
+	// only the failed read of redis comes round again; nginx's label is cached
+	if len(reg.reads) != 3 || reg.reads[2] != "redis:7.2.0@sha256:r72" {
+		t.Errorf("reads after round 2 = %v, want only the failed one read again", reg.reads)
 	}
 
 	// Round 3: a registry error is never an update and keeps the last answer.
@@ -181,6 +221,14 @@ func TestCheck(t *testing.T) {
 	}
 	if img, _ := f.Images.GetByRef(ctx, "nginx:1"); img.LastDigest != "sha256:n1" || img.LastError == "" {
 		t.Errorf("after error: %+v", img)
+	}
+
+	// the blip is over: the failed label is read again and its error cleared
+	if len(reg.reads) != 4 {
+		t.Errorf("reads after round 3 = %v, want the failed one read a third time", reg.reads)
+	}
+	if img, _ := f.Images.GetByRef(ctx, "redis:7.0.1"); img.VersionErr != "" {
+		t.Errorf("version_err stuck after a good read: %q", img.VersionErr)
 	}
 
 	// Round 4: nginx moves to what dev already runs: no release.
@@ -331,6 +379,7 @@ func TestAskOwnRegistry(t *testing.T) {
 		},
 		Digest: reg.Digest,
 		Tags:   reg.Tags,
+		Label:  reg.Label,
 		OwnDigest: func(_ context.Context, repo, tag string) (string, error) {
 			return "sha256:" + repo + "@" + tag, nil
 		},
@@ -341,11 +390,11 @@ func TestAskOwnRegistry(t *testing.T) {
 	w := func(ref, policy string) watched {
 		return watched{t: store.Tile{ImageRef: ref, TagPolicy: policy}, org: "o"}
 	}
-	a := f.ask(ctx, w("registry.panel.example.com/acme/shop/api:1.0.0", ""))
+	a := f.ask(ctx, w("registry.panel.example.com/acme/shop/api:1.0.0", ""), io.Discard)
 	if a.err != nil || a.digest != "sha256:acme/shop/api@1.0.0" {
 		t.Errorf("own digest = %+v", a)
 	}
-	a = f.ask(ctx, w("registry.panel.example.com/acme/shop/api:1.0.0", "semver"))
+	a = f.ask(ctx, w("registry.panel.example.com/acme/shop/api:1.0.0", "semver"), io.Discard)
 	if a.err != nil || a.tag != "1.2.0" || a.digest != "sha256:acme/shop/api@1.2.0" {
 		t.Errorf("own semver = %+v", a)
 	}
@@ -356,7 +405,7 @@ func TestAskOwnRegistry(t *testing.T) {
 	f.Cred = func(context.Context, string, string) (store.Credential, bool, error) {
 		return store.Credential{}, false, nil
 	}
-	if a = f.ask(ctx, w("nginx:1", "")); a.err != nil || a.digest != "sha256:n1" || len(reg.calls) != 1 {
+	if a = f.ask(ctx, w("nginx:1", ""), io.Discard); a.err != nil || a.digest != "sha256:n1" || len(reg.calls) != 1 {
 		t.Errorf("other host: %+v calls %v", a, reg.calls)
 	}
 }
@@ -380,6 +429,7 @@ func TestCheckWaitsForAPromote(t *testing.T) {
 		Settings:  settings.New(s.Settings, nil),
 		Digest:    reg.Digest,
 		Tags:      reg.Tags,
+		Label:     reg.Label,
 		Promoting: func(context.Context, string) (bool, error) { return busy, nil },
 	}
 	now := time.Now()

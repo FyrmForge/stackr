@@ -24,6 +24,8 @@ type DrawerView struct {
 	Node   string
 	Title  string
 	Kind   string // the subtitle, in mono ("nginx:1", "slice")
+	// HideTitle keeps Title for screen readers only (the page already shows it).
+	HideTitle bool
 	Base   string
 	Tabs   []string          // ?tab= keys, in strip order
 	Labels map[string]string // key → label; a missing key shows capitalised
@@ -131,7 +133,7 @@ templ panelHeader(v DrawerView) {
 			}
 			<div class="min-w-0">
 				<div class="flex items-center gap-2">
-					<h2 id="drawer-title" class="text-lg font-semibold text-rw-text truncate">{ v.Title }</h2>
+					<h2 id="drawer-title" class={ "text-lg font-semibold text-rw-text truncate", templ.KV("sr-only", v.HideTitle) }>{ v.Title }</h2>
 					if v.Status != "" {
 						@TileBadge(v.Status)
 					}
@@ -161,8 +163,9 @@ templ panelHeader(v DrawerView) {
 			if v.Actions != nil {
 				@v.Actions
 			}
-			<button type="button" data-expand aria-pressed="false" class="flex h-8 w-8 items-center justify-center rounded-lg text-rw-muted hover:text-rw-text hover:bg-rw-raised transition-colors" aria-label="Full screen" title="Full screen">
-				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"></path></svg>
+			<button type="button" data-expand aria-pressed="false" class="group flex h-8 w-8 items-center justify-center rounded-lg text-rw-muted hover:text-rw-text hover:bg-rw-raised transition-colors" aria-label="Full screen" title="Full screen">
+				<svg class="h-4 w-4 group-aria-pressed:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"></path></svg>
+				<svg class="hidden h-4 w-4 group-aria-pressed:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"></path></svg>
 			</button>
 			<button type="button" data-close class="flex h-8 w-8 items-center justify-center rounded-lg text-rw-muted hover:text-rw-text hover:bg-rw-raised transition-colors" aria-label="Close">
 				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>

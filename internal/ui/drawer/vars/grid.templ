@@ -189,7 +189,7 @@ templ groupPanel(g Grid, grp Group) {
 							for _, col := range g.Cols {
 								<th class="pb-2 pr-3 font-medium align-bottom min-w-[10rem]">
 									<span class="flex items-center gap-1.5 normal-case tracking-normal text-sm">
-										@c.EnvBadge(col.Label, col.Hue)
+										@c.EnvChip(col.Label, col.Hue)
 										<span class={ lockTone(col.Locked) } title={ lockTitle(col) }>@lockIcon(col.Locked)</span>
 										if col.Own {
 											@c.Chip("own env", "accent")

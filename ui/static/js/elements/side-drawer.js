@@ -58,7 +58,12 @@ class SideDrawer extends HTMLElement {
         this.toggleAttribute("full", on);
         const top = document.getElementById("shell-header")?.getBoundingClientRect().bottom ?? 0;
         this.style.setProperty("--shell-top", `${top}px`);
-        this.querySelector("[data-expand]")?.setAttribute("aria-pressed", String(on));
+        const label = on ? "Exit full screen" : "Full screen";
+        const btn = this.querySelector("[data-expand]");
+        btn?.setAttribute("aria-pressed", String(on));
+        btn?.setAttribute("aria-label", label);
+        if (btn)
+            btn.title = label;
     }
     onSettle = () => this.expand(this.hasAttribute("full"), this.fullByLink);
     onEdit = (e) => {

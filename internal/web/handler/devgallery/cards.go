@@ -31,14 +31,14 @@ func sample(id, kind, name, detail, tab string, f cards.FooterView) cards.CardVi
 // envCards is one of every env card kind (ui-plan §2), for eyeballing.
 func envCards() []placed {
 	api := sample("t-api", "service", "api", "ghcr.io/acme/api:1.4", "status", cards.FooterView{
-		Status: "degraded",
-		Up:     2,
-		Want:   3,
-		Domain: "api.acme.dev",
-		More:   2,
+		Status:     "degraded",
+		Up:         2,
+		Want:       3,
+		Domain:     "api.acme.dev",
+		More:       2,
+		NewVersion: true,
 	})
 	api.Host = true
-	api.NewVersion = true
 	api.Subs = []cards.SubView{
 		{
 			ID:     "v-uploads",

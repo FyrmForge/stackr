@@ -52,8 +52,9 @@ func tileFlags(c *cobra.Command) map[string]string {
 		{"command", "the command, split like a shell would (quotes work, nothing expands)"},
 		{"published-ports", "ports published on the host, one per line: host:container[/udp]"},
 		{"protocol", "endpoint protocol"},
-		{"health-path", "HTTP health path"},
-		{"healthcheck", "health check command, run in the container"},
+		{"health-http-path", "HTTP health check path"},
+		{"health-http-status", "HTTP health check expected status: a code like 200 or a class like 2xx"},
+		{"health-exec-cmd", "health check command, run in the container"},
 		{"user", "run as user"},
 		{"devices", "devices, one per line: host[:container[:perms]] (needs admin approval)"},
 		{"lan", "LAN access, one ip|cidr[:port] per line (needs admin approval)"},
@@ -70,10 +71,13 @@ func tileFlags(c *cobra.Command) map[string]string {
 	}
 	for _, s := range [][2]string{
 		{"port", "container port"},
-		{"health-interval", "health check interval, seconds"},
-		{"health-timeout", "health check timeout, seconds"},
-		{"health-retries", "health check retries"},
-		{"health-start-period", "health check start period, seconds"},
+		{"health-http-interval", "HTTP health check interval, seconds"},
+		{"health-http-timeout", "HTTP health check timeout, seconds"},
+		{"health-http-retries", "HTTP health check retries"},
+		{"health-exec-interval", "command health check interval, seconds"},
+		{"health-exec-timeout", "command health check timeout, seconds"},
+		{"health-exec-retries", "command health check retries"},
+		{"health-exec-start-period", "command health check start period, seconds"},
 		{"memory", "memory limit, MB"},
 		{"shm-size", "shm size, MB"},
 		{"replicas", "replica count"},
@@ -85,44 +89,64 @@ func tileFlags(c *cobra.Command) map[string]string {
 	f.Bool("privileged", false, "run privileged (needs admin approval)")
 	f.Bool("host-network", false, "use the server's network (needs admin approval)")
 	return map[string]string{
-		"image":               "image_ref",
-		"git":                 "git_url",
-		"branch":              "git_branch",
-		"dockerfile":          "dockerfile_path",
-		"context":             "build_context",
-		"watch-paths":         "watch_paths",
-		"env-json":            "env_json",
-		"build-args":          "build_args",
-		"volumes":             "volumes",
-		"command":             "command",
-		"published-ports":     "published_ports",
-		"protocol":            "endpoint_protocol",
-		"health-path":         "health_path",
-		"healthcheck":         "healthcheck_cmd",
-		"user":                "user",
-		"devices":             "devices",
-		"lan":                 "lan",
-		"host-network":        "host_network",
-		"restart":             "restart_policy",
-		"depends-on":          "depends_on",
-		"files":               "files",
-		"shared-net":          "shared_net",
-		"update-policy":       "update_policy",
-		"tag-policy":          "tag_policy",
-		"port":                "container_port",
-		"health-interval":     "healthcheck_interval_s",
-		"health-timeout":      "healthcheck_timeout_s",
-		"health-retries":      "healthcheck_retries",
-		"health-start-period": "healthcheck_start_period_s",
-		"memory":              "mem_limit_mb",
-		"shm-size":            "shm_size_mb",
-		"replicas":            "replicas",
-		"cpus":                "cpu_limit",
-		"privileged":          "privileged",
-		"schedule":            "schedule",
-		"trigger":             "trigger",
-		"timeout":             "timeout_minutes",
+		"image":                    "image_ref",
+		"git":                      "git_url",
+		"branch":                   "git_branch",
+		"dockerfile":               "dockerfile_path",
+		"context":                  "build_context",
+		"watch-paths":              "watch_paths",
+		"env-json":                 "env_json",
+		"build-args":               "build_args",
+		"volumes":                  "volumes",
+		"command":                  "command",
+		"published-ports":          "published_ports",
+		"protocol":                 "endpoint_protocol",
+		"health-http-path":         "health_http_path",
+		"health-http-status":       "health_http_status",
+		"health-exec-cmd":          "health_exec_cmd",
+		"user":                     "user",
+		"devices":                  "devices",
+		"lan":                      "lan",
+		"host-network":             "host_network",
+		"restart":                  "restart_policy",
+		"depends-on":               "depends_on",
+		"files":                    "files",
+		"shared-net":               "shared_net",
+		"update-policy":            "update_policy",
+		"tag-policy":               "tag_policy",
+		"port":                     "container_port",
+		"health-http-interval":     "health_http_interval_s",
+		"health-http-timeout":      "health_http_timeout_s",
+		"health-http-retries":      "health_http_retries",
+		"health-exec-interval":     "health_exec_interval_s",
+		"health-exec-timeout":      "health_exec_timeout_s",
+		"health-exec-retries":      "health_exec_retries",
+		"health-exec-start-period": "health_exec_start_period_s",
+		"memory":                   "mem_limit_mb",
+		"shm-size":                 "shm_size_mb",
+		"replicas":                 "replicas",
+		"cpus":                     "cpu_limit",
+		"privileged":               "privileged",
+		"schedule":                 "schedule",
+		"trigger":                  "trigger",
+		"timeout":                  "timeout_minutes",
 	}
+}
+
+// healthStatus turns the --health-http-status string into the stored int:
+// 200-599 as is, 1xx-5xx (any case) as 1-5, "" clears it.
+func healthStatus(s string) (int, error) {
+	if s == "" {
+		return 0, nil
+	}
+	if len(s) == 3 && strings.EqualFold(s[1:], "xx") && s[0] >= '1' && s[0] <= '5' {
+		return int(s[0] - '0'), nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 200 || n > 599 {
+		return 0, errors.New("use a status code like 200 or a class like 2xx")
+	}
+	return n, nil
 }
 
 func (a *app) stackCommands() []*cobra.Command {
@@ -1885,7 +1909,7 @@ func (a *app) operated() *cobra.Command {
 	create := waits(leaf("create <name>", "operated.create,operated.from-dump", "Make an operated tile (postgres, s3) in --env", exact(1), nil))
 	keys := tileFlags(create)
 	// ponytail: the flags stay accepted (changed() reads them); they are only hidden from help.
-	for _, n := range []string{"git", "branch", "dockerfile", "context", "watch-paths", "build-args", "schedule", "trigger", "timeout", "command", "files", "protocol", "health-path", "healthcheck", "health-interval", "health-timeout", "health-retries", "health-start-period", "published-ports", "depends-on", "update-policy", "tag-policy"} {
+	for _, n := range []string{"git", "branch", "dockerfile", "context", "watch-paths", "build-args", "schedule", "trigger", "timeout", "command", "files", "protocol", "health-http-path", "health-http-status", "health-http-interval", "health-http-timeout", "health-http-retries", "health-exec-cmd", "health-exec-interval", "health-exec-timeout", "health-exec-retries", "health-exec-start-period", "published-ports", "depends-on", "update-policy", "tag-policy"} {
 		_ = create.Flags().MarkHidden(n)
 	}
 	create.Flags().StringVar(&engine, "engine", "", "postgres or s3")

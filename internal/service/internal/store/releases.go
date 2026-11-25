@@ -19,6 +19,10 @@ type Release struct {
 	// Message is the first line of that commit's message; "" when the cut had
 	// none (apply, image watch, manual deploy).
 	Message string `db:"message" json:"message,omitempty"`
+	// AuthorName and AuthorLogin are a push's commit author (name, GitHub
+	// login); "" on every other kind and on a release cut before migration 022.
+	AuthorName  string `db:"author_name" json:"-"`
+	AuthorLogin string `db:"author_login" json:"-"`
 	// BuiltOn is the release this one was derived from, and Line the line it
 	// was cut for ("env:<id>" or "branch:<name>", see leaf/release). Both nil
 	// on a release cut before migration 019. Not in the API: json:"-".
@@ -63,6 +67,10 @@ type ReleaseTile struct {
 	CommitSHA string  `db:"commit_sha" json:"commit_sha"`
 	ImageID   *string `db:"image_id" json:"image_id"`
 	Digest    string  `db:"digest" json:"digest"`
+	// Version is the image's version label at Digest ("" = none read).
+	Version string `db:"version" json:"version"`
+	// VersionErr is why the label read failed when the release was cut.
+	VersionErr string `db:"version_err" json:"version_err"`
 }
 
 type ReleaseTileStore interface {

@@ -315,11 +315,11 @@ func TestUpdateTileKeepsUntouchedFields(t *testing.T) {
 	ctx := context.Background()
 	api := w.tile(t, "api", false)
 	got, _, err := w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error {
-		t.HealthPath = "/up"
+		t.HealthHTTPPath = "/up"
 		return nil
 	})
 	must(t, err)
-	if got.HealthPath != "/up" || got.ImageRef != "nginx:1" || got.ContainerPort != 80 {
+	if got.HealthHTTPPath != "/up" || got.ImageRef != "nginx:1" || got.ContainerPort != 80 {
 		t.Errorf("after update: %+v", got)
 	}
 }

@@ -293,7 +293,7 @@ html.light {
   }
   /* A plain page's column: v0 Shell's <main>. Canvases skip it and fill #main. */
   .page {
-    @apply w-full max-w-6xl mx-auto px-4 py-6 sm:px-8 sm:py-10;
+    @apply w-full max-w-[1280px] mx-auto px-4 py-6 sm:px-8 sm:py-10;
   }
 
   .input {
@@ -377,6 +377,28 @@ html.light {
 
   .modal-panel {
     @apply w-full max-w-lg rounded-xl border border-rw-border bg-rw-surface shadow-xl my-auto;
+  }
+  /* phones: a dialog is a bottom sheet (design rule 22), full width, on the edge */
+  @media (max-width: 639px) {
+    .modal-panel {
+      @apply mb-0 mt-auto max-w-none rounded-b-none border-x-0 border-b-0;
+    }
+  }
+  /* the release dialog: head and foot stay, the body scrolls; on a phone a bottom
+     sheet of at most 60% with a grab handle (UI 10 board, rel-sheet-phone) */
+  .modal-sheet[open] {
+    @apply flex max-h-[85vh] flex-col;
+  }
+  .modal-sheet .modal-body {
+    @apply min-h-0 overflow-y-auto;
+  }
+  .modal-grab {
+    @apply mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-rw-faint/60 sm:hidden;
+  }
+  @media (max-width: 639px) {
+    .modal-sheet[open] {
+      @apply max-h-[60vh];
+    }
   }
   /* a connector dialog: at most 80vh, head and foot fixed, the body
      between them scrolls (connectors.Settings) */

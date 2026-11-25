@@ -150,7 +150,7 @@ func replica(t store.Tile, spec docker.ContainerSpec) docker.ContainerSpec {
 // removed, its last output copied into log first.
 func (l *Leaf) gated(ctx context.Context, t store.Tile, id string, log io.Writer) error {
 	l.early(ctx, t, id, true)
-	if err := l.gate(ctx, id, time.Duration(t.HealthcheckStartPeriodS)*time.Second); err != nil {
+	if err := l.gate(ctx, id, time.Duration(t.HealthExecStartPeriodS)*time.Second); err != nil {
 		if ctx.Err() == nil {
 			err = l.lastWords(ctx, id, err, log)
 		}

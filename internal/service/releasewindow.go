@@ -49,11 +49,23 @@ type WindowRow struct {
 	PlanID  string // RowPlan: the plan
 	Commit  string
 	Message string
+	// Cause says what cut a release that has no commit message: what an image
+	// watch moved, "Rebuild of release 23", a deploy's tile ("" = a push, or
+	// nothing to say).
+	Cause string
+	// NoVersion: an image watch release whose version label could not be read,
+	// so its line names a tag or digest instead.
+	NoVersion bool
+	// OpenEnv is the slug of the env the release modal is read for: the env
+	// the release waits for, else the one in scope or running it.
+	OpenEnv string
 	By      string // Release.CreatedBy
-	At      time.Time
-	State   string
-	Runs    []string // env ids that run it
-	FailEnv string   // StateFailed from a promote: the env it stopped in
+	// AuthorName and AuthorLogin are a push's commit author ("" = unknown).
+	AuthorName, AuthorLogin string
+	At                      time.Time
+	State                   string
+	Runs                    []string // env ids that run it
+	FailEnv                 string   // StateFailed from a promote: the env it stopped in
 	// FailEnvID is that env's id: a release that failed in two envs is one
 	// row for each.
 	FailEnvID string
@@ -305,7 +317,7 @@ func (o *Orchestrator) releaseWindowOf(ctx context.Context, stackID, envID strin
 	for _, r := range rs {
 		row := WindowRow{
 			Kind: RowRelease, ID: r.ID, Number: r.Number, Commit: r.Commit, Message: r.Message,
-			By: r.CreatedBy, At: r.CreatedAt, Runs: runs[r.Number], Jobs: byRelease[r.ID],
+			By: r.CreatedBy, AuthorName: r.AuthorName, AuthorLogin: r.AuthorLogin, At: r.CreatedAt, Runs: runs[r.Number], Jobs: byRelease[r.ID],
 		}
 		if r.Commit != "" && commitBase != "" {
 			row.CommitURL = commitBase + r.Commit
@@ -369,9 +381,26 @@ func (o *Orchestrator) releaseWindowOf(ctx context.Context, stackID, envID strin
 		w.Rows = append(w.Rows, g...)
 	}
 	for i := range w.Rows {
-		w.Rows[i].StackID = stackID
-		if r := &w.Rows[i]; r.Kind == RowRelease && r.Message == "" && r.By == "image-watch" {
-			r.Message = o.releases.MovedOf(ctx, r.ID) // "immich-server 3.4.1 to 3.4.2"
+		r := &w.Rows[i]
+		r.StackID = stackID
+		if r.Kind != RowRelease {
+			continue
+		}
+		if r.Message == "" {
+			r.Cause = o.releases.CauseOf(ctx, r.ID) // "immich-server 3.4.1 to 3.4.2"
+			r.NoVersion = o.versionUnread(ctx, r.ID)
+		}
+		switch {
+		case r.FailEnvID != "":
+			r.OpenEnv = slugs[r.FailEnvID]
+		case len(r.WaitEnvs) > 0:
+			r.OpenEnv = slugs[r.WaitEnvs[0]]
+		case envID != "":
+			r.OpenEnv = slugs[envID]
+		case len(r.Runs) > 0:
+			r.OpenEnv = slugs[r.Runs[0]]
+		default:
+			r.OpenEnv = w.LogEnv
 		}
 	}
 	return w, nil
@@ -523,6 +552,7 @@ func fixedFailures(js []Job, rs []store.Release, scoped []string, envs map[strin
 			if j.ReleaseID != nil {
 				if i := slices.IndexFunc(rs, func(r store.Release) bool { return r.ID == *j.ReleaseID }); i >= 0 {
 					row.Number, row.Commit, row.Message, row.By = rs[i].Number, rs[i].Commit, rs[i].Message, rs[i].CreatedBy
+					row.AuthorName, row.AuthorLogin = rs[i].AuthorName, rs[i].AuthorLogin
 				}
 			}
 		}
@@ -530,4 +560,28 @@ func fixedFailures(js []Job, rs []store.Release, scoped []string, envs map[strin
 		out = append(out, row)
 	}
 	return out
+}
+
+// versionUnread says release id is an image watch cut that pins an image
+// with no version label because the label read failed: its line then names a
+// tag or a digest, and the row says why.
+func (o *Orchestrator) versionUnread(ctx context.Context, id string) bool {
+	r, err := o.releases.Get(ctx, id)
+	if err != nil || r.CreatedBy != "image-watch" {
+		return false
+	}
+	pins, err := o.releases.Pins(ctx, id)
+	if err != nil {
+		return false
+	}
+	var from map[string]release.Pin
+	if r.BuiltOn != nil {
+		from, _ = o.releases.Pins(ctx, *r.BuiltOn)
+	}
+	for _, c := range release.Diff(from, pins) { // a pin carried over unchanged says nothing of this release
+		if p := pins[c.Slug]; c.Kind != "removed" && p.Version == "" && p.Repo != "" && p.VersionErr != "" {
+			return true
+		}
+	}
+	return false
 }

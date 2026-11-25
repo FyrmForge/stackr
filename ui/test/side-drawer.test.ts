@@ -30,3 +30,19 @@ test("afterRequest on the drawer body closes a lone loading text", () => {
   handlers["htmx:afterRequest"]({ detail: { target: body } });
   assert.equal(open, false);
 });
+
+test("expand swaps the full-screen button's label and pressed state", () => {
+  const attrs: Record<string, string> = {};
+  const btn = { setAttribute: (k: string, v: string) => (attrs[k] = v), title: "" };
+  g.document = { ...(g.document as object), getElementById: () => null };
+  const el = Object.assign(new Ctor(), {
+    toggleAttribute: () => {},
+    style: { setProperty: () => {} },
+    querySelector: () => btn,
+  });
+  const expand = el.expand as (on: boolean) => void;
+  expand.call(el, true);
+  assert.deepEqual([attrs["aria-pressed"], attrs["aria-label"], btn.title], ["true", "Exit full screen", "Exit full screen"]);
+  expand.call(el, false);
+  assert.deepEqual([attrs["aria-pressed"], attrs["aria-label"], btn.title], ["false", "Full screen", "Full screen"]);
+});

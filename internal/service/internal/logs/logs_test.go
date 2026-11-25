@@ -146,3 +146,28 @@ func TestVictoriaDelete(t *testing.T) {
 		t.Errorf("returned after %d polls of active_tasks, want 3", polls)
 	}
 }
+
+// Blank messages (stored by VictoriaLogs as a placeholder) are not returned,
+// and the page is refilled so a full page still reads as "more".
+func TestVictoriaQueryDropsBlank(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			_, _ = io.WriteString(w, `{"_time":"2026-10-21T10:00:03Z","_msg":"a"}`+"\n"+
+				`{"_time":"2026-10-21T10:00:02Z","_msg":"`+missingMsg+`"}`+"\n")
+			return
+		}
+		_, _ = io.WriteString(w, `{"_time":"2026-10-21T10:00:01Z","_msg":""}`+"\n"+
+			`{"_time":"2026-10-21T10:00:00Z","_msg":"b"}`+"\n")
+	}))
+	defer srv.Close()
+	t0 := time.Date(2026, 10, 21, 10, 0, 0, 0, time.UTC)
+	got, err := (&Victoria{URL: srv.URL}).Query(context.Background(), Filter{Org: "o1"}, t0, t0.Add(time.Hour), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Msg != "a" || got[1].Msg != "b" {
+		t.Errorf("got %+v", got)
+	}
+}

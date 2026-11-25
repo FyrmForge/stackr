@@ -196,7 +196,7 @@ func TestReadsLeakNoSecret(t *testing.T) {
 func TestTilePatch(t *testing.T) {
 	w := newWorld(t)
 	const path = "/orgs/acme/stacks/shop/envs/dev/tiles/api"
-	if code, body := w.do(t, w.owner, "PATCH", path, `{"health_path":"/up"}`); code != 200 {
+	if code, body := w.do(t, w.owner, "PATCH", path, `{"health_http_path":"/up"}`); code != 200 {
 		t.Fatalf("patch = %d %s", code, body)
 	}
 	_, body := w.do(t, w.owner, "GET", path, "")
@@ -204,8 +204,22 @@ func TestTilePatch(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.HealthPath != "/up" || got.ImageRef != "nginx:1" || got.ContainerPort != 80 {
+	if got.HealthHTTPPath != "/up" || got.ImageRef != "nginx:1" || got.ContainerPort != 80 {
 		t.Errorf("after patch: %+v", got)
+	}
+	if code, body := w.do(t, w.owner, "PATCH", path, `{"health_http_status":2,"health_http_interval_s":30,"health_http_timeout_s":3,"health_http_retries":4,`+
+		`"health_exec_cmd":"true","health_exec_interval_s":10,"health_exec_timeout_s":2,"health_exec_retries":5,"health_exec_start_period_s":7}`); code != 200 {
+		t.Fatalf("health patch = %d %s", code, body)
+	}
+	_, body = w.do(t, w.owner, "GET", path, "")
+	got = service.TileView{}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.HealthHTTPStatus != 2 || got.HealthHTTPIntervalS != 30 || got.HealthHTTPTimeoutS != 3 || got.HealthHTTPRetries != 4 ||
+		got.HealthExecCmd != "true" || got.HealthExecIntervalS != 10 || got.HealthExecTimeoutS != 2 || got.HealthExecRetries != 5 ||
+		got.HealthExecStartPeriodS != 7 || got.HealthHTTPPath != "/up" {
+		t.Errorf("after health patch: %+v", got)
 	}
 	// the line-based columns go in structured or as the stored string, and
 	// always come out structured

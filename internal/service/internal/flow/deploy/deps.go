@@ -94,9 +94,9 @@ func (f *Flow) poll(ctx context.Context, timeout time.Duration, ready func() (bo
 // interval, at most depCap. A value the tile does not set comes from the
 // image's own HEALTHCHECK (read off a replica), then docker's defaults.
 func (f *Flow) healthTimeout(ctx context.Context, d store.Tile) time.Duration {
-	interval := time.Duration(d.HealthcheckIntervalS) * time.Second
-	start := time.Duration(d.HealthcheckStartPeriodS) * time.Second
-	retries := d.HealthcheckRetries
+	interval := time.Duration(d.HealthExecIntervalS) * time.Second
+	start := time.Duration(d.HealthExecStartPeriodS) * time.Second
+	retries := d.HealthExecRetries
 	if interval == 0 || start == 0 || retries == 0 {
 		img := f.imageHealth(ctx, d)
 		if interval == 0 {

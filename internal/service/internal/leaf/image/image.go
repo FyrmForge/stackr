@@ -201,9 +201,10 @@ func (l *Leaf) Built(ctx context.Context, ref, digest string) (store.Image, erro
 	return l.upsert(ctx, ref, func(i *store.Image) { i.Digest, i.BuiltAt = digest, &now })
 }
 
-// Checked caches one registry answer. An error keeps the last good answer
-// and retries next round; it never reads as an update.
-func (l *Leaf) Checked(ctx context.Context, ref, digest, tag string, checkErr error) (store.Image, error) {
+// Checked caches one registry answer; version is the label of digest ("" =
+// none). An error keeps the last good answer and retries next round; it
+// never reads as an update.
+func (l *Leaf) Checked(ctx context.Context, ref, digest, tag, version string, checkErr error) (store.Image, error) {
 	now := time.Now().UTC()
 	return l.upsert(ctx, ref, func(i *store.Image) {
 		i.CheckedAt = &now
@@ -211,8 +212,20 @@ func (l *Leaf) Checked(ctx context.Context, ref, digest, tag string, checkErr er
 			i.LastError = checkErr.Error()
 			return
 		}
-		i.LastDigest, i.LastTag, i.LastError = digest, tag, ""
+		i.LastDigest, i.LastTag, i.LastVersion, i.LastError = digest, tag, version, ""
 	})
+}
+
+// LabelRead records how a version label read went: a failure is kept (the UI
+// says the version could not be read), a success clears it. The row is the one
+// Checked just wrote.
+func (l *Leaf) LabelRead(ctx context.Context, ref string, readErr error) error {
+	msg := ""
+	if readErr != nil {
+		msg = readErr.Error()
+	}
+	_, err := l.upsert(ctx, ref, func(i *store.Image) { i.VersionErr = msg })
+	return err
 }
 
 func (l *Leaf) upsert(ctx context.Context, ref string, edit func(*store.Image)) (store.Image, error) {

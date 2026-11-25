@@ -71,6 +71,9 @@ func goldens() []golden {
 	protect[0].Protect = &domain.BasicAuth{User: "team", Password: "${{ secrets.web.pw }}"}
 	health := one(row("app.example.com", domain.Extras{}))
 	health[0].HealthPath = "/healthz"
+	tuned := one(row("app.example.com", domain.Extras{}))
+	tuned[0].HealthPath = "/ready"
+	tuned[0].HealthStatus, tuned[0].HealthIntervalS, tuned[0].HealthTimeoutS, tuned[0].HealthRetries = 2, 10, 4, 3
 	down := one(row("app.example.com", domain.Extras{}))
 	down[0].Upstreams = nil
 	off := install
@@ -139,6 +142,7 @@ func goldens() []golden {
 		{"redirect", install, one(redirect)},
 		{"no_force_https", install, one(noForce)},
 		{"health", install, health},
+		{"health_tuned", install, tuned},
 		{"no_replicas", install, down},
 		{"tls_off", off, one(row("app.example.com", domain.Extras{}))},
 		{"panel_trusted", panel, one(row("app.example.com", domain.Extras{}))},

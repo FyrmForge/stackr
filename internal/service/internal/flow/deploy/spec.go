@@ -57,11 +57,11 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		HostNetwork:        r.hostNet,
 		Devices:            r.devices,
 		Restart:            cmp.Or(r.restart, RestartPolicy(t.RestartPolicy)),
-		HealthCmd:          t.HealthcheckCmd,
-		HealthIntervalS:    t.HealthcheckIntervalS,
-		HealthTimeoutS:     t.HealthcheckTimeoutS,
-		HealthRetries:      t.HealthcheckRetries,
-		HealthStartPeriodS: t.HealthcheckStartPeriodS,
+		HealthCmd:          t.HealthExecCmd,
+		HealthIntervalS:    t.HealthExecIntervalS,
+		HealthTimeoutS:     t.HealthExecTimeoutS,
+		HealthRetries:      t.HealthExecRetries,
+		HealthStartPeriodS: t.HealthExecStartPeriodS,
 	}
 	// Tiles lose NET_RAW: on a bridge it spoofs addresses past the LAN
 	// grants, on the host network it sniffs the host's traffic. A privileged

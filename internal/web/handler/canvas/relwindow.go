@@ -15,16 +15,16 @@ import (
 // rowEnv is what a row of the window needs from the stack it belongs to:
 // its envs' names and colours, the links to its reviews and job logs.
 type rowEnv struct {
-	stack   string                 // its name, for a build under way
+	stack   string                 // its name
+	base    string                 // its address, where the release modal is under an env
 	envs    map[string]comp.EnvRun // env id to name and hue
 	jobHref func(id string) string
-	review  func(rel string, rv service.WindowReview) comp.RelLink
 }
 
 // whoOf names the org's members once for a render, when a row names a person
 // (nil otherwise).
 func (h *handler) whoOf(ctx context.Context, orgID string, rows []service.WindowRow) map[string]string {
-	if !slices.ContainsFunc(rows, func(r service.WindowRow) bool { return strings.HasPrefix(r.By, "user:") }) {
+	if !slices.ContainsFunc(rows, func(r service.WindowRow) bool { return render.IsPerson(r.By) }) {
 		return nil
 	}
 	who, _ := h.who(ctx, orgID)
@@ -32,48 +32,15 @@ func (h *handler) whoOf(ctx context.Context, orgID string, rows []service.Window
 }
 
 // relRows maps the service's rows; of says which stack a row is of, who the
-// member names of the render (see whoOf).
-func (h *handler) relRows(rows []service.WindowRow, who map[string]string, of func(service.WindowRow) rowEnv) []comp.RelRow {
-	var out []comp.RelRow
+// member names of the render (see whoOf). A row has no review link: its
+// modal holds the way into the review.
+func (h *handler) relRows(rows []service.WindowRow, who map[string]string, of func(service.WindowRow) rowEnv) []comp.ReleaseLineView {
+	var out []comp.ReleaseLineView
 	for _, r := range rows {
 		e := of(r)
-		row := render.RelRowOf(r, e.stack, who, e.envs, e.jobHref)
-		for _, rv := range r.Reviews {
-			row.Reviews = append(row.Reviews, e.review(r.ID, rv))
-		}
-		if r.State == service.StateWaiting && len(row.Reviews) > 0 {
-			row.Link = row.Reviews[0]
-		}
-		out = append(out, row)
+		out = append(out, render.ReleaseLineOf(r, e.stack, e.base, who, e.envs, e.jobHref))
 	}
 	return out
-}
-
-// reviewLink is the link into ui1's review for a row of the stack at base:
-// the env's drawer when envID is set (an env canvas), the stack's with the
-// env named otherwise.
-// bare = the row is already of one env's line on a list of many stacks (the
-// org chart): the label leaves the env out.
-// viewOnly: the viewer cannot promote, so the words are "View ...".
-func reviewLink(base, stackID, envID string, bare, viewOnly bool) func(string, service.WindowReview) comp.RelLink {
-	return func(rel string, rv service.WindowReview) comp.RelLink {
-		verb := "Review"
-		if viewOnly {
-			verb = "View" // the review says who can promote
-		}
-		label := verb + " plan"
-		if rv.Rollback {
-			label = verb + " rollback"
-		}
-		q := "?drawer=" + url.QueryEscape("env:"+rv.EnvID) + "&tab=releases&plan=" + rel
-		if envID == "" {
-			if !bare {
-				label += " for " + rv.Env
-			}
-			q = "?drawer=" + url.QueryEscape("stack:"+stackID) + "&tab=releases&env=" + rv.EnvID + "&plan=" + rel
-		}
-		return comp.RelLink{Label: label, Href: base + q}
-	}
 }
 
 // relWindow is the releases window of a canvas: a stack or env's (the env
@@ -116,9 +83,8 @@ func (h *handler) stackWindow(ctx context.Context, l level, gv service.GraphView
 	}
 	w.Waiting, w.Failed = win.Waiting, win.Failed
 	e := rowEnv{
-		stack: win.Stack, envs: envs,
+		stack: win.Stack, base: stack, envs: envs,
 		jobHref: func(id string) string { return stack + "/" + logEnv + "/-/jobs/" + id },
-		review:  reviewLink(l.base, stackID, envID, false, l.viewOnly),
 	}
 	w.Rows = h.relRows(win.Rows, h.whoOf(ctx, l.org, win.Rows), func(service.WindowRow) rowEnv { return e })
 	return w
@@ -137,11 +103,10 @@ func (h *handler) orgWindow(ctx context.Context, l level) *comp.RelWindow {
 	cfg := l.base + "?drawer=org:" + l.scope.ID + "&tab=config"
 	envs := map[string]rowEnv{}
 	for id, st := range win.Stacks {
-		e := rowEnv{stack: st.Name, envs: map[string]comp.EnvRun{}, jobHref: func(id string) string { return l.base + "/-/jobs/" + id }}
+		e := rowEnv{stack: st.Name, base: l.base + "/" + st.Slug, envs: map[string]comp.EnvRun{}, jobHref: func(id string) string { return l.base + "/-/jobs/" + id }}
 		for _, ev := range st.Envs {
 			e.envs[ev.ID] = comp.EnvRun{Name: ev.Name, Color: ev.Color}
 		}
-		e.review = reviewLink(l.base+"/"+st.Slug, id, "", true, l.viewOnly)
 		envs[id] = e
 	}
 	plans := 0
@@ -157,20 +122,14 @@ func (h *handler) orgWindow(ctx context.Context, l level) *comp.RelWindow {
 		}
 	}
 	who := h.whoOf(ctx, l.org, win.Rows)
-	var out []comp.RelRow
+	var out []comp.ReleaseLineView
 	for _, r := range win.Rows {
 		if r.Kind == service.RowPlan {
 			out = append(out, render.RelPlanRow(r, "org config", cfg, l.viewOnly))
 			continue
 		}
 		row := h.relRows([]service.WindowRow{r}, who, func(r service.WindowRow) rowEnv { return envs[r.StackID] })[0]
-		row.OfStack, row.Scope = true, envs[r.StackID].stack
-		if row.Number != "" {
-			row.Scope += " " + row.Number
-		}
-		if r.Kind == service.RowBuilding {
-			row.Stack = "" // the scope column says it
-		}
+		row.OfStack = true
 		out = append(out, row)
 	}
 	w.Rows = out

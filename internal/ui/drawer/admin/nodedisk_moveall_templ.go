@@ -234,7 +234,7 @@ func MoveAllDialogView(m MoveAllDialog) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.DlgShell("Move all to disk", movePlural(m.Count)+" on "+m.Node, moveAllFoot(m)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.Modal("Move all to disk", movePlural(m.Count)+" on "+m.Node, moveAllFoot(m)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

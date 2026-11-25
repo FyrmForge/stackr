@@ -193,3 +193,83 @@ func TestReleaseScreenPlacesJobsByRealPayloads(t *testing.T) {
 		t.Errorf("fixed failures = %d, deploying = %d, want 2, 1: %+v", fixed, deploying, sc.Rows)
 	}
 }
+
+// The screen pages its rows: Total and the counts cover every match, Rows
+// are the page's slice, and a page past the end is the last.
+func TestReleaseScreenPages(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	p, err := w.e.Orch.SessionPrincipal(ctx, w.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"org_id":"` + w.acme + `","stack_id":"` + w.shop + `"}`
+	const n = service.ScreenPage + 5
+	for i := range n + 1 { // n failures, then a push that fixes them all
+		at, state := time.Now().Add(-time.Duration(n+1-i)*time.Minute), "failed"
+		if i == n {
+			state = "done"
+		}
+		if err := w.e.Store.Jobs.Create(ctx, store.Job{
+			ID: uuid.NewString(), Kind: "push", State: state, Error: "boom", Payload: payload,
+			LockSet: store.StringList{"push:" + w.shop, "push:" + w.shop + ":acme/shop@main"}, CreatedAt: at, FinishedAt: &at,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := service.ScreenQuery{Scope: "acme/shop", State: "failed"}
+	one, err := w.e.Orch.ReleaseScreen(ctx, p, q)
+	if err != nil || one.Total != n || len(one.Rows) != service.ScreenPage || one.Page != 1 {
+		t.Fatalf("page 1: total %d rows %d page %d, %v", one.Total, len(one.Rows), one.Page, err)
+	}
+	q.Page = 2
+	two, err := w.e.Orch.ReleaseScreen(ctx, p, q)
+	if err != nil || two.Total != n || len(two.Rows) != 5 || two.Page != 2 {
+		t.Fatalf("page 2: total %d rows %d page %d, %v", two.Total, len(two.Rows), two.Page, err)
+	}
+	if two.Rows[0].At.After(one.Rows[len(one.Rows)-1].At) {
+		t.Error("page 2 must continue older than page 1")
+	}
+	if two.Counts[service.StateFailed] != one.Counts[service.StateFailed] {
+		t.Errorf("counts differ across pages: %v vs %v", one.Counts, two.Counts)
+	}
+	q.Page = 99
+	if last, _ := w.e.Orch.ReleaseScreen(ctx, p, q); last.Page != 2 || len(last.Rows) != 5 {
+		t.Errorf("past the end: page %d rows %d", last.Page, len(last.Rows))
+	}
+}
+
+// A clean plan (nothing to change) is no row and no count; a plan with
+// changes is listed; a failed one stays even when it reads no changes.
+func TestReleaseScreenSkipsNoChangePlans(t *testing.T) {
+	t.Parallel()
+	w := seedWorld(t)
+	ctx := context.Background()
+	p, err := w.e.Orch.SessionPrincipal(ctx, w.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := func(status, summary, plan string, ago time.Duration) {
+		t.Helper()
+		if err := w.e.Store.OrgPlans.Create(ctx, store.OrgPlan{ID: uuid.NewString(), OrgID: w.acme, Status: status, Summary: summary, Plan: plan, Ticked: []string{}, CreatedAt: time.Now().Add(-ago)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	empty := `{"changes":[]}`
+	add("clean", "no changes", empty, 4*time.Hour)
+	add("superseded", "no changes", empty, 3*time.Hour)
+	add("applied", "1 to add", `{"changes":[{"kind":"create"}]}`, 2*time.Hour)
+	add("error", "no changes", empty, time.Hour)
+	sc, err := w.e.Orch.ReleaseScreen(ctx, p, service.ScreenQuery{Scope: "acme/" + service.ScopeOrgConfig})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range sc.Rows {
+		got = append(got, r.State)
+	}
+	if sc.Total != 2 || len(sc.Rows) != 2 || got[0] != "failed" || got[1] != "applied" {
+		t.Errorf("total %d, states %v, want failed, applied (clean and superseded hidden)", sc.Total, got)
+	}
+}

@@ -25,12 +25,16 @@ var (
 		"port",
 		"published_ports",
 		"endpoint_protocol",
-		"health_path",
-		"healthcheck_cmd",
-		"healthcheck_interval_s",
-		"healthcheck_timeout_s",
-		"healthcheck_retries",
-		"healthcheck_start_period_s",
+		"health_http_path",
+		"health_http_status",
+		"health_http_interval_s",
+		"health_http_timeout_s",
+		"health_http_retries",
+		"health_exec_cmd",
+		"health_exec_interval_s",
+		"health_exec_timeout_s",
+		"health_exec_retries",
+		"health_exec_start_period_s",
 		"user",
 		"privileged",
 		"devices",
@@ -83,18 +87,26 @@ func field(t *service.Tile, key string) any {
 		return &t.PublishedPorts
 	case "endpoint_protocol":
 		return &t.EndpointProtocol
-	case "health_path":
-		return &t.HealthPath
-	case "healthcheck_cmd":
-		return &t.HealthcheckCmd
-	case "healthcheck_interval_s":
-		return &t.HealthcheckIntervalS
-	case "healthcheck_timeout_s":
-		return &t.HealthcheckTimeoutS
-	case "healthcheck_retries":
-		return &t.HealthcheckRetries
-	case "healthcheck_start_period_s":
-		return &t.HealthcheckStartPeriodS
+	case "health_http_path":
+		return &t.HealthHTTPPath
+	case "health_http_status":
+		return &t.HealthHTTPStatus
+	case "health_http_interval_s":
+		return &t.HealthHTTPIntervalS
+	case "health_http_timeout_s":
+		return &t.HealthHTTPTimeoutS
+	case "health_http_retries":
+		return &t.HealthHTTPRetries
+	case "health_exec_cmd":
+		return &t.HealthExecCmd
+	case "health_exec_interval_s":
+		return &t.HealthExecIntervalS
+	case "health_exec_timeout_s":
+		return &t.HealthExecTimeoutS
+	case "health_exec_retries":
+		return &t.HealthExecRetries
+	case "health_exec_start_period_s":
+		return &t.HealthExecStartPeriodS
 	case "user":
 		return &t.User
 	case "privileged":
@@ -144,6 +156,9 @@ func shown(key string, p any) string {
 		if *p == 0 {
 			return ""
 		}
+		if key == "health_http_status" && *p <= 5 {
+			return strconv.Itoa(*p) + "xx"
+		}
 		return strconv.Itoa(*p)
 	case *float64:
 		if *p == 0 {
@@ -175,6 +190,11 @@ func write(key string, p any, v string) error {
 			*p = 0
 			return nil
 		}
+		if key == "health_http_status" {
+			n, err := parseStatus(v)
+			*p = n
+			return err
+		}
 		n, err := strconv.Atoi(v)
 		if err != nil {
 			return errs.Invalidf(key, "Use a whole number.")
@@ -194,6 +214,18 @@ func write(key string, p any, v string) error {
 		*p = v != ""
 	}
 	return nil
+}
+
+// parseStatus reads the Expected status field: a code 200 to 599 or a class
+// 1xx to 5xx, stored as the int the stack file keeps (a class is its digit).
+func parseStatus(v string) (int, error) {
+	if len(v) == 3 && strings.EqualFold(v[1:], "xx") && v[0] >= '1' && v[0] <= '5' {
+		return int(v[0] - '0'), nil
+	}
+	if n, err := strconv.Atoi(v); err == nil && n >= 200 && n <= 599 {
+		return n, nil
+	}
+	return 0, errs.Invalidf("health_http_status", "use a status code like 200 or a class like 2xx")
 }
 
 // settingsView is the rows over the stored tile: one value per key the
@@ -227,15 +259,41 @@ func first(vs []string) string {
 
 // apply writes the posted keys onto t; every refused key at once.
 func apply(t *service.Tile, keys []string, form map[string][]string) error {
-	var bad []error
+	bad := map[string]error{}
 	for _, k := range keys {
 		if p := field(t, k); p != nil {
 			if err := write(k, p, first(form[k])); err != nil {
-				bad = append(bad, err)
+				bad[k] = err
 			}
 		}
 	}
-	return errors.Join(bad...)
+	// An empty path or command turns its check off: the rest of that check
+	// clears with it, so Save never meets "needs a path" / "needs a cmd" and
+	// never refuses a field of a check that is going away.
+	off := func(lead string, clear ...*int) {
+		if !slices.Contains(keys, lead) {
+			return
+		}
+		if p, _ := field(t, lead).(*string); p != nil && *p == "" {
+			for _, c := range clear {
+				*c = 0
+			}
+			for k := range bad {
+				if strings.HasPrefix(k, lead[:strings.LastIndex(lead, "_")+1]) {
+					delete(bad, k)
+				}
+			}
+		}
+	}
+	off("health_http_path", &t.HealthHTTPStatus, &t.HealthHTTPIntervalS, &t.HealthHTTPTimeoutS, &t.HealthHTTPRetries)
+	off("health_exec_cmd", &t.HealthExecIntervalS, &t.HealthExecTimeoutS, &t.HealthExecRetries, &t.HealthExecStartPeriodS)
+	var out []error
+	for _, k := range keys { // keys order, not map order
+		if bad[k] != nil {
+			out = append(out, bad[k])
+		}
+	}
+	return errors.Join(out...)
 }
 
 // formKey is the form field a service refusal names (Validate speaks the
@@ -248,10 +306,16 @@ func formKey(field string) string {
 		return "mem_limit_mb"
 	case "restart":
 		return "restart_policy"
-	case "healthcheck":
-		return "healthcheck_cmd"
-	case "healthcheck_interval", "healthcheck_timeout", "healthcheck_start_period":
-		return field + "_s"
+	case "health.http", "health.http.path":
+		return "health_http_path"
+	case "health.exec", "health.exec.cmd":
+		return "health_exec_cmd"
+	case "health.http.status":
+		return "health_http_status"
+	case "health.http.interval", "health.http.timeout", "health.exec.interval", "health.exec.timeout", "health.exec.start_period":
+		return strings.NewReplacer(".", "_").Replace(field) + "_s"
+	case "health.http.retries", "health.exec.retries":
+		return strings.NewReplacer(".", "_").Replace(field)
 	case "git_branch":
 		return "branch"
 	case "image_ref": // an operated tile's image is changed on its own (message 27)

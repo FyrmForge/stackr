@@ -65,11 +65,13 @@ type Account struct{ Host, Email string }
 // TileRoute is one exposed tile: its rows plus the facts the rows lack.
 type TileRoute struct {
 	TileID     string
-	Upstreams  []string   // replica names on the tile's ingress network
-	HealthPath string     // "" = no active health check
-	Protect    *BasicAuth // the settings cascade's answer, when a domain carries none
-	Domains    []store.Domain
-	Expand     Expand // this tile's refs; nil = Build's
+	Upstreams  []string // replica names on the tile's ingress network
+	HealthPath string   // "" = no active health check
+	// HTTP check tuning; 0 = Caddy/stackr default.
+	HealthStatus, HealthIntervalS, HealthTimeoutS, HealthRetries int
+	Protect                                                      *BasicAuth // the settings cascade's answer, when a domain carries none
+	Domains                                                      []store.Domain
+	Expand                                                       Expand // this tile's refs; nil = Build's
 	// IngressNode is the node whose Caddy serves the rows ("" = the default
 	// ingress node). Node is where the tile runs and VIP its address on the
 	// env network; when the two nodes differ the upstream is VIP:port, not
@@ -502,6 +504,14 @@ func domainRoute(d store.Domain, t TileRoute, expand Expand, tlsOn bool) (any, e
 	return route{"match": match(d.Host, d.Path, e.Methods), "terminal": true, "handle": hs}, nil
 }
 
+// secs renders n seconds as a Caddy duration, def when n is unset.
+func secs(n, def int) string {
+	if n <= 0 {
+		n = def
+	}
+	return strconv.Itoa(n) + "s"
+}
+
 func upstream(d store.Domain, t TileRoute, e Extras) route {
 	if len(t.Upstreams) == 0 {
 		return route{"handler": "static_response", "status_code": 503, "body": "no running replica"}
@@ -519,7 +529,14 @@ func upstream(d store.Domain, t TileRoute, e Extras) route {
 	}
 	rp := route{"handler": "reverse_proxy", "upstreams": ups}
 	if t.HealthPath != "" {
-		rp["health_checks"] = route{"active": route{"uri": t.HealthPath, "interval": "5s", "timeout": "3s"}}
+		act := route{"uri": t.HealthPath, "interval": secs(t.HealthIntervalS, 5), "timeout": secs(t.HealthTimeoutS, 3)}
+		if t.HealthStatus != 0 {
+			act["expect_status"] = t.HealthStatus // under 100 is a class: 2 = 2xx
+		}
+		if t.HealthRetries != 0 {
+			act["fails"] = t.HealthRetries
+		}
+		rp["health_checks"] = route{"active": act}
 	}
 	if e.Websockets {
 		rp["flush_interval"] = -1 // ponytail: Caddy proxies upgrades anyway; this only stops buffering

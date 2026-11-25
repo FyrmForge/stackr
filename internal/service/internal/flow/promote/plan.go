@@ -86,10 +86,31 @@ type PlacementLive struct {
 	DNS func(ctx context.Context, ws []PlacementWrite) ([]planfile.Change, []string, error)
 }
 
+// healthTimings prints the set parts of a health block: "every 30s, 3s, 3 tries, 10s start".
+func healthTimings(interval, timeout, retries, start int) string {
+	var b []string
+	if interval > 0 {
+		b = append(b, fmt.Sprintf("every %ds", interval))
+	}
+	if timeout > 0 {
+		b = append(b, fmt.Sprintf("%ds", timeout))
+	}
+	if retries > 0 {
+		b = append(b, fmt.Sprintf("%d tries", retries))
+	}
+	if start > 0 {
+		b = append(b, fmt.Sprintf("%ds start", start))
+	}
+	if len(b) == 0 {
+		return ""
+	}
+	return " " + strings.Join(b, ", ")
+}
+
 // shownValues are the tile keys whose old and new values the plan prints:
 // never a credential, and what a reader of a cron, function or setting diff
 // needs. Never env, build_args, command or files (they carry secrets), nor
-// the healthcheck command, so "healthcheck" prints its timings only.
+// the health command, so health.exec prints its timings only.
 var shownValues = map[string]func(store.Tile) string{
 	"limits": func(t store.Tile) string {
 		var b []string
@@ -114,10 +135,22 @@ var shownValues = map[string]func(store.Tile) string{
 	"restart":         func(t store.Tile) string { return t.RestartPolicy },
 	"user":            func(t store.Tile) string { return t.User },
 	"shm_size_mb":     func(t store.Tile) string { return strconv.Itoa(t.ShmSizeMB) },
-	"health_path":     func(t store.Tile) string { return t.HealthPath },
-	"healthcheck": func(t store.Tile) string {
-		return fmt.Sprintf("every %ds, timeout %ds, %d retries, start %ds",
-			t.HealthcheckIntervalS, t.HealthcheckTimeoutS, t.HealthcheckRetries, t.HealthcheckStartPeriodS)
+	"health.http": func(t store.Tile) string {
+		if t.HealthHTTPPath == "" {
+			return "none"
+		}
+		s := t.HealthHTTPPath
+		if t.HealthHTTPStatus != 0 {
+			s += " " + HealthStatus(t.HealthHTTPStatus).String()
+		}
+		return s + healthTimings(t.HealthHTTPIntervalS, t.HealthHTTPTimeoutS, t.HealthHTTPRetries, 0)
+	},
+	// the command itself is never printed: it can carry a credential
+	"health.exec": func(t store.Tile) string {
+		if t.HealthExecCmd == "" {
+			return "none"
+		}
+		return "command" + healthTimings(t.HealthExecIntervalS, t.HealthExecTimeoutS, t.HealthExecRetries, t.HealthExecStartPeriodS)
 	},
 	"watch_paths":     func(t store.Tile) string { return t.WatchPaths },
 	"dockerfile":      func(t store.Tile) string { return t.DockerfilePath },
@@ -651,6 +684,10 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 		ch := Change{Kind: "update", Tile: name, Field: k}
 		if v, ok := shownValues[k]; ok {
 			ch.Old, ch.New = v(old), v(row)
+			// the command is never printed, so a cmd-only change would read as no change
+			if k == "health.exec" && ch.Old != "none" && ch.New != "none" && ch.Old == ch.New && old.HealthExecCmd != row.HealthExecCmd {
+				ch.New += " (changed)"
+			}
 		}
 		p.add(ch)
 	}
@@ -1996,39 +2033,33 @@ func (f *Flow) resolver(ctx context.Context, w *work) (*params.Resolver, error) 
 // builds from the config repo, on the config branch unless it names one.
 func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.Tile {
 	t := store.Tile{
-		StackID:                 e.StackID,
-		EnvironmentID:           e.ID,
-		Name:                    name,
-		Slug:                    name,
-		Kind:                    tc.Type,
-		ImageRef:                tc.Image,
-		Command:                 tc.Command,
-		ContainerPort:           tc.Port,
-		PublishedPorts:          lines(tc.PublishedPorts),
-		EndpointProtocol:        tc.EndpointProtocol,
-		HealthPath:              tc.HealthPath,
-		HealthcheckCmd:          tc.Healthcheck,
-		HealthcheckIntervalS:    tc.HealthInterval,
-		HealthcheckTimeoutS:     tc.HealthTimeout,
-		HealthcheckRetries:      tc.HealthRetries,
-		HealthcheckStartPeriodS: tc.HealthStart,
-		User:                    tc.User,
-		ShmSizeMB:               tc.ShmSizeMB,
-		Privileged:              tc.Privileged,
-		Devices:                 lines(tc.Devices),
-		Lan:                     lines(tc.LAN),
-		HostNetwork:             tc.Network == "host",
-		RestartPolicy:           tc.Restart,
-		DependsOn:               lines(tc.DependsOn),
-		Files:                   lines(tc.Files),
-		Volumes:                 lines(tc.Volumes),
-		Replicas:                tc.Replicas,
-		UpdatePolicy:            tc.UpdatePolicy,
-		TagPolicy:               tc.TagPolicy,
-		EnvJSON:                 jsonMap(tc.Env),
-		Schedule:                tc.Schedule,
-		Trigger:                 tc.Trigger,
-		TimeoutMinutes:          tc.TimeoutMinutes,
+		StackID:          e.StackID,
+		EnvironmentID:    e.ID,
+		Name:             name,
+		Slug:             name,
+		Kind:             tc.Type,
+		ImageRef:         tc.Image,
+		Command:          tc.Command,
+		ContainerPort:    tc.Port,
+		PublishedPorts:   lines(tc.PublishedPorts),
+		EndpointProtocol: tc.EndpointProtocol,
+		User:             tc.User,
+		ShmSizeMB:        tc.ShmSizeMB,
+		Privileged:       tc.Privileged,
+		Devices:          lines(tc.Devices),
+		Lan:              lines(tc.LAN),
+		HostNetwork:      tc.Network == "host",
+		RestartPolicy:    tc.Restart,
+		DependsOn:        lines(tc.DependsOn),
+		Files:            lines(tc.Files),
+		Volumes:          lines(tc.Volumes),
+		Replicas:         tc.Replicas,
+		UpdatePolicy:     tc.UpdatePolicy,
+		TagPolicy:        tc.TagPolicy,
+		EnvJSON:          jsonMap(tc.Env),
+		Schedule:         tc.Schedule,
+		Trigger:          tc.Trigger,
+		TimeoutMinutes:   tc.TimeoutMinutes,
 	}
 	if tc.Type == tile.Slice {
 		access := cmp.Or(tc.DefaultAccess, tile.Write)
@@ -2046,6 +2077,16 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 			From:   a.From,
 			Access: a.Access,
 		})
+	}
+	if h := tc.Health; h != nil {
+		if h.HTTP != nil {
+			t.HealthHTTPPath, t.HealthHTTPStatus = strings.TrimSpace(h.HTTP.Path), int(h.HTTP.Status)
+			t.HealthHTTPIntervalS, t.HealthHTTPTimeoutS, t.HealthHTTPRetries = h.HTTP.Interval, h.HTTP.Timeout, h.HTTP.Retries
+		}
+		if h.Exec != nil {
+			t.HealthExecCmd, t.HealthExecStartPeriodS = strings.TrimSpace(h.Exec.Cmd), h.Exec.StartPeriod
+			t.HealthExecIntervalS, t.HealthExecTimeoutS, t.HealthExecRetries = h.Exec.Interval, h.Exec.Timeout, h.Exec.Retries
+		}
 	}
 	if tc.Limits != nil {
 		t.CPULimit = tc.Limits.CPU

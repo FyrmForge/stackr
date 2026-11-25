@@ -326,7 +326,7 @@ func groupPanel(g Grid, grp Group) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.EnvBadge(col.Label, col.Hue).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.EnvChip(col.Label, col.Hue).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

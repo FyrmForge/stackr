@@ -433,6 +433,23 @@ func TestFirstImageRunPinsARelease(t *testing.T) {
 	}
 }
 
+// The first pin carries the version the image watch read for that digest, so
+// the next watch release says "from to", not "now".
+func TestFirstImageRunPinsTheWatchedVersion(t *testing.T) {
+	w := setup(t)
+	w.fake.Digests = map[string]string{"nginx:1": "sha256:now"}
+	_, err := w.f.Images.Checked(ctx, "nginx:1", "sha256:now", "1", "3.4.1", nil)
+	must(t, err)
+	must(t, w.f.Redeploy(ctx, w.tile.ID, io.Discard, nil))
+	e, err := w.f.Envs.Get(ctx, w.env.ID)
+	must(t, err)
+	pins, err := w.f.Releases.Pins(ctx, *e.ReleaseID)
+	must(t, err)
+	if v := pins["api"].Version; v != "3.4.1" {
+		t.Errorf("pin version = %q, want 3.4.1", v)
+	}
+}
+
 // DECIDE 140: editing an image tile's tag makes the next redeploy run the
 // new tag and pin it, one release.
 func TestEditedTagRedeploysAndRepins(t *testing.T) {

@@ -70,9 +70,9 @@ func JobBadge(state string) templ.Component {
 	})
 }
 
-// EnvBadge is an environment's name beside its colour dot, so prod looks
+// EnvChip is an environment's name beside its colour dot, so prod looks
 // like prod everywhere. Color is one of EnvColors; anything else, no dot.
-func EnvBadge(name, color string) templ.Component {
+func EnvChip(name, color string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {

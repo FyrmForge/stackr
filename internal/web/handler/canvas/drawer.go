@@ -56,6 +56,7 @@ func (cd card) frame(tab string) comp.DrawerView {
 		f.Node, f.Title, f.Tabs = "stack:"+s.Stack.ID, s.Stack.Name, stackui.Tabs
 	case "env":
 		f.Node, f.Title, f.Tabs = "env:"+s.Env.ID, s.Env.Name, envui.Tabs
+		f.Kind, f.HideTitle = "", true // the breadcrumb names the env
 	case "connector":
 		f.Node, f.Title, f.Tabs = "connector:"+cd.conn.ID, cd.conn.Name, connui.Tabs
 		f.Icon, f.Kind = "connector", "connector"
@@ -92,6 +93,13 @@ func (h *handler) cardOf(c echo.Context, kind string) (card, error) {
 func can(c echo.Context, s service.Scope, v authz.Verb) bool {
 	p := middleware.Principal(c)
 	return p != nil && authz.Can(p.Access, v, authz.Resource{OrgID: s.Org.ID}) == nil
+}
+
+// canStack is can on the card's stack: a stack-scoped grant counts, as in the
+// service's own check.
+func canStack(c echo.Context, s service.Scope, v authz.Verb) bool {
+	p := middleware.Principal(c)
+	return p != nil && authz.Can(p.Access, v, authz.Resource{OrgID: s.Org.ID, StackID: s.Stack.ID}) == nil
 }
 
 // refused is the message of an error the viewer can act on (a 4xx other

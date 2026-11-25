@@ -269,13 +269,13 @@ func TestImportsDoNotShareANameAcrossOrgs(t *testing.T) {
 
 	// Image watch compares upstream with what each tile runs: the tag now
 	// means acme's digest, so only zed's tile is behind.
-	_, err = n.orch.images.Checked(ctx, "nginx:1", "sha256:acme", "1", nil)
+	_, err = n.orch.images.Checked(ctx, "nginx:1", "sha256:acme", "1", "", nil)
 	must(t, err)
 	for tl, behind := range map[string]bool{n.edgeT.ID: false, zt.ID: true} {
 		im, err := n.orch.TileImage(ctx, tl)
 		must(t, err)
-		if im.Newer() != behind {
-			t.Errorf("tile %s: runs %s, upstream %s, behind = %v", tl, im.Digest, im.LastDigest, im.Newer())
+		if im.Newer != behind {
+			t.Errorf("tile %s: runs %s, upstream %s, behind = %v", tl, im.Digest, im.LastDigest, im.Newer)
 		}
 	}
 }

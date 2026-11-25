@@ -29,9 +29,16 @@ var jsonLevels = map[string]string{
 
 // NewLogLine reads a line's level: a JSON object's level, lvl or severity
 // key, else the first level word in the text, which is also drawn bold.
-// ponytail: JSON lines keep their raw text; v0's key=value expand is not
-// ported.
+// A JSON object line shows its message and keeps the other keys as Fields.
 func NewLogLine(at time.Time, text string) LogLineView {
+	l := newLogLine(at, text)
+	if msg, fields, ok := ParseJSONLog(l.Text); ok {
+		l.Text, l.Fields, l.Segs = msg, fields, nil
+	}
+	return l
+}
+
+func newLogLine(at time.Time, text string) LogLineView {
 	l := LogLineView{Time: at}
 	if !at.IsZero() {
 		text = StripStamp(text)
@@ -62,6 +69,9 @@ func NewLogLine(at time.Time, text string) LogLineView {
 // ansiSeq is a terminal escape (CSI): SGR ("m") sets the look, the rest
 // (cursor moves, clears) means nothing in a log and goes.
 var ansiSeq = regexp.MustCompile("\x1b\\[([0-9;?]*)([A-Za-z])")
+
+// StripANSI is s without its terminal escapes.
+func StripANSI(s string) string { return ansiSeq.ReplaceAllString(s, "") }
 
 // ansiColors names the 8 SGR foregrounds; the CSS maps names to the palette.
 var ansiColors = [8]string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}

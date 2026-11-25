@@ -66,7 +66,7 @@ func deployAPI(d *depWorld) error {
 }
 
 func TestHealthyWaitPasses(t *testing.T) {
-	d := setupDep(t, "db:healthy", store.Tile{Kind: tile.Image, ImageRef: "pg:1", ContainerPort: 5432, HealthcheckIntervalS: 2, HealthcheckRetries: 3})
+	d := setupDep(t, "db:healthy", store.Tile{Kind: tile.Image, ImageRef: "pg:1", ContainerPort: 5432, HealthExecCmd: "true", HealthExecIntervalS: 2, HealthExecRetries: 3})
 	d.dbState("running", "starting")
 	d.onWake = func(n int) {
 		if n == 2 {
@@ -82,8 +82,8 @@ func TestHealthyWaitPasses(t *testing.T) {
 }
 
 func TestHealthyWaitTimesOut(t *testing.T) {
-	d := setupDep(t, "db:healthy", store.Tile{Kind: tile.Image, ImageRef: "pg:1", ContainerPort: 5432,
-		HealthcheckIntervalS: 5, HealthcheckRetries: 4, HealthcheckStartPeriodS: 10})
+	d := setupDep(t, "db:healthy", store.Tile{Kind: tile.Image, ImageRef: "pg:1", ContainerPort: 5432, HealthExecCmd: "true",
+		HealthExecIntervalS: 5, HealthExecRetries: 4, HealthExecStartPeriodS: 10})
 	d.dbState("running", "starting")
 	err := deployAPI(d)
 	if err == nil || !strings.Contains(err.Error(), "waited for db to be healthy; it is not") {
@@ -98,8 +98,8 @@ func TestHealthyWaitTimesOut(t *testing.T) {
 }
 
 func TestHealthyWaitCapped(t *testing.T) {
-	d := setupDep(t, "db:healthy", store.Tile{Kind: tile.Image, ImageRef: "pg:1", ContainerPort: 5432,
-		HealthcheckIntervalS: 600, HealthcheckRetries: 9})
+	d := setupDep(t, "db:healthy", store.Tile{Kind: tile.Image, ImageRef: "pg:1", ContainerPort: 5432, HealthExecCmd: "true",
+		HealthExecIntervalS: 600, HealthExecRetries: 9})
 	d.dbState("running", "starting")
 	if err := deployAPI(d); err == nil {
 		t.Fatal("want timeout")
@@ -216,8 +216,8 @@ func TestHealthyIgnoresExitedLeftover(t *testing.T) {
 
 // An explicit retries of 1 or 2 is kept: 1 retry at 5s is 5s, not 15s.
 func TestHealthyExplicitRetriesKept(t *testing.T) {
-	d := setupDep(t, "db:healthy", store.Tile{Kind: tile.Image, ImageRef: "pg:1", ContainerPort: 5432,
-		HealthcheckIntervalS: 5, HealthcheckRetries: 1})
+	d := setupDep(t, "db:healthy", store.Tile{Kind: tile.Image, ImageRef: "pg:1", ContainerPort: 5432, HealthExecCmd: "true",
+		HealthExecIntervalS: 5, HealthExecRetries: 1})
 	d.dbState("running", "starting")
 	if err := deployAPI(d); err == nil {
 		t.Fatal("want a timeout")

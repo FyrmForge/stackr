@@ -11,8 +11,8 @@ func TestSettingsFormReadMode(t *testing.T) {
 	html := render(t, SettingsForm(SettingsFormView{
 		ID: "jobs", Action: "/admin/jobs", Flat: true,
 		Rows: []SettingRowView{
-			{Key: "workers", Label: "Job workers", Type: "int", Effective: "2", DecidedBy: "default", NoInherit: true},
-			{Key: "backup_run_concurrency", Label: "Backups at once", Type: "int", Value: "4", Effective: "4", DecidedBy: "server", Changed: true},
+			{Key: "workers", Label: "Job workers", Type: "int", Effective: "16", DecidedBy: "default", NoInherit: true},
+			{Key: "seed_max_gb", Label: "Largest seed dump (GB)", Type: "int", Value: "4", Effective: "4", DecidedBy: "server", Changed: true},
 			{Key: "protect_password", Label: "Password", Secret: true, Effective: "set"},
 		},
 	}))

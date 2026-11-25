@@ -321,6 +321,7 @@ func (o *Orchestrator) followLog(base context.Context, key string, n store.Node,
 					return
 				}
 				stream, ts, msg := parseDockerLine(raw)
+				msg = strings.TrimRight(msg, "\r\n")
 				s.mu.Lock()
 				if ts.After(s.last[key]) {
 					s.last[key] = ts
@@ -329,6 +330,9 @@ func (o *Orchestrator) followLog(base context.Context, key string, n store.Node,
 				if proxy {
 					o.shipAccess(fctx, n, c, ts, msg)
 					continue
+				}
+				if strings.TrimSpace(msg) == "" {
+					continue // VictoriaLogs would store its "missing _msg" placeholder
 				}
 				l, ok := o.logMeta(fctx, c.Labels["stackr.tile"])
 				if !ok {

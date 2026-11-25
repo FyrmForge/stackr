@@ -69,7 +69,7 @@ templ volJob(o OverviewView) {
 
 // MoveDialogView answers the plan POST into #vol-move-dlg, and a refused press.
 templ MoveDialogView(d MoveDialog) {
-	@c.DlgShell("Move "+d.Name+" to the node disk", d.Name+", "+d.Where, moveFoot(d)) {
+	@c.Modal("Move "+d.Name+" to the node disk", d.Name+", "+d.Where, moveFoot(d)) {
 		if d.Text != "" {
 			<p>{ d.Text }</p>
 		}

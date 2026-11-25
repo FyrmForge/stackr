@@ -121,7 +121,9 @@ func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Setting
 			r.Upstreams = append(r.Upstreams, up)
 		}
 	}
-	r.HealthPath = t.HealthPath
+	r.HealthPath = t.HealthHTTPPath
+	r.HealthStatus, r.HealthIntervalS = t.HealthHTTPStatus, t.HealthHTTPIntervalS
+	r.HealthTimeoutS, r.HealthRetries = t.HealthHTTPTimeoutS, t.HealthHTTPRetries
 	levels := []settings.Settings{server}
 	for _, blob := range []string{o.Settings, st.Settings, e.Settings} {
 		s, err := settings.Parse(blob)

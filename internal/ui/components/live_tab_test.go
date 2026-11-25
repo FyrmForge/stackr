@@ -53,3 +53,11 @@ func TestReleasesLive(t *testing.T) {
 		t.Error("the review is not live")
 	}
 }
+
+// The Waiting poll does not stop for a focused or ticked box.
+func TestWaitingPollGuardAllowsTicks(t *testing.T) {
+	got := renderLive(t, Waiting(WaitingView{Live: "/-/waiting"}))
+	if !strings.Contains(got, `data-poll-guard="rows"`) {
+		t.Errorf("waiting guard: %s", got)
+	}
+}

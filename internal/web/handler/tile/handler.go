@@ -97,7 +97,7 @@ func can(c echo.Context, verb string) bool {
 // head is what every answer's header reads, once per request.
 type head struct {
 	status service.TileStatus
-	image  service.Image // a pulled tile's watch; zero otherwise
+	image  service.ImageState // a pulled tile's watch; zero otherwise
 }
 
 // typed is a refused domain add, drawn over the stored row.
@@ -142,7 +142,7 @@ func (h *handler) view(c echo.Context, tab string) (ui.View, head, error) {
 	if hd.image, err = h.orch.TileImage(ctx, t.ID); err != nil {
 		return v, hd, err
 	}
-	if hd.image.Newer() {
+	if hd.image.Newer {
 		v.NewDigest = hd.image.LastDigest
 		v.AutoUpdate = t.UpdatePolicy == "auto"
 	}

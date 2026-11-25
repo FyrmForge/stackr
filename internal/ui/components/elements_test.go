@@ -27,6 +27,7 @@ var elements = map[string]int{
 	"tab-strip":       150,
 	"term-pane":       150,
 	"theme-toggle":    150,
+	"waiting-select":  150,
 }
 
 // The contract each element keeps with its templ wrapper: the attribute,
@@ -99,6 +100,7 @@ var contract = map[string][]string{
 	"metric-chart":    {`"measures"`, `"labels"`, `"unit"`, `"range"`, `"sse:points"`, `"metrics-refill"`, `script[type="application/json"]`, "No data yet."},
 	"theme-toggle":    {`"theme"`},
 	"password-toggle": {"[data-toggle]", `"aria-pressed"`},
+	"waiting-select":  {"[data-pick]", "[data-all]", "[data-count]", "[data-bulk]"},
 	"settings-find": {
 		`"open"`,
 		`"toggle"`,

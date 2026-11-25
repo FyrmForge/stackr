@@ -189,14 +189,18 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 		return err
 	}
 	// An image tile's first run, or its first after a tag edit: pin what the
-	// tag meant, as a release.
+	// tag meant, as a release. The version is the watch's, when it saw this digest.
+	pin := release.Pin{Slug: t.Slug, Repo: t.ImageRef, Digest: digest}
+	if img, err := f.Images.GetByRef(ctx, t.ImageRef); err == nil && img.LastDigest == digest {
+		pin.Version = img.LastVersion
+	}
 	r, err := f.Releases.Derive(
 		ctx,
 		t.StackID,
 		deref(e.ReleaseID),
 		"deploy",
 		release.EnvLine(e.ID),
-		release.Pin{Slug: t.Slug, Repo: t.ImageRef, Digest: digest},
+		pin,
 	)
 	if err != nil {
 		return err

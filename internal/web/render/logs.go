@@ -1,7 +1,11 @@
 package render
 
 import (
+	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -48,6 +52,11 @@ func LogHistory(c echo.Context, orch *service.Orchestrator, s service.Scope) (co
 	in.Since, _ = time.ParseDuration(v.Range)
 	in.Before, _ = time.Parse(time.RFC3339Nano, q("before"))
 	ls, err := orch.SearchLogs(c.Request().Context(), s, in)
+	if errors.Is(err, service.ErrObserveDown) {
+		slog.Warn("observe: log search failed", "err", err)
+		v.Error = "Logs are unavailable right now. The observe service is not running."
+		return v, nil
+	}
 	if err != nil {
 		if msg, ok := Refused(err); ok {
 			v.Error = msg
@@ -56,10 +65,14 @@ func LogHistory(c echo.Context, orch *service.Orchestrator, s service.Scope) (co
 		return v, err
 	}
 	for _, l := range ls {
-		v.Lines = append(v.Lines, components.LogHistoryLine{
+		hl := components.LogHistoryLine{
 			Time: l.Time, Tile: l.Tile, Source: l.Source,
-			Text: logText(l), Err: l.Stream == "stderr",
-		})
+			Text: logText(l), Level: logLevel(l.Msg, l.Stream),
+		}
+		if msg, fs, ok := components.ParseJSONLog(hl.Text); ok {
+			hl.Text, hl.Fields = msg, fs
+		}
+		v.Lines = append(v.Lines, hl)
 	}
 	if len(ls) == service.LogsPage {
 		p := url.Values{}
@@ -88,4 +101,98 @@ func logText(l service.LogLine) string {
 		s += " " + d + "ms"
 	}
 	return s
+}
+
+var (
+	logfmtLevel   = regexp.MustCompile(`(?i)(?:^|\s)(?:level|lvl|severity)="?([a-z]+)`)
+	bracketLevel  = regexp.MustCompile(`(?i)\[(?:[a-z_]+:)?(error|err|fatal|emerg|crit|critical|alert|warn|warning|info|notice|debug|trace)\]`)
+	bareLevel     = regexp.MustCompile(`\b(ERROR|FATAL|PANIC|SEVERE|CRITICAL|WARN|WARNING|INFO|DEBUG|TRACE|LOG|NOTICE|DETAIL|HINT|STATEMENT|CONTEXT)\b`)
+	glogLevel     = regexp.MustCompile(`^([EFWI])\d{4} \d\d:\d\d:\d\d`)
+	crashPrefixes = []string{"panic:", "fatal error:", "traceback (most recent call last):", "exception in thread", "error:", "unhandled exception"}
+	jsonLevelKeys = []string{"level", "severity", "lvl", "log.level", "@l"}
+)
+
+// levelWord maps a level word to "error", "warn" or "info" (any quieter
+// level); "" is not a level word.
+func levelWord(w string) string {
+	switch strings.ToLower(w) {
+	case "error", "err", "eror", "fatal", "crit", "critical", "alert", "emerg", "emergency", "panic", "severe":
+		return "error"
+	case "warn", "warning":
+		return "warn"
+	case "info", "information", "informational", "notice", "log", "detail", "hint", "statement", "context", "debug", "dbg", "trace", "verbose":
+		return "info"
+	}
+	return ""
+}
+
+// logLevel is how a line is coloured: "error", "warn" or "". It reads the
+// level the app wrote (JSON, logfmt, [Error], ERROR, glog, crash text); a line
+// that names none is an error when it came from stderr. A line that names a
+// quiet level (info, debug) is plain even on stderr.
+func logLevel(text, stream string) string {
+	t := strings.TrimSpace(components.StripStamp(components.StripANSI(text)))
+	lv := ""
+	low := strings.ToLower(t)
+	for _, p := range crashPrefixes {
+		if strings.HasPrefix(low, p) {
+			return "error"
+		}
+	}
+	if strings.HasPrefix(t, "{") {
+		var m map[string]any
+		if json.Unmarshal([]byte(t), &m) == nil {
+			for _, k := range jsonLevelKeys {
+				switch v := m[k].(type) {
+				case string:
+					lv = levelWord(v)
+				case float64:
+					if k == "level" && v >= 10 && v <= 60 {
+						lv = "info"
+						if v >= 50 {
+							lv = "error"
+						} else if v >= 40 {
+							lv = "warn"
+						}
+					}
+				}
+				if lv != "" {
+					break
+				}
+			}
+		}
+	}
+	head := t
+	if len(head) > 80 {
+		head = head[:80]
+	}
+	if lv == "" {
+		if m := logfmtLevel.FindStringSubmatch(t); m != nil {
+			lv = levelWord(m[1])
+		}
+	}
+	if lv == "" {
+		if m := bracketLevel.FindStringSubmatch(head); m != nil {
+			lv = levelWord(m[1])
+		}
+	}
+	if lv == "" {
+		if m := bareLevel.FindStringSubmatch(head); m != nil {
+			lv = levelWord(m[1])
+		}
+	}
+	if lv == "" {
+		if m := glogLevel.FindStringSubmatch(t); m != nil {
+			lv = map[string]string{"E": "error", "F": "error", "W": "warn", "I": "info"}[m[1]]
+		}
+	}
+	switch {
+	case lv == "info":
+		return ""
+	case lv != "":
+		return lv
+	case stream == "stderr":
+		return "error"
+	}
+	return ""
 }

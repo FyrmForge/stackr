@@ -73,11 +73,11 @@ templ nodeDiskAdopt(d NodeDisk) {
 templ AdoptDialogView(a AdoptDialog) {
 	<div id="adopt-dlg">
 		if a.View != nil {
-			@c.DlgShell("Adopt this disk", a.View.Sub, adoptFoot(a)) {
+			@c.Modal("Adopt this disk", a.View.Sub, adoptFoot(a)) {
 				@adoptPlan(*a.View)
 			}
 		} else {
-			@c.DlgShell("Adopt a disk", "Take over a disk whose node is gone. Its volumes stay on it.", adoptFoot(a)) {
+			@c.Modal("Adopt a disk", "Take over a disk whose node is gone. Its volumes stay on it.", adoptFoot(a)) {
 				@adoptFolder(a)
 				if len(a.Cands) > 0 {
 					@c.DlgHeading("Disks of forgotten nodes · "+strconv.Itoa(len(a.Cands)), false)

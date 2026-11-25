@@ -57,17 +57,20 @@ templ LogPane(v LogPaneView) {
 // edge by it. Tok is the level word as Text spells it, drawn bold. Segs is
 // a line that came with terminal colours: Text without them, Segs drawn.
 type LogLineView struct {
-	Time  time.Time // zero = the line had no stamp
-	Level string
-	Text  string
-	Tok   string
-	Segs  []LogSeg
+	Time   time.Time // zero = the line had no stamp
+	Level  string
+	Text   string
+	Tok    string
+	Segs   []LogSeg
+	Fields []LogField // a JSON line's other keys; Text is its message
 }
 
 // LogLine is one line on one line: the lines box is white-space: pre, so
 // templ's spacing around statements would show.
 templ LogLine(l LogLineView) {
-	if l.Segs != nil {
+	if len(l.Fields) > 0 {
+		<div data-level={ l.Level }><details class="open:bg-rw-inset/40 open:rounded-sm"><summary class="cursor-pointer list-none"><span data-ts>@Time(l.Time, "15:04:05") { { " " } }</span>{ l.Text } <span class="text-rw-faint">{ fieldsLabel(len(l.Fields)) }@logChevron()</span></summary>@logFields(l.Fields, l.fieldsPad())</details></div>
+	} else if l.Segs != nil {
 		<div data-level={ l.Level }><span data-ts>@Time(l.Time, "15:04:05") { { " " } }</span>@logSegs(l.Segs)</div>
 	} else {
 		<div data-level={ l.Level }><span data-ts>@Time(l.Time, "15:04:05") { { " " } }</span>{ l.part(0) }<span data-tok>{ l.part(1) }</span>{ l.part(2) }</div>
@@ -87,6 +90,15 @@ templ logSegs(segs []LogSeg) {
 	}
 }
 
+// fieldsPad starts a JSON line's field list under its message: past the time
+// cell (8 characters and a space) unless the timestamps toggle hides it.
+func (l LogLineView) fieldsPad() string {
+	if l.Time.IsZero() {
+		return ""
+	}
+	return "pl-[9ch] [[data-no-ts]_&]:pl-0"
+}
+
 // part is Text split around its first Tok: before, the token, after.
 func (l LogLineView) part(i int) string {
 	pre, post, ok := strings.Cut(l.Text, l.Tok)
@@ -94,4 +106,20 @@ func (l LogLineView) part(i int) string {
 		return []string{l.Text, "", ""}[i]
 	}
 	return []string{pre, l.Tok, post}[i]
+}
+
+// logChevron marks a row that opens; it turns down when its details open.
+templ logChevron() {
+	<svg class="inline-block h-3 w-3 ml-1 align-[-2px] transition-transform [details[open]_&]:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>
+}
+
+// logFields is a JSON line's keys as a key and value grid under its row; pad
+// is the padding that starts it under the row's message column.
+templ logFields(fs []LogField, pad string) {
+	<dl class={ "grid grid-cols-[fit-content(16ch)_1fr] gap-x-3 mt-0.5 mb-1.5 font-mono text-xs text-rw-muted", pad }>
+		for _, f := range fs {
+			<dt class="text-rw-faint break-all">{ f.Key }</dt>
+			<dd class="min-w-0 whitespace-pre-wrap break-all">{ f.Val }</dd>
+		}
+	</dl>
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
+	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
@@ -306,6 +307,18 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 			return middleware.HTTPError(err)
 		}
 		return render.Page(c, http.StatusOK, "Release review", d)
+	}, a.LoginFirst(), a.Require("org.read"))
+	// the release as a dialog over the page (the release modal): the env's
+	// own plan for it, Promote when it waits and is clean. The route above
+	// stays the full review.
+	site.GET("/:org/:stack/:env/-/releases/:release/dialog", func(c echo.Context) error {
+		cd, _ := h.cardOf(c, "env")
+		d, err := h.orch.ReleaseDetail(c.Request().Context(), middleware.Principal(c), cd.s.Stack.ID, cd.s.Env.ID, c.Param("release"))
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		who, _ := h.who(c.Request().Context(), cd.s.Org.ID)
+		return respond.HTML(c, http.StatusOK, comp.ReleaseModal(render.ReleaseModalOf(d, urlOf(cd.s), canStack(c, cd.s, "env.write"), c.QueryParam("on") == "waiting", who)))
 	}, a.LoginFirst(), a.Require("org.read"))
 	site.POST(e+"/promote/:release", h.envAction("releases", func(c echo.Context, cd card) (string, error) {
 		j, err := h.orch.PromoteTicked(c.Request().Context(), middleware.Principal(c), cd.s.Env.ID, c.Param("release"), render.ApproveOpts(c).Ticked)

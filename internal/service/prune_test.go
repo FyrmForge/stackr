@@ -131,7 +131,7 @@ func TestPrunePulledImages(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	for _, ref := range []string{"nginx:old", "redis:7"} {
-		_, err := w.orch.images.Checked(ctx, ref, "sha256:"+ref, "", nil)
+		_, err := w.orch.images.Checked(ctx, ref, "sha256:"+ref, "", "", nil)
 		must(t, err)
 		w.fake.Images = append(w.fake.Images, docker.Image{ID: "sha256:" + ref, Tags: []string{ref}, Size: 10})
 	}

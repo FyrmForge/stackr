@@ -149,9 +149,20 @@ func (f *Flow) Apply(ctx context.Context, envID, releaseID string, log io.Writer
 // ApplyTicked is Apply with the secret removal rows (Change.Key) the caller
 // ticked; an unticked one stays.
 func (f *Flow) ApplyTicked(ctx context.Context, envID, releaseID string, ticked []string, log io.Writer, swap func() error) (*Plan, error) {
+	return f.ApplyGuarded(ctx, envID, releaseID, ticked, nil, log, swap)
+}
+
+// ApplyGuarded is ApplyTicked that first runs guard on the final plan, right
+// before anything is applied; a guard error refuses the promote.
+func (f *Flow) ApplyGuarded(ctx context.Context, envID, releaseID string, ticked []string, guard func(*Plan) error, log io.Writer, swap func() error) (*Plan, error) {
 	p, w, err := f.plan(ctx, envID, releaseID, log)
 	if err != nil {
 		return nil, err
+	}
+	if guard != nil {
+		if err := guard(p); err != nil {
+			return p, err
+		}
 	}
 	w.ticked = ticked
 	if p.Blocked() {
