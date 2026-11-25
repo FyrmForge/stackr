@@ -616,6 +616,8 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base, tab strin
 	// a move job is shown once, by the node disk's move lines
 	if j, ok := c.Get("job").(service.Job); ok && j.Kind != "volume-to-disk" {
 		jv := render.JobView("", j)
+		// the drawer reloads when the job ends, which drops the note its action left
+		jv.Refresh = base + "?tab=" + tab
 		v.Job = &jv
 	}
 	if d.Status == "online" {
