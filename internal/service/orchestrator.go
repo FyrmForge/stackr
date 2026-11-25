@@ -951,6 +951,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true, kindBucketRestore: true},
 			// Rollouts of different stacks run in parallel; lock sets order the rest.
+			// ponytail: no ceiling, a burst across many envs starts every rollout at once; cap at ~32 if pulls or health checks time out under load.
 			Unpooled: map[jobs.Kind]bool{kindPromote: true, kindDeploy: true},
 			// Kinds that copy a volume or database outrun the 30 minute default.
 			Caps: dataCaps,
