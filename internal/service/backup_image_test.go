@@ -33,11 +33,11 @@ func TestBaseBackupSavesTheImageOfARecipeBuiltInstance(t *testing.T) {
 	ctx := context.Background()
 	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres", 0)
 	must(t, err)
-	_, _, err = w.orch.SetPITR(ctx, pg.ID, 3)
+	_, dj, err := w.orch.SetPITR(ctx, pg.ID, 3)
 	must(t, err)
-	if _, err := w.orch.engines.Container(w.node(t, ctx), pg); err != nil { // declares the volumes
-		t.Fatal(err)
-	}
+	// the redeploy it queues declares the volumes (and fails on the fake's
+	// health check, which does not matter here); wait for it to finish
+	w.wait(t, dj.ID)
 	data, err := w.orch.dataVolume(ctx, pg)
 	must(t, err)
 	w.fake.Containers = []docker.Container{{

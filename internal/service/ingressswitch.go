@@ -40,11 +40,22 @@ type IngressPlan struct {
 	Hosts []IngressHost `json:"hosts"`
 }
 
-// resolveHost looks a host up. Tests swap it.
-var resolveHost = func(ctx context.Context, host string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-	return net.DefaultResolver.LookupHost(ctx, host)
+// resolveHost looks a host up. Tests swap resolveImpl through swapResolver;
+// the lock keeps background DNS syncs from racing the swap.
+var (
+	resolveMu   sync.RWMutex
+	resolveImpl = func(ctx context.Context, host string) ([]string, error) {
+		ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		defer cancel()
+		return net.DefaultResolver.LookupHost(ctx, host)
+	}
+)
+
+func resolveHost(ctx context.Context, host string) ([]string, error) {
+	resolveMu.RLock()
+	f := resolveImpl
+	resolveMu.RUnlock()
+	return f(ctx, host)
 }
 
 // ingressTarget is the node a switch would move to, or the reason it cannot:
