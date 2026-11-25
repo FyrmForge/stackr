@@ -172,6 +172,30 @@ func TestApplyMeshAndReplay(t *testing.T) {
 	}
 }
 
+func TestReplayMesh(t *testing.T) {
+	dir := t.TempDir()
+	s, _, rec := newMeshServer(t, dir, &pingFake{})
+	if err := s.ReplayMesh(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rec.Last(); ok {
+		t.Fatal("no saved mesh applied a config")
+	}
+	if err := s.ApplyMesh(context.Background(), meshSpec()); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := rec.Last()
+	s.Stop()
+	s2, _, rec2 := newMeshServer(t, dir, &pingFake{})
+	if err := s2.ReplayMesh(); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := rec2.Last()
+	if !ok || got.PrivateKey != want.PrivateKey || got.Iface != mesh.Iface {
+		t.Errorf("replayed wg config = %+v, want %+v", got, want)
+	}
+}
+
 func TestMeshFailsOverAndClears(t *testing.T) {
 	ping := &pingFake{down: map[string]bool{exits.Iface("nx"): true}}
 	s, run, _ := newMeshServer(t, t.TempDir(), ping)

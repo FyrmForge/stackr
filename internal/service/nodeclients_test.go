@@ -192,6 +192,31 @@ func TestBootWithAnOnlineWorker(t *testing.T) {
 	}
 }
 
+// A worker that takes the connection and never answers must not fail the
+// boot: the VIP rebuild waits a while for it, then the boot carries on.
+func TestBootWithAHungWorker(t *testing.T) {
+	t.Parallel()
+	o := newClusterPanel(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0") // the backlog takes the dial; no handshake ever comes
+	must(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	must(t, o.store.Nodes.Create(context.Background(), store.Node{
+		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.201.0.0/16",
+		WGAddress: ln.Addr().String() + "/32", Status: node.StatusOnline, CreatedAt: time.Now(),
+	}))
+	dir := o.cfg.DataDir
+	must(t, o.Close())
+	start := time.Now()
+	o2, err := New(Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack", Version: "v2"},
+		WithDocker(dockerfake.New()), WithVIP(vipStub{}),
+		WithProxy(func(context.Context, json.RawMessage) error { return nil }))
+	must(t, err)
+	t.Cleanup(func() { _ = o2.Close() })
+	if d := time.Since(start); d > 40*time.Second {
+		t.Errorf("boot took %v", d)
+	}
+}
+
 // A worker node row gets a router entry that reaches the worker over mTLS; a
 // deploy to an env pinned to that node goes through it, not to the
 // controller's daemon.

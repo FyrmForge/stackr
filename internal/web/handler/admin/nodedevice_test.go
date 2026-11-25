@@ -118,7 +118,7 @@ func TestWholeDiskChoiceListsOnTheDiskChoiceOnly(t *testing.T) {
 	// a pick moves Continue; Continue draws the dialog; neither runs the helper
 	before := len(h.ops())
 	pick := s.As(t, root, "POST", base+"pick", url.Values{"device": {devJSON(t, devEmpty)}}).Body.String()
-	if !strings.Contains(pick, `id="disk-continue"`) || strings.Contains(pick, " disabled>") {
+	if !strings.Contains(pick, `hx-swap-oob="innerHTML:#disk-foot"`) || !strings.Contains(pick, `id="disk-continue"`) || strings.Contains(pick, " disabled>") {
 		t.Errorf("a usable pick leaves Continue off\n%s", pick)
 	}
 	if blocked := s.As(t, root, "POST", base+"pick", url.Values{"device": {devJSON(t, devMnt)}}).Body.String(); !strings.Contains(blocked, " disabled>") {

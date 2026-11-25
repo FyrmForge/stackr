@@ -43,6 +43,13 @@ import (
 func (o *Orchestrator) rebuildVIPs(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 	defer cancel()
+	go func() { // Close ends a rebuild stuck on a dead node; a nil stopNodes never fires
+		select {
+		case <-o.stopNodes:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	// Nodes run side by side: a slow or unreachable one holds up only itself.
 	var wg sync.WaitGroup
 	var mu sync.Mutex
