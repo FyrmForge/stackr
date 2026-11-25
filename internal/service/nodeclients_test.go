@@ -88,6 +88,12 @@ func workerNode(t *testing.T, o *Orchestrator, id string) (*fakeDaemon, *httptes
 // config (its Docker socket is filled in).
 func workerNodeWith(t *testing.T, o *Orchestrator, id, status string, cfg worker.Config) (*fakeDaemon, *httptest.Server, clusterca.Issued) {
 	t.Helper()
+	return workerNodeWrap(t, o, id, status, cfg, nil)
+}
+
+// workerNodeWrap is workerNodeWith with the worker's handler wrapped.
+func workerNodeWrap(t *testing.T, o *Orchestrator, id, status string, cfg worker.Config, wrap func(http.Handler) http.Handler) (*fakeDaemon, *httptest.Server, clusterca.Issued) {
+	t.Helper()
 	daemon, sock := startFakeDaemon(t)
 	ca, err := clusterca.LoadCA(o.cfg.DataDir)
 	must(t, err)
@@ -109,7 +115,11 @@ func workerNodeWith(t *testing.T, o *Orchestrator, id, status string, cfg worker
 	if cfg.StateDir == "" { // the worker keeps its mesh keys here, not in the package directory
 		cfg.StateDir = t.TempDir()
 	}
-	srv := httptest.NewUnstartedServer(worker.New(cfg).Handler())
+	h := worker.New(cfg).Handler()
+	if wrap != nil {
+		h = wrap(h)
+	}
+	srv := httptest.NewUnstartedServer(h)
 	srv.TLS = clusterca.ServerConfig(clusterca.StaticRoots(ca.Cert), own, nil)
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
@@ -215,6 +225,34 @@ func TestBootWithAHungWorker(t *testing.T) {
 	if d := time.Since(start); d > 40*time.Second {
 		t.Errorf("boot took %v", d)
 	}
+}
+
+// Workers that answer the probe but hang on the VIP state read cost 5s each,
+// one after the other, in refreshNodeClients. Five of them spend more than the
+// boot's 20s; the database steps after them must still have their own budget.
+// (This test takes about 25s.)
+func TestBootSlowWorkersDoNotSpendTheBootBudget(t *testing.T) {
+	t.Parallel()
+	o := newClusterPanel(t)
+	hang := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/v1/state" {
+				<-r.Context().Done()
+				return
+			}
+			h.ServeHTTP(w, r)
+		})
+	}
+	for _, id := range []string{"w1", "w2", "w3", "w4", "w5"} {
+		workerNodeWrap(t, o, id, node.StatusOnline, worker.Config{}, hang)
+	}
+	dir := o.cfg.DataDir
+	must(t, o.Close())
+	o2, err := New(Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack", Version: "v2"},
+		WithDocker(dockerfake.New()), WithVIP(vipStub{}),
+		WithProxy(func(context.Context, json.RawMessage) error { return nil }))
+	must(t, err)
+	t.Cleanup(func() { _ = o2.Close() })
 }
 
 // A worker node row gets a router entry that reaches the worker over mTLS; a
