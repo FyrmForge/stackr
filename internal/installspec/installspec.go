@@ -20,6 +20,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/FyrmForge/stackr/internal/hostdisk"
 )
 
 const (
@@ -222,6 +224,10 @@ type Input struct {
 	// NodeName is what the controller's node row is called, set once on a
 	// fresh install. Empty (an older install) keeps the name "controller".
 	NodeName string `json:"node_name,omitempty"`
+	// DisksBind adds the node-disks bind to the panel. Decided per run from
+	// the host's mount table (DisksBindOK), never saved: Docker refuses an
+	// rslave bind on a private mount, and the panel must still start.
+	DisksBind bool `json:"-"`
 }
 
 // DefaultNodeName is the controller's name when none was chosen.
@@ -260,6 +266,54 @@ func CleanNodeName(host string) string {
 // dockerRootProbe is the empty dir under Docker's data root the panel mounts
 // in its place.
 const dockerRootProbe = ".stackr-disk"
+
+// DisksDir is where node disks are mounted on the host. The panel sees it
+// read-only under HostRoot, where the worker reads the host; rslave carries
+// mounts made after it started. Docker creates the host dir when it is missing.
+const DisksDir = "/var/lib/stackr-disks"
+
+// DisksBindVolume is the panel's view of the node disks. Docker refuses to
+// start a container with it when the host mount holding DisksDir is private,
+// so every launch that carries it retries once without (WithoutDisksBind).
+const DisksBindVolume = DisksDir + ":" + HostRoot + DisksDir + ":ro,rslave"
+
+// WithoutDisksBind is vols less the disks bind.
+func WithoutDisksBind(vols []string) []string {
+	return slices.DeleteFunc(slices.Clone(vols), func(v string) bool { return v == DisksBindVolume })
+}
+
+// DisksBindRefused: err is Docker refusing a bind whose source sits on a
+// private mount (moby daemon/oci_linux.go: "path P is mounted on M but it is
+// not a shared or slave mount", or "...not a shared mount" for rshared). Only
+// this error is retried without the bind.
+func DisksBindRefused(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "but it is not a shared")
+}
+
+// DisksBindOK reports whether Docker accepts an rslave bind of DisksDir: the
+// mount holding it (the nearest one, as the dir may not exist yet) is shared
+// or a slave in the given mountinfo table.
+func DisksBindOK(mountinfo []byte) bool {
+	var best *hostdisk.Mount
+	ms := hostdisk.ParseMounts(mountinfo)
+	for i, m := range ms {
+		if (m.Point == "/" || m.Point == DisksDir || strings.HasPrefix(DisksDir, m.Point+"/")) &&
+			(best == nil || len(m.Point) >= len(best.Point)) { // a later mount of one point covers the earlier
+			best = &ms[i]
+		}
+	}
+	return best != nil && best.Propagates
+}
+
+// HostDisksBind reads the host's mount table under root ("" on the host, the
+// HostRoot in the panel) for DisksBindOK; any read error is false.
+func HostDisksBind(root string) bool {
+	b, err := os.ReadFile(root + "/proc/1/mountinfo")
+	if err != nil && root == "" {
+		b, err = os.ReadFile("/proc/self/mountinfo")
+	}
+	return err == nil && DisksBindOK(b)
+}
 
 // AdminDir is the host directory holding the proxy's admin socket.
 func (in Input) AdminDir() string { return in.DataDir + "/proxy" }
@@ -304,6 +358,12 @@ const SwapSpecEnv = "STACKR_SWAP_SPEC"
 // the new one passes. The field names are the Docker wrapper's (it has no
 // json tags); cmd/stackrd's spec test holds the two equal.
 func SwapSpec(version string, in Input) (string, error) {
+	return SwapSpecAs(PanelName+"-"+strings.TrimPrefix(version, "v"), version, in)
+}
+
+// SwapSpecAs is SwapSpec with the new container's name given: a panel
+// recreated at its own version needs a name its running one does not hold.
+func SwapSpecAs(name, version string, in Input) (string, error) {
 	c := Panel(Image(version), in)
 	b, err := json.Marshal(struct {
 		Name, Image string
@@ -313,7 +373,7 @@ func SwapSpec(version string, in Input) (string, error) {
 		HostNetwork bool
 		CapAdd      []string
 		Restart     string
-	}{PanelName + "-" + strings.TrimPrefix(version, "v"), c.Image, c.Cmd, c.Env, c.Labels, c.Volumes, c.HostNetwork, c.CapAdd, c.Restart})
+	}{name, c.Image, c.Cmd, c.Env, c.Labels, c.Volumes, c.HostNetwork, c.CapAdd, c.Restart})
 	return string(b), err
 }
 
@@ -382,6 +442,9 @@ func Panel(image string, in Input) Container {
 		// panel's own cgroup namespace and pid namespace hide them.
 		"/sys/fs/cgroup:" + HostRoot + "/sys/fs/cgroup:ro",
 		"/proc:" + HostRoot + "/proc:ro",
+	}
+	if in.DisksBind {
+		vols = append(vols, DisksBindVolume)
 	}
 	// An empty dir on Docker's disk, mounted at Docker's data root, so the
 	// disk checks statfs that disk without the panel seeing any container's

@@ -462,6 +462,7 @@ func proxySpec(in installspec.Input) func(string) service.ContainerSpec {
 // panelSpec builds the upgrade's panel container from the install spec.
 func panelSpec(in installspec.Input) func(string) service.ContainerSpec {
 	return func(image string) service.ContainerSpec {
+		in.DisksBind = installspec.HostDisksBind(installspec.HostRoot) // read at each upgrade, never saved
 		c := installspec.Panel(image, in)
 		// ponytail: Ports and ExtraHosts are not carried; the panel runs on
 		// the host network and has neither (the spec test holds that).

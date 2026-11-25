@@ -20,6 +20,9 @@ type Mount struct {
 	FSType string
 	Source string
 	RO     bool // mounted read-only
+	// Propagates: the mount is shared or a slave, so a bind of it with rslave
+	// is allowed (private mounts refuse one).
+	Propagates bool
 }
 
 // ParseMounts reads a mountinfo table. It takes bytes only and touches no
@@ -39,9 +42,18 @@ func ParseMounts(table []byte) []Mount {
 		if sep < 0 || len(f) < sep+3 {
 			continue
 		}
-		out = append(out, Mount{Dev: f[2], Root: unescape(f[3]), Point: unescape(f[4]), FSType: f[sep+1], Source: unescape(f[sep+2]), RO: slices.Contains(strings.Split(f[5], ","), "ro")})
+		out = append(out, Mount{Dev: f[2], Root: unescape(f[3]), Point: unescape(f[4]), FSType: f[sep+1], Source: unescape(f[sep+2]), RO: slices.Contains(strings.Split(f[5], ","), "ro"), Propagates: propagates(f[6:sep])})
 	}
 	return out
+}
+
+func propagates(opt []string) bool {
+	for _, o := range opt {
+		if strings.HasPrefix(o, "shared:") || strings.HasPrefix(o, "master:") {
+			return true
+		}
+	}
+	return false
 }
 
 // unescape decodes the octal escapes (\040) the kernel writes for spaces,

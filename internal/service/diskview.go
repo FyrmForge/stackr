@@ -49,8 +49,12 @@ func (o *Orchestrator) NodeDiskPanel(ctx context.Context, nodeID string) (NodeDi
 	}
 	p := NodeDiskPanel{NodeDiskView: v}
 	if !v.Has {
+		// one reason for the whole Add disk button: only when neither a
+		// folder nor a whole disk can be added here
 		if err := o.folderDiskOK(ctx, nodeID); err != nil {
-			p.Refusal = err.Error()
+			if n, nerr := o.store.Nodes.Get(ctx, nodeID); nerr != nil || o.deviceDiskOK(ctx, n) != nil {
+				p.Refusal = err.Error()
+			}
 		}
 		return p, nil
 	}

@@ -133,6 +133,10 @@ const upgraderName = "stackr-upgrader"
 // it stops the old panel, runs the new one, and starts the old one again if
 // the new one does not turn healthy. A failed helper stays for its logs.
 func (r runner) swapPanel(ctx context.Context, in installspec.Input, ver string) error {
+	return r.swapPanelAs(ctx, installspec.PanelName+"-"+strings.TrimPrefix(ver, "v"), in, ver)
+}
+
+func (r runner) swapPanelAs(ctx context.Context, name string, in installspec.Input, ver string) error {
 	if running, err := read(ctx, "docker", "inspect", "-f", "{{.State.Running}}", upgraderName); err == nil {
 		if running == "true" {
 			return errors.New("an upgrade is already running (container " + upgraderName + ")")
@@ -141,7 +145,7 @@ func (r runner) swapPanel(ctx context.Context, in installspec.Input, ver string)
 			return err
 		}
 	}
-	spec, err := installspec.SwapSpec(ver, in)
+	spec, err := installspec.SwapSpecAs(name, ver, in)
 	if err != nil {
 		return err
 	}
