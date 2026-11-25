@@ -169,6 +169,8 @@ type Config struct {
 	// HostRoot is where the panel container sees the host's /proc and
 	// /sys/fs/cgroup (STACKR_HOST_ROOT; "" = this process's own).
 	HostRoot string
+	// SelfMountinfo is the panel's own mount table ("" = /proc/self/mountinfo).
+	SelfMountinfo string
 	// Metrics is the metrics store; nil = in memory.
 	Metrics metrics.Store
 }

@@ -69,6 +69,8 @@ func refusal(res hostdisk.Result) error {
 	e := res.Error
 	msg := ""
 	switch e.Code {
+	case hostdisk.CodeContainer:
+		msg = hostdisk.MsgContainer
 	case hostdisk.CodeNoDevice:
 		msg = "That disk is not on this node any more. Refresh the list."
 	case hostdisk.CodeDeviceChanged:

@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 )
@@ -282,4 +284,68 @@ func TestSwapWithoutVisibleDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// refuser makes Docker refuse a container that carries the disks bind.
+type refuser struct {
+	*dockerfake.Fake
+	runs [][]string
+}
+
+func (r *refuser) Run(ctx context.Context, sp docker.ContainerSpec) (string, error) {
+	r.runs = append(r.runs, sp.Volumes)
+	if slices.Contains(sp.Volumes, installspec.DisksBindVolume) {
+		return "", errors.New("path is mounted on / but it is not a shared or slave mount")
+	}
+	return r.Fake.Run(ctx, sp)
+}
+
+// A host that refuses the disks bind gets the panel without it, once; a spec
+// with no bind is not retried.
+func TestSwapRetriesWithoutTheDisksBind(t *testing.T) {
+	for _, bind := range []bool{true, false} {
+		fake := dockerfake.New()
+		fake.RunID = "new"
+		fake.Containers = []docker.Container{{ID: "old", State: "running", Labels: map[string]string{LabelRole: "panel"}}}
+		fake.Details = map[string]docker.Detail{"new": {Running: true, Health: "healthy"}}
+		r := &refuser{Fake: fake}
+		l := New(r)
+		l.Poll, l.Deadline = time.Millisecond, 20*time.Millisecond
+		vols := []string{"/a:/a"}
+		if bind {
+			vols = append(vols, installspec.DisksBindVolume)
+		}
+		err := l.Swap(context.Background(), docker.ContainerSpec{Name: "stackr-0.2.0", Image: "img:0.2.0", Volumes: vols})
+		if err != nil {
+			t.Fatalf("bind=%v: %v", bind, err)
+		}
+		if want := map[bool]int{true: 2, false: 1}[bind]; len(r.runs) != want {
+			t.Errorf("bind=%v: %d runs, want %d", bind, len(r.runs), want)
+		}
+		if last := r.runs[len(r.runs)-1]; slices.Contains(last, installspec.DisksBindVolume) || !slices.Contains(last, "/a:/a") {
+			t.Errorf("bind=%v: last run %v", bind, last)
+		}
+	}
+}
+
+// Any other failure of the run is not retried: the bind is not the cause.
+func TestSwapDoesNotRetryOtherErrors(t *testing.T) {
+	fake := dockerfake.New()
+	fake.Containers = []docker.Container{{ID: "old", State: "running", Labels: map[string]string{LabelRole: "panel"}}}
+	r := &otherErr{Fake: fake}
+	l := New(r)
+	err := l.Swap(context.Background(), docker.ContainerSpec{Name: "stackr-0.2.0", Image: "img:0.2.0", Volumes: []string{installspec.DisksBindVolume}})
+	if err == nil || r.runs != 1 {
+		t.Errorf("err %v after %d runs", err, r.runs)
+	}
+}
+
+type otherErr struct {
+	*dockerfake.Fake
+	runs int
+}
+
+func (o *otherErr) Run(context.Context, docker.ContainerSpec) (string, error) {
+	o.runs++
+	return "", errors.New("conflict: the container name is already in use")
 }

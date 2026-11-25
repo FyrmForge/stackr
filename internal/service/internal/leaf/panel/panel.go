@@ -293,6 +293,13 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		}
 	}
 	id, err := l.docker.Run(ctx, spec)
+	if installspec.DisksBindRefused(err) && slices.Contains(spec.Volumes, installspec.DisksBindVolume) {
+		// Docker refuses the bind on a host whose mounts are private. A
+		// container that failed to start is already removed, so the name is free.
+		slog.Warn("panel started without the disks mount: this host's mounts do not allow it", "err", err)
+		spec.Volumes = installspec.WithoutDisksBind(spec.Volumes)
+		id, err = l.docker.Run(ctx, spec)
+	}
 	if err != nil {
 		if db != "" {
 			dropDB(cp) // the new panel never ran: the database is untouched

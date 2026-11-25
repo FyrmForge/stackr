@@ -90,6 +90,8 @@ A folder on a network disk (NFS) adds with a warning: databases on it risk corru
 
 stackr formats an empty block device xfs and mounts it. Everything on the device is erased. This is the kind that holds [size caps](#size-caps).
 
+The controller can hold a whole disk only when the host's `/`, or the mount holding `/var/lib/stackr-disks`, is shared, which it is on systemd hosts. If that is later made private, the panel will not start after a reboot until the installer is run again.
+
 1. Press Add disk and choose "A whole disk". The list shows each device and whether it can be used.
 2. Pick one and press Continue. Type the disk's name (like `sdb`) to confirm, then press Format disk.
 

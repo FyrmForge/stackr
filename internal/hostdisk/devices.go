@@ -241,6 +241,9 @@ func assess(root string, n lsNode, d *Device, sys []string, mountSources []strin
 // devices lists the whole disks (not partitions, loops, optical drives or
 // device-mapper nodes). nodes is the lsblk tree behind it.
 func (e Env) devices(ctx context.Context) ([]Device, []lsNode, *Error) {
+	if inContainer(e.Root) {
+		return nil, nil, &Error{CodeContainer, MsgContainer}
+	}
 	nodes, err := e.lsblk(ctx)
 	if err != nil {
 		return nil, nil, &Error{CodeIO, "list the devices: " + err.Error()}
@@ -298,3 +301,21 @@ func list(ctx context.Context, e Env) Result {
 // SameDevice is the identity compare of the list and the format: false when
 // the device now is not the one that was listed.
 func SameDevice(a, b Device) bool { return sameDevice(a, b) }
+
+// MsgContainer is the refusal on a node that is itself a container.
+const MsgContainer = "This node is a container and cannot mount a disk. Use a folder disk."
+
+// inContainer: the host under root runs inside a container (systemd writes
+// /run/systemd/container, Docker and Podman leave /.dockerenv and
+// /run/.containerenv, other inits set container= for pid 1). Both are
+// readable in the helper, which has the host's pid namespace and / at root.
+func inContainer(root string) bool {
+	root = strings.TrimSuffix(root, "/")
+	for _, m := range []string{"/run/systemd/container", "/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(root + m); err == nil {
+			return true
+		}
+	}
+	b, _ := os.ReadFile(root + "/proc/1/environ")
+	return bytes.Contains(append([]byte{0}, b...), []byte("\x00container="))
+}

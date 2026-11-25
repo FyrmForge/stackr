@@ -202,7 +202,8 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	if err := os.WriteFile(filepath.Join(dataDir, installspec.RestoredMarker), []byte(markerBody(info.size, archiveName)), 0o600); err != nil {
 		return err
 	}
-	if err := r.docker(ctx, installspec.Panel(*image, in).RunArgs()...); err != nil {
+	in.DisksBind = installspec.HostDisksBind("")
+	if err := r.runPanel(ctx, *image, in); err != nil {
 		return err
 	}
 	if err := dropStage(stage); err != nil {

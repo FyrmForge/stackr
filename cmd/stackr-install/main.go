@@ -261,6 +261,7 @@ Flags:
 		func() error { return installspec.Save(in) }); err != nil {
 		return err
 	}
+	in.DisksBind = installspec.HostDisksBind("") // decided per run, never saved
 	r.conntrackAcct()
 	if err := r.pull(ctx, image, dg); err != nil {
 		return err
@@ -286,7 +287,14 @@ Flags:
 		// is what stays.
 		if panelID != "" {
 			r.say("  have panel", panelID)
-		} else if err := r.docker(ctx, installspec.Panel(image, in).RunArgs()...); err != nil {
+			// A panel made before the disks bind never gets it from its own
+			// upgrade (the old code builds the spec), so recreate it once.
+			if in.DisksBind && !r.dry && !r.hasDisksBind(ctx, panelID) {
+				if err := r.rebindPanel(ctx, in, panelID, ver); err != nil {
+					return err
+				}
+			}
+		} else if err := r.runPanel(ctx, image, in); err != nil {
 			return err
 		}
 	}
@@ -597,14 +605,16 @@ func (r runner) quietDocker(ctx context.Context, args ...string) error {
 	return r.exec(ctx, "docker", args...)
 }
 
-// exec runs a command; its output shows with --verbose, else it is kept
-// and its last lines go into the error when the command fails.
+// exec runs a command; its output shows with --verbose, and is always kept
+// so its last lines go into the error when the command fails (runPanel reads
+// Docker's refusal there).
 func (r runner) exec(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	if r.verbose {
-		cmd.Stdout, cmd.Stderr = r.out, r.out
+		w := io.MultiWriter(r.out, &buf)
+		cmd.Stdout, cmd.Stderr = w, w
 	}
 	err := cmd.Run()
 	if out := strings.TrimSpace(buf.String()); err != nil && out != "" {
@@ -881,4 +891,45 @@ func newInstallID() string {
 func withBox(old, now installspec.Input) installspec.Input {
 	old.Bind, old.BridgeSubnet, old.DockerRoot = now.Bind, now.BridgeSubnet, now.DockerRoot
 	return old
+}
+
+// runPanel runs the panel container. When Docker refuses it with the disks
+// bind (the host's mounts are private), it is run again without. A container
+// that failed to start is removed first: the retry reuses its name.
+func (r runner) runPanel(ctx context.Context, image string, in installspec.Input) error {
+	err := r.docker(ctx, installspec.Panel(image, in).RunArgs()...)
+	if !in.DisksBind || !installspec.DisksBindRefused(err) {
+		return err // any other failure is returned as it is: nothing is removed or retried
+	}
+	// docker run left the container it could not start; the retry reuses its name
+	if rerr := r.quietDocker(ctx, "rm", "-f", installspec.PanelName); rerr != nil {
+		return fmt.Errorf("%w (and the failed container was not removed: %v)", err, rerr)
+	}
+	r.say("  panel started without the disks mount: this host's mounts do not allow it")
+	in.DisksBind = false
+	return r.docker(ctx, installspec.Panel(image, in).RunArgs()...)
+}
+
+// hasDisksBind: the panel container has the node disks bind.
+func (r runner) hasDisksBind(ctx context.Context, id string) bool {
+	out, err := read(ctx, "docker", "inspect", "-f", "{{range .HostConfig.Binds}}{{println .}}{{end}}", id)
+	return err != nil || strings.Contains(out, ":"+installspec.HostRoot+installspec.DisksDir+":") // unreadable: leave the panel alone
+}
+
+// rebindPanel swaps the running panel for one of the same version that has
+// the disks bind, through the upgrade's own swap (the old one comes back if
+// the new one fails) and under a name its running one does not hold. Docker
+// refusing the bind there leaves a panel without it, as before.
+func (r runner) rebindPanel(ctx context.Context, in installspec.Input, id, ver string) error {
+	name := installspec.PanelName + "-" + strings.TrimPrefix(ver, "v") + "-b"
+	if cur, _ := read(ctx, "docker", "inspect", "-f", "{{.Name}}", id); strings.TrimPrefix(cur, "/") == name {
+		name = installspec.PanelName + "-" + strings.TrimPrefix(ver, "v")
+	}
+	r.say("  recreating the panel so it sees node disks")
+	return runSteps(ctx, []step{
+		{"panel swap", func(ctx context.Context) error { return r.swapPanelAs(ctx, name, in, ver) }},
+		{"health", func(ctx context.Context) error {
+			return waitHealthy(ctx, "http://"+net.JoinHostPort(in.Bind, installspec.PanelPort)+"/api/health")
+		}},
+	})
 }

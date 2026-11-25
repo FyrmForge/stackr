@@ -1043,3 +1043,95 @@ func TestPlacementPlanMeasuresOncePerNode(t *testing.T) {
 		t.Errorf("%d usage runs for the plan, want 1", got)
 	}
 }
+
+// The controller of an installed panel refuses a whole disk unless its own
+// mount table shows the disks bind; the folder refusal only shows as the
+// drawer's reason when no whole disk can be added either. A host whose mounts
+// would allow the bind is told to upgrade or rerun the installer instead.
+func TestDeviceDiskNeedsTheBindOnTheControllerOfAnInstalledPanel(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	d.orch.cfg.PanelSpec = func(string) ContainerSpec { return ContainerSpec{} }
+	d.orch.cfg.Version = "1.2.3"
+	mi := filepath.Join(t.TempDir(), "mountinfo")
+	d.orch.cfg.SelfMountinfo = mi
+	host := t.TempDir()
+	d.orch.cfg.HostRoot = host
+	must(t, os.MkdirAll(filepath.Join(host, "proc/1"), 0o755))
+	hostTable := func(opt string) {
+		must(t, os.WriteFile(filepath.Join(host, "proc/1/mountinfo"), []byte("1 0 8:1 / / rw "+opt+" - ext4 /dev/sda1 rw\n"), 0o600))
+	}
+	must(t, os.WriteFile(mi, []byte("1 0 8:1 / / rw - ext4 /dev/sda1 rw\n"), 0o600))
+	pick := hostdisk.Device{ID: "x", Path: "/dev/sdb"}
+	hostTable("") // private: nothing to upgrade to
+	cannot := "This server cannot show the panel a disk added later. Add the disk on a worker node."
+	if _, err := d.orch.NodeDevices(ctx, adminP(), d.ctl.ID); !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), cannot) {
+		t.Fatalf("devices without the bind: %v", err)
+	}
+	if _, err := d.orch.AddNodeDevice(ctx, adminP(), d.ctl.ID, pick, "sdb", false); !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), cannot) {
+		t.Fatalf("add without the bind: %v", err)
+	}
+	if p, err := d.orch.NodeDiskPanel(ctx, d.ctl.ID); err != nil || p.Refusal == "" {
+		t.Fatalf("panel refusal without the bind: %+v %v", p, err)
+	}
+	hostTable("shared:1") // the host would allow it: the panel just lacks it
+	if _, err := d.orch.NodeDevices(ctx, adminP(), d.ctl.ID); !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), "Upgrade the panel once more, or rerun the installer, to let it see this server's disks.") {
+		t.Fatalf("devices on an upgradable host: %v", err)
+	}
+	// the bind is there but cut off from the host (not a slave): refused
+	must(t, os.WriteFile(mi, []byte("1 0 8:1 / / rw - ext4 /dev/sda1 rw\n2 1 8:1 /x /host/var/lib/stackr-disks ro - ext4 /dev/sda1 rw\n"), 0o600))
+	if err := d.orch.deviceDiskOK(ctx, d.ctl); !errors.Is(err, errs.ErrRefused) {
+		t.Fatalf("a bind host mounts no longer reach: %v", err)
+	}
+	must(t, os.WriteFile(mi, []byte("1 0 8:1 / / rw - ext4 /dev/sda1 rw\n2 1 8:1 /x /host/var/lib/stackr-disks ro master:1 - ext4 /dev/sda1 rw\n"), 0o600))
+	if err := d.orch.deviceDiskOK(ctx, d.ctl); err != nil {
+		t.Fatalf("with the bind: %v", err)
+	}
+	if p, err := d.orch.NodeDiskPanel(ctx, d.ctl.ID); err != nil || p.Refusal != "" {
+		t.Fatalf("a whole disk is possible, no drawer refusal: %+v %v", p, err)
+	}
+	if err := d.orch.deviceDiskOK(ctx, store.Node{ID: "w1"}); err != nil {
+		t.Fatalf("a worker stays allowed: %v", err)
+	}
+}
+
+// A node that is itself a container refuses the picker and the add from the
+// helper's list, before anything is queued.
+func TestDeviceDiskRefusedOnAContainerNode(t *testing.T) {
+	ctx := context.Background()
+	x := newXFSTest(t)
+	pick := x.pick(t)
+	must(t, os.MkdirAll(filepath.Join(x.env.Root, "run/systemd"), 0o755))
+	must(t, os.WriteFile(filepath.Join(x.env.Root, "run/systemd/container"), []byte("lxc\n"), 0o644))
+	want := "This node is a container and cannot mount a disk. Use a folder disk."
+	var he *hostdisk.Error
+	if _, err := x.orch.NodeDevices(ctx, adminP(), "w1"); !errors.As(err, &he) || he.Message != want || !errors.Is(err, errs.ErrRefused) || err.Error() != want {
+		t.Fatalf("devices on a container: %v", err)
+	}
+	if _, err := x.orch.AddNodeDevice(ctx, adminP(), "w1", pick, "sdb", false); !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), want) {
+		t.Fatalf("add on a container: %v", err)
+	}
+}
+
+// An xfs adopt already under way resumes on the controller even when the
+// panel lacks the bind; a fresh one is refused.
+func TestXFSAdoptResumeSkipsTheBindCheck(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	d.orch.cfg.PanelSpec = func(string) ContainerSpec { return ContainerSpec{} }
+	d.orch.cfg.Version = "1.2.3"
+	mi := filepath.Join(t.TempDir(), "mountinfo")
+	d.orch.cfg.SelfMountinfo = mi
+	must(t, os.WriteFile(mi, []byte("1 0 8:1 / / rw - ext4 /dev/sda1 rw\n"), 0o600))
+	row := store.NodeDisk{ID: "xd1", NodeID: "old", Kind: disk.KindXFS, MountPath: hostdisk.MountPoint("xd1"), State: disk.StateReady}
+	must(t, d.st.NodeDisks.Create(ctx, row))
+	cannot := "This server cannot show the panel a disk added later"
+	if _, err := d.orch.AdoptDisk(ctx, adminP(), d.ctl.ID, "xd1", row.MountPath, d.ctl.Name); err == nil || !strings.Contains(err.Error(), cannot) {
+		t.Fatalf("a fresh adopt: %v", err)
+	}
+	row.State = disk.StateAdopting
+	must(t, d.st.NodeDisks.Update(ctx, row))
+	if _, err := d.orch.AdoptDisk(ctx, adminP(), d.ctl.ID, "xd1", row.MountPath, ""); err != nil && strings.Contains(err.Error(), cannot) {
+		t.Fatalf("an adopt under way was refused: %v", err)
+	}
+}

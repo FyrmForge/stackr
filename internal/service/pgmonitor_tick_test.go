@@ -85,13 +85,13 @@ func TestPGMonitorTick(t *testing.T) {
 	fail = false
 	mu.Unlock()
 
-	w.fake.Containers[0].State = "exited" // conclusively stopped
+	w.fake.Locked(func() { w.fake.Containers[0].State = "exited" }) // conclusively stopped
 	o.pgTick(ctx)
 	if connProblem() {
 		t.Error("problem stayed on a stopped instance")
 	}
 
-	w.fake.Containers[0].State = "running"
+	w.fake.Locked(func() { w.fake.Containers[0].State = "running" })
 	o.pgTick(ctx)
 	if !connProblem() {
 		t.Fatal("problem did not return")

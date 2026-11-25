@@ -111,6 +111,7 @@ const (
 	CodeIO            = "io"        // a filesystem call failed for a reason that is not a refusal
 
 	// xfs
+	CodeContainer     = "container"      // the node is itself a container and cannot mount a device
 	CodeNoDevice      = "no_device"      // the device is not on this machine
 	CodeDeviceChanged = "device_changed" // not the device list showed
 	CodeDeviceBlocked = "device_blocked" // a format guard with no override; Result.Devices[0].Blocked says which

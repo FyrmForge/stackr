@@ -1,16 +1,19 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"syscall"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
@@ -332,6 +335,31 @@ func (o *Orchestrator) folderDiskOK(ctx context.Context, nodeID string) error {
 	return nil
 }
 
+// deviceDiskOK refuses a whole disk on the controller of an installed panel
+// whose container has no view of the host's disks dir. A host that would
+// allow the bind (its mounts propagate) only needs the panel recreated.
+func (o *Orchestrator) deviceDiskOK(ctx context.Context, n store.Node) error {
+	if !o.cfg.installedPanel() {
+		return nil
+	}
+	ctl, err := o.controllerID(ctx)
+	if err != nil || ctl != n.ID {
+		return err
+	}
+	b, _ := os.ReadFile(cmp.Or(o.cfg.SelfMountinfo, "/proc/self/mountinfo"))
+	for _, m := range hostdisk.ParseMounts(b) {
+		// a slave bind (master:N): host mounts still reach it; one cut off by
+		// a host turned private since would hide the next disk
+		if m.Point == installspec.HostRoot+installspec.DisksDir && m.Propagates {
+			return nil
+		}
+	}
+	if h, err := os.ReadFile(cmp.Or(o.cfg.HostRoot, installspec.HostRoot) + "/proc/1/mountinfo"); err == nil && installspec.DisksBindOK(h) {
+		return errs.Refusedf("Upgrade the panel once more, or rerun the installer, to let it see this server's disks.")
+	}
+	return errs.Refusedf("This server cannot show the panel a disk added later. Add the disk on a worker node.")
+}
+
 func diskPath(path string) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path || path == "/" {
 		return errs.Invalidf("path", "Give a full path to a mounted folder, like /mnt/data.")
@@ -425,6 +453,9 @@ func (o *Orchestrator) NodeDevices(ctx context.Context, by *Principal, nodeID st
 	if err != nil {
 		return nil, err
 	}
+	if err := o.deviceDiskOK(ctx, n); err != nil {
+		return nil, err
+	}
 	return o.diskLeaf.Devices(ctx, n.ID)
 }
 
@@ -444,6 +475,9 @@ func (o *Orchestrator) AddNodeDevice(ctx context.Context, by *Principal, nodeID 
 	}
 	if pick.ID == "" {
 		return Job{}, errs.Invalidf("device", "Pick a disk.")
+	}
+	if err := o.deviceDiskOK(ctx, n); err != nil {
+		return Job{}, err
 	}
 	// the person types the device (sdb, or its path) so the wrong disk is not wiped by a click
 	if pick.Path == "" || typed != filepath.Base(pick.Path) && typed != pick.Path && typed != pick.ID {
@@ -473,6 +507,13 @@ func (o *Orchestrator) AddNodeDevice(ctx context.Context, by *Principal, nodeID 
 	if o.diskWorker(n) {
 		if f := o.diskFacts(ctx, n); f == nil || !f.DisksRead {
 			return Job{}, errs.Refusedf("This node's worker is too old to manage a disk. Update it first.")
+		}
+	}
+	// a node that is itself a container says so in the list: nothing is queued
+	if _, err := o.diskLeaf.Devices(ctx, n.ID); err != nil {
+		var he *hostdisk.Error
+		if errors.As(err, &he) && he.Code == hostdisk.CodeContainer {
+			return Job{}, errs.Refusedf("%s", he.Message)
 		}
 	}
 	lock, err := o.nodeLock(ctx, n)

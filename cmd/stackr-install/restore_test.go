@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -383,5 +384,63 @@ func TestRestoredInstallID(t *testing.T) {
 	}
 	if got := markerBody(42, "/x/backups/stackr/_panel/i1/manual/a.age"); got != "42\nstackr/_panel/i1/manual/a.age\n" {
 		t.Errorf("marker = %q", got)
+	}
+}
+
+// fakeDockerBin puts a docker on PATH that logs its calls and answers by script.
+func fakeDockerBin(t *testing.T, script string) (log string) {
+	t.Helper()
+	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "calls")
+	body := "#!/bin/sh\necho \"$@\" >> " + log + "\n" + script
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	return log
+}
+
+func panelIn(bind bool) installspec.Input {
+	return installspec.Input{Root: "x.com", PanelHost: "p.x.com", HTTPPort: "80", DataDir: "/var/lib/stackr", Bind: "172.17.0.1", DisksBind: bind}
+}
+
+const refuse = "case \"$*\" in *rslave*) echo 'path /var/lib/stackr-disks is mounted on / but it is not a shared or slave mount' >&2; exit 1;; esac\n"
+
+// Docker refusing the disks bind: the half-made container goes and the panel
+// runs again without it. With no bind there is no retry.
+func TestRunPanelFallsBackWithoutTheDisksBind(t *testing.T) {
+	for _, bind := range []bool{true, false} {
+		log := fakeDockerBin(t, refuse)
+		var out strings.Builder
+		err := runner{out: &out}.runPanel(context.Background(), "img:1", panelIn(bind))
+		calls, _ := os.ReadFile(log)
+		n := strings.Count(string(calls), "\n")
+		if bind {
+			if err != nil || n != 3 || !strings.Contains(string(calls), "rm -f "+installspec.PanelName) || !strings.Contains(out.String(), "panel started without the disks mount") {
+				t.Errorf("bind: err %v, %d calls:\n%s\n%s", err, n, calls, out.String())
+			}
+		} else if err != nil || n != 1 {
+			t.Errorf("no bind: err %v, %d calls", err, n)
+		}
+	}
+}
+
+// Any other failure comes back unchanged: nothing is removed (a panel of that
+// name may be alive) and nothing is retried.
+func TestRunPanelOtherErrorsAreNotRetried(t *testing.T) {
+	log := fakeDockerBin(t, "echo 'name \"/stackr\" is already in use' >&2\nexit 1\n")
+	err := runner{out: io.Discard}.runPanel(context.Background(), "img:1", panelIn(true))
+	calls, _ := os.ReadFile(log)
+	if err == nil || !strings.Contains(err.Error(), "already in use") || strings.Count(string(calls), "\n") != 1 || strings.Contains(string(calls), "rm") {
+		t.Errorf("err %v, calls:\n%s", err, calls)
+	}
+}
+
+// A failed rm of the half-made container returns the original refusal, no retry.
+func TestRunPanelFailedRemoveStops(t *testing.T) {
+	log := fakeDockerBin(t, "case \"$1\" in rm) echo 'cannot remove' >&2; exit 1;; esac\n"+refuse)
+	err := runner{out: io.Discard}.runPanel(context.Background(), "img:1", panelIn(true))
+	calls, _ := os.ReadFile(log)
+	if err == nil || !strings.Contains(err.Error(), "not a shared or slave mount") || !strings.Contains(err.Error(), "not removed") || strings.Count(string(calls), "\n") != 2 {
+		t.Errorf("err %v, calls:\n%s", err, calls)
 	}
 }

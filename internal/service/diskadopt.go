@@ -452,6 +452,10 @@ func (o *Orchestrator) PlanDiskAdopt(ctx context.Context, nodeID, path string) (
 		if err := o.folderDiskOK(ctx, n.ID); err != nil {
 			return p, err
 		}
+	} else if p.ResumeDisk == "" { // an adopt already under way resumes
+		if err := o.deviceDiskOK(ctx, n); err != nil {
+			return p, err
+		}
 	}
 	f, err := o.adoptStamp(ctx, n.ID, path)
 	if err != nil {
@@ -583,6 +587,11 @@ func (o *Orchestrator) AdoptDisk(ctx context.Context, by *Principal, nodeID, dis
 	if d.Kind == disk.KindXFS {
 		if path != hostdisk.MountPoint(d.ID) {
 			return Job{}, errs.Refusedf("An xfs disk is mounted at %s.", hostdisk.MountPoint(d.ID))
+		}
+		if d.State != disk.StateAdopting { // an adopt already under way resumes
+			if err := o.deviceDiskOK(ctx, n); err != nil {
+				return Job{}, err
+			}
 		}
 	} else if err := o.folderDiskOK(ctx, n.ID); err != nil {
 		return Job{}, err

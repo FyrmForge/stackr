@@ -302,7 +302,7 @@ func TestStoppedStandbyFollowsImage(t *testing.T) {
 	g := newImageRig(t, true, true)
 	for i := range g.n.wFake.Containers {
 		if g.n.wFake.Containers[i].ID == "rep1" {
-			g.n.wFake.Containers[i].State = "exited"
+			g.n.wFake.Locked(func() { g.n.wFake.Containers[i].State = "exited" })
 		}
 	}
 	must(t, g.n.orch.startMember(context.Background(), g.m))
@@ -351,7 +351,7 @@ func TestStandbyDoubleStaleSettingsPath(t *testing.T) {
 		must(t, err)
 		if stopped {
 			for i := range g.n.wFake.Containers {
-				g.n.wFake.Containers[i].State = "exited"
+				g.n.wFake.Locked(func() { g.n.wFake.Containers[i].State = "exited" })
 			}
 			must(t, g.n.orch.startMember(ctx, g.m))
 		} else {

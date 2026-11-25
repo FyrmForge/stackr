@@ -250,3 +250,59 @@ func TestNodeName(t *testing.T) {
 		t.Error("node name not passed to the panel")
 	}
 }
+
+// The disks bind is off by default (the golden files) and on with DisksBind,
+// as a read-only rslave view under HostRoot.
+func TestPanelDisksBind(t *testing.T) {
+	in := plainIn
+	base := len(Panel(Image("1.2.3"), in).Volumes)
+	if v := Panel(Image("1.2.3"), in).Volumes; slices.Contains(v, DisksDir+":"+HostRoot+DisksDir+":ro,rslave") {
+		t.Errorf("bind on by default: %v", v)
+	}
+	in.DisksBind = true
+	if v := Panel(Image("1.2.3"), in).Volumes; !slices.Contains(v, DisksDir+":"+HostRoot+DisksDir+":ro,rslave") || len(v) != base+1 {
+		t.Errorf("volumes %v lack the disks bind", v)
+	}
+	in.DataDir = t.TempDir()
+	if err := Save(in); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Load(in.DataDir); err != nil || got.DisksBind {
+		t.Errorf("DisksBind was saved: %+v %v", got, err)
+	}
+}
+
+func TestDisksBindOK(t *testing.T) {
+	line := func(id, point, opt string) string {
+		return id + " 1 8:1 / " + point + " rw,relatime " + opt + " - ext4 /dev/sda1 rw\n"
+	}
+	for name, c := range map[string]struct {
+		table string
+		want  bool
+	}{
+		"shared root":       {line("1", "/", "shared:1"), true},
+		"private root":      {line("1", "/", ""), false},
+		"slave root":        {line("1", "/", "master:2"), true},
+		"private var/lib":   {line("1", "/", "shared:1") + line("2", "/var/lib", ""), false},
+		"shared var":        {line("1", "/", "") + line("2", "/var", "shared:3"), true},
+		"unrelated private": {line("1", "/", "shared:1") + line("2", "/var/lib/stackr-disksx", ""), true},
+		"disks mount":       {line("1", "/", "") + line("2", "/var/lib/stackr-disks", "shared:4"), true},
+		"escaped space":     {line("1", "/", "") + line("2", `/var/my\040dir`, ""), false},
+		"garbage":           {"not a mount table\n\x00\xff", false},
+		"empty":             {"", false},
+	} {
+		if got := DisksBindOK([]byte(c.table)); got != c.want {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+func TestWithoutDisksBind(t *testing.T) {
+	in := plainIn
+	in.DisksBind = true
+	v := Panel(Image("1.2.3"), in).Volumes
+	got := WithoutDisksBind(v)
+	if slices.Contains(got, DisksBindVolume) || len(got) != len(v)-1 || !slices.Contains(v, DisksBindVolume) {
+		t.Errorf("got %v from %v", got, v)
+	}
+}

@@ -1147,3 +1147,55 @@ func TestClearingACapNeedsTheRowInTheReport(t *testing.T) { // X13
 		q.Names, q.Quotas = []string{"vol"}, map[string]Quota{"vol": {Project: 7, Cap: 0}}
 	}), CodeIO)
 }
+
+// A node that is itself a container refuses the list, the format and the
+// mount before any command runs.
+func TestContainerNodeRefusesDevices(t *testing.T) {
+	x := newX(t, dev("/dev/sdb", "disk"))
+	ctx := context.Background()
+	if res := Run(ctx, x.env, Request{Op: "list", Kind: "xfs"}); res.Error != nil {
+		t.Fatalf("list on a plain host: %+v", res.Error)
+	}
+	for name, mark := range map[string]func(){
+		"systemd": func() {
+			_ = os.MkdirAll(filepath.Join(x.env.Root, "run/systemd"), 0o755)
+			_ = os.WriteFile(filepath.Join(x.env.Root, "run/systemd/container"), []byte("lxc\n"), 0o644)
+		},
+		"environ": func() {
+			_ = os.Remove(filepath.Join(x.env.Root, "run/systemd/container"))
+			_ = os.MkdirAll(filepath.Join(x.env.Root, "proc/1"), 0o755)
+			_ = os.WriteFile(filepath.Join(x.env.Root, "proc/1/environ"), []byte("PATH=/bin\x00container=lxc\x00"), 0o644)
+		},
+	} {
+		mark()
+		x.fx.calls = nil
+		for _, r := range []Request{{Op: "list", Kind: "xfs"}, {Op: "format", Kind: "xfs", DiskID: "d1", Device: "/dev/sdb", Expect: &Device{}}, {Op: "mount", Kind: "xfs", DiskID: "d1", Mount: MountPoint("d1"), Device: "/dev/sdb", Expect: &Device{}}} {
+			res := Run(ctx, x.env, r)
+			if res.Error == nil || res.Error.Code != CodeContainer || res.Error.Message != MsgContainer {
+				t.Errorf("%s/%s: %+v", name, r.Op, res.Error)
+			}
+		}
+		if len(x.fx.calls) != 0 {
+			t.Errorf("%s: ran %v", name, x.fx.calls)
+		}
+	}
+	// Docker and Podman leave their own marker files
+	_ = os.Remove(filepath.Join(x.env.Root, "proc/1/environ")) // map order: either marker may be left
+	_ = os.Remove(filepath.Join(x.env.Root, "run/systemd/container"))
+	for _, m := range []string{".dockerenv", "run/.containerenv"} {
+		if inContainer(x.env.Root) {
+			t.Fatalf("a container before %s", m)
+		}
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(x.env.Root, m)), 0o755)
+		_ = os.WriteFile(filepath.Join(x.env.Root, m), nil, 0o644)
+		if !inContainer(x.env.Root) {
+			t.Errorf("%s missed", m)
+		}
+		_ = os.Remove(filepath.Join(x.env.Root, m))
+	}
+	// a lookalike variable is not the marker
+	_ = os.WriteFile(filepath.Join(x.env.Root, "proc/1/environ"), []byte("mycontainer=x\x00"), 0o644)
+	if inContainer(x.env.Root) {
+		t.Error("lookalike matched")
+	}
+}
