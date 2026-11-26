@@ -33,6 +33,12 @@ type Env struct {
 	beforeTakeover func() // test seam: runs between the emptiness check and the takeover
 	beforeStamp    func() // test seam: runs between the emptiness check and the first stamp write
 	// StatRdev and ProjOf are test seams: the "major:minor" of a device node, and a folder's xfs project and inherit flag. Nil reads the real node and runs the real ioctl.
+	// Checkpoint and Integrity run SQLite on a database file for the paneldb
+	// ops (wal_checkpoint(TRUNCATE), and integrity_check on a read-only
+	// connection). The package stays standard library only: stackrd injects them.
+	Checkpoint func(ctx context.Context, path string) error
+	Integrity  func(ctx context.Context, path string) error
+	// StatRdev and ProjOf are test seams.
 	StatRdev func(path string) (string, error)                          // test seam: "major:minor" of a device node
 	ProjOf   func(dir string) (project uint32, inherit bool, err error) // test seam: a folder's xfs project and inherit flag
 }
@@ -65,6 +71,9 @@ type Request struct {
 	Expect      *Device          `json:"expect,omitempty"`       // format, mount: the device as list showed it; any difference now aborts
 	Force       bool             `json:"force,omitempty"`        // format: overwrite a stackr stamp or a foreign filesystem signature (never a blocked device)
 	Quotas      map[string]Quota `json:"quotas,omitempty"`       // folder, usage: by folder name
+
+	// paneldb only: Kind "paneldb", ops probe, place, checkpoint, integrity, copy, hash, rename, rm, list, marker-write, marker-read, lock, unlock, mount, unmount, clear-underlay.
+	DB *DBReq `json:"db,omitempty"`
 }
 
 // Quota is a folder's xfs project: its number (unique per disk) and the hard
@@ -135,7 +144,8 @@ type Result struct {
 	Disk  *Fact          `json:"disk,omitempty"`
 	Usage map[string]Use `json:"usage,omitempty"`
 	// list: every disk, with why it is not pickable. format: the device after.
-	Devices []Device `json:"devices,omitempty"`
+	Devices []Device  `json:"devices,omitempty"`
+	DB      *DBResult `json:"db,omitempty"` // paneldb ops
 }
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
