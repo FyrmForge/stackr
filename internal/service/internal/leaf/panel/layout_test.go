@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -578,6 +579,42 @@ func TestSwapRefusesAMissingDatabaseOnAnInstall(t *testing.T) {
 				t.Errorf("docker was touched: %s", got)
 			}
 		})
+	}
+}
+
+// The helper's mount view: with DATA_DIR and a database configured elsewhere,
+// it gets both folders, so it can see install.json and the database.
+func TestLaunchMountsTheSpecDataDirAndACustomDatabaseFolder(t *testing.T) {
+	fake := dockerfake.New()
+	err := New(fake).Launch(context.Background(), docker.ContainerSpec{Image: "img:0.2.0",
+		Env: []string{"DATA_DIR=/var/lib/stackr", "DATABASE_PATH=/srv/stackr.db"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := fake.Specs[0].Volumes
+	if !slices.Contains(v, "/var/lib/stackr:/var/lib/stackr") || !slices.Contains(v, "/srv:/srv") {
+		t.Errorf("volumes = %v", v)
+	}
+	// the canonical database adds nothing beyond the data dir
+	fake = dockerfake.New()
+	_ = New(fake).Launch(context.Background(), docker.ContainerSpec{Image: "img:0.2.0",
+		Env: []string{"DATA_DIR=/var/lib/stackr", "DATABASE_PATH=/var/lib/stackr/db/stackr.db"}})
+	if v := fake.Specs[0].Volumes; len(v) != 2 || v[1] != "/var/lib/stackr:/var/lib/stackr" {
+		t.Errorf("volumes = %v", v)
+	}
+}
+
+// A helper that cannot see the spec's data dir does not swap without a copy:
+// it refuses before it stops anything.
+func TestSwapRefusesWhenTheDataDirIsNotVisible(t *testing.T) {
+	spec := docker.ContainerSpec{Name: "stackr-0.2.0", Image: "img:0.2.0",
+		Env: []string{"DATA_DIR=/nonexistent/stackr", "DATABASE_PATH=/nonexistent/other/my.db"}}
+	h := newHook("healthy")
+	if err := leaf(h).Swap(context.Background(), spec); err == nil {
+		t.Fatal("swap went ahead")
+	}
+	if got := calls(h.Fake); got != "" {
+		t.Errorf("docker was touched: %s", got)
 	}
 }
 

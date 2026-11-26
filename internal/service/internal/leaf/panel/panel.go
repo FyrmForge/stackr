@@ -108,8 +108,18 @@ func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
 	vols := []string{"/var/run/docker.sock:/var/run/docker.sock"}
 	if db := dbPath(spec); db != "" {
 		// The swap copies the database aside and keeps the move journal, so the helper needs the data dir at the panel's path.
-		dir := paneldb.DataDirOf(db)
-		vols = append(vols, dir+":"+dir)
+		// The spec's DATA_DIR (install.json, journal, swap/) and, when the database
+		// is configured elsewhere, its own folder: both at the panel's paths.
+		dirs := []string{paneldb.DataDirOf(db)}
+		if dd := specEnv(spec, "DATA_DIR"); dd != "" {
+			dirs = []string{dd}
+			if d := filepath.Dir(db); d != dd && !strings.HasPrefix(d, dd+"/") {
+				dirs = append(dirs, d)
+			}
+		}
+		for _, dir := range dirs {
+			vols = append(vols, dir+":"+dir)
+		}
 	}
 	_, err = l.docker.Run(ctx, docker.ContainerSpec{
 		// The image's entrypoint is /stackrd; Cmd is only its argument.
@@ -200,6 +210,11 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 	// must be there, whatever the path: a missing one is a loss to refuse, never a
 	// "not visible" to swap past without a copy.
 	if !layout && db != "" && dataDir != "" {
+		// A helper that cannot see the spec's data dir cannot judge, so it does not
+		// take the no-copy path: it refuses.
+		if _, err := os.Stat(dataDir); err != nil {
+			return fmt.Errorf("the data dir %s is not visible to the helper (%v): refusing to swap without a copy", dataDir, err)
+		}
 		if _, ierr := os.Stat(filepath.Join(dataDir, paneldb.InstallFile)); ierr == nil {
 			if _, err := os.Stat(db); err != nil {
 				return fmt.Errorf("the database %s is missing on an installed box (%v): refusing to swap without it", db, err)
