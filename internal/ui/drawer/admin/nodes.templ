@@ -275,6 +275,7 @@ type NodeDisk struct {
 	Forget   *DiskForget
 	Resume   *DiskResume // the strip's button of an interrupted adopt or forget
 	MoveAll  *DiskMoveAll
+	Moves    *DiskMoves // the controller's logs and panel database rows
 	MoveJobs []MoveJobRow
 }
 
@@ -1222,6 +1223,7 @@ templ diskSection(d NodeDisk) {
 			}
 			@nodeDiskForget(d)
 			@nodeDiskMoveAll(d)
+			@nodeDiskMoves(d)
 			if d.State == "ready" || d.State == "missing" {
 				@diskVolumes(d)
 			}
