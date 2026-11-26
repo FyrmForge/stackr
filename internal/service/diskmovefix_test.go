@@ -1,13 +1,17 @@
 package service
 
 import (
+	"os"
+
 	"context"
 	"errors"
+	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"strings"
 	"testing"
 
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 )
 
 // The panel move job holds todiskKey itself, so its own plan must not count
@@ -43,5 +47,21 @@ func TestObserveMovePlanRefusesADiskUnderMinFree(t *testing.T) {
 	r.ctlFacts(t, ctlDiskFacts(50<<30))
 	if _, err := r.orch.PlanMoveObserve(ctx, adminP(), r.ctl(), false); err != nil {
 		t.Errorf("50 GB disk: %v", err)
+	}
+}
+
+// A move that fails before the switch removes its half copy and folder.
+func TestObserveMoveFailBeforeSwitchRemovesTheHalfCopy(t *testing.T) {
+	r := newObserveRig(t)
+	r.ctlFake.OnUntar = nil // the copy lands empty, which the check refuses
+	j := r.move(t, false)
+	if j.State != job.Failed || !strings.Contains(j.Error, "missing or empty") {
+		t.Fatalf("job = %s %q", j.State, j.Error)
+	}
+	if _, err := os.Stat(r.folder(r.row, installspec.ObserveDiskVolume)); !os.IsNotExist(err) {
+		t.Errorf("the half copy's folder stayed: %v", err)
+	}
+	if r.removed(installspec.ObserveVolume) {
+		t.Error("the original volume was removed")
 	}
 }

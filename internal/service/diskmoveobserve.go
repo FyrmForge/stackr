@@ -463,6 +463,12 @@ func (m *observeMove) setOnDisk(ctx context.Context, on bool) error {
 // had (the setting never changed), and the cause is returned.
 func (m *observeMove) fail(ctx context.Context, cause error) error {
 	m.o.syncObserveLocked(context.WithoutCancel(ctx))
+	if !m.p.Back {
+		// the half copy on the disk goes; the original volume is never touched
+		if err := m.o.volumes.RemoveNamed(context.WithoutCancel(ctx), m.p.NodeID, installspec.ObserveDiskVolume); err != nil {
+			m.logf("the failed copy %s was not removed: %v", installspec.ObserveDiskVolume, err)
+		}
+	}
 	if e := m.o.observe.lastErr.Load(); e != nil && *e != "" {
 		return errors.Join(cause, fmt.Errorf("the rollback is incomplete, observe is not back on the old volume (check Settings, Observability): %s", *e))
 	}
