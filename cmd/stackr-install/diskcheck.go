@@ -60,8 +60,13 @@ func diskUnits(dataDir string) ([]string, error) {
 			units = append(units, n)
 		}
 	}
+	// The bind unit only while the journal says the database is on a disk (or a
+	// move is going): after a give-up or a move back a stale one must not mount.
+	j, jerr := paneldb.ReadJournal(dataDir)
+	onDisk := jerr == nil && (j.Phase == paneldb.PhaseMoved || j.Moved ||
+		((j.Direction == paneldb.DirIn || j.Direction == paneldb.DirBack) && j.Phase != paneldb.PhaseNone))
 	bind := hostdisk.BindUnitName(dataDir)
-	if _, err := os.Stat(systemdDir + "/" + bind); err == nil {
+	if _, err := os.Stat(systemdDir + "/" + bind); err == nil && onDisk {
 		units = append(units, bind)
 	}
 	return units, nil

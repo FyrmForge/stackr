@@ -312,6 +312,8 @@ func (m *mover) resume(ctx context.Context, mv Move) error {
 	switch m.j.Phase {
 	case paneldb.PhaseStartingNew, paneldb.PhaseGating:
 		return m.regate(ctx)
+	case paneldb.PhasePassed:
+		return m.pass(ctx) // forward only: the new panel has taken writes
 	}
 	return m.forward(ctx)
 }
@@ -324,7 +326,7 @@ func (m *mover) forward(ctx context.Context) error {
 	} else {
 		err = m.moveBack(ctx)
 	}
-	if err != nil && !errors.Is(err, errCrash) && !errors.Is(err, ErrRolledBack) {
+	if err != nil && !errors.Is(err, errCrash) && !errors.Is(err, ErrRolledBack) && m.j.Phase != paneldb.PhasePassed {
 		return m.rollback(ctx, err)
 	}
 	return err
@@ -576,6 +578,18 @@ func (m *mover) startNew(ctx context.Context) error {
 		m.l.recordFailure(ctx, id, paneldb.Path(m.dataDir), paneldb.Path(m.dataDir), m.spec.Image[strings.LastIndex(m.spec.Image, ":")+1:], err)
 		return fmt.Errorf("new panel: %w", err)
 	}
+	return m.passed(ctx)
+}
+
+// passed journals the gate's pass, then finishes. A failure after this point is
+// never a rollback: the journal says passed and a rerun finishes the move.
+func (m *mover) passed(ctx context.Context) error {
+	if err := m.set(paneldb.PhasePassed); err != nil {
+		return err
+	}
+	if err := m.crash("passed"); err != nil {
+		return err
+	}
 	return m.pass(ctx)
 }
 
@@ -592,7 +606,7 @@ func (m *mover) regate(ctx context.Context) error {
 			continue
 		}
 		if d, err := m.l.docker.Inspect(ctx, c.ID); err == nil && d.Running && m.l.gate(ctx, c.ID, m.spec) == nil {
-			return m.pass(ctx)
+			return m.passed(ctx)
 		}
 	}
 	return m.rollback(ctx, errors.New("the new panel is not there or did not pass its gate"))
@@ -616,12 +630,13 @@ func (m *mover) pass(ctx context.Context) error {
 		return err
 	}
 	if j.Direction == paneldb.DirBack {
-		// the disk copy becomes the old copy on the disk; the marker goes first
+		// the disk copy becomes the old copy on the disk; the marker goes first.
+		// Best effort: the panel already runs on the system disk, and a dead or
+		// slow disk must not hold the finished move back.
 		if _, err := m.op(ctx, "rm", "", file(hostdisk.AreaFolder, hostdisk.PanelDBMarker), none); err != nil {
-			return err
-		}
-		if _, err := m.op(ctx, "rename", "", file(hostdisk.AreaFolder, paneldb.FileName), file(hostdisk.AreaFolder, j.OldCopy)); err != nil {
-			return err
+			slog.Warn("panel database move: the disk's marker was not removed", "err", err)
+		} else if _, err := m.op(ctx, "rename", "", file(hostdisk.AreaFolder, paneldb.FileName), file(hostdisk.AreaFolder, j.OldCopy)); err != nil {
+			slog.Warn("panel database move: the disk copy was not renamed", "err", err)
 		}
 		if err := m.crash("disk-copy-renamed"); err != nil {
 			return err
@@ -650,6 +665,9 @@ func (m *mover) removePredecessors(ctx context.Context) error {
 // the next run resumes this rollback. Nothing here deletes a database file
 // whose other copy has not been checked against the journal's hash.
 func (m *mover) rollback(ctx context.Context, cause error) error {
+	if m.j.Phase == paneldb.PhasePassed {
+		return errors.Join(cause, errors.New("the new panel passed its gate: a move past that point only goes forward"))
+	}
 	slog.Warn("panel database move: rolling back", "direction", m.j.Direction, "from_phase", m.j.Phase, "err", cause)
 	if m.j.Phase != paneldb.PhaseRollingBack {
 		if err := m.set(paneldb.PhaseRollingBack); err != nil {

@@ -102,8 +102,13 @@ func TestPlaceMarkerMountUnmountCycle(t *testing.T) {
 	wantCode(t, h.Run(ctx, req(h, "mount", "", hostdisk.DBFile{}, hostdisk.DBFile{})), hostdisk.CodeNotEmpty)
 	mustOK(t, h.Run(ctx, req(h, "rename", "no", f("db", "stackr.db"), f("swap", "stackr.db.moving"))))
 	res := mustOK(t, h.Run(ctx, req(h, "mount", "", hostdisk.DBFile{}, hostdisk.DBFile{})))
-	if !res.DB.Mounted || res.DB.Marker == nil || res.DB.Marker.InstallID != "inst1" {
+	if !res.DB.Mounted {
 		t.Errorf("mount result %+v", res.DB)
+	}
+	// the run that made the mount does not see it; the next run reads the marker
+	mk := mustOK(t, h.Run(ctx, req(h, "marker-read", "yes", f("db", ""), hostdisk.DBFile{})))
+	if mk.DB.Marker == nil || mk.DB.Marker.InstallID != "inst1" {
+		t.Errorf("marker through the mount: %+v", mk.DB)
 	}
 	if !h.Mounted() || !h.Locked() {
 		t.Errorf("mounted=%v locked=%v", h.Mounted(), h.Locked())

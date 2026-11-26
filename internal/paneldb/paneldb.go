@@ -57,6 +57,10 @@ const (
 	PhaseRollingBack = "rolling-back"
 	PhaseStartingNew = "starting-new"
 	PhaseGating      = "gating"
+	// PhasePassed: the new panel passed its gate. From here a move only goes
+	// forward (the new panel has taken writes and the old files are going away):
+	// recovery finishes it, it never rolls back.
+	PhasePassed = "passed"
 	PhaseMoved       = "moved"
 	// PhaseFresh is an explicit empty start: the installer made the layout of a
 	// new install and the panel may create its first database. The panel clears
@@ -265,7 +269,7 @@ func check(dataDir, dbPath string, m mode) error {
 		if err := checkMounted(dataDir, j); err != nil {
 			return err
 		}
-	case PhaseStartingNew, PhaseGating:
+	case PhaseStartingNew, PhaseGating, PhasePassed:
 		// The new panel is the one booting here: it must not refuse itself. A
 		// move-back's panel runs on the system disk, so nothing is mounted.
 		if j.Direction == DirIn || j.Moved {

@@ -37,6 +37,14 @@ func TestDiskCheckStartsTheUnitsInOrder(t *testing.T) {
 	xfs := hostdisk.UnitName(hostdisk.MountPoint("d1"))
 	bind := hostdisk.BindUnitName(dataDir)
 	started := withUnits(t, bind, xfs, "docker.service", "mnt-other.mount")
+	dataDir = t.TempDir()
+	bind = hostdisk.BindUnitName(dataDir)
+	if err := os.WriteFile(filepath.Join(systemdDir, bind), []byte("# managed by stackr\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := paneldb.WriteJournal(dataDir, paneldb.Journal{Phase: paneldb.PhaseMoved, Direction: paneldb.DirIn, DiskID: "d1"}); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("STACKR_DATA_DIR", dataDir)
 	var out bytes.Buffer
 	if err := diskCheck(context.Background(), nil, &out); err != nil {
@@ -133,5 +141,37 @@ func TestRestoreRefusedOnAMovedInstall(t *testing.T) {
 		if err := restorePanelDB(dir); err == nil {
 			t.Errorf("restore let %+v through", j)
 		}
+	}
+}
+
+// A bind unit left on disk with no moved journal (after a give-up or a move
+// back) is never started: it would mount the stale disk database.
+func TestDiskCheckSkipsAStaleBindUnit(t *testing.T) {
+	dataDir := t.TempDir()
+	started := withUnits(t, hostdisk.BindUnitName(dataDir), hostdisk.UnitName(hostdisk.MountPoint("d1")))
+	t.Setenv("STACKR_DATA_DIR", dataDir)
+	if err := diskCheck(context.Background(), nil, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*started) != 1 || strings.Contains((*started)[0], "db.mount") {
+		t.Errorf("started %v", *started)
+	}
+}
+
+// uninstall --purge refuses whenever db/ is a mount point, journal or not.
+func TestUninstallRefusesAMountedDB(t *testing.T) {
+	r := newUninstallRig(t)
+	if err := os.WriteFile(filepath.Join(r.install, installspec.File), []byte(`{"panel_host":"stkr.example.com"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r.reads["docker ps -aq --filter label=stackr.role=panel"] = ""
+	for _, f := range []string{"node.name", "mesh.json"} {
+		_ = os.Remove(filepath.Join(r.state, f))
+	}
+	old := isMounted
+	isMounted = func(string) bool { return true }
+	defer func() { isMounted = old }()
+	if err := r.env(true, "").run(context.Background(), true); err == nil || !strings.Contains(err.Error(), "node disk") {
+		t.Errorf("err = %v", err)
 	}
 }

@@ -718,3 +718,73 @@ func TestUpdateOnAMovedInstallWithTheDiskGone(t *testing.T) {
 		t.Error("the running panel was stopped")
 	}
 }
+
+// afterPass fails every disk request once the journal says passed.
+type afterPass struct {
+	inner   DiskRunner
+	dataDir string
+	fail    func(hostdisk.Request) bool
+	armed   bool
+}
+
+func (a *afterPass) Disk(ctx context.Context, r hostdisk.Request) (hostdisk.Result, error) {
+	if j, err := paneldb.ReadJournal(a.dataDir); err == nil && j.Phase == paneldb.PhasePassed && a.armed && a.fail(r) {
+		return hostdisk.Result{Error: &hostdisk.Error{Code: hostdisk.CodeIO, Message: "injected after the gate"}}, nil
+	}
+	return a.inner.Disk(ctx, r)
+}
+
+// An error after the gate passed never rolls back: the healthy new panel stays,
+// the journal says passed, and a rerun finishes the move.
+func TestFailureAfterTheGateNeverRollsBack(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	ap := &afterPass{inner: e.dd, dataDir: e.dataDir, armed: true, fail: func(r hostdisk.Request) bool { return r.Op == "rename" }}
+	l := e.leaf(nil)
+	l.Disk = ap
+	err := l.Move(ctx, e.spec("stackr-new"), mvIn())
+	if err == nil || errors.Is(err, ErrRolledBack) {
+		t.Fatalf("err = %v", err)
+	}
+	if j := e.journal(); j.Phase != paneldb.PhasePassed {
+		t.Fatalf("journal = %+v", j)
+	}
+	if !e.running("stackr-new") || !e.h.Mounted() {
+		t.Fatalf("the healthy new panel was touched: running=%v mounted=%v", e.running("stackr-new"), e.h.Mounted())
+	}
+	if err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn()); err != nil {
+		t.Fatalf("rerun: %v", err)
+	}
+	e.assertMoved("stackr-new")
+}
+
+// The disk side of a move-back is cleaned best effort: a disk that fails then
+// does not hold the finished move back.
+func TestMoveBackPassCleanupIsBestEffort(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn()); err != nil {
+		t.Fatal(err)
+	}
+	ap := &afterPass{inner: e.dd, dataDir: e.dataDir, armed: true, fail: func(r hostdisk.Request) bool {
+		return r.DB != nil && (r.DB.From.Area == hostdisk.AreaFolder || r.DB.To.Area == hostdisk.AreaFolder)
+	}}
+	l := e.leaf(nil)
+	l.Disk = ap
+	if err := l.Move(ctx, e.spec("stackr-back"), mvBack()); err != nil {
+		t.Fatal(err)
+	}
+	if j := e.journal(); j.Phase != paneldb.PhaseNone || !e.running("stackr-back") {
+		t.Errorf("journal %+v", j)
+	}
+}
+
+// The mount made by a run is not visible to that run: the fake host behaves so.
+func TestMountIsInvisibleToTheRunThatMadeIt(t *testing.T) {
+	e := newEnv(t)
+	if err := e.leaf(nil).Move(context.Background(), e.spec("stackr-new"), mvIn()); err != nil {
+		t.Fatal(err)
+	}
+	// the in-op marker read (the old bug) would have rolled the move back
+	e.assertMoved("stackr-new")
+}

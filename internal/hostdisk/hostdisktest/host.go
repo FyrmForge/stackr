@@ -28,6 +28,7 @@ type Host struct {
 	mounted  bool // the bind unit's mount is live
 	diskUp   bool // the xfs disk is mounted
 	Commands []string
+	deferred []func() // the file view of a mount or unmount, applied when the run that made it ends
 	// FailOn makes a command fail: the first word of the call, joined with its args.
 	FailOn func(call string) error
 	// Hook runs before each paneldb-visible command (a test crashes here).
@@ -83,7 +84,10 @@ func (h *Host) writeTable() {
 	}
 }
 
-// Mount does what the bind unit's start does.
+// Mount does what the bind unit's start does. The mount table (the host's
+// /proc/1/mountinfo) shows it at once, but the file view under /host of the run
+// that made it does not change: that run still sees the bare underlay. The next
+// run sees the folder.
 func (h *Host) Mount() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -93,16 +97,21 @@ func (h *Host) Mount() error {
 	if !h.diskUp {
 		return fmt.Errorf("the disk is not mounted")
 	}
-	// the underlay is set aside, the folder shows through db/
-	if err := os.Rename(h.dbDir(), h.dbDir()+".under"); err != nil {
-		return err
-	}
-	if err := os.Symlink(h.Folder(), h.dbDir()); err != nil {
-		return err
-	}
 	h.mounted = true
 	h.writeTable()
+	h.deferred = append(h.deferred, h.showMount)
 	return nil
+}
+
+// showMount: the underlay is set aside, the folder shows through db/.
+func (h *Host) showMount() {
+	if err := os.Rename(h.dbDir(), h.dbDir()+".under"); err != nil {
+		h.T.Error(err)
+		return
+	}
+	if err := os.Symlink(h.Folder(), h.dbDir()); err != nil {
+		h.T.Error(err)
+	}
 }
 
 // Unmount does what stopping the bind unit does (also a power cut with the disk gone).
@@ -112,20 +121,36 @@ func (h *Host) Unmount() error {
 	if !h.mounted {
 		return nil
 	}
-	if err := os.Remove(h.dbDir()); err != nil {
-		return err
-	}
-	if err := os.Rename(h.dbDir()+".under", h.dbDir()); err != nil {
-		return err
-	}
 	h.mounted = false
 	h.writeTable()
+	h.deferred = append(h.deferred, h.hideMount)
 	return nil
+}
+
+func (h *Host) hideMount() {
+	if err := os.Remove(h.dbDir()); err != nil {
+		h.T.Error(err)
+		return
+	}
+	if err := os.Rename(h.dbDir()+".under", h.dbDir()); err != nil {
+		h.T.Error(err)
+	}
+}
+
+// settle applies the file views that changed during a run.
+func (h *Host) settle() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, f := range h.deferred {
+		f()
+	}
+	h.deferred = nil
 }
 
 // DiskGone takes the disk away: its bind mount goes with it, the xfs mount too.
 func (h *Host) DiskGone() {
 	_ = h.Unmount()
+	h.settle()
 	h.mu.Lock()
 	h.diskUp = false
 	h.writeTable()
@@ -193,6 +218,7 @@ func (h *Host) exec(_ context.Context, name string, args ...string) ([]byte, err
 
 // Run is one request against this host, as the privileged helper would run it.
 func (h *Host) Run(ctx context.Context, r hostdisk.Request) hostdisk.Result {
+	defer h.settle()
 	return hostdisk.Run(ctx, h.Env, r)
 }
 

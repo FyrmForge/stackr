@@ -652,11 +652,10 @@ func (d *dbOp) mount(ctx context.Context) Result {
 	if herr := d.expect(); herr != nil {
 		return Result{Error: herr}
 	}
-	seen, err := readMarker(d.host(d.db))
-	if err != nil || seen == nil || seen.InstallID != d.q.InstallID {
-		return fail(CodeBadMarker, "the marker is not visible through "+d.db+" after the mount")
-	}
-	return ok(&DBResult{Mounted: true, Marker: seen})
+	// The marker is not read here: a mount made by this run is not visible in
+	// this container's view of /host (xfs.go: a fresh run sees it). The mover
+	// reads the marker and the hash in the next run.
+	return ok(&DBResult{Mounted: true})
 }
 
 func (d *dbOp) writeUnitText(name, text string) *Error { return d.e.writeUnitText(name, text) }

@@ -21,6 +21,7 @@ type abandonRig struct {
 	locked   bool
 	calls    []string
 	unitFile string
+	xfsUnit  string
 }
 
 func newAbandonRig(t *testing.T) *abandonRig {
@@ -31,6 +32,10 @@ func newAbandonRig(t *testing.T) *abandonRig {
 	systemdDir = units
 	r.unitFile = filepath.Join(units, hostdisk.BindUnitName(r.dir))
 	if err := os.WriteFile(r.unitFile, []byte("# managed by stackr\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r.xfsUnit = filepath.Join(units, hostdisk.UnitName(hostdisk.MountPoint("d1")))
+	if err := os.WriteFile(r.xfsUnit, []byte("# managed by stackr\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := paneldb.EnsureLayout(r.dir); err != nil {
@@ -78,8 +83,21 @@ func TestAbandonDiskHappyPath(t *testing.T) {
 	if !strings.Contains(got, "systemctl disable") || strings.Contains(got, "xfs") {
 		t.Errorf("calls %s", got)
 	}
-	if _, err := os.Stat(r.unitFile); err != nil {
-		t.Error("the unit file went; it is only disabled")
+	if _, err := os.Stat(r.unitFile); err == nil {
+		t.Error("the bind unit file is still there: disk-check or a reboot would mount the stale disk database over the restore")
+	}
+	if !strings.Contains(got, "daemon-reload") {
+		t.Errorf("no daemon-reload: %s", got)
+	}
+	if _, err := os.Stat(r.xfsUnit); err != nil {
+		t.Error("the disk's own xfs unit went")
+	}
+	// and nothing starts it again
+	us, _ := diskUnits(r.dir)
+	for _, u := range us {
+		if u == hostdisk.BindUnitName(r.dir) {
+			t.Errorf("the bind unit is still listed: %v", us)
+		}
 	}
 	// a plain restore of a moved install names the flag
 	if err := paneldb.WriteJournal(r.dir, paneldb.Journal{Phase: paneldb.PhaseMoved, Direction: paneldb.DirIn, DiskID: "d1"}); err != nil {
@@ -114,7 +132,7 @@ func TestAbandonRefusesAHealthyDisk(t *testing.T) {
 // A crash at each step: the journal says abandoning (or none, once done), a
 // plain boot and installer refuse in between, and running it again finishes.
 func TestAbandonCrashAtEachStep(t *testing.T) {
-	for _, step := range []string{"journaled", "stopped", "disabled", "unlocked", "journal-cleared"} {
+	for _, step := range []string{"journaled", "stopped", "disabled", "unit-removed", "unlocked", "journal-cleared"} {
 		t.Run(step, func(t *testing.T) {
 			r := newAbandonRig(t)
 			abandonCrash = func(s string) error {

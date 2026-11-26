@@ -99,6 +99,9 @@ func abandonDisk(ctx context.Context, dataDir string, out io.Writer) error {
 	}
 	unit := hostdisk.BindUnitName(dataDir)
 	haveUnit := exists(filepath.Join(systemdDir, unit))
+	if j.Phase == paneldb.PhaseAbandoning && !haveUnit {
+		haveUnit = false // a rerun after the unit file was removed
+	}
 	if haveUnit {
 		// a stop that fails on a dead disk is not the end: the lazy unmount below
 		_ = abandonSystemctl(ctx, "stop", unit)
@@ -120,6 +123,22 @@ func abandonDisk(ctx context.Context, dataDir string, out io.Writer) error {
 	if err := abandonCrash("disabled"); err != nil {
 		return err
 	}
+	// The unit file goes too: with it left, disk-check or a reboot would mount
+	// the stale disk database over the restored one. The disk's own xfs unit stays.
+	if haveUnit {
+		path := filepath.Join(systemdDir, unit)
+		if b, err := os.ReadFile(path); err == nil && strings.HasPrefix(string(b), "# managed by stackr") {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			if err := abandonSystemctl(ctx, "daemon-reload"); err != nil {
+				return err
+			}
+		}
+	}
+	if err := abandonCrash("unit-removed"); err != nil {
+		return err
+	}
 	dir := filepath.Join(dataDir, paneldb.DirName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -137,6 +156,6 @@ func abandonDisk(ctx context.Context, dataDir string, out io.Writer) error {
 	if err := paneldb.ClearJournal(dataDir); err != nil {
 		return err
 	}
-	say("The disk's own mount unit is kept; its database folder is not used any more.")
+	say("The database's bind unit is removed; the disk's own mount unit is kept and its database folder is not used any more.")
 	return abandonCrash("journal-cleared")
 }
