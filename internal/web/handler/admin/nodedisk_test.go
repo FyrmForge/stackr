@@ -185,7 +185,7 @@ func TestNodeDiskMissingOffersCheckDisk(t *testing.T) {
 	if !strings.Contains(section(t, body), "Disk missing") {
 		t.Error("the section does not carry the state")
 	}
-	has(t, "nodes list", s.As(t, root, "GET", "/-/admin/nodes", nil).Body.String(), "Disk missing")
+	has(t, "nodes list", s.As(t, root, "GET", "/-/admin/nodes", nil).Body.String(), "Disk failed")
 
 	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/disk/check", url.Values{})
 	has(t, "check", rec.Body.String(), "Disk check queued.")

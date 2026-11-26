@@ -343,7 +343,10 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 			Name: n.Name, Role: n.Role, Status: n.Status, Tags: n.Tags, Envs: n.Envs,
 			Open: nodesBase + "/" + n.ID, Push: "?drawer=node:" + n.ID, Hint: ui.NodeHint(n.Status, n.Stalled),
 		}
-		if dk.State != "ready" { // a ready disk shows nothing
+		switch {
+		case dk.State == "missing" || (dk.State == "ready" && h.orch.DiskErroring(n.ID)): // one badge for both: the disk has failed
+			r.DiskState = "failed"
+		case dk.State != "ready": // a ready disk shows nothing
 			r.DiskState = dk.State
 		}
 		v.Rows = append(v.Rows, r)

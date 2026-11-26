@@ -418,7 +418,8 @@ func (o *Orchestrator) CheckNodeDisk(ctx context.Context, by *Principal, nodeID 
 	if err != nil {
 		return Job{}, err
 	}
-	if _, has, err := o.nodeDisk(ctx, n.ID); err != nil {
+	d, has, err := o.nodeDisk(ctx, n.ID)
+	if err != nil {
 		return Job{}, err
 	} else if !has {
 		return Job{}, errs.ErrNotFound
@@ -427,6 +428,7 @@ func (o *Orchestrator) CheckNodeDisk(ctx context.Context, by *Principal, nodeID 
 	if err != nil {
 		return Job{}, err
 	}
+	lock = append(lock, "disk:"+d.ID) // the lock a disk-quarantine job holds: the two never overlap
 	j, err := o.enqueue(ctx, kindDiskCheck, diskJob{NodeID: n.ID, By: by.User.ID, KeyID: by.KeyID}, lock...)
 	if err == nil {
 		o.auditDiskLog(ctx, by, auditDiskCheck, n.ID, "")
@@ -621,6 +623,8 @@ func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob)
 	if !has {
 		return errs.ErrNotFound
 	}
+	// Check disk holds the disk lock a quarantine job holds, so it starts only
+	// after a quarantine queued before it has finished.
 	d, err = o.diskLeaf.Verify(ctx, d)
 	if err != nil {
 		return err
@@ -629,12 +633,15 @@ func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob)
 		return errs.Refusedf("Still missing. Reattach it, then check again.")
 	}
 	_, _ = fmt.Fprintf(r.Log, "disk ready: %s\n", d.MountPath)
-	return o.deployDiskTiles(ctx, r, d)
+	o.setDiskErroring(d.NodeID, false) // a passed check ends an erroring spell too; bad reads count again from zero
+	o.ioRun(d.NodeID, false, time.Time{})
+	return o.resumeQuarantined(ctx, r, d)
 }
 
 // deployDiskTiles deploys the tiles on the disk's node that have volumes on
-// the disk and are not running. A healthy tile is left alone.
-func (o *Orchestrator) deployDiskTiles(ctx context.Context, r *jobs.Run, d store.NodeDisk) error {
+// the disk and are not running. A healthy tile is left alone. only, when set,
+// is the tile ids a quarantine stopped: no other tile is touched.
+func (o *Orchestrator) deployDiskTiles(ctx context.Context, r *jobs.Run, d store.NodeDisk, only map[string]bool) error {
 	fs, err := o.diskLeaf.Folders(ctx, d)
 	if err != nil {
 		return err
@@ -654,7 +661,7 @@ func (o *Orchestrator) deployDiskTiles(ctx context.Context, r *jobs.Run, d store
 			return err
 		}
 		for _, t := range ts {
-			if o.tileRunning(ctx, t) || t.Paused {
+			if o.tileRunning(ctx, t) || t.Paused || (only != nil && !only[t.ID]) {
 				continue
 			}
 			// stackr keeps no desired state: a stop is the tile's last own job.

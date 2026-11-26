@@ -53,6 +53,7 @@ type diskEntry struct {
 	total   uint64
 	devSize int64 // xfs: the device size and filesystem uuid, read with the rest
 	fsuuid  string
+	ioErr   bool // the last read ended in an I/O error; stamp keeps the last good read
 }
 
 // diskState is the registry and the refresh cache. Facts only reads it.
@@ -82,6 +83,13 @@ func (s *Server) readDiskDefault(ctx context.Context, path string) (hostdisk.Sta
 		return hostdisk.Stamp{}, 0, 0, nil
 	default:
 		return st, 0, 0, err
+	}
+	// the stamp again, straight from the device: the page cache cannot hide a dead disk
+	if err := hostdisk.ReadDirect(ctx, s.diskEnv(), path); err != nil {
+		var he *hostdisk.Error
+		if !errors.As(err, &he) || he.Code != hostdisk.CodeDiskMissing {
+			return st, 0, 0, err
+		}
 	}
 	var sf syscall.Statfs_t
 	if err := syscall.Statfs(filepath.Join(s.cfg.HostRoot, path), &sf); err != nil {
@@ -203,9 +211,18 @@ func (s *Server) refreshDisk(ctx context.Context, e *diskEntry) {
 		s.dmu.Lock()
 		defer s.dmu.Unlock()
 		e.running = false
-		if err != nil || s.disks.ents[path] != e {
+		if s.disks.ents[path] != e {
 			return
 		}
+		if err != nil {
+			// an I/O error is a real answer: the disk is erroring. Anything else
+			// leaves the entry to go stale and latches nothing.
+			if hostdisk.IOFailure(err) {
+				e.ioErr, e.at = true, time.Now()
+			}
+			return
+		}
+		e.ioErr = false
 		e.stamp, e.free, e.total, e.at = st, free, total, time.Now()
 		if dev != "" { // sysfs reads, only here and never on a request
 			// The device is the one the mount stands on, not the recorded name: with
@@ -259,10 +276,10 @@ func (s *Server) diskFacts(f *Facts) {
 		e := ents[r.Path]
 		d := hostdisk.Fact{Path: r.Path, StampID: e.stamp.ID, StampOwner: e.stamp.Owner,
 			StampInstall: e.stamp.Install, Free: e.free, Total: e.total, ReadAt: e.at,
-			Device: r.Device, DeviceBytes: e.devSize, FSUUID: e.fsuuid}
+			Device: r.Device, DeviceBytes: e.devSize, FSUUID: e.fsuuid, IOErr: e.ioErr}
 		for _, m := range ms { // the last entry for the point wins
 			if m.Point == r.Path {
-				d.Mounted, d.FSType, d.RootFS = true, m.FSType, m.Dev == rootDev
+				d.Mounted, d.FSType, d.RootFS, d.ReadOnly = true, m.FSType, m.Dev == rootDev, m.RO
 				d.Network = hostdisk.IsNetwork(m.FSType)
 			}
 		}

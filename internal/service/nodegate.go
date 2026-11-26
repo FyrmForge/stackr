@@ -198,6 +198,9 @@ func (o *Orchestrator) gateEnv(ctx context.Context, envID string, disk bool) err
 		return err
 	}
 	if disk {
+		if err := o.failedDiskGate(ctx, e); err != nil {
+			return err
+		}
 		_, err = o.diskCheck(ctx, e.NodeID)
 	}
 	return err

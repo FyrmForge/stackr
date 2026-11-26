@@ -158,6 +158,9 @@ func (o *Orchestrator) addStandby(ctx context.Context, tileID, nodeRef string) (
 	if err := o.nodeUp(ctx, nodeID); err != nil {
 		return InstanceMember{}, err
 	}
+	if _, bad := o.failedDisk(ctx, nodeID); bad { // its data volume would be made on that disk
+		return InstanceMember{}, errs.Refusedf("The disk on %s has failed. Check the disk before adding a standby there.", n.Name)
+	}
 	// message 32: a recipe build runs on its CPU type only
 	if eb, _ := mflow.ParseExtBuild(inst.ExtBuild); eb.Built() && eb.Arch != "" {
 		if f := o.reportedFacts(ctx, n); f != nil && f.Arch != "" && f.Arch != eb.Arch {
@@ -730,8 +733,8 @@ func (o *Orchestrator) startMember(ctx context.Context, m InstanceMember) error 
 		}
 		labels = map[string]string{tile.LabelTile: t.ID, tile.LabelRole: "replica"}
 	}
-	if o.nodeUp(ctx, node) != nil {
-		return nil
+	if o.nodeUp(ctx, node) != nil || o.memberDiskDown(ctx, m) {
+		return nil // its disk is quarantined: Check disk brings it back
 	}
 	nctx := docker.WithNode(ctx, node)
 	cs, err := o.docker.List(nctx, labels)
