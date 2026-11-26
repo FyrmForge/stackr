@@ -13,6 +13,17 @@ import (
 // Files that make one SQLite database.
 var suffixes = []string{"", "-wal", "-shm"}
 
+// crashHook lets a test stop the code between two steps, as a dying process
+// would. Nil outside tests.
+var crashHook func(step string) error
+
+func crash(step string) error {
+	if crashHook != nil {
+		return crashHook(step)
+	}
+	return nil
+}
+
 // EnsureLayout makes db/ (0700) and the legacy placeholder directory with its
 // note. It never touches a database file: a legacy path that is a regular file
 // is an unmoved install and is an error here (ApplyLayout moves it).
@@ -39,21 +50,42 @@ func EnsureLayout(dataDir string) error {
 	return nil
 }
 
+// EnsureFresh makes the layout of a new install and records the fresh phase,
+// the one state in which the panel may create its first database. An install
+// whose layout is already there is left alone: a missing database there is a
+// loss, not a start.
+func EnsureFresh(dataDir string) error {
+	if _, err := os.Lstat(Legacy(dataDir)); err == nil {
+		return EnsureLayout(dataDir)
+	}
+	if err := EnsureLayout(dataDir); err != nil {
+		return err
+	}
+	if _, err := os.Stat(Path(dataDir)); err == nil {
+		return nil
+	}
+	if j, err := ReadJournal(dataDir); err != nil || j.Phase != PhaseNone {
+		return err
+	}
+	return WriteJournal(dataDir, Journal{Phase: PhaseFresh})
+}
+
 // ApplyLayout is the layout change: journal first, then the files of an
 // unmoved install go into db/ by rename and the placeholder takes their old
 // place. cp is the pre-upgrade copy the caller makes next (recorded so a
 // recovery can find it), container the new panel's name. False means there was
 // nothing to move (a fresh or already laid-out install; the placeholder is
 // ensured either way). A db/stackr.db that exists next to a legacy regular
-// file is the newer file of an old restore: it moves to swap/ untouched, the
-// legacy file is adopted, nothing is merged.
+// file is the newer file of an old restore: its set (main, -wal, -shm) moves
+// to swap/ under a name the journal records first, the legacy file is adopted,
+// nothing is merged.
 func ApplyLayout(dataDir, cp, container string) (bool, error) {
 	j, err := ReadJournal(dataDir)
 	if err != nil {
 		return false, err
 	}
 	switch j.Phase {
-	case PhaseNone:
+	case PhaseNone, PhaseFresh:
 	case PhaseMoved:
 		return false, errors.New("the database is on a node disk (move.journal says moved): refusing to change the layout")
 	default:
@@ -70,17 +102,37 @@ func ApplyLayout(dataDir, cp, container string) (bool, error) {
 	if !fi.Mode().IsRegular() {
 		return false, fmt.Errorf("%s is neither a database file nor a directory", legacy)
 	}
-	if err := WriteJournal(dataDir, Journal{Phase: PhaseLayout, Direction: DirLayout, Src: legacy, Dst: db, Copy: cp, Container: container}); err != nil {
+	var aside string
+	for _, suf := range suffixes {
+		if _, err := os.Lstat(db + suf); err == nil {
+			aside = "db.superseded-" + time.Now().UTC().Format(Stamp)
+		}
+	}
+	j = Journal{Phase: PhaseLayout, Direction: DirLayout, Src: legacy, Dst: db, Copy: cp, Container: container, Aside: aside}
+	if err := WriteJournal(dataDir, j); err != nil {
 		return false, err
 	}
 	if err := os.MkdirAll(filepath.Dir(db), 0o700); err != nil {
 		return false, err
 	}
-	if err := supersede(dataDir, db); err != nil {
+	if aside != "" {
+		slog.Warn("database: a file in db/ and one at the old path (an old restore ran after the layout change): the old path's file is adopted, the one in db/ is kept", "kept", filepath.Join(Swap(dataDir), aside))
+		if err := finishAside(dataDir, j); err != nil {
+			return false, err
+		}
+		j.AsideDone = true
+		if err := WriteJournal(dataDir, j); err != nil {
+			return false, err
+		}
+	}
+	if err := crash("aside-done"); err != nil {
 		return false, err
 	}
 	for _, suf := range suffixes {
 		if err := os.Rename(legacy+suf, db+suf); err != nil && !(suf != "" && errors.Is(err, os.ErrNotExist)) {
+			return false, err
+		}
+		if err := crash("moved" + suf); err != nil {
 			return false, err
 		}
 	}
@@ -96,36 +148,40 @@ func ApplyLayout(dataDir, cp, container string) (bool, error) {
 	return true, SyncDir(dataDir)
 }
 
-// supersede moves whatever sits at db (a file left by an old restore after the
-// layout change) to swap/db.superseded-<timestamp>, with its -wal and -shm.
-func supersede(dataDir, db string) error {
-	var found bool
-	for _, suf := range suffixes {
-		if _, err := os.Lstat(db + suf); err == nil {
-			found = true
-		}
-	}
-	if !found {
-		return nil
-	}
+// finishAside moves the set the journal names (whatever of main, -wal and -shm
+// is still in db/) to swap/<aside>, file by file, so it can be repeated after a
+// crash. It touches only db/, only before the old path's files have moved in.
+func finishAside(dataDir string, j Journal) error {
+	db := Path(dataDir)
 	if err := os.MkdirAll(Swap(dataDir), 0o700); err != nil {
 		return err
 	}
-	dst := filepath.Join(Swap(dataDir), "db.superseded-"+time.Now().UTC().Format(Stamp))
-	slog.Warn("database: a file in db/ and one at the old path (an old restore ran after the layout change): the old path's file is adopted, the one in db/ is kept", "kept", dst)
+	dst := filepath.Join(Swap(dataDir), j.Aside)
 	for _, suf := range suffixes {
-		if err := os.Rename(db+suf, dst+suf); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Lstat(db + suf); err != nil {
+			continue
+		}
+		if _, err := os.Lstat(dst + suf); err == nil {
+			return fmt.Errorf("both %s and %s exist: not guessing which is newer", db+suf, dst+suf)
+		}
+		if err := os.Rename(db+suf, dst+suf); err != nil {
+			return err
+		}
+		if err := crash("aside" + suf); err != nil {
 			return err
 		}
 	}
-	return nil
+	return errors.Join(SyncDir(filepath.Dir(db)), SyncDir(Swap(dataDir)))
 }
 
-// RollbackLayout undoes ApplyLayout, every step safe to repeat: the placeholder
-// goes, the files go back to the legacy path, an empty db/ goes. The journal
-// is left at rolling-back; the caller restores the pre-upgrade copy and then
-// clears it, so a crash in between resumes the same rollback. On error nothing
-// may start an old panel: its path may hold no database.
+// RollbackLayout undoes ApplyLayout, every step safe to repeat. A superseded
+// set that was only partly moved is finished first (those files are the old
+// restore's, not the legacy file's, and never go onto the legacy main). Then
+// the placeholder goes, the files go back to the legacy path, an empty db/
+// goes. The journal is left at rolling-back; the caller restores the
+// pre-upgrade copy and then clears it, so a crash in between resumes the same
+// rollback. On error nothing may start an old panel: its path may hold no
+// database.
 func RollbackLayout(dataDir string) error {
 	j, err := ReadJournal(dataDir)
 	if err != nil {
@@ -134,6 +190,15 @@ func RollbackLayout(dataDir string) error {
 	j.Phase, j.Direction = PhaseRollingBack, DirLayout
 	if err := WriteJournal(dataDir, j); err != nil {
 		return err
+	}
+	if j.Aside != "" && !j.AsideDone {
+		if err := finishAside(dataDir, j); err != nil {
+			return err
+		}
+		j.AsideDone = true
+		if err := WriteJournal(dataDir, j); err != nil {
+			return err
+		}
 	}
 	legacy, db := Legacy(dataDir), Path(dataDir)
 	if fi, err := os.Lstat(legacy); err == nil && fi.IsDir() {
@@ -161,8 +226,9 @@ func RollbackLayout(dataDir string) error {
 
 // Recover finishes a layout change that a helper left unfinished: the layout
 // goes back and the pre-upgrade copy, when one was made, is put over the
-// database. The caller has stopped the new panel. Nothing to do for any other
-// journal state (a move is another phase's business).
+// database. The copy is deleted only after the journal is cleared. The caller
+// has stopped the new panel. Nothing to do for any other journal state (a move
+// is another phase's business).
 func Recover(dataDir string) error {
 	j, err := ReadJournal(dataDir)
 	if err != nil {
@@ -181,7 +247,13 @@ func Recover(dataDir string) error {
 			}
 		}
 	}
-	return ClearJournal(dataDir)
+	if err := ClearJournal(dataDir); err != nil {
+		return err
+	}
+	if j.Copy != "" {
+		DropCopy(j.Copy)
+	}
+	return nil
 }
 
 // SaveCopy copies the database files to cp (0600, synced). Each file lands
@@ -229,18 +301,34 @@ func DropCopy(cp string) {
 	}
 }
 
-// RestoreCopy puts the copy back over db: the live -wal/-shm go first, so
-// none is replayed onto the old file.
+// RestoreCopy puts the copy over db and leaves the copy where it is: every
+// file is copied to a temp name and renamed, so a crash at any point leaves
+// the copy whole and the same call can run again. The live -wal/-shm go first,
+// so none is replayed onto the old file. The caller deletes the copy (DropCopy)
+// only after its own record of the rollback is durable.
 func RestoreCopy(db, cp string) error {
+	if _, err := os.Stat(cp); err != nil {
+		return err
+	}
 	for _, suf := range suffixes[1:] {
 		_ = os.Remove(db + suf)
 	}
 	for _, suf := range suffixes {
-		if err := os.Rename(cp+suf, db+suf); err != nil && (suf == "" || !errors.Is(err, os.ErrNotExist)) {
+		err := copyFile(cp+suf, db+suf+".tmp")
+		if errors.Is(err, os.ErrNotExist) && suf != "" {
+			continue
+		}
+		if err == nil {
+			err = os.Rename(db+suf+".tmp", db+suf)
+		}
+		if err != nil {
+			return err
+		}
+		if err := crash("restored" + suf); err != nil {
 			return err
 		}
 	}
-	return nil
+	return SyncDir(filepath.Dir(db))
 }
 
 // AdoptDev moves a dev checkout's or plain binary's database into db/ at

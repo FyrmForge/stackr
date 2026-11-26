@@ -69,5 +69,5 @@ func (r runner) panelDB(ctx context.Context, in installspec.Input) error {
 	if fi, err := os.Lstat(paneldb.Legacy(dataDir)); err == nil && fi.Mode().IsRegular() {
 		return nil // an old layout: the panel swap moves it
 	}
-	return paneldb.EnsureLayout(dataDir)
+	return paneldb.EnsureFresh(dataDir)
 }

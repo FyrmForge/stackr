@@ -209,8 +209,9 @@ func TestApplyLayoutFresh(t *testing.T) {
 	if err != nil || applied {
 		t.Fatalf("applied=%v err=%v", applied, err)
 	}
-	if err := Check(dir, Path(dir)); err != nil {
-		t.Error(err)
+	// the layout alone is not a fresh start: a missing database is still refused
+	if err := Check(dir, Path(dir)); err == nil {
+		t.Error("a missing database passed the boot check")
 	}
 }
 
@@ -226,6 +227,10 @@ func TestSaveCopyAndRestore(t *testing.T) {
 	write(t, db+"-wal", "new wal")
 	write(t, db+"-shm", "shm")
 	must(t, RestoreCopy(db, cp))
+	if m, _ := filepath.Glob(cp + "*"); len(m) != 2 {
+		t.Errorf("the copy was consumed by the restore: %v", m)
+	}
+	DropCopy(cp)
 	for suf, want := range map[string]string{"": "main", "-wal": "wal", "-shm": "<gone>"} {
 		got := "<gone>"
 		if b, err := os.ReadFile(db + suf); err == nil {

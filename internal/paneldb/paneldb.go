@@ -58,7 +58,17 @@ const (
 	PhaseStartingNew = "starting-new"
 	PhaseGating      = "gating"
 	PhaseMoved       = "moved"
+	// PhaseFresh is an explicit empty start: the installer made the layout of a
+	// new install and the panel may create its first database. The panel clears
+	// it once it has. Absence of a database is never read as "fresh" otherwise.
+	PhaseFresh = "fresh"
+	// PhaseRestoring is a restore that has begun: the live database is being set
+	// aside and the archive's put in its place.
+	PhaseRestoring = "restoring"
 )
+
+// DirRestore is the journal direction of a restore.
+const DirRestore = "restore"
 
 // DirLayout is the journal direction of the layout change.
 const DirLayout = "layout"
@@ -76,6 +86,12 @@ type Journal struct {
 	DiskID    string `json:"disk_id,omitempty"`
 	InstallID string `json:"install_id,omitempty"`
 	MoveID    string `json:"move_id,omitempty"`
+	// Aside is where a database found in db/ next to an old-path file is kept
+	// (swap/db.superseded-<ts>, a base name); AsideDone says every file of that
+	// set has moved. Recovery finishes exactly that set before anything else.
+	// For a restore, Aside is the base name the replaced database is kept under.
+	Aside     string `json:"aside,omitempty"`
+	AsideDone bool   `json:"aside_done,omitempty"`
 	Time      string `json:"time,omitempty"`
 }
 
@@ -143,14 +159,36 @@ func SyncDir(dir string) error {
 // database runs first, before any key or database file is made. dbPath is the
 // effective path after the fallbacks. It reads the journal, the mount test
 // and the shape of the legacy path, nothing else.
-func Check(dataDir, dbPath string) error { return check(dataDir, dbPath, false) }
+func Check(dataDir, dbPath string) error { return check(dataDir, dbPath, modeBoot) }
 
 // CheckInstaller is Check for stackr-install, which is also the way out of an
 // unfinished layout change (the recovery it runs resolves it) and of an old
 // install the layout change has not reached yet.
-func CheckInstaller(dataDir string) error { return check(dataDir, Path(dataDir), true) }
+func CheckInstaller(dataDir string) error { return check(dataDir, Path(dataDir), modeInstaller) }
 
-func check(dataDir, dbPath string, installer bool) error {
+// CheckRestore is Check for `stackr-install restore`: the restore is the way
+// out of an interrupted restore and of a missing database.
+func CheckRestore(dataDir string) error { return check(dataDir, Path(dataDir), modeRestore) }
+
+type mode int
+
+const (
+	modeBoot mode = iota
+	modeInstaller
+	modeRestore
+)
+
+// Seeded is called once the panel has opened its database: a fresh start is
+// over, so a database that goes missing later is refused, not recreated.
+func Seeded(dataDir string) error {
+	j, err := ReadJournal(dataDir)
+	if err != nil || j.Phase != PhaseFresh {
+		return err
+	}
+	return ClearJournal(dataDir)
+}
+
+func check(dataDir, dbPath string, m mode) error {
 	if dataDir == "" {
 		return nil
 	}
@@ -160,7 +198,7 @@ func check(dataDir, dbPath string, installer bool) error {
 		return refuse("the move journal cannot be read (%v). Not starting, so no empty database is made", err)
 	}
 	switch j.Phase {
-	case PhaseNone:
+	case PhaseNone, PhaseFresh:
 	case PhaseMoved:
 		if err := checkMounted(dataDir, j); err != nil {
 			return err
@@ -173,12 +211,30 @@ func check(dataDir, dbPath string, installer bool) error {
 			}
 		}
 	default:
-		if installer && j.Direction == DirLayout {
+		if m != modeBoot && j.Direction == DirLayout {
 			return nil // the recovery the installer runs resolves it
+		}
+		if m == modeRestore && j.Direction == DirRestore {
+			return nil // running the restore again is the way out
+		}
+		if j.Direction == DirRestore {
+			return refuse("a restore was interrupted (phase %q). Not starting, so no empty database is made. Run stackr-install restore <archive> again", j.Phase)
 		}
 		return refuse("the database is in phase %q (%s). Not starting, so no empty database is made. Run stackr-install on this node. It reads the journal and finishes or rolls back", j.Phase, j.Direction)
 	}
-	if installer {
+	if m == modeRestore {
+		return nil
+	}
+	// Once the layout is established (the placeholder is there) a missing
+	// database is a loss, never a fresh start: only the fresh phase may create one.
+	if j.Phase != PhaseFresh && dbPath == Path(dataDir) {
+		if fi, err := os.Lstat(Legacy(dataDir)); err == nil && fi.IsDir() {
+			if _, err := os.Stat(dbPath); errors.Is(err, os.ErrNotExist) {
+				return refuse("%s is missing but the layout is established. Not starting, so no empty database is made. Restore a backup: stackr-install restore <archive>", dbPath)
+			}
+		}
+	}
+	if m == modeInstaller {
 		return nil
 	}
 	if fi, err := os.Stat(dbPath); err == nil && fi.IsDir() {

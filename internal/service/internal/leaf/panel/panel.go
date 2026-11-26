@@ -203,7 +203,7 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		if j, err = paneldb.ReadJournal(dataDir); err != nil {
 			return err
 		}
-		if j.Phase != paneldb.PhaseNone && j.Direction != paneldb.DirLayout {
+		if j.Phase != paneldb.PhaseNone && j.Phase != paneldb.PhaseFresh && j.Direction != paneldb.DirLayout {
 			// A move onto a node disk is in progress: not this helper's to resolve.
 			return fmt.Errorf("the database is in phase %q (%s): run stackr-install on this node", j.Phase, j.Direction)
 		}
@@ -397,16 +397,20 @@ func (l *Leaf) undone(a undoArgs, back func(error) error, cause error) error {
 	switch {
 	case a.applied:
 		// The layout goes back first, then the copy goes to the path the old panel uses.
+		// The copy stays until the journal is cleared: a crash before then repeats the restore from it.
 		if err = paneldb.RollbackLayout(a.dataDir); err == nil && a.restoreCopy {
 			err = paneldb.RestoreCopy(paneldb.Legacy(a.dataDir), a.cp)
-		} else if err == nil && a.cp != "" {
-			paneldb.DropCopy(a.cp)
 		}
 		if err == nil {
 			err = paneldb.ClearJournal(a.dataDir)
 		}
+		if err == nil && a.cp != "" {
+			paneldb.DropCopy(a.cp)
+		}
 	case a.cp != "" && a.restoreCopy:
-		err = paneldb.RestoreCopy(a.db, a.cp)
+		if err = paneldb.RestoreCopy(a.db, a.cp); err == nil {
+			paneldb.DropCopy(a.cp)
+		}
 	case a.cp != "":
 		paneldb.DropCopy(a.cp)
 	}

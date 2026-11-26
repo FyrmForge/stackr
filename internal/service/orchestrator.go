@@ -494,6 +494,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := paneldb.Seeded(cfg.DataDir); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 

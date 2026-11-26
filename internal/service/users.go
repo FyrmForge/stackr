@@ -166,6 +166,9 @@ func withStore(ctx context.Context, cfg Config, do func(*store.Store) error) err
 		return err
 	}
 	defer func() { _ = db.Close() }()
+	if err := paneldb.Seeded(cfg.DataDir); err != nil {
+		return err
+	}
 	st := store.New(db, box)
 	if err := st.Sweep(ctx); err != nil {
 		return fmt.Errorf("sealing values to their place: %w", err)
