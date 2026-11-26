@@ -235,7 +235,8 @@ func (o *Orchestrator) planWith(ctx context.Context, nodeID string, back, own bo
 	case !own && o.movePanelLive(ctx):
 		p.Refusal = "The panel database is already moving."
 	}
-	if p.Refusal == "" {
+	// the job's own lock set holds todiskKey, so it would refuse itself
+	if p.Refusal == "" && !own {
 		if live, err := o.todiskLive(ctx, nodeID); err != nil {
 			return p, err
 		} else if live {

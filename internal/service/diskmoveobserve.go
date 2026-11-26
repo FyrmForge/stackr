@@ -182,6 +182,15 @@ func (o *Orchestrator) PlanMoveObserve(ctx context.Context, by *Principal, nodeI
 	}
 	p.Need = p.SizeBytes + p.SizeBytes/10
 	p.Fits = uint64(p.Need) <= p.Free
+	if !back && p.Fits {
+		k, err := o.observeKnobs(ctx)
+		if err != nil {
+			return p, err
+		}
+		if left := p.Free - uint64(p.Need); left < k.minFree {
+			return p, errs.Refusedf("The disk would have %s free after the move, under the %s that logs and metrics keep free.", gb(left), gb(k.minFree))
+		}
+	}
 	if p.Busy, err = o.todiskLive(ctx, nodeID); err != nil {
 		return p, err
 	}
@@ -407,6 +416,12 @@ func (m *observeMove) run(ctx context.Context) error {
 			o.syncObserveLocked(docker.WithNode(rb, p.NodeID))
 			if e := o.observe.lastErr.Load(); e != nil && *e != "" {
 				rerr = errors.New(*e)
+			}
+		}
+		if rerr == nil && !p.Back {
+			// the disk-side copy only; the original volume is never touched
+			if cerr := o.volumes.RemoveNamed(docker.WithNode(rb, p.NodeID), p.NodeID, dstName); cerr != nil {
+				m.logf("the failed copy %s was not removed: %v", dstName, cerr)
 			}
 		}
 		if rerr != nil {

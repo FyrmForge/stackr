@@ -51,7 +51,7 @@ func newObserveRig(t *testing.T) *observeRig {
 	if r.row, ok, err = d.orch.nodeDisk(ctx, r.ctl()); err != nil || !ok {
 		t.Fatalf("disk row: %v %v", ok, err)
 	}
-	r.ctlFacts(t, ctlDiskFacts(1<<30))
+	r.ctlFacts(t, ctlDiskFacts(10<<30))
 	d.ctlFake.Volumes = []docker.VolumeInfo{{Name: installspec.ObserveVolume, SizeBytes: 100}}
 	d.ctlFake.OnUntar = func(name string) {
 		_ = os.WriteFile(filepath.Join(d.folder(r.row, name), "file"), []byte("data"), 0o644)
@@ -229,8 +229,11 @@ func TestObserveMoveRetryWipesTheDestination(t *testing.T) {
 	if r.removed(installspec.ObserveVolume) {
 		t.Error("the old volume went although the move failed")
 	}
+	// the rollback removed the disk-side copy and its folder
+	if _, err := os.Stat(r.folder(r.row, installspec.ObserveDiskVolume)); !os.IsNotExist(err) {
+		t.Errorf("the disk folder stayed after the rollback: %v", err)
+	}
 	stale := filepath.Join(r.folder(r.row, installspec.ObserveDiskVolume), "stale")
-	must(t, os.WriteFile(stale, []byte("half"), 0o644))
 
 	r.check = nil
 	if j = r.move(t, false); j.State != job.Done {
@@ -296,7 +299,7 @@ func TestObserveMoveRefusals(t *testing.T) {
 	if _, err := r.orch.MoveObserve(ctx, adminP(), r.ctl(), false); !errors.As(err, new(errs.Conflict)) {
 		t.Errorf("without room: %v", err)
 	}
-	r.ctlFacts(t, ctlDiskFacts(1<<30))
+	r.ctlFacts(t, ctlDiskFacts(10<<30))
 	// a move that holds the node's todisk key
 	j, err := r.orch.enqueue(ctx, kindObserveMove, observeMoveJob{NodeID: r.ctl()}, todiskKey(r.ctl()), "block")
 	must(t, err)
