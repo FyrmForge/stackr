@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -28,12 +30,28 @@ var panelAnswers = func(ctx context.Context, in installspec.Input, name string) 
 // layout change.
 func (r runner) panelDB(ctx context.Context, in installspec.Input) error {
 	dataDir := in.DataDir
+	// A rerun starts the disk units first, as disk-check does: a disk attached
+	// since boot is mounted before anything judges the journal.
+	if !r.dry {
+		if err := startDiskUnits(ctx, dataDir, io.Discard); err != nil {
+			r.say("  node disk units:", err.Error())
+		}
+	}
 	if err := paneldb.CheckInstaller(dataDir); err != nil {
 		return err
 	}
 	j, err := paneldb.ReadJournal(dataDir)
 	if err != nil {
 		return err
+	}
+	if (j.Direction == paneldb.DirIn || j.Direction == paneldb.DirBack) && j.Phase != paneldb.PhaseNone && j.Phase != paneldb.PhaseMoved {
+		return r.resumeMove(ctx, in, j)
+	}
+	if j.Phase == paneldb.PhaseMoved {
+		// the disk is the database's home: it must be mounted before anything else runs
+		if err := paneldb.Check(dataDir, paneldb.Path(dataDir)); err != nil {
+			return err
+		}
 	}
 	if (j.Direction == paneldb.DirLayout || j.Direction == paneldb.DirUpdate) && j.Phase != paneldb.PhaseNone {
 		if r.dry {
@@ -129,4 +147,50 @@ func (r runner) keepNewPanel(ctx context.Context, in installspec.Input, j paneld
 		}
 	}
 	return paneldb.ClearJournal(dataDir)
+}
+
+// resumeMove finishes or rolls back a database move a helper left unfinished:
+// the same helper, run in the foreground from the image the journal names, reads
+// the journal and acts on its phase. This is the way out after the helper's
+// three failures.
+func (r runner) resumeMove(ctx context.Context, in installspec.Input, j paneldb.Journal) error {
+	r.say("  an unfinished database move (" + j.Direction + ", move.journal phase " + j.Phase + "): finishing or rolling it back")
+	if r.dry {
+		return nil
+	}
+	ver, ok := strings.CutPrefix(j.Image, installspec.Repo+":")
+	if !ok || j.Container == "" {
+		return fmt.Errorf("move.journal names no release image (%q) or no new panel: run stackr-install restore <archive>", j.Image)
+	}
+	in.DisksBind = installspec.HostDisksBind("")
+	spec, err := installspec.SwapSpecAs(j.Container, ver, in)
+	if err != nil {
+		return err
+	}
+	mv, err := json.Marshal(struct { // the helper's Move (leaf/panel), by its JSON
+		Dir       string `json:"dir"`
+		MoveID    string `json:"move_id"`
+		DiskID    string `json:"disk_id"`
+		Folder    string `json:"folder"`
+		InstallID string `json:"install_id"`
+	}{j.Direction, j.MoveID, j.DiskID, j.Folder, j.InstallID})
+	if err != nil {
+		return err
+	}
+	if running, err := read(ctx, "docker", "inspect", "-f", "{{.State.Running}}", upgraderName); err == nil {
+		if running == "true" {
+			return errors.New("an upgrade or move is already running (container " + upgraderName + ")")
+		}
+		if err := r.docker(ctx, "rm", "-f", upgraderName); err != nil {
+			return err
+		}
+	}
+	if err := r.docker(ctx, "run", "--name", upgraderName, "--network", "host", "--label", installspec.LabelRole+"=upgrader",
+		"-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", in.DataDir+":"+in.DataDir,
+		"-e", installspec.SwapSpecEnv+"="+spec, "-e", "STACKR_PANEL_MOVE="+string(mv),
+		j.Image, "upgrade-swap"); err != nil {
+		return fmt.Errorf("%w; see docker logs %s and move.journal", err, upgraderName)
+	}
+	_ = r.docker(ctx, "rm", "-f", upgraderName)
+	return nil
 }

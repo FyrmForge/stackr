@@ -575,6 +575,7 @@ func (o *Orchestrator) runDiskAddDevice(ctx context.Context, r *jobs.Run, p disk
 		return err
 	}
 	_, _ = fmt.Fprintf(r.Log, "disk ready: %s\n", d.MountPath)
+	o.syncObserve(ctx) // observe waits for its disk: bring it back without a restart
 	if err := o.pushDisks(ctx, n); err != nil {
 		_, _ = fmt.Fprintf(r.Log, "the worker was not told yet (%v); it is retried\n", err)
 	}
