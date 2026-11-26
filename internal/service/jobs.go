@@ -445,6 +445,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			return err
 		}),
+		kindMovePanelDB: payload(o.runMovePanelDB),
 		kindImageWatch: payload(func(ctx context.Context, r *jobs.Run, sc imagewatch.Scope) error {
 			ctx, err := o.withController(ctx)
 			if err != nil {

@@ -91,6 +91,12 @@ func (o *Orchestrator) forgetSet(ctx context.Context, d store.NodeDisk) (forgetS
 
 // forgetRefusals are the checks that run before any state change or removal.
 func (o *Orchestrator) forgetRefusals(ctx context.Context, d store.NodeDisk, s forgetSet) error {
+	if err := o.panelDBDiskRefusal(d); err != nil {
+		return err
+	}
+	if err := o.observeDiskRefusal(ctx, d.NodeID); err != nil {
+		return err
+	}
 	on := map[string]bool{}
 	for _, f := range s.folders {
 		on[f.Name] = true

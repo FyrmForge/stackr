@@ -969,7 +969,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Hold: orch.upgrading.Load,
 			// The upgrade that swapped this panel in: its row was still
 			// running when the helper stopped the old panel.
-			Survived: orch.upgradeLanded,
+			Survived: func(j store.Job) bool { return orch.upgradeLanded(j) || orch.movePanelLanded(j) },
 			Ended:    seedEnded,
 		})
 	})
