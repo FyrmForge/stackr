@@ -1226,7 +1226,7 @@ var dataCaps = func() map[jobs.Kind]time.Duration {
 	m := map[jobs.Kind]time.Duration{}
 	for _, k := range []jobs.Kind{kindBackup, kindRestore, kindRestoreInstance, kindPromoteRestore,
 		kindPGUpgrade, kindPGRollback, kindPGExt, kindFailover, kindSeed, kindPanelBackup, kindNodeBackup, kindBucketSync, kindRemoveNode,
-		kindDiskAdopt, kindDiskForget, kindVolumeToDisk, kindDiskAddDevice, kindDiskGrow} {
+		kindDiskAdopt, kindDiskForget, kindVolumeToDisk, kindObserveMove, kindDiskAddDevice, kindDiskGrow} {
 		m[k] = 12 * time.Hour
 	}
 	return m

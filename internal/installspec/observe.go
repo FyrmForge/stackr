@@ -1,6 +1,7 @@
 package installspec
 
 import (
+	"cmp"
 	"strconv"
 	"strings"
 )
@@ -8,7 +9,10 @@ import (
 const (
 	ObserveName   = "stackr-observe"
 	ObserveVolume = "stackr-observe-data"
-	ObserveRepo   = Repo + "-observe"
+	// ObserveDiskVolume is the disk-backed volume observe's data moves to
+	// (a folder on the node disk).
+	ObserveDiskVolume = "stackr-observe-data-disk"
+	ObserveRepo       = Repo + "-observe"
 	// observeRun is where the container sees ObserveDir.
 	observeRun = "/run/stackr-observe"
 )
@@ -31,8 +35,10 @@ func ObserveLogsSocket(dataDir string) string { return ObserveDir(dataDir) + "/l
 // ObserveOpts are the knobs that shape the observe container: VictoriaMetrics'
 // retention ("30d") and free-disk floor in bytes, and with Logs on
 // VictoriaLogs' retention ("7d") and disk cap in bytes. MemoryMB is the
-// container's memory limit.
+// container's memory limit. Volume is the data volume's name, ObserveVolume
+// when empty.
 type ObserveOpts struct {
+	Volume        string
 	Retention     string
 	MinFree       uint64
 	Logs          bool
@@ -65,12 +71,13 @@ func Observe(version, dataDir string, o ObserveOpts) Container {
 			"-logs-max-size="+strconv.FormatUint(o.LogsMax, 10),
 			"-logs-memory="+strconv.FormatInt(mem*24/100, 10))
 	}
+	vol := cmp.Or(o.Volume, ObserveVolume)
 	c := Container{
 		Name:     ObserveName,
 		Image:    ObserveImage(version),
 		Cmd:      cmd,
 		Labels:   map[string]string{LabelRole: "observe"},
-		Volumes:  []string{ObserveVolume + ":/data", ObserveDir(dataDir) + ":" + observeRun},
+		Volumes:  []string{vol + ":/data", ObserveDir(dataDir) + ":" + observeRun},
 		Network:  "none",
 		MemoryMB: o.MemoryMB,
 		LogOpts:  logCap,

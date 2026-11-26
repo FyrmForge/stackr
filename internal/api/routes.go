@@ -340,6 +340,8 @@ func routes(h *v1.H) []Route {
 		{POST, "/admin/nodes/:node/disk/adopt-discard", "admin.node-disk-adopt-discard", "node.manage", h.DiscardAdoptCopy()},
 		{GET, "/admin/nodes/:node/disk/move-all-plan", "admin.node-disk-move-all-plan", "node.manage", h.PlanMoveAllToDisk()},
 		{POST, "/admin/nodes/:node/disk/move-all", "admin.node-disk-move-all", "node.manage", h.MoveAllToDisk()},
+		{GET, "/admin/nodes/:node/disk/move-observe-plan", "admin.node-disk-move-observe-plan", "node.manage", h.PlanMoveObserve()},
+		{POST, "/admin/nodes/:node/disk/move-observe", "admin.node-disk-move-observe", "node.manage", h.MoveObserve()},
 		{GET, "/admin/node-disks/:disk/forget-plan", "admin.node-disk-forget-plan", "node.manage", h.PlanDiskForget()},
 		{POST, "/admin/node-disks/:disk/forget", "admin.node-disk-forget", "node.manage", h.ForgetNodeDisk()},
 		{GET, org + "/lost-envs", "env.lost", "org.read", h.LostEnvs()},
