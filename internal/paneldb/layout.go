@@ -242,3 +242,24 @@ func RestoreCopy(db, cp string) error {
 	}
 	return nil
 }
+
+// AdoptDev moves a dev checkout's or plain binary's database into db/ at
+// boot, the layout change an installed panel gets from its swap helper. Only
+// for a data dir that has no journal and an empty or absent db/; the caller
+// has judged there is no install. False means there was nothing to do.
+func AdoptDev(dataDir string) (bool, error) {
+	if _, err := os.Stat(filepath.Join(dataDir, JournalName)); err == nil {
+		return false, nil
+	}
+	if fi, err := os.Lstat(Legacy(dataDir)); err != nil || !fi.Mode().IsRegular() {
+		return false, nil
+	}
+	if ents, err := os.ReadDir(filepath.Join(dataDir, DirName)); err == nil && len(ents) > 0 {
+		return false, nil
+	}
+	slog.Info("database: moving the old-path database into db/ (no install here)", "from", Legacy(dataDir), "to", Path(dataDir))
+	if _, err := ApplyLayout(dataDir, "", ""); err != nil {
+		return false, errors.Join(err, Recover(dataDir))
+	}
+	return true, ClearJournal(dataDir)
+}

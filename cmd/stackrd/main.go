@@ -30,6 +30,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	appmw "github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/selfmetrics"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/components"
@@ -346,7 +347,16 @@ func run(log *slog.Logger, generate bool) error {
 // create-admin, admin-key, migrate-force), before any key or database file is
 // made: a database that is in a layout change or on a missing disk is refused
 // here, so no empty database is seeded.
-func checkPanelDB() error { return service.CheckPanelDB(envDataDir, envDatabasePath) }
+func checkPanelDB() error {
+	// A dev checkout or plain binary has no installer and no swap helper: it
+	// moves its own old-path database into db/. Never on an installed panel.
+	if _, err := os.Stat(filepath.Join(envDataDir, installspec.File)); err != nil && envDatabasePath == "" {
+		if _, err := paneldb.AdoptDev(envDataDir); err != nil {
+			return err
+		}
+	}
+	return service.CheckPanelDB(envDataDir, envDatabasePath)
+}
 
 // masterKey is STACKR_MASTER_KEY, else the key file the installer wrote. A
 // rotation waiting in keys/master.key.next is finished first, so the server
