@@ -40,12 +40,13 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("stackr-install restore", flag.ContinueOnError)
 	keyStdin := fs.Bool("key-stdin", false, "read the recovery key from the first line of stdin (or set "+recoveryKeyEnv+", or type it at the prompt)")
 	image := fs.String("image", "", "panel image to run (default: the build the archive names)")
+	abandon := fs.Bool("abandon-disk", false, "the panel database is on a node disk that is gone or failing: give the disk up and restore onto the system disk")
 	rotate := fs.Bool("rotate-key", true, "when the archive carries an older master key than this box, rotate to a new one on the first boot")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: stackr-install restore [--key-stdin] [--rotate-key=false] [--image REF] <archive | s3://bucket/prefix/>")
+		return errors.New("usage: stackr-install restore [--key-stdin] [--rotate-key=false] [--abandon-disk] [--image REF] <archive | s3://bucket/prefix/>")
 	}
 	secret, err := recoveryKey(os.Getenv(recoveryKeyEnv), *keyStdin, os.Stdin)
 	if err == nil && secret == "" {
@@ -69,7 +70,7 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("no install answers in %s (install first): %w", dataDir, err)
 	}
-	if err := restorePanelDB(dataDir); err != nil {
+	if err := restorePanelDBFor(dataDir, *abandon); err != nil {
 		return err
 	}
 	src := fs.Arg(0)
@@ -121,6 +122,12 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	// goes first and stays until the restored database is in place: a restore
 	// that dies halfway is refused at every boot, never read as a fresh start.
 	stamp := filepath.Base(stage)[len("restore-"):]
+	if *abandon {
+		// the archive is verified and staged: now the dead disk is given up
+		if err := abandonDisk(ctx, dataDir, out); err != nil {
+			return fmt.Errorf("give up the node disk (the restore has not started; run it again): %w", err)
+		}
+	}
 	if err := beginRestore(dataDir, stamp); err != nil {
 		return err
 	}
@@ -733,16 +740,29 @@ func exists(path string) bool { _, err := os.Lstat(path); return err == nil }
 // database is not built yet), an unfinished layout change or move (stackr-install
 // finishes it first). An interrupted restore, a missing database and a fresh
 // install are what a restore is for.
-func restorePanelDB(dataDir string) error {
-	if err := paneldb.CheckRestore(dataDir); err != nil {
-		return err
-	}
+func restorePanelDB(dataDir string) error { return restorePanelDBFor(dataDir, false) }
+
+const abandonHint = "If the node disk is gone or failing, run: stackr-install restore --abandon-disk <archive>. If it is healthy, move the database back first: stkr node disk move-panel <node> --back."
+
+func restorePanelDBFor(dataDir string, abandon bool) error {
 	j, err := paneldb.ReadJournal(dataDir)
 	if err != nil {
 		return err
 	}
+	if abandon {
+		if err := abandonPrecheck(dataDir); err == nil || !errors.Is(err, errNotMoved) {
+			return err // allowed (the abandon runs once the archive is staged), or refused
+		}
+		// already given up (or never moved): the rest is a normal restore
+	}
+	if j.Moved || j.Phase == paneldb.PhaseMoved {
+		return errors.New("the panel database is on a node disk (move.journal). " + abandonHint)
+	}
+	if err := paneldb.CheckRestore(dataDir); err != nil {
+		return err
+	}
 	if j.Moved { // an Update interrupted on a moved install: the database is still on the disk
-		return errors.New("the panel database is on a node disk (move.journal): run stackr-install (no arguments) to finish the update, then move the database back before a restore")
+		return errors.New("the panel database is on a node disk (move.journal). " + abandonHint)
 	}
 	switch j.Phase {
 	case paneldb.PhaseNone, paneldb.PhaseFresh:
@@ -752,7 +772,7 @@ func restorePanelDB(dataDir string) error {
 			return nil
 		}
 	case paneldb.PhaseMoved:
-		return errors.New("the panel database is on a node disk (move.journal): move it back to the system disk before a restore")
+		return errors.New("the panel database is on a node disk (move.journal). " + abandonHint)
 	}
 	if j.Direction == paneldb.DirLayout || j.Direction == paneldb.DirUpdate {
 		return nil // a backup supersedes an unfinished swap (beginRestore replaces its journal)

@@ -45,7 +45,7 @@ Apps on an offline worker keep running. Deploys to it wait.
 
 If it says the disk has no marker or belongs to another install, it is the wrong disk: do not force it. If it says a move is in progress, run `stackr-install` on the node (no arguments): it reads `/var/lib/stackr/move.journal` and finishes or rolls the move back. The log line names the phase.
 
-If the disk is gone for good, restore from a backup on a new box (`stackr-install restore`). It needs the recovery key, as always.
+If the disk is gone or failing for good, restore from a backup on this box without it: `stackr-install restore --abandon-disk <archive>` (see [Backups](backups.md)). It gives the disk up and restores onto the system disk. Or restore on a new box. Both need the recovery key, as always.
 
 ## A failed upgrade or rollback
 

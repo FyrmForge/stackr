@@ -73,6 +73,9 @@ const (
 	PhaseUnmounting = "unmounting" // move-back intent: the unit is going
 	PhaseUnmounted  = "unmounted"  // move-back: db/ is the bare underlay
 	PhasePlaced     = "placed"     // move-back: the copy is in db/stackr.db, no panel yet
+	// PhaseAbandoning: stackr-install restore --abandon-disk is taking a dead
+	// disk's bind unit out so the restore can write db/ on the system disk.
+	PhaseAbandoning = "abandoning"
 	// PhaseRestoring is a restore that has begun: the live database is being set
 	// aside and the archive's put in its place.
 	PhaseRestoring = "restoring"
@@ -95,6 +98,9 @@ const (
 	DirIn   = "in"
 	DirBack = "back"
 )
+
+// DirAbandon is the journal direction of giving up a dead node disk.
+const DirAbandon = "abandon"
 
 // DirLayout is the journal direction of the layout change.
 const DirLayout = "layout"
@@ -274,6 +280,12 @@ func check(dataDir, dbPath string, m mode) error {
 		if m == modeRestore && j.Direction == DirRestore {
 			return nil // running the restore again is the way out
 		}
+		if j.Direction == DirAbandon {
+			if m == modeRestore {
+				return nil // restore --abandon-disk again finishes it
+			}
+			return refuse("giving up the node disk was interrupted (phase %q). Not starting. Run stackr-install restore --abandon-disk <archive> to finish it", j.Phase)
+		}
 		if j.Direction == DirRestore {
 			return refuse("a restore was interrupted (phase %q). Not starting, so no empty database is made. Run stackr-install restore <archive> again", j.Phase)
 		}
@@ -319,6 +331,21 @@ func refuse(format string, a ...any) error {
 // checkMounted is the "moved" judgement: db/ must be a mount point (another
 // device than its parent) holding the marker of this install, 0700 root.
 // The immutable-flag half of the RFC's test arrives with the move itself.
+// IsMounted: db/ is a mount point of another device than the data dir.
+func IsMounted(dataDir string) bool {
+	a, err := stat(filepath.Join(dataDir, DirName))
+	if err != nil {
+		return false
+	}
+	p, err := stat(dataDir)
+	if err != nil {
+		return false
+	}
+	as, ok1 := a.Sys().(*syscall.Stat_t)
+	ps, ok2 := p.Sys().(*syscall.Stat_t)
+	return ok1 && ok2 && as.Dev != ps.Dev
+}
+
 // stat is os.Stat; tests swap it to give db/ another device.
 var stat = os.Stat
 

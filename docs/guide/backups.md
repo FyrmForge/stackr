@@ -71,7 +71,13 @@ The recovery key can also come on stdin with `--key-stdin`, or at the prompt in 
 
 After a restore the key you restored with stays the box's recovery key, so it opens every new backup too. The key the fresh install printed is dropped. A box that rotated its key after the archive was made keeps its newer one, and restore says so. Restore also brings back the old install's id, so new backups land under the same `_panel/<install id>/` prefix and old scheduled ones keep being pruned. It removes a leftover `master.key.next`.
 
-A restore is refused while the panel database is on a node disk: move it back to the system disk first (`stkr node disk move-panel <node> --back`). The old database is kept in `swap/` under the data dir as `stackr.db.before-restore-<time>`, with its `-wal` file beside it. Workers reconnect by themselves and keep their tiles running.
+A restore is refused while the panel database is on a healthy node disk: move it back to the system disk first (`stkr node disk move-panel <node> --back`). If the disk is gone or failing, give it up and restore onto the system disk in one step:
+
+```bash
+stackr-install restore --abandon-disk <archive>
+```
+
+It first checks and stages the archive, then stops and disables the database's bind unit (the disk's own mount unit file stays), lifts the immutable flag on the empty `db/` folder, writes the layout back to the unmoved one, and runs the normal restore. It refuses when the disk is mounted and answers a write: that disk is healthy, so move back instead. If it stops half way, `move.journal` says `abandoning`, the panel and the installer refuse to start, and running the same command again finishes it. The old database is kept in `swap/` under the data dir as `stackr.db.before-restore-<time>`, with its `-wal` file beside it. Workers reconnect by themselves and keep their tiles running.
 
 On its first boot the restored panel deploys again every tile on the controller that ran before and has no container now. Before those deploys it restores each of their env's empty volumes, operated databases too, from the newest finished backup. The restore jobs run first and the deploys wait for them, so no app starts on an empty volume. Tiles you had stopped stay stopped.
 
