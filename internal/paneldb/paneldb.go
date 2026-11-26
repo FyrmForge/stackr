@@ -272,7 +272,10 @@ func check(dataDir, dbPath string, m mode) error {
 	case PhaseStartingNew, PhaseGating, PhasePassed:
 		// The new panel is the one booting here: it must not refuse itself. A
 		// move-back's panel runs on the system disk, so nothing is mounted.
-		if j.Direction == DirIn || j.Moved {
+		// The installer skips the mount check of a move-in: with the disk gone it is
+		// the way out (its helper rolls back from swap/ or finishes the pass, neither
+		// needs the disk).
+		if (j.Direction == DirIn && m != modeInstaller) || j.Moved {
 			if err := checkMounted(dataDir, j); err != nil {
 				return err
 			}

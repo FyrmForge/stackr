@@ -80,7 +80,9 @@ func (o *Orchestrator) panelDBDiskRefusal(d store.NodeDisk) error {
 	if err != nil {
 		return err
 	}
-	if j.Phase != paneldb.PhaseNone && j.Phase != paneldb.PhaseFresh && (j.DiskID == d.ID || j.DiskID == "") && j.Direction != paneldb.DirLayout && j.Direction != paneldb.DirUpdate && j.Direction != paneldb.DirRestore {
+	// an Update running on a moved install (Moved) is still the database on the disk
+	inMove := j.Phase != paneldb.PhaseNone && j.Phase != paneldb.PhaseFresh && j.Direction != paneldb.DirLayout && j.Direction != paneldb.DirUpdate && j.Direction != paneldb.DirRestore
+	if (j.Moved || inMove) && (j.DiskID == d.ID || j.DiskID == "") {
 		return errs.Refusedf("The panel database is on this disk. Move it back to the system disk first.")
 	}
 	return nil

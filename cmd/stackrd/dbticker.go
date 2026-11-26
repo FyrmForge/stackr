@@ -15,8 +15,7 @@ import (
 // hung; this one exits after consecutive failures, lands in the boot check and
 // Docker's restart loop waits for the disk. Only when the journal says moved.
 func startDBTicker(log *slog.Logger, dataDir string) {
-	j, err := paneldb.ReadJournal(dataDir)
-	if err != nil || j.Phase != paneldb.PhaseMoved {
+	if !dbOnDisk(dataDir) {
 		return
 	}
 	dir := filepath.Join(dataDir, paneldb.DirName)
@@ -26,4 +25,15 @@ func startDBTicker(log *slog.Logger, dataDir string) {
 			log.Error("the database disk stopped answering: exiting so the boot check judges it", "err", err)
 			os.Exit(1)
 		})
+}
+
+// dbOnDisk: db/ is a mount, or the journal says the database is on a disk
+// (moved, an Update on it, a move-in in progress). The panel a move or an
+// Update just started runs under a journal that is not "moved" yet.
+func dbOnDisk(dataDir string) bool {
+	if paneldb.IsMounted(dataDir) {
+		return true
+	}
+	j, err := paneldb.ReadJournal(dataDir)
+	return err == nil && (j.Phase == paneldb.PhaseMoved || j.Moved || (j.Direction == paneldb.DirIn && j.Phase != paneldb.PhaseNone))
 }

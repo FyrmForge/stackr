@@ -186,3 +186,21 @@ func TestWatchExitsAfterConsecutiveFailures(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// A move-in interrupted at starting-new, gating or passed, with the disk gone:
+// the panel boot refuses, but the installer gets through to the helper, whose
+// rollback or finish needs no disk.
+func TestInstallerSkipsTheMountCheckOfAMoveIn(t *testing.T) {
+	dir := t.TempDir()
+	must(t, EnsureLayout(dir))
+	write(t, Path(dir), "db")
+	for _, ph := range []string{PhaseStartingNew, PhaseGating, PhasePassed} {
+		must(t, WriteJournal(dir, Journal{Phase: ph, Direction: DirIn, DiskID: "d1", InstallID: "i1"}))
+		if err := CheckInstaller(dir); err != nil {
+			t.Errorf("%s: installer refused: %v", ph, err)
+		}
+		if err := Check(dir, Path(dir)); err == nil || !strings.Contains(err.Error(), "disk missing") {
+			t.Errorf("%s: the booting panel was not refused: %v", ph, err)
+		}
+	}
+}

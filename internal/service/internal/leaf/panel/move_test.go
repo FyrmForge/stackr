@@ -788,3 +788,27 @@ func TestMountIsInvisibleToTheRunThatMadeIt(t *testing.T) {
 	// the in-op marker read (the old bug) would have rolled the move back
 	e.assertMoved("stackr-new")
 }
+
+// A move-in whose helper died at gating, then the disk went: the rerun (what
+// the installer runs) rolls back from swap/ with no disk, and the old panel runs.
+func TestMoveInInterruptedWithTheDiskGoneRollsBack(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	crash := func(s string) error {
+		if s == "gating" {
+			return errCrash
+		}
+		return nil
+	}
+	if err := e.leaf(crash).Move(ctx, e.spec("stackr-new"), mvIn()); !errors.Is(err, errCrash) {
+		t.Fatalf("err = %v", err)
+	}
+	e.h.DiskGone()
+	// the new panel cannot run without its database: it is not healthy
+	e.d.health["stackr-new"] = "unhealthy"
+	err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn())
+	if !errors.Is(err, ErrRolledBack) {
+		t.Fatalf("err = %v", err)
+	}
+	e.assertUnmoved("stackr-old")
+}

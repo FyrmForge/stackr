@@ -153,3 +153,19 @@ func TestRemoveOldCopyKeepsTheMovedJournal(t *testing.T) {
 		t.Fatalf("journal = %+v", got)
 	}
 }
+
+// An Update running on a moved install is still the database on the disk.
+func TestForgetRefusesDuringAMovedUpdate(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	disk := d.addDisk(t)
+	movedJournal(t, d.orch, paneldb.Journal{Phase: paneldb.PhaseGating, Direction: paneldb.DirUpdate, Moved: true, DiskID: disk.ID, InstallID: "i"})
+	if err := d.orch.forgetRefusals(ctx, disk, forgetSet{}); err == nil || !strings.Contains(err.Error(), "panel database") {
+		t.Errorf("forget: %v", err)
+	}
+	// an ordinary (unmoved) update does not block it
+	movedJournal(t, d.orch, paneldb.Journal{Phase: paneldb.PhaseGating, Direction: paneldb.DirUpdate})
+	if err := d.orch.forgetRefusals(ctx, disk, forgetSet{}); err != nil {
+		t.Errorf("unmoved update: %v", err)
+	}
+}
