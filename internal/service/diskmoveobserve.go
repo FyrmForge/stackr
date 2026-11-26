@@ -11,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
@@ -70,33 +71,67 @@ func (o *Orchestrator) observeDiskReady(ctx context.Context) bool {
 	return err == nil && !bad
 }
 
-// resyncObserve runs a serialized syncObserve in the background: the disk
-// observe's data is on went missing or erroring (stop it) or came back (start
-// it). A no-op when the data is not on the disk.
+// observeRetryBase is the first wait between tries of resyncObserve; it doubles
+// up to 30 s.
+var observeRetryBase = time.Second
+
+// resyncObserve reconciles observe with the controller's disk in the
+// background, after the disk went missing or erroring (stop it) or came back
+// (start it). It does not read any setting first: a failed read or ensure is
+// retried with a growing wait, until observe is reconciled or the panel shuts
+// down. A box that is not on the disk just gets an ordinary syncObserve.
 func (o *Orchestrator) resyncObserve(ctx context.Context, nodeID string) {
-	if on, err := o.observeOnDisk(ctx); err != nil || !on {
-		return
-	}
-	if ctl, err := o.controllerID(ctx); err != nil || ctl != nodeID {
-		return
-	}
 	o.detach(context.Background(), func(ctx context.Context) {
-		if cctx, err := o.withController(ctx); err == nil {
-			o.syncObserve(cctx)
+		wait := observeRetryBase
+		for range 12 {
+			if o.reconcileObserve(ctx, nodeID) {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			wait = min(wait*2, 30*time.Second)
 		}
+		slog.Warn("observe: not reconciled with the node disk, giving up until the next change")
 	})
+}
+
+// reconcileObserve is one try: true when nothing is left to do (observe is as
+// the settings say, or it is rightly down because the disk is not ready, or
+// the node is not the controller).
+func (o *Orchestrator) reconcileObserve(ctx context.Context, nodeID string) bool {
+	ctl, err := o.controllerID(ctx)
+	if err != nil {
+		return false
+	}
+	if ctl != nodeID {
+		return true
+	}
+	cctx, err := o.withController(ctx)
+	if err != nil {
+		return false
+	}
+	o.syncObserve(cctx)
+	e := o.observe.lastErr.Load()
+	return e == nil || *e == "" || (*e == upgrade.ObserveDiskMissing && !o.observeDiskReady(ctx))
 }
 
 // observeCap is the xfs cap of the disk folder: twice today's data, and never
 // under what the logs may grow to (their own size cap) plus a gigabyte for
 // metrics, or the cap would stop observe before its own limits do.
 // ponytail: the floor is read once at the move; editable later.
-func (o *Orchestrator) observeCap(ctx context.Context, size int64) uint64 {
+func (o *Orchestrator) observeCap(ctx context.Context, size int64) (uint64, error) {
+	k, err := o.observeKnobs(ctx)
+	if err != nil {
+		return 0, err
+	}
 	c := uint64(max(size, 0)) * 2
-	if k, err := o.observeKnobs(ctx); err == nil && k.logs {
+	if k.logs {
 		c = max(c, k.logsMax+1<<30)
 	}
-	return max(c, 1<<30)
+	return max(c, 1<<30), nil
 }
 
 // ObserveMovePlan is what the move dialog shows before the confirm.
@@ -135,7 +170,9 @@ func (o *Orchestrator) PlanMoveObserve(ctx context.Context, by *Principal, nodeI
 		return p, err
 	}
 	if !back {
-		p.Cap = o.observeCap(ctx, p.SizeBytes)
+		if p.Cap, err = o.observeCap(ctx, p.SizeBytes); err != nil {
+			return p, err
+		}
 	}
 	p.Need = p.SizeBytes + p.SizeBytes/10
 	p.Fits = uint64(p.Need) <= p.Free
@@ -293,7 +330,11 @@ func (m *observeMove) run(ctx context.Context) error {
 		return m.fail(nctx, err)
 	}
 	if !p.Back {
-		if err := o.store.Settings.Set(ctx, observeDataCapKey, strconv.FormatUint(o.observeCap(ctx, size), 10)); err != nil {
+		c, err := o.observeCap(ctx, size)
+		if err != nil {
+			return m.fail(nctx, err)
+		}
+		if err := o.store.Settings.Set(ctx, observeDataCapKey, strconv.FormatUint(c, 10)); err != nil {
 			return m.fail(nctx, err)
 		}
 	}
@@ -401,6 +442,9 @@ func (m *observeMove) setOnDisk(ctx context.Context, on bool) error {
 // had (the setting never changed), and the cause is returned.
 func (m *observeMove) fail(ctx context.Context, cause error) error {
 	m.o.syncObserveLocked(context.WithoutCancel(ctx))
+	if e := m.o.observe.lastErr.Load(); e != nil && *e != "" {
+		return errors.Join(cause, fmt.Errorf("the rollback is incomplete, observe is not back on the old volume (check Settings, Observability): %s", *e))
+	}
 	return cause
 }
 
