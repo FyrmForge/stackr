@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -344,7 +345,9 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 			Open: nodesBase + "/" + n.ID, Push: "?drawer=node:" + n.ID, Hint: ui.NodeHint(n.Status, n.Stalled),
 		}
 		switch {
-		case dk.State == "missing" || (dk.State == "ready" && h.orch.DiskErroring(ctx, n.ID)): // one badge for both: the disk has failed
+		case dk.State == "missing": // one badge for both: the disk has failed
+			r.DiskState = "failed"
+		case dk.State == "ready" && erroring(ctx, h.orch, n.ID):
 			r.DiskState = "failed"
 		case dk.State != "ready": // a ready disk shows nothing
 			r.DiskState = dk.State
@@ -800,4 +803,11 @@ func lastBytes(s service.Series, m string) string {
 		return ""
 	}
 	return service.HumanBytes(int64(xs[len(xs)-1].V))
+}
+
+// erroring is whether the node's disk is latched erroring. A read that fails
+// shows it as failed: the page never says "fine" for a disk it could not read.
+func erroring(ctx context.Context, o *service.Orchestrator, nodeID string) bool {
+	e, err := o.DiskErroring(ctx, nodeID)
+	return e || err != nil
 }

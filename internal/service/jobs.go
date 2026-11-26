@@ -239,7 +239,8 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 					r.Job.Payload = string(b)
 				}
 			}
-			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
+			swap := gatedSwap(r.Swap, func() error { return o.runGateTile(ctx, p.TileID) })
+			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, swap); err != nil {
 				if ph := deploy.PhaseOf(err); ph == deploy.PhasePooler || ph == deploy.PhaseReconcile {
 					// the instance runs; only a step after its start failed
 					err = errors.Join(err, o.afterDeploy(ctx, []string{p.TileID}, false))
@@ -265,7 +266,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if p.CleanOnly {
 				guard = o.cleanGuard(ctx, p.EnvID, p.ReleaseID)
 			}
-			plan, err := o.promote.ApplyGuarded(context.WithValue(withMayPlace(ctx, p.MayPlace), placeAdminKey{}, p.Admin), p.EnvID, p.ReleaseID, p.Ticked, guard, lockLog{ctx, o, r, p.EnvID}, r.Swap)
+			plan, err := o.promote.ApplyGuarded(context.WithValue(withMayPlace(ctx, p.MayPlace), placeAdminKey{}, p.Admin), p.EnvID, p.ReleaseID, p.Ticked, guard, lockLog{ctx, o, r, p.EnvID}, gatedSwap(r.Swap, func() error { return o.runGateEnv(ctx, p.EnvID) }))
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
@@ -288,9 +289,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			if len(p.Owed) > 0 {
 				// Parked after its writes: deploy what it still owes, no re-plan.
-				plan, err = o.promote.SyncRollout(ctx, p.Owed, lockLog{ctx, o, r, p.EnvID}, r.Swap)
+				plan, err = o.promote.SyncRollout(ctx, p.Owed, lockLog{ctx, o, r, p.EnvID}, gatedSwap(r.Swap, func() error { return o.runGateEnv(ctx, p.EnvID) }))
 			} else {
-				plan, err = o.promote.SyncApply(ctx, p.EnvID, p.FromID, p.Keep, p.Sig, lockLog{ctx, o, r, p.EnvID}, r.Swap)
+				plan, err = o.promote.SyncApply(ctx, p.EnvID, p.FromID, p.Keep, p.Sig, lockLog{ctx, o, r, p.EnvID}, gatedSwap(r.Swap, func() error { return o.runGateEnv(ctx, p.EnvID) }))
 			}
 			_, unset := errs.IsUnset(err)
 			_, approval := errs.IsNeedsApproval(err)

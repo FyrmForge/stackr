@@ -442,10 +442,12 @@ func (o *Orchestrator) raise(ctx context.Context, key string, on bool, a Alert) 
 // disk latches missing after diskMissingReads fresh reads in a row that show
 // it unmounted or stamped for another disk. A helper verify that says
 // disk_missing latches it at once (leaf/disk); this pass then only alerts.
+// polled is when the controller started the poll that brought the facts (zero
+// for the controller's own worker): reads a Check disk supersedes are ignored.
 // Stale, unknown or absent facts latch nothing and break the run. The disk
 // never goes ready here: only Check disk does that. A row lookup that fails
 // skips the whole pass.
-func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Facts) {
+func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Facts, polled time.Time) {
 	d, has, err := o.nodeDisk(ctx, n.ID)
 	if err != nil {
 		return
@@ -470,13 +472,14 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 	}()
 	if has && d.State == disk.StateReady {
 		i := slices.IndexFunc(f.Disks, func(x hostdisk.Fact) bool { return x.Path == d.MountPath })
+		o.flushLatch(ctx, d) // a latch whose durable write failed is written again
 		if f.DisksRead && !f.DisksStale && i >= 0 {
 			x := f.Disks[i]
 			g := o.diskGuard(n.ID)
 			ioBad := x.IOErr || (x.Mounted && x.StampID == d.ID && x.ReadOnly)
 			gone := !x.Mounted || x.StampID != d.ID
 			switch {
-			case (ioBad || gone) && !x.ReadAt.IsZero() && !x.ReadAt.After(g.epochAt()):
+			case (ioBad || gone) && g.superseded(polled, x.ReadAt):
 				// read before the last Check disk finished: it says nothing about the disk now
 				o.ioRun(n.ID, false, x.ReadAt)
 			case ioBad:
@@ -490,7 +493,7 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 				o.ioRun(n.ID, false, x.ReadAt)
 				if o.newRead(n.ID, x.ReadAt) && count(true) >= diskMissingReads {
 					g.mu.Lock() // not while a Check disk is verifying, and not on a read it superseded
-					if x.ReadAt.After(g.epochAt()) {
+					if !g.superseded(polled, x.ReadAt) {
 						if m, err := o.diskLeaf.MarkMissing(ctx, d); err == nil {
 							d, freshBad = m, false // latched: the run is over
 						}
@@ -510,7 +513,13 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 		}
 		o.quarSettleQuiet(ctx, d) // a resumed quarantine ends once everything runs
 	}
-	erroring := has && d.State == disk.StateReady && o.diskErroring(ctx, n.ID)
+	erroring := false
+	if has && d.State == disk.StateReady {
+		var err error
+		if erroring, err = o.diskErroring(ctx, n.ID); err != nil {
+			return // not read: the alert stays as it is
+		}
+	}
 	if !has || d.State != disk.StateReady {
 		o.raise(ctx, diskFullKey(n.ID), false, Alert{})
 	}
@@ -626,7 +635,7 @@ func (o *Orchestrator) controllerDiskAlert(ctx context.Context) {
 		if err := o.reconcileDisks(ctx, n, *f); err != nil {
 			slog.Warn("disk: registry not pushed", "node", n.Name, "err", err)
 		}
-		o.diskWatch(ctx, n, *f)
+		o.diskWatch(ctx, n, *f, time.Time{})
 	}
 }
 

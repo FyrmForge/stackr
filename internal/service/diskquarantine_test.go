@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -82,11 +84,33 @@ func TestQuarantineStopsTilesAndCheckDiskRedeploysThem(t *testing.T) {
 	if !w.deployJobs(t, w.tl) {
 		t.Error("Check disk did not redeploy the stopped tile")
 	}
-	w.wFake.Containers[0].State = "running" // the redeploy has finished
+	w.finishDeploy(t) // the redeploy has finished and the tile runs
 	w.orch.quarSettleQuiet(ctx, row)
 	if _, ok, _ := w.orch.quarLoad(ctx, w.row.ID); ok {
 		t.Error("the record outlived a tile that runs again")
 	}
+}
+
+// finishDeploy waits out the tile's queued jobs, then makes it run behind a
+// finished deploy: the end of a redeploy that worked.
+func (w *forgetWorld) finishDeploy(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	for range 500 {
+		js, err := w.orch.jobRows.History(ctx, []string{w.tl.ID}, 30)
+		must(t, err)
+		live := false
+		for _, j := range js {
+			live = live || job.Live(j.State)
+		}
+		if !live {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	w.wFake.Containers[0].State = "running"
+	must(t, w.st.Jobs.Create(ctx, store.Job{ID: "fin-" + uuid.NewString(), Kind: string(kindDeploy), State: job.Done,
+		LockSet: store.StringList{w.tl.ID}, Payload: "{}", CreatedAt: time.Now().Add(time.Minute)}))
 }
 
 // The kind is in neither list that reads a stop as the user's wish: with a
@@ -118,8 +142,8 @@ func TestQuarantineIsQueuedByTheWatchAndAgainAfterARestart(t *testing.T) {
 	row, _, _ := w.orch.nodeDisk(ctx, "w1")
 	f := readOf(row, 0, 0)
 	f.Disks[0].ReadAt = time.Unix(1e9, 0)
-	w.orch.diskWatch(ctx, n, f)
-	w.orch.diskWatch(ctx, n, f)
+	w.orch.diskWatch(ctx, n, f, time.Now())
+	w.orch.diskWatch(ctx, n, f, time.Now())
 	js := w.quarJobs(t)
 	if len(js) != 1 {
 		t.Fatalf("jobs = %d, want 1 (the second pass finds the first)", len(js))
@@ -127,7 +151,7 @@ func TestQuarantineIsQueuedByTheWatchAndAgainAfterARestart(t *testing.T) {
 	w.wait(t, Job{ID: js[0].ID})
 	// a panel that died before the record was complete: no finished row
 	must(t, w.st.Settings.Delete(ctx, quarKey(row.ID)))
-	w.orch.diskWatch(ctx, n, f)
+	w.orch.diskWatch(ctx, n, f, time.Now())
 	if len(w.quarJobs(t)) != 2 {
 		t.Errorf("jobs = %d, want a new one after a restart with no record", len(w.quarJobs(t)))
 	}
@@ -145,12 +169,12 @@ func TestErroringBlocksOnlyWorkOnTheDisk(t *testing.T) {
 		t.Fatalf("healthy gate: %v", err)
 	}
 	for i := 1; i <= diskMissingReads; i++ {
-		if d.orch.DiskErroring(context.Background(), "w1") {
+		if erroringNow(d) {
 			t.Fatalf("erroring after %d reads", i-1)
 		}
 		d.watch(t, ioRead(row))
 	}
-	if !d.orch.DiskErroring(context.Background(), "w1") {
+	if !erroringNow(d) {
 		t.Fatal("not erroring after the run")
 	}
 	if got := h.events(t, d.orch); len(got) != 1 || got[0] != AlertDiskMissing+":"+SevCritical {
@@ -178,11 +202,11 @@ func TestErroringBlocksOnlyWorkOnTheDisk(t *testing.T) {
 	}
 	// a good read does not end it: only Check disk does
 	d.watch(t, readOf(row, 50*gig, 100*gig))
-	if !d.orch.DiskErroring(ctx, "w1") {
+	if !erroringNow(d) {
 		t.Error("a good read cleared the latch")
 	}
 	d.check(t)
-	if d.orch.DiskErroring(ctx, "w1") {
+	if erroringNow(d) {
 		t.Error("Check disk left it erroring")
 	}
 }
@@ -198,7 +222,7 @@ func TestErroringSurvivesAStaleRead(t *testing.T) {
 	stale.DisksStale = true
 	d.watch(t, stale)
 	d.watch(t, ioRead(row))
-	if !d.orch.DiskErroring(context.Background(), "w1") {
+	if !erroringNow(d) {
 		t.Error("one stale read and one bad read cleared the erroring flag")
 	}
 	d.watch(t, readOf(row, 50*gig, 100*gig))
@@ -208,7 +232,7 @@ func TestErroringSurvivesAStaleRead(t *testing.T) {
 	clear(w.diskBad)
 	clear(w.diskAt)
 	w.diskMu.Unlock()
-	if !d.orch.DiskErroring(context.Background(), "w1") {
+	if !erroringNow(d) {
 		t.Error("a good read or a restart cleared the latch")
 	}
 }
@@ -244,17 +268,17 @@ func TestErroringNeedsConsecutiveFreshReads(t *testing.T) {
 	d.watch(t, stale) // ends the run
 	d.watch(t, ro)
 	d.watch(t, ro)
-	if d.orch.DiskErroring(context.Background(), "w1") {
+	if erroringNow(d) {
 		t.Fatal("erroring on two plus two reads split by a stale one")
 	}
 	d.watch(t, ro)
-	if !d.orch.DiskErroring(context.Background(), "w1") {
+	if !erroringNow(d) {
 		t.Error("three read-only reads in a row are not erroring")
 	}
 	// a plain read (ENOSPC and quota reads reach the controller as plain ones)
 	// never counts, and the latch stays until Check disk
 	d.watch(t, readOf(row, 0, 100*gig))
-	if !d.orch.DiskErroring(context.Background(), "w1") {
+	if !erroringNow(d) {
 		t.Error("a plain read cleared the latch")
 	}
 }
@@ -266,7 +290,7 @@ func TestAFullDiskIsNotErroring(t *testing.T) {
 	for range 2 * diskMissingReads {
 		d.watch(t, readOf(row, 0, 100*gig))
 	}
-	if d.orch.DiskErroring(context.Background(), "w1") {
+	if erroringNow(d) {
 		t.Error("a full disk reads as erroring")
 	}
 }
@@ -278,11 +302,11 @@ func TestCheckDiskClearsErroring(t *testing.T) {
 	for range diskMissingReads {
 		d.watch(t, ioRead(row))
 	}
-	if !d.orch.DiskErroring(context.Background(), "w1") {
+	if !erroringNow(d) {
 		t.Fatal("setup: not erroring")
 	}
 	d.check(t)
-	if d.orch.DiskErroring(context.Background(), "w1") {
+	if erroringNow(d) {
 		t.Error("Check disk left it erroring")
 	}
 }
@@ -598,27 +622,254 @@ func TestDropFromSyncStopsOnlyOnAPrimaryThatIsPositivelyDown(t *testing.T) {
 	}
 }
 
-// Check disk supersedes the reads taken before it: three old "gone" reads that
-// arrive after it cannot latch the disk missing again; fresh ones can.
+func erroringNow(d *diskTest) bool {
+	e, err := d.orch.DiskErroring(context.Background(), "w1")
+	if err != nil {
+		panic(err)
+	}
+	return e
+}
+
+// Check disk supersedes older reads, with no help from the worker's clock: a
+// read no newer than the newest one held at the check is the same old read, and
+// a poll that began before the check ended brought nothing newer than it.
 func TestCheckDiskSupersedesOlderReads(t *testing.T) {
+	ctx := context.Background()
 	d := newDiskTest(t)
 	row := d.addDisk(t)
-	d.watch(t, goneOf(row))
-	d.watch(t, goneOf(row))
+	n, _ := d.st.Nodes.Get(ctx, "w1")
+	x := time.Now().Add(-time.Hour)
+	held := goneOf(row)
+	held.Disks[0].ReadAt = x
+	d.facts(t, held) // what the controller holds when the check runs
 	d.check(t)
-	d.watch(t, goneOf(row)) // read before the check finished
-	d.watch(t, goneOf(row))
-	d.watch(t, goneOf(row))
+	old := goneOf(row)
+	for range 2 * diskMissingReads { // the old read, delivered again and again
+		old.Disks[0].ReadAt = x
+		d.orch.diskWatch(ctx, n, old, time.Now())
+	}
 	if st := d.stateOf(t, row); st != disk.StateReady {
-		t.Fatalf("state = %s: reads older than Check disk latched the disk", st)
+		t.Fatalf("state = %s: the read the check overtook latched the disk", st)
+	}
+	late := goneOf(row)
+	for i := range diskMissingReads { // fresh reads, but from a poll that began before the check ended
+		late.Disks[0].ReadAt = time.Now().Add(time.Duration(i+1) * time.Hour)
+		d.orch.diskWatch(ctx, n, late, time.Now().Add(-time.Hour))
+	}
+	if st := d.stateOf(t, row); st != disk.StateReady {
+		t.Fatalf("state = %s: a poll from before the check latched the disk", st)
 	}
 	for i := range diskMissingReads {
-		f := goneOf(row)
-		f.Disks[0].ReadAt = time.Now().Add(time.Duration(i+1) * time.Second)
-		d.watch(t, f)
+		late.Disks[0].ReadAt = time.Now().Add(time.Duration(i+10) * time.Hour)
+		d.orch.diskWatch(ctx, n, late, time.Now())
 	}
 	if st := d.stateOf(t, row); st != disk.StateMissing {
 		t.Errorf("state = %s: fresh reads after the check no longer latch", st)
+	}
+}
+
+// settings that fail on the erroring key.
+type flakySettings struct {
+	store.SettingStore
+	failGet, failSet, failDelete bool
+}
+
+func (f *flakySettings) Get(ctx context.Context, key string) (string, bool, error) {
+	if f.failGet && strings.HasPrefix(key, "diskerroring.") {
+		return "", false, errors.New("settings are unreadable")
+	}
+	return f.SettingStore.Get(ctx, key)
+}
+
+func (f *flakySettings) Set(ctx context.Context, key, v string) error {
+	if f.failSet && strings.HasPrefix(key, "diskerroring.") {
+		return errors.New("settings are read-only")
+	}
+	return f.SettingStore.Set(ctx, key, v)
+}
+
+func (f *flakySettings) Delete(ctx context.Context, key string) error {
+	if f.failDelete && strings.HasPrefix(key, "diskerroring.") {
+		return errors.New("settings are read-only")
+	}
+	return f.SettingStore.Delete(ctx, key)
+}
+
+// The latch fails closed: a write that fails is held in memory and written
+// later, a read that fails refuses, and a delete that fails keeps it.
+func TestErroringLatchFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	v := d.vol(t, "data")
+	d.ensure(t, v)
+	d.diskTile(t, "db", "data:/data")
+	fl := &flakySettings{SettingStore: d.orch.store.Settings, failSet: true}
+	d.orch.store.Settings = fl
+	for range diskMissingReads {
+		d.watch(t, ioRead(row))
+	}
+	if !erroringNow(d) {
+		t.Fatal("not erroring: the failed write lost the latch")
+	}
+	if err := d.orch.gateEnv(ctx, d.edge.ID, true); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("gate = %v, want refused", err)
+	}
+	fl.failSet = false
+	d.watch(t, readOf(row, 50*gig, 100*gig)) // the next read writes it down
+	if _, ok, _ := fl.SettingStore.Get(ctx, erroringKey(row.ID)); !ok {
+		t.Error("the latch was not written once the store came back")
+	}
+	// a restart forgets the memory; an unreadable latch refuses
+	w := d.orch.alertWatch()
+	w.diskMu.Lock()
+	clear(w.diskBad)
+	w.diskMu.Unlock()
+	fl.failGet = true
+	if err := d.orch.gateEnv(ctx, d.edge.ID, true); err == nil {
+		t.Error("an unreadable latch let a deploy through")
+	}
+	if _, err := d.orch.DiskErroring(ctx, "w1"); err == nil {
+		t.Error("DiskErroring hid the read error")
+	}
+	fl.failGet = false
+	// a delete that fails keeps the latch, and Check disk fails with it
+	fl.failDelete = true
+	j, err := d.orch.CheckNodeDisk(ctx, adminP(), "w1")
+	must(t, err)
+	if j = d.wait(t, j); j.State != job.Failed {
+		t.Errorf("Check disk = %s, want failed while the latch cannot be cleared", j.State)
+	}
+	if !erroringNow(d) {
+		t.Error("the latch went although its delete failed")
+	}
+	fl.failDelete = false
+	d.check(t)
+	if erroringNow(d) {
+		t.Error("Check disk did not clear it")
+	}
+}
+
+// A pending item stays while its job is live (a recovery replica mid health
+// check is not success); it goes when the job is done and it runs; a failed job
+// is deployed again, up to the tries, then it stays with the problem open.
+func TestSettleWaitsForTheJobAndRetriesBounded(t *testing.T) {
+	ctx := context.Background()
+	w := newForgetWorld(t, true, false)
+	w.wFake.StopExits = map[string]bool{w.cid: true}
+	if j := w.quarantine(t, w.row); j.State != job.Done {
+		t.Fatalf("job = %s %q", j.State, j.Error)
+	}
+	setState(t, w.diskTest, w.row, disk.StateReady) // the check part done by hand
+	row, _, _ := w.orch.nodeDisk(ctx, "w1")
+	rec, _, _ := w.orch.quarLoad(ctx, w.row.ID)
+	now := time.Now()
+	mk := func(id, state string, after time.Duration) {
+		must(t, w.st.Jobs.Create(ctx, store.Job{ID: id, Kind: string(kindDeploy), State: state, LockSet: store.StringList{w.tl.ID},
+			Payload: "{}", CreatedAt: now.Add(after)}))
+	}
+	// a deploy still running while a replica is already up
+	w.wFake.Containers[0].State = "running"
+	mk("live", job.Running, time.Minute)
+	must(t, w.orch.quarSettle(ctx, row))
+	if _, ok, _ := w.orch.quarLoad(ctx, w.row.ID); !ok {
+		t.Fatal("the record went while the deploy was still running")
+	}
+	must(t, w.st.Jobs.Update(ctx, store.Job{ID: "live", Kind: string(kindDeploy), State: job.Done, LockSet: store.StringList{w.tl.ID}, Payload: "{}", CreatedAt: now.Add(time.Minute)}))
+	must(t, w.orch.quarSettle(ctx, row))
+	if _, ok, _ := w.orch.quarLoad(ctx, w.row.ID); ok {
+		t.Fatal("the record stayed after the deploy finished and the tile runs")
+	}
+	// exhausted: the newest job failed, the tile is down, no more tries
+	rec.Tries = map[string]int{"t:" + w.tl.ID: quarTries}
+	must(t, w.orch.quarSave(ctx, w.row.ID, rec))
+	w.wFake.Containers[0].State = "exited"
+	mk("bad", job.Failed, 2*time.Minute)
+	deploys := len(w.jobsOf(t, string(kindDeploy)))
+	must(t, w.orch.quarSettle(ctx, row))
+	if _, ok, _ := w.orch.quarLoad(ctx, w.row.ID); !ok {
+		t.Error("the record went with a tile that is down")
+	}
+	if got := len(w.jobsOf(t, string(kindDeploy))); got != deploys {
+		t.Errorf("deploys = %d, want %d: no try is left", got, deploys)
+	}
+	if !w.orch.hasProblem(ctx, quarProblemKey(w.row.ID)) {
+		t.Error("no problem is open for the item that did not come back")
+	}
+	// with a try left, a failed job is deployed again (the job is remembered)
+	rec.Tries = map[string]int{}
+	must(t, w.orch.quarSave(ctx, w.row.ID, rec))
+	must(t, w.orch.quarSettle(ctx, row))
+	if got := len(w.jobsOf(t, string(kindDeploy))); got != deploys+1 {
+		t.Errorf("deploys = %d, want %d: the failed one was not redone", got, deploys+1)
+	}
+	if got, _, _ := w.orch.quarLoad(ctx, w.row.ID); got.Tries["t:"+w.tl.ID] != 1 || got.Jobs["t:"+w.tl.ID] == "" {
+		t.Errorf("record = %+v", got)
+	}
+}
+
+func TestGatedSwapAsksTheGateFirst(t *testing.T) {
+	var swapped bool
+	swap := func() error { swapped = true; return nil }
+	if err := gatedSwap(swap, func() error { return errors.New("failed meanwhile") })(); err == nil || swapped {
+		t.Errorf("err = %v swapped = %v: the swap went through a failed gate", err, swapped)
+	}
+	if err := gatedSwap(swap, func() error { return nil })(); err != nil || !swapped {
+		t.Errorf("err = %v swapped = %v", err, swapped)
+	}
+	if gatedSwap(nil, func() error { return nil }) != nil {
+		t.Error("a nil swap must stay nil")
+	}
+}
+
+// A failed-over primary is gated on its member's node and volume.
+func TestRunGateAsksTheFailedOverPrimarysNode(t *testing.T) {
+	ctx := context.Background()
+	w := newOpWorld(t)
+	old, _ := w.r.members()
+	must(t, w.st.OperatedMembers.Delete(ctx, old.ID))
+	fo := w.member(t, w.rep.ID)
+	fo.Role = opmember.Primary
+	must(t, w.st.OperatedMembers.Update(ctx, fo))
+	if err := w.orch.runGateTile(ctx, w.r.inst.TileID); err != nil {
+		t.Fatalf("healthy: %v", err)
+	}
+	for range diskMissingReads {
+		w.watch(t, ioRead(w.row))
+	}
+	if err := w.orch.runGateTile(ctx, w.r.inst.TileID); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("the primary on a failing disk: %v, want refused", err)
+	}
+}
+
+// The tick does not start a member or primary on a disk latched erroring.
+func TestStartMembersHoldsMembersOnAnErroringDisk(t *testing.T) {
+	ctx := context.Background()
+	w := newOpWorld(t)
+	for range diskMissingReads {
+		w.watch(t, ioRead(w.row))
+	}
+	if !w.orch.memberDiskHeld(ctx, w.member(t, w.rep.ID)) {
+		t.Error("a standby on an erroring disk is not held")
+	}
+	tl, _ := w.orch.tiles.Get(ctx, w.r.inst.TileID)
+	fo := w.member(t, w.rep.ID)
+	fo.Role = opmember.Primary
+	if !w.orch.primaryDiskDown(ctx, tl, fo, "w1") {
+		t.Error("a failed-over primary on an erroring disk is not held")
+	}
+	w.r.sims["w1"].set(w.rep.Container, "exited")
+	for _, c := range w.r.sims["w1"].cs {
+		if c.Labels[LabelMember] == w.rep.ID {
+			w.r.sims["w1"].set(c.ID, "exited")
+		}
+	}
+	w.r.mu.Lock()
+	w.r.events = nil
+	w.r.mu.Unlock()
+	w.orch.startMembers(ctx)
+	if w.r.saw("start " + w.rep.Container) {
+		t.Errorf("the tick started a standby on an erroring disk: %v", w.r.events)
 	}
 }
 
@@ -686,12 +937,13 @@ func TestCheckDiskKeepsTheSetUntilEverythingRuns(t *testing.T) {
 	if j := w.quarantine(t, w.row); j.State != job.Done {
 		t.Fatalf("job = %s %q", j.State, j.Error)
 	}
+	setState(t, w.diskTest, w.row, disk.StateReady) // the verify part of the check, by hand
 	row, _, _ := w.orch.nodeDisk(ctx, "w1")
 	must(t, w.orch.quarSettle(ctx, row))
 	if _, ok, _ := w.orch.quarLoad(ctx, w.row.ID); !ok {
 		t.Fatal("the record went while the tile was still stopped")
 	}
-	w.wFake.Containers[0].State = "running"
+	w.finishDeploy(t)
 	must(t, w.orch.quarSettle(ctx, row))
 	if _, ok, _ := w.orch.quarLoad(ctx, w.row.ID); ok {
 		t.Error("the record stayed after the tile ran again")
