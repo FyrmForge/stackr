@@ -61,7 +61,7 @@ const (
 	// forward (the new panel has taken writes and the old files are going away):
 	// recovery finishes it, it never rolls back.
 	PhasePassed = "passed"
-	PhaseMoved       = "moved"
+	PhaseMoved  = "moved"
 	// PhaseFresh is an explicit empty start: the installer made the layout of a
 	// new install and the panel may create its first database. The panel clears
 	// it once it has. Absence of a database is never read as "fresh" otherwise.

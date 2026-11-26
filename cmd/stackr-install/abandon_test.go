@@ -52,8 +52,16 @@ func newAbandonRig(t *testing.T) *abandonRig {
 		}
 		return nil
 	}
-	abandonUnmount = func(context.Context, string) error { r.calls = append(r.calls, "umount"); r.mounted = false; return nil }
-	abandonUnlock = func(context.Context, string) error { r.calls = append(r.calls, "chattr -i"); r.locked = false; return nil }
+	abandonUnmount = func(context.Context, string) error {
+		r.calls = append(r.calls, "umount")
+		r.mounted = false
+		return nil
+	}
+	abandonUnlock = func(context.Context, string) error {
+		r.calls = append(r.calls, "chattr -i")
+		r.locked = false
+		return nil
+	}
 	isMounted = func(string) bool { return r.mounted }
 	probeWrite = func(string) error {
 		if r.healthy {
