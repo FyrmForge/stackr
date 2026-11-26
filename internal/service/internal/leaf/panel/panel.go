@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
@@ -106,8 +107,8 @@ func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
 	}
 	vols := []string{"/var/run/docker.sock:/var/run/docker.sock"}
 	if db := dbPath(spec); db != "" {
-		// The swap copies the database aside, so the helper needs the data dir at the panel's path.
-		dir := filepath.Dir(db)
+		// The swap copies the database aside and keeps the move journal, so the helper needs the data dir at the panel's path.
+		dir := paneldb.DataDirOf(db)
 		vols = append(vols, dir+":"+dir)
 	}
 	_, err = l.docker.Run(ctx, docker.ContainerSpec{
@@ -149,67 +150,18 @@ func dbPath(spec docker.ContainerSpec) string {
 	return ""
 }
 
-// The files that make one SQLite database; the copy keeps the suffixes.
-var dbSuffixes = []string{"", "-wal", "-shm"}
-
-// copyName is the per-upgrade copy of the database, named after the target.
+// copyName is the per-upgrade copy of the database, named after the target
+// and kept in swap/ (never beside the database).
 func copyName(db string, spec docker.ContainerSpec) string {
 	v := spec.Image[strings.LastIndex(spec.Image, ":")+1:]
-	return db + ".pre-" + strings.ReplaceAll(v, "/", "_")
+	return filepath.Join(paneldb.SwapDirOf(db), filepath.Base(db)+".pre-"+strings.ReplaceAll(v, "/", "_"))
 }
 
-// Leftovers lists swap copies still beside the database: a helper that died
-// mid-swap leaves one. Boot only reports them; they are never deleted there.
+// Leftovers lists swap copies still in swap/: a helper that died mid-swap
+// leaves one. Boot only reports them; they are never deleted there.
 func Leftovers(db string) []string {
-	m, _ := filepath.Glob(db + ".pre-*")
+	m, _ := filepath.Glob(filepath.Join(paneldb.SwapDirOf(db), filepath.Base(db)+".pre-*"))
 	return m
-}
-
-// saveDB copies the database files to the per-upgrade name, 0600 and synced.
-func saveDB(db, cp string) error {
-	for _, suf := range dbSuffixes {
-		if err := copyFile(db+suf, cp+suf); failed(err, suf) {
-			dropDB(cp)
-			return err
-		}
-	}
-	return nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err = io.Copy(out, in); err == nil {
-		err = out.Sync()
-	}
-	return errors.Join(err, out.Close())
-}
-
-func dropDB(cp string) {
-	for _, suf := range dbSuffixes {
-		_ = os.Remove(cp + suf)
-	}
-}
-
-// restoreDB puts the copy back over what the new panel migrated: the new
-// panel's -wal/-shm go first, so none is replayed onto the old file.
-func restoreDB(db, cp string) error {
-	for _, suf := range dbSuffixes[1:] {
-		_ = os.Remove(db + suf)
-	}
-	for _, suf := range dbSuffixes {
-		if err := os.Rename(cp+suf, db+suf); failed(err, suf) {
-			return err
-		}
-	}
-	return nil
 }
 
 // Swap replaces the running panel with spec: stop the old one (kept), copy
@@ -218,6 +170,13 @@ func restoreDB(db, cp string) error {
 // the old again. Plain containers have no Swarm to roll back a failed swap,
 // so this is that rollback; the copy is needed because the new panel may
 // have migrated the database past what the old one can open.
+//
+// The helper is always the new image, so it also owns the layout change: the
+// first Update after it shipped is built by an old panel whose spec still says
+// DATABASE_PATH=<DataDir>/stackr.db. The files move into db/, the old path
+// becomes a placeholder directory, and the spec handed to the new panel says
+// <DataDir>/db/stackr.db. A failed gate reverses all of it before the old
+// panel starts, and a layout that cannot be reversed never starts it.
 func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 	old, err := l.docker.List(ctx, map[string]string{LabelRole: "panel"})
 	if err != nil {
@@ -227,10 +186,34 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		spec.Labels = map[string]string{}
 	}
 	spec.Labels[LabelRole] = "panel"
+	db := dbPath(spec)
+	origDB := db
+	dataDir := specEnv(spec, "DATA_DIR")
+	// Only an installed panel (DATA_DIR in its spec) has the layout.
+	layout := dataDir != "" && (db == paneldb.Legacy(dataDir) || db == paneldb.Path(dataDir))
+	if layout {
+		_, e1 := os.Lstat(paneldb.Legacy(dataDir))
+		_, e2 := os.Stat(paneldb.Path(dataDir))
+		layout = e1 == nil || e2 == nil // neither visible to the helper: the no-copy case below
+	}
+	var j paneldb.Journal
+	if layout {
+		db = paneldb.Path(dataDir)
+		spec.Env = setEnv(spec.Env, "DATABASE_PATH", db)
+		if j, err = paneldb.ReadJournal(dataDir); err != nil {
+			return err
+		}
+		if j.Phase != paneldb.PhaseNone && j.Direction != paneldb.DirLayout {
+			// A move onto a node disk is in progress: not this helper's to resolve.
+			return fmt.Errorf("the database is in phase %q (%s): run stackr-install on this node", j.Phase, j.Direction)
+		}
+	}
 	// A failure file of an earlier upgrade is not this trial's.
-	if db := dbPath(spec); db != "" {
-		if err := os.Remove(FailureFile(db)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			slog.Warn("upgrade: old failure file not removed", "err", err)
+	if db != "" {
+		for _, f := range failureFiles(db, origDB) {
+			if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+				slog.Warn("upgrade: old failure file not removed", "err", err)
+			}
 		}
 	}
 	// A rerun (the helper died and Docker started it again) finds the new
@@ -244,17 +227,52 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		}
 		return c.Name == spec.Name
 	})
+	// A journal at starting-new or gating names a new panel that may be live: a
+	// helper that died after its gate passed and before it cleared the journal,
+	// whichever version it was for. It is gated again and kept when it passes,
+	// never rolled back for slow health; only a missing one, or one that fails
+	// the gate, goes on to the rollback below.
+	if layout && (j.Phase == paneldb.PhaseStartingNew || j.Phase == paneldb.PhaseGating) && j.Container != "" {
+		for _, c := range append(slices.Clone(old), stale...) {
+			if c.Name != j.Container {
+				continue
+			}
+			if d, err := l.docker.Inspect(ctx, c.ID); err != nil || !d.Running || l.gate(ctx, c.ID, spec) != nil {
+				continue
+			}
+			paneldb.DropCopy(j.Copy)
+			if err := paneldb.ClearJournal(dataDir); err != nil {
+				return err
+			}
+			j = paneldb.Journal{Phase: paneldb.PhaseNone}
+			if c.Name == spec.Name { // this very swap: done
+				for _, o := range old {
+					_ = l.docker.StopRemove(ctx, o.ID)
+				}
+				return nil
+			}
+			// Another version's panel is the live one: this swap goes on from it.
+		}
+	}
 	// The first try died after its gate passed: the new panel is up and
 	// healthy, and it has been writing. Finish the pass instead of undoing it.
 	if len(stale) == 1 {
-		if d, err := l.docker.Inspect(ctx, stale[0].ID); err == nil && d.Running && d.Health == "healthy" {
-			if db := dbPath(spec); db != "" {
-				dropDB(copyName(db, spec))
+		if d, err := l.docker.Inspect(ctx, stale[0].ID); err == nil && d.Running {
+			pass := d.Health == "healthy"
+			if pass {
+				if db != "" {
+					paneldb.DropCopy(copyName(db, spec))
+				}
+				if layout {
+					if err := paneldb.ClearJournal(dataDir); err != nil {
+						return err
+					}
+				}
+				for _, c := range old {
+					_ = l.docker.StopRemove(ctx, c.ID)
+				}
+				return nil
 			}
-			for _, c := range old {
-				_ = l.docker.StopRemove(ctx, c.ID)
-			}
-			return nil
 		}
 	}
 	for _, c := range old {
@@ -275,21 +293,61 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		}
 		return fmt.Errorf("%w: %w", ErrRolledBack, cause)
 	}
-	db := dbPath(spec)
-	if _, err := os.Stat(db); db != "" && err != nil {
+	// A layout change the first try left unfinished goes back first. When it
+	// cannot, the old panel is not started: its path may hold no database.
+	if layout && j.Phase != paneldb.PhaseNone {
+		if err := paneldb.Recover(dataDir); err != nil {
+			return fmt.Errorf("undo the unfinished layout change (the old panel is not started): %w", err)
+		}
+	}
+	if _, err := os.Stat(db); db != "" && err != nil && !layout {
 		// A helper launched by a panel built before the data-dir mount cannot see the file.
 		slog.Warn("upgrade: database not visible to the helper, swapping without a copy", "file", db, "err", err)
 		db = ""
 	}
-	cp := copyName(db, spec)
+	var cp string
 	if db != "" {
+		cp = copyName(db, spec)
+		cur := db // where the database is now: the old path until the layout change ran
+		if layout {
+			if fi, err := os.Lstat(paneldb.Legacy(dataDir)); err == nil && fi.Mode().IsRegular() {
+				cur = paneldb.Legacy(dataDir)
+			}
+		}
 		if _, err := os.Stat(cp); err == nil { // left by the first try
-			if err := restoreDB(db, cp); err != nil {
+			if err := paneldb.RestoreCopy(cur, cp); err != nil {
 				return back(fmt.Errorf("restore the database of the first try: %w", err))
 			}
 		}
-		if err := saveDB(db, cp); err != nil {
-			return back(fmt.Errorf("copy database: %w", err))
+	}
+	applied := false
+	if layout {
+		// Confirmed exited by its container state, not a timer: nothing may hold the files.
+		for _, c := range old {
+			if d, err := l.docker.Inspect(ctx, c.ID); err != nil || d.Running {
+				return back(fmt.Errorf("the old panel %s is not confirmed exited (%v): the database layout is left alone", c.Name, err))
+			}
+		}
+		if applied, err = paneldb.ApplyLayout(dataDir, cp, spec.Name); err != nil {
+			if rerr := paneldb.Recover(dataDir); rerr != nil {
+				return errors.Join(fmt.Errorf("change the database layout: %w", err), fmt.Errorf("undo it (the old panel is not started): %w", rerr))
+			}
+			return back(fmt.Errorf("change the database layout: %w", err))
+		}
+	}
+	undo := func(restoreCopy bool, cause error) error {
+		return l.undone(undoArgs{applied: applied, dataDir: dataDir, db: db, cp: cp, restoreCopy: restoreCopy}, back, cause)
+	}
+	if db != "" {
+		if err := paneldb.SaveCopy(db, cp); err != nil {
+			return undo(false, fmt.Errorf("copy database: %w", err))
+		}
+	}
+	if applied {
+		// From here the new panel may take writes: recovery re-runs the gate instead of rolling back.
+		if err := paneldb.WriteJournal(dataDir, paneldb.Journal{Phase: paneldb.PhaseStartingNew, Direction: paneldb.DirLayout,
+			Src: paneldb.Legacy(dataDir), Dst: db, Copy: cp, Container: spec.Name}); err != nil {
+			return undo(false, fmt.Errorf("journal: %w", err))
 		}
 	}
 	id, err := l.docker.Run(ctx, spec)
@@ -301,35 +359,91 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		id, err = l.docker.Run(ctx, spec)
 	}
 	if err != nil {
-		if db != "" {
-			dropDB(cp) // the new panel never ran: the database is untouched
-		}
-		return back(fmt.Errorf("run new panel: %w", err))
+		// The new panel never ran: the database is untouched.
+		return undo(false, fmt.Errorf("run new panel: %w", err))
 	}
-	err = docker.Healthy(ctx, l.docker.Inspect, id, l.Poll, l.Grace, l.Deadline)
-	if err == nil {
-		err = l.probe(ctx, spec)
-	}
-	if err != nil {
+	if err = l.gate(ctx, id, spec); err != nil {
 		if db != "" {
-			l.recordFailure(ctx, id, db, spec.Image[strings.LastIndex(spec.Image, ":")+1:], err) // before the container, and its log, go
+			l.recordFailure(ctx, id, db, origDB, spec.Image[strings.LastIndex(spec.Image, ":")+1:], err) // before the container, and its log, go
 		}
 		_ = l.docker.StopRemove(ctx, id)
-		if db != "" {
-			if rerr := restoreDB(db, cp); rerr != nil {
-				// Starting the old panel on a migrated database would only crash it.
-				return errors.Join(fmt.Errorf("new panel: %w", err), fmt.Errorf("restore database from %s: %w", cp, rerr))
-			}
-		}
-		return back(fmt.Errorf("new panel: %w", err))
+		return undo(db != "", fmt.Errorf("new panel: %w", err))
 	}
 	if db != "" {
-		dropDB(cp)
+		paneldb.DropCopy(cp)
+	}
+	if applied {
+		if err := paneldb.ClearJournal(dataDir); err != nil {
+			return err
+		}
 	}
 	for _, c := range old {
 		_ = l.docker.StopRemove(ctx, c.ID)
 	}
 	return nil
+}
+
+type undoArgs struct {
+	applied     bool   // the layout change ran in this swap
+	dataDir, db string // db: the path the new panel uses
+	cp          string // "" = no copy was made
+	restoreCopy bool   // the new panel ran: the copy goes over the database
+}
+
+// undone puts the database back where the old panel looks for it, then starts
+// the old panel. It never starts it on a database it could not put back.
+func (l *Leaf) undone(a undoArgs, back func(error) error, cause error) error {
+	var err error
+	switch {
+	case a.applied:
+		// The layout goes back first, then the copy goes to the path the old panel uses.
+		if err = paneldb.RollbackLayout(a.dataDir); err == nil && a.restoreCopy {
+			err = paneldb.RestoreCopy(paneldb.Legacy(a.dataDir), a.cp)
+		} else if err == nil && a.cp != "" {
+			paneldb.DropCopy(a.cp)
+		}
+		if err == nil {
+			err = paneldb.ClearJournal(a.dataDir)
+		}
+	case a.cp != "" && a.restoreCopy:
+		err = paneldb.RestoreCopy(a.db, a.cp)
+	case a.cp != "":
+		paneldb.DropCopy(a.cp)
+	}
+	if err != nil {
+		// Starting the old panel on a migrated database would only crash it.
+		return errors.Join(cause, fmt.Errorf("put the database back from %s (the old panel is not started): %w", a.cp, err))
+	}
+	return back(cause)
+}
+
+// gate is the new panel's health gate: docker.Healthy, then the HTTP probe.
+func (l *Leaf) gate(ctx context.Context, id string, spec docker.ContainerSpec) error {
+	err := docker.Healthy(ctx, l.docker.Inspect, id, l.Poll, l.Grace, l.Deadline)
+	if err == nil {
+		err = l.probe(ctx, spec)
+	}
+	return err
+}
+
+func specEnv(spec docker.ContainerSpec, key string) string {
+	for _, e := range spec.Env {
+		if v, ok := strings.CutPrefix(e, key+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+func setEnv(env []string, key, val string) []string {
+	out := slices.Clone(env)
+	for i, e := range out {
+		if strings.HasPrefix(e, key+"=") {
+			out[i] = key + "=" + val
+			return out
+		}
+	}
+	return append(out, key+"="+val)
 }
 
 // probe asks the new panel's /api/health over HTTP until it answers 200 or
@@ -374,11 +488,6 @@ func (l *Leaf) probe(ctx context.Context, spec docker.ContainerSpec) error {
 	}
 }
 
-// failed reports a real error: a missing -wal or -shm is normal.
-func failed(err error, suf string) bool {
-	return err != nil && (suf == "" || !errors.Is(err, os.ErrNotExist))
-}
-
 // Failure is why the new panel failed its trial. The helper writes it before
 // it removes the container, since the log goes with it; the old panel reads
 // it back at boot (TakeFailure). Only the exit code and the log tail are
@@ -393,19 +502,35 @@ type Failure struct {
 // failureTail is how many log lines of the new panel are kept.
 const failureTail = 100
 
-// FailureFile is where the helper leaves the Failure, beside the database
-// (the one dir both containers see).
-func FailureFile(db string) string { return db + ".upgrade-failed.json" }
+// FailureFile is where the helper leaves the Failure: swap/, on the system
+// disk, never beside the database (the one dir both containers see).
+func FailureFile(db string) string {
+	return filepath.Join(paneldb.SwapDirOf(db), filepath.Base(db)+".upgrade-failed.json")
+}
 
-func (l *Leaf) recordFailure(ctx context.Context, id, db, tag string, cause error) {
+// failureFiles is every place a trial's Failure may be left: swap/, and beside
+// the old database path when the layout change ran, which is where the old
+// panel (built before it) looks for it after a rollback.
+func failureFiles(db, origDB string) []string {
+	fs := []string{FailureFile(db)}
+	if origDB != "" && origDB != db {
+		fs = append(fs, origDB+".upgrade-failed.json")
+	}
+	return fs
+}
+
+func (l *Leaf) recordFailure(ctx context.Context, id, db, origDB, tag string, cause error) {
 	f := Failure{Tag: tag, Reason: cause.Error()}
 	if d, err := l.docker.Inspect(ctx, id); err == nil && !d.Running {
 		f.ExitCode = d.ExitCode
 	}
 	f.Log, _ = l.docker.Logs(ctx, id, failureTail)
 	if b, err := json.Marshal(f); err == nil {
-		if err := os.WriteFile(FailureFile(db), b, 0o600); err != nil {
-			slog.Warn("upgrade: failure file not written", "err", err)
+		_ = os.MkdirAll(paneldb.SwapDirOf(db), 0o700)
+		for _, name := range failureFiles(db, origDB) {
+			if err := os.WriteFile(name, b, 0o600); err != nil {
+				slog.Warn("upgrade: failure file not written", "err", err)
+			}
 		}
 	}
 }

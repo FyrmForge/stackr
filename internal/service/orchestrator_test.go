@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -78,7 +77,7 @@ func newWorld(t *testing.T, opts ...Option) *world {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = orch.Close() })
-	w.orch, w.st = orch, storetest.Open(t, filepath.Join(dir, "stackr.db"))
+	w.orch, w.st = orch, storetest.Open(t, dbAt(dir))
 	w.fakeRegistry(t, nil)
 	ctx := context.Background()
 	now := time.Now()

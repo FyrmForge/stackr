@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/FyrmForge/hamr/pkg/db/sqlite"
 
 	appdb "github.com/FyrmForge/stackr/internal/db"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 )
 
 // ForceMigration is the operator's way out of a failed migration: the
@@ -19,8 +19,9 @@ import (
 // migrations after it again (force the version before the one that failed).
 // It opens the file alone, so it runs while the panel is down.
 func ForceMigration(ctx context.Context, cfg Config, version int, out io.Writer) error {
-	if cfg.DBPath == "" {
-		cfg.DBPath = filepath.Join(cfg.DataDir, "stackr.db")
+	cfg.DBPath = DBPathOr(cfg.DataDir, cfg.DBPath)
+	if err := paneldb.Check(cfg.DataDir, cfg.DBPath); err != nil {
+		return err
 	}
 	if _, err := os.Stat(cfg.DBPath); err != nil {
 		return fmt.Errorf("no database to force: %w", err) // connecting would create an empty one
@@ -43,4 +44,20 @@ func ForceMigration(ctx context.Context, cfg Config, version int, out io.Writer)
 	}
 	_, _ = fmt.Fprintf(out, "schema version forced to %d; the next start runs the migrations after it\n", version)
 	return nil
+}
+
+// DBPathOr is the effective database path: the configured one, else the
+// layout's <DataDir>/db/stackr.db. Every entry point that opens the database
+// takes its fallback from here.
+func DBPathOr(dataDir, dbPath string) string {
+	if dbPath == "" {
+		return paneldb.Path(dataDir)
+	}
+	return dbPath
+}
+
+// CheckPanelDB is checkPanelDB: the refusal each stackrd entry point that
+// touches the database runs first, before any key or database file is made.
+func CheckPanelDB(dataDir, dbPath string) error {
+	return paneldb.Check(dataDir, DBPathOr(dataDir, dbPath))
 }

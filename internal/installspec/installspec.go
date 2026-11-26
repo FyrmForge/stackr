@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 )
 
 const (
@@ -418,7 +419,7 @@ func Panel(image string, in Input) Container {
 		// The docker CLI's buildx builder registry lives here, so a panel
 		// upgrade (a new container) still knows its builders.
 		"DOCKER_CONFIG=" + in.DataDir + "/docker",
-		"DATABASE_PATH=" + in.DataDir + "/stackr.db",
+		"DATABASE_PATH=" + paneldb.Path(in.DataDir),
 		"HOST=" + in.Bind,
 		"PORT=" + PanelPort,
 		"TRUSTED_PROXIES=" + cmp.Or(in.BridgeSubnet, DockerRanges),

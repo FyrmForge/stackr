@@ -22,6 +22,7 @@ import (
 
 	appdb "github.com/FyrmForge/stackr/internal/db"
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors/all"
@@ -92,7 +93,7 @@ const ProxyContainer = "stackr-proxy"
 // Config is everything service.New needs to build the service tree.
 type Config struct {
 	DataDir    string // job logs, clones, backups and other state live under it
-	DBPath     string // "" = <DataDir>/stackr.db
+	DBPath     string // "" = <DataDir>/db/stackr.db
 	SecretsKey string // 64 hex chars; required, never generated here
 	// KeyFromEnv is true when SecretsKey came from STACKR_MASTER_KEY: the
 	// panel cannot rotate a key it does not own.
@@ -448,8 +449,12 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return nil, err
 	}
-	if cfg.DBPath == "" {
-		cfg.DBPath = filepath.Join(cfg.DataDir, "stackr.db")
+	cfg.DBPath = DBPathOr(cfg.DataDir, cfg.DBPath)
+	if err := paneldb.Check(cfg.DataDir, cfg.DBPath); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o700); err != nil {
+		return nil, err
 	}
 	if cfg.PanelUpstream == "" {
 		// ponytail: the installer (step 5) gives the panel this network alias,

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -50,7 +49,7 @@ func TestRebuildVIPsKeepsOtherTiles(t *testing.T) {
 	)
 	must(t, err)
 	t.Cleanup(func() { _ = orch.Close() })
-	st := storetest.Open(t, filepath.Join(dir, "stackr.db"))
+	st := storetest.Open(t, dbAt(dir))
 	org, stack, env := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	now := time.Now()
 	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
@@ -153,7 +152,7 @@ func newBootRig(t *testing.T) bootRig {
 	)
 	must(t, err)
 	t.Cleanup(func() { _ = orch.Close() })
-	st := storetest.Open(t, filepath.Join(dir, "stackr.db"))
+	st := storetest.Open(t, dbAt(dir))
 	org, stack, env := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	now := time.Now()
 	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: now}))

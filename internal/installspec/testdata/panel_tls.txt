@@ -39,7 +39,7 @@ docker run
   -e
   DOCKER_CONFIG=/var/lib/stackr/docker
   -e
-  DATABASE_PATH=/var/lib/stackr/stackr.db
+  DATABASE_PATH=/var/lib/stackr/db/stackr.db
   -e
   HOST=172.17.0.1
   -e

@@ -233,6 +233,9 @@ func run(log *slog.Logger, generate bool) error {
 		return nil
 	}
 
+	if err := checkPanelDB(); err != nil {
+		return err
+	}
 	masterKey, err := masterKey()
 	if err != nil {
 		return fmt.Errorf("master key: %w", err)
@@ -339,6 +342,12 @@ func run(log *slog.Logger, generate bool) error {
 	return srv.Start()
 }
 
+// checkPanelDB runs first in every path that touches the database (serve,
+// create-admin, admin-key, migrate-force), before any key or database file is
+// made: a database that is in a layout change or on a missing disk is refused
+// here, so no empty database is seeded.
+func checkPanelDB() error { return service.CheckPanelDB(envDataDir, envDatabasePath) }
+
 // masterKey is STACKR_MASTER_KEY, else the key file the installer wrote. A
 // rotation waiting in keys/master.key.next is finished first, so the server
 // and the CLI commands all see the key the database is sealed with.
@@ -370,6 +379,9 @@ func createAdmin(args []string, stdin io.Reader, out io.Writer) error {
 	email := fs.String("email", "", "the admin's email (required)")
 	check := fs.Bool("check", false, "only report whether an admin is still needed")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := checkPanelDB(); err != nil {
 		return err
 	}
 	key, err := masterKey()
@@ -407,6 +419,9 @@ func createAdmin(args []string, stdin io.Reader, out io.Writer) error {
 // adminKey mints a new key for the stackr admin and prints it on the line
 // stackr-install reads.
 func adminKey(out io.Writer) error {
+	if err := checkPanelDB(); err != nil {
+		return err
+	}
 	mk, err := masterKey()
 	if err != nil {
 		return err
@@ -429,6 +444,9 @@ func adminKey(out io.Writer) error {
 //	stackrd migrate-force      report the version and whether it is dirty
 //	stackrd migrate-force 41   set it to 41 without running anything
 func migrateForce(args []string, out io.Writer) error {
+	if err := checkPanelDB(); err != nil {
+		return err
+	}
 	version := -1
 	if len(args) > 1 {
 		return errors.New("usage: stackrd migrate-force [version]")
