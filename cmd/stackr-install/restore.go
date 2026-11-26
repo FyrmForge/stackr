@@ -751,5 +751,8 @@ func restorePanelDB(dataDir string) error {
 	case paneldb.PhaseMoved:
 		return errors.New("the panel database is on a node disk (move.journal): move it back to the system disk before a restore")
 	}
+	if j.Direction == paneldb.DirLayout || j.Direction == paneldb.DirUpdate {
+		return nil // a backup supersedes an unfinished swap (beginRestore replaces its journal)
+	}
 	return fmt.Errorf("move.journal is in phase %q: run stackr-install (no arguments) on this node first, it finishes or undoes it", j.Phase)
 }

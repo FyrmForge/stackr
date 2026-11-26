@@ -34,7 +34,6 @@ func get(path string) string {
 // finished, and while the database is on a disk.
 func TestRestorePanelDBRefusals(t *testing.T) {
 	for name, j := range map[string]paneldb.Journal{
-		"layout":  {Phase: paneldb.PhaseLayout, Direction: paneldb.DirLayout},
 		"copying": {Phase: "copied", Direction: "in"},
 	} {
 		t.Run(name, func(t *testing.T) {

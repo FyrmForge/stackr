@@ -196,6 +196,16 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		_, e2 := os.Stat(paneldb.Path(dataDir))
 		layout = e1 == nil || e2 == nil // neither visible to the helper: the no-copy case below
 	}
+	// On an installed box (its install.json is visible) the configured database
+	// must be there, whatever the path: a missing one is a loss to refuse, never a
+	// "not visible" to swap past without a copy.
+	if !layout && db != "" && dataDir != "" {
+		if _, ierr := os.Stat(filepath.Join(dataDir, paneldb.InstallFile)); ierr == nil {
+			if _, err := os.Stat(db); err != nil {
+				return fmt.Errorf("the database %s is missing on an installed box (%v): refusing to swap without it", db, err)
+			}
+		}
+	}
 	var j paneldb.Journal
 	if layout {
 		db = paneldb.Path(dataDir)
@@ -240,18 +250,33 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 			if d, err := l.docker.Inspect(ctx, c.ID); err != nil || !d.Running || l.gate(ctx, c.ID, spec) != nil {
 				continue
 			}
+			// Predecessors go first, and must go: a journal cleared with one left
+			// behind could see it started by a later rollback.
+			var rest []docker.Container
+			for _, o := range append(slices.Clone(old), stale...) {
+				if o.ID == c.ID {
+					continue
+				}
+				if err := l.docker.StopRemove(ctx, o.ID); err != nil {
+					return fmt.Errorf("remove the predecessor %s: %w", o.Name, err)
+				}
+			}
 			if err := paneldb.ClearJournal(dataDir); err != nil {
 				return err
 			}
 			paneldb.DropCopy(j.Copy) // only after the journal is clear: a crash before it still has its copy
 			j = paneldb.Journal{Phase: paneldb.PhaseNone}
 			if c.Name == spec.Name { // this very swap: done
-				for _, o := range old {
-					_ = l.docker.StopRemove(ctx, o.ID)
-				}
 				return nil
 			}
 			// Another version's panel is the live one: this swap goes on from it.
+			for _, o := range old {
+				if o.ID == c.ID {
+					rest = append(rest, o)
+				}
+			}
+			old, stale = rest, nil
+			break
 		}
 	}
 	// The first try died after its gate passed: the new panel is up and
@@ -260,6 +285,11 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		if d, err := l.docker.Inspect(ctx, stale[0].ID); err == nil && d.Running {
 			pass := d.Health == "healthy"
 			if pass {
+				for _, c := range old {
+					if err := l.docker.StopRemove(ctx, c.ID); err != nil {
+						return fmt.Errorf("remove the predecessor %s: %w", c.Name, err)
+					}
+				}
 				if layout {
 					if err := paneldb.ClearJournal(dataDir); err != nil {
 						return err
@@ -268,12 +298,25 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 				if db != "" {
 					paneldb.DropCopy(copyName(db, spec))
 				}
-				for _, c := range old {
-					_ = l.docker.StopRemove(ctx, c.ID)
-				}
 				return nil
 			}
 		}
+	}
+	// The predecessors a rollback may start: the ones the journal recorded, else
+	// the ones running now, else (a rerun, they are stopped) all that are left.
+	// Never every panel-labelled container.
+	startList := old
+	if len(j.Predecessors) > 0 {
+		startList = slices.DeleteFunc(slices.Clone(old), func(c docker.Container) bool { return !slices.Contains(j.Predecessors, c.ID) })
+	} else if run := slices.DeleteFunc(slices.Clone(old), func(c docker.Container) bool { return c.State != "running" }); len(run) > 0 {
+		startList = run
+	}
+	predIDs := make([]string, 0, len(startList))
+	for _, c := range startList {
+		predIDs = append(predIDs, c.ID)
+	}
+	if len(startList) == 0 && len(j.Predecessors) > 0 {
+		return errors.New("the predecessor panel the journal recorded is gone: not starting any other panel")
 	}
 	for _, c := range old {
 		if err := l.docker.Stop(ctx, c.ID); err != nil {
@@ -286,7 +329,7 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		}
 	}
 	back := func(cause error) error {
-		for _, c := range old {
+		for _, c := range startList {
 			if err := l.docker.Start(ctx, c.ID); err != nil {
 				return errors.Join(cause, fmt.Errorf("start old panel: %w", err))
 			}
@@ -329,7 +372,7 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 				return back(fmt.Errorf("the old panel %s is not confirmed exited (%v): the database layout is left alone", c.Name, err))
 			}
 		}
-		if applied, err = paneldb.ApplyLayout(dataDir, cp, spec.Name); err != nil {
+		if applied, err = paneldb.ApplyLayout(dataDir, cp, spec.Name, predIDs...); err != nil {
 			if rerr := paneldb.Recover(dataDir); rerr != nil {
 				return errors.Join(fmt.Errorf("change the database layout: %w", err), fmt.Errorf("undo it (the old panel is not started): %w", rerr))
 			}
@@ -352,7 +395,7 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 			dir = paneldb.DirLayout
 		}
 		if err := paneldb.WriteJournal(dataDir, paneldb.Journal{Phase: paneldb.PhaseStartingNew, Direction: dir,
-			Src: paneldb.Legacy(dataDir), Dst: db, Copy: cp, Container: spec.Name, Ran: true}); err != nil {
+			Src: paneldb.Legacy(dataDir), Dst: db, Copy: cp, Container: spec.Name, Ran: true, Image: spec.Image, Predecessors: predIDs}); err != nil {
 			return undo(false, fmt.Errorf("journal: %w", err))
 		}
 	}
@@ -375,6 +418,14 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		_ = l.docker.StopRemove(ctx, id)
 		return undo(db != "", fmt.Errorf("new panel: %w", err))
 	}
+	// The predecessors go before the journal clears: with one left behind, a
+	// later rollback could start it. A failure here leaves the journal, and the
+	// helper's retry finishes from the healthy new panel.
+	for _, c := range old {
+		if err := l.docker.StopRemove(ctx, c.ID); err != nil {
+			return fmt.Errorf("remove the predecessor %s: %w", c.Name, err)
+		}
+	}
 	if layout {
 		if err := paneldb.ClearJournal(dataDir); err != nil {
 			return err
@@ -382,9 +433,6 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 	}
 	if db != "" {
 		paneldb.DropCopy(cp) // only after the journal is clear
-	}
-	for _, c := range old {
-		_ = l.docker.StopRemove(ctx, c.ID)
 	}
 	return nil
 }

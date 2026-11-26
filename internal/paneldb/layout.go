@@ -84,7 +84,7 @@ func EnsureFresh(dataDir string) error {
 // file is the newer file of an old restore: its set (main, -wal, -shm) moves
 // to swap/ under a name the journal records first, the legacy file is adopted,
 // nothing is merged.
-func ApplyLayout(dataDir, cp, container string) (bool, error) {
+func ApplyLayout(dataDir, cp, container string, predecessors ...string) (bool, error) {
 	j, err := ReadJournal(dataDir)
 	if err != nil {
 		return false, err
@@ -113,7 +113,7 @@ func ApplyLayout(dataDir, cp, container string) (bool, error) {
 			aside = "db.superseded-" + time.Now().UTC().Format(Stamp)
 		}
 	}
-	j = Journal{Phase: PhaseLayout, Direction: DirLayout, Src: legacy, Dst: db, Copy: cp, Container: container, Aside: aside}
+	j = Journal{Phase: PhaseLayout, Direction: DirLayout, Src: legacy, Dst: db, Copy: cp, Container: container, Aside: aside, Predecessors: predecessors}
 	if err := WriteJournal(dataDir, j); err != nil {
 		return false, err
 	}
@@ -229,6 +229,11 @@ func RollbackLayout(dataDir string) error {
 	return SyncDir(dataDir)
 }
 
+// ErrCopyMissing: the new panel ran and its pre-upgrade copy is gone, so the
+// database cannot go back. The way out is forward: stackr-install starts the
+// recorded new panel on the migrated database, or restores a backup.
+var ErrCopyMissing = errors.New("the new panel ran and its pre-upgrade copy is missing: the database cannot go back")
+
 // Recover finishes a swap that a helper left unfinished: a layout change goes
 // back, and the pre-upgrade copy the journal names, when there is one, is put
 // over the database. Once the new panel has run (Ran, or starting-new and
@@ -244,13 +249,8 @@ func Recover(dataDir string) error {
 	if (j.Direction != DirLayout && j.Direction != DirUpdate) || j.Phase == PhaseNone {
 		return nil
 	}
-	if j.Ran || j.Phase == PhaseStartingNew || j.Phase == PhaseGating {
-		if j.Copy == "" {
-			return errors.New("the new panel ran and the journal names no pre-upgrade copy: not rolling back")
-		}
-		if _, err := os.Stat(j.Copy); err != nil {
-			return fmt.Errorf("the new panel ran and its pre-upgrade copy is missing (%v): not rolling back, the journal stays", err)
-		}
+	if j.RollbackBlocked() {
+		return fmt.Errorf("%w. Not rolling back, the journal stays. Run stackr-install: it starts the new panel again on the migrated database. Or run stackr-install restore <archive> to go back to a backup", ErrCopyMissing)
 	}
 	target := j.Dst
 	if j.Direction == DirLayout {
@@ -278,6 +278,16 @@ func Recover(dataDir string) error {
 		DropCopy(j.Copy)
 	}
 	return nil
+}
+
+// RollbackBlocked: the new panel ran and the pre-upgrade copy is gone, so the
+// database cannot go back (ErrCopyMissing).
+func (j Journal) RollbackBlocked() bool {
+	if !(j.Ran || j.Phase == PhaseStartingNew || j.Phase == PhaseGating) {
+		return false
+	}
+	_, err := os.Stat(j.Copy)
+	return j.Copy == "" || err != nil
 }
 
 // AsideCopy moves a copy no journal names (an earlier attempt's) to

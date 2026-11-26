@@ -102,8 +102,13 @@ type Journal struct {
 	AsideDone bool   `json:"aside_done,omitempty"`
 	// Ran: the new panel has been started on the database, so a recovery that
 	// must roll back needs the pre-upgrade copy and refuses without it.
-	Ran  bool   `json:"ran,omitempty"`
-	Time string `json:"time,omitempty"`
+	Ran bool `json:"ran,omitempty"`
+	// Image is the new panel's image (so an installer rerun can start it again),
+	// Predecessors the exact containers (ids) that ran before it: the only ones
+	// a rollback may start.
+	Image        string   `json:"image,omitempty"`
+	Predecessors []string `json:"predecessors,omitempty"`
+	Time         string   `json:"time,omitempty"`
 }
 
 // ReadJournal reads the journal; none on disk means phase none.
@@ -236,15 +241,18 @@ func check(dataDir, dbPath string, m mode) error {
 	if m == modeRestore {
 		return nil
 	}
-	// The database file must exist, on an install (install.json) and wherever
-	// the layout is established (the placeholder is there). Only the explicit
-	// fresh phase, written by the installer of a new install, may create one.
-	// An old-layout file still at the old path is the swap's to move.
-	if j.Phase != PhaseFresh && dbPath == Path(dataDir) {
+	// The database file must exist, on an install (install.json, whatever the
+	// path is configured to) and wherever the canonical layout is established
+	// (the placeholder is there). Only the explicit fresh phase, written by the
+	// installer of a new install, may create one. An old-layout file still at
+	// the old path is the swap's to move.
+	if j.Phase != PhaseFresh {
 		if _, err := os.Stat(dbPath); errors.Is(err, os.ErrNotExist) {
 			lfi, lerr := os.Lstat(Legacy(dataDir))
 			_, ierr := os.Stat(filepath.Join(dataDir, InstallFile))
-			if (ierr == nil || (lerr == nil && lfi.IsDir())) && !(lerr == nil && lfi.Mode().IsRegular()) {
+			canonical := dbPath == Path(dataDir)
+			legacyFile := lerr == nil && lfi.Mode().IsRegular()
+			if (ierr == nil || (canonical && lerr == nil && lfi.IsDir())) && !(canonical && legacyFile) {
 				return refuse("%s is missing. Not starting, so no empty database is made. Restore a backup: stackr-install restore <archive>", dbPath)
 			}
 		}

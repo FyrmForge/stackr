@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -557,6 +558,117 @@ func TestUpdateJournalWithoutItsCopyRefuses(t *testing.T) {
 	}
 	if read(paneldb.Path(dir)) != "migrated" {
 		t.Error("the database was touched")
+	}
+}
+
+// An installed box whose configured database is missing (a custom path, or the
+// canonical one gone) is refused before anything stops: never swapped without a copy.
+func TestSwapRefusesAMissingDatabaseOnAnInstall(t *testing.T) {
+	for name, path := range map[string]string{"custom": "elsewhere/my.db", "canonical": "db/stackr.db"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			write(t, filepath.Join(dir, paneldb.InstallFile), "{}")
+			spec := newSpec(dir)
+			spec.Env = []string{"DATA_DIR=" + dir, "DATABASE_PATH=" + filepath.Join(dir, path)}
+			h := newHook("healthy")
+			if err := leaf(h).Swap(context.Background(), spec); err == nil {
+				t.Fatal("swap went ahead")
+			}
+			if got := calls(h.Fake); got != "" {
+				t.Errorf("docker was touched: %s", got)
+			}
+		})
+	}
+}
+
+// Only the predecessor the journal recorded runs again after a rollback, never
+// every panel-labelled container.
+func TestRollbackStartsOnlyTheRecordedPredecessor(t *testing.T) {
+	dir := laidOut(t, "live")
+	fake := dockerfake.New()
+	fake.RunID = "new"
+	fake.Containers = []docker.Container{
+		{ID: "old", Name: "stackr", State: "running", Labels: map[string]string{LabelRole: "panel"}},
+		{ID: "ghost", Name: "stackr-0.0.1", State: "exited", Labels: map[string]string{LabelRole: "panel"}},
+	}
+	fake.Details = map[string]docker.Detail{"new": {Running: true, Health: "unhealthy"}}
+	h := &hook{Fake: fake}
+	var started []string
+	h.onStart = func(id string) { started = append(started, id) }
+	if err := leaf(h).Swap(context.Background(), newSpec(dir)); err == nil {
+		t.Fatal("swap passed")
+	}
+	if len(started) != 1 || started[0] != "old" {
+		t.Errorf("started %v, want only the running predecessor", started)
+	}
+
+	// a rerun: the journal records the predecessor, the other labelled panel stays down
+	dir = laidOut(t, "migrated")
+	cp := filepath.Join(dir, "swap", "stackr.db.pre-0.2.0")
+	must(t, os.MkdirAll(filepath.Dir(cp), 0o700))
+	write(t, cp, "pre-upgrade")
+	must(t, paneldb.WriteJournal(dir, paneldb.Journal{Phase: paneldb.PhaseStartingNew, Direction: paneldb.DirUpdate,
+		Dst: paneldb.Path(dir), Copy: cp, Container: "stackr-0.2.0", Ran: true, Predecessors: []string{"old"}}))
+	fake = dockerfake.New()
+	fake.RunID = "new"
+	fake.Containers = []docker.Container{
+		{ID: "ghost", Name: "stackr-0.0.1", State: "exited", Labels: map[string]string{LabelRole: "panel"}},
+		{ID: "old", Name: "stackr", State: "exited", Labels: map[string]string{LabelRole: "panel"}},
+	}
+	fake.Details = map[string]docker.Detail{"new": {Running: true, Health: "unhealthy"}}
+	h = &hook{Fake: fake}
+	started = nil
+	h.onStart = func(id string) { started = append(started, id) }
+	_ = leaf(h).Swap(context.Background(), newSpec(dir))
+	if len(started) != 1 || started[0] != "old" {
+		t.Errorf("rerun started %v, want only the recorded predecessor", started)
+	}
+}
+
+// The predecessors are removed before the journal clears, and a removal that
+// fails keeps the journal and the copy: the helper's retry finishes from the
+// healthy new panel instead of leaving a startable predecessor behind.
+func TestCommitRemovesPredecessorsBeforeClearingTheJournal(t *testing.T) {
+	dir := laidOut(t, "live")
+	fake := dockerfake.New()
+	fake.RunID = "new"
+	fake.Containers = []docker.Container{{ID: "old", Name: "stackr", State: "running", Labels: map[string]string{LabelRole: "panel"}}}
+	fake.Details = map[string]docker.Detail{"new": {Running: true, Health: "healthy"}}
+	fake.Err = map[string]error{"StopRemove(old)": errors.New("daemon busy")}
+	h := &hook{Fake: fake}
+	if err := leaf(h).Swap(context.Background(), newSpec(dir)); err == nil {
+		t.Fatal("swap passed with the predecessor still there")
+	}
+	if got := journalPhase(t, dir); got != paneldb.PhaseStartingNew {
+		t.Errorf("journal = %q, must stay until the predecessor is gone", got)
+	}
+	if m, _ := filepath.Glob(filepath.Join(dir, "swap", "stackr.db.pre-0.2.0")); len(m) != 1 {
+		t.Error("the copy went before the journal cleared")
+	}
+
+	// the retry: the new panel (named spec.Name) is up and healthy; the helper finishes
+	fake.Err = nil
+	fake.Containers = []docker.Container{
+		{ID: "old", Name: "stackr", State: "exited", Labels: map[string]string{LabelRole: "panel"}},
+		{ID: "new", Name: "stackr-0.2.0", State: "running", Labels: map[string]string{LabelRole: "panel"}},
+	}
+	if err := leaf(h).Swap(context.Background(), newSpec(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if got := journalPhase(t, dir); got != paneldb.PhaseNone {
+		t.Errorf("journal after the retry = %q", got)
+	}
+	if exists(filepath.Join(dir, "swap", "stackr.db.pre-0.2.0")) {
+		t.Error("copy left after the commit")
+	}
+	var removed bool
+	for _, c := range fake.Calls() {
+		if c.Method == "StopRemove" && len(c.Args) > 0 && c.Args[0] == "old" {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Error("the predecessor was never removed")
 	}
 }
 

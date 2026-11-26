@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -43,11 +44,21 @@ func (r runner) panelDB(ctx context.Context, in installspec.Input) error {
 		// running and answers is kept: the journal only missed its clearing.
 		if (j.Phase == paneldb.PhaseStartingNew || j.Phase == paneldb.PhaseGating) && j.Container != "" && panelAnswers(ctx, in, j.Container) {
 			r.say("  the new panel " + j.Container + " is up: finishing the database layout change")
+			for _, id := range j.Predecessors {
+				if err := r.docker(ctx, "rm", "-f", id); err != nil {
+					return err
+				}
+			}
 			if err := paneldb.ClearJournal(dataDir); err != nil {
 				return err
 			}
 			paneldb.DropCopy(j.Copy) // only after the journal is clear
 			return nil
+		}
+		// The new panel ran and the copy is gone: the database cannot go back, so
+		// the way out is forward, on the migrated database.
+		if j.RollbackBlocked() {
+			return r.keepNewPanel(ctx, in, j)
 		}
 		r.say("  undoing an unfinished database layout change (move.journal: " + j.Phase + ")")
 		// The new panel of the dead helper goes first: nothing may write while the files move back.
@@ -58,9 +69,13 @@ func (r runner) panelDB(ctx context.Context, in installspec.Input) error {
 		if err := paneldb.Recover(dataDir); err != nil {
 			return fmt.Errorf("undo the database layout change (the old panel is not started): %w", err)
 		}
-		// The old panel was stopped by the swap; it runs on its own spec again.
-		ids, _ := read(ctx, "docker", "ps", "-aq", "--filter", "label="+installspec.LabelRole+"="+"panel")
-		for _, id := range strings.Fields(ids) {
+		// Only the predecessor the journal recorded runs again, on its own spec.
+		ids := j.Predecessors
+		if len(ids) == 0 { // a journal from before they were recorded
+			all, _ := read(ctx, "docker", "ps", "-aq", "--filter", "label="+installspec.LabelRole+"="+"panel")
+			ids = strings.Fields(all)
+		}
+		for _, id := range ids {
 			if err := r.docker(ctx, "start", id); err != nil {
 				return err
 			}
@@ -73,4 +88,45 @@ func (r runner) panelDB(ctx context.Context, in installspec.Input) error {
 		return nil // an old layout: the panel swap moves it
 	}
 	return paneldb.EnsureFresh(dataDir)
+}
+
+// keepNewPanel is the way out when a swap died after its new panel ran and the
+// pre-upgrade copy is gone: start the recorded new panel again (its container,
+// or its image under the same name) on the migrated database, and clear the
+// journal only once it answers and its predecessors are removed.
+func (r runner) keepNewPanel(ctx context.Context, in installspec.Input, j paneldb.Journal) error {
+	dataDir := in.DataDir
+	r.say("  the pre-upgrade database copy is gone, so the database cannot go back: starting the new panel", j.Container, "on it")
+	if j.Container == "" {
+		return errors.New("move.journal names no new panel to start: run stackr-install restore <archive>")
+	}
+	_ = r.quietDocker(ctx, "rm", "-f", upgraderName)
+	j.Phase = paneldb.PhaseGating // the new panel is the one booting
+	if err := paneldb.WriteJournal(dataDir, j); err != nil {
+		return err
+	}
+	if _, err := read(ctx, "docker", "inspect", "-f", "{{.State.Running}}", j.Container); err == nil {
+		if err := r.docker(ctx, "start", j.Container); err != nil {
+			return err
+		}
+	} else {
+		if j.Image == "" {
+			return errors.New("move.journal names no image for the new panel: run stackr-install restore <archive>")
+		}
+		in.DisksBind = installspec.HostDisksBind("")
+		c := installspec.Panel(j.Image, in)
+		c.Name = j.Container
+		if err := r.docker(ctx, c.RunArgs()...); err != nil {
+			return err
+		}
+	}
+	if !panelAnswers(ctx, in, j.Container) {
+		return fmt.Errorf("the new panel %s did not come up on the migrated database; the journal stays. Check docker logs %s, or run stackr-install restore <archive>", j.Container, j.Container)
+	}
+	for _, id := range j.Predecessors {
+		if err := r.docker(ctx, "rm", "-f", id); err != nil {
+			return err
+		}
+	}
+	return paneldb.ClearJournal(dataDir)
 }
