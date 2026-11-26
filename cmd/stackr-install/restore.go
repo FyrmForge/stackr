@@ -741,6 +741,9 @@ func restorePanelDB(dataDir string) error {
 	if err != nil {
 		return err
 	}
+	if j.Moved { // an Update interrupted on a moved install: the database is still on the disk
+		return errors.New("the panel database is on a node disk (move.journal): run stackr-install (no arguments) to finish the update, then move the database back before a restore")
+	}
 	switch j.Phase {
 	case paneldb.PhaseNone, paneldb.PhaseFresh:
 		return nil

@@ -115,6 +115,15 @@ func TestOldCopyTimeAndLanded(t *testing.T) {
 	if !d.orch.movePanelLanded(back) || d.orch.movePanelLanded(in) {
 		t.Error("move-back landed wrong")
 	}
+	// the new panel booting for this move (journal still at gating) is a landing too
+	movedJournal(t, d.orch, paneldb.Journal{Phase: paneldb.PhaseGating, Direction: paneldb.DirIn, MoveID: "m1"})
+	if !d.orch.movePanelLanded(in) || d.orch.movePanelLanded(back) {
+		t.Error("move-in at gating landed wrong")
+	}
+	movedJournal(t, d.orch, paneldb.Journal{Phase: paneldb.PhaseStartingNew, Direction: paneldb.DirBack, MoveID: "m2"})
+	if !d.orch.movePanelLanded(back) || d.orch.movePanelLanded(in) {
+		t.Error("move-back at starting-new landed wrong")
+	}
 	// a rolled back move-in is not a landing
 	movedJournal(t, d.orch, paneldb.Journal{Phase: paneldb.PhaseNone})
 	if d.orch.movePanelLanded(in) {

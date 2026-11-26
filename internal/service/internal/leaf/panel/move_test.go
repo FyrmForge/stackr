@@ -369,11 +369,8 @@ func TestWalOnlyRowEndsInTheCopy(t *testing.T) {
 
 func TestVerifyFailureRollsBackWithTheSourceUntouched(t *testing.T) {
 	e := newEnv(t)
-	e.h.FailOn = func(string) error { return nil }
 	// the integrity check of the copy fails
 	l := e.leaf(nil)
-	bad := *e.h
-	_ = bad
 	e.h.Env.Integrity = func(context.Context, string) error { return errors.New("malformed") }
 	err := l.Move(context.Background(), e.spec("stackr-new"), mvIn())
 	if !errors.Is(err, ErrRolledBack) {
@@ -400,7 +397,6 @@ func TestGateFailureRollsBack(t *testing.T) {
 
 func TestDiskFullDuringTheCopyRollsBack(t *testing.T) {
 	e := newEnv(t)
-	e.h.FailOn = nil
 	// the copy op fails as a full disk would
 	full := &failingDisk{inner: e.dd, op: "copy"}
 	l := e.leaf(nil)

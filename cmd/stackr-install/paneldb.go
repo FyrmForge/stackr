@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -67,7 +67,7 @@ func (r runner) panelDB(ctx context.Context, in installspec.Input) error {
 					return err
 				}
 			}
-			if err := paneldb.ClearJournal(dataDir); err != nil {
+			if err := paneldb.Finish(dataDir, j); err != nil {
 				return err
 			}
 			paneldb.DropCopy(j.Copy) // only after the journal is clear
@@ -146,7 +146,7 @@ func (r runner) keepNewPanel(ctx context.Context, in installspec.Input, j paneld
 			return err
 		}
 	}
-	return paneldb.ClearJournal(dataDir)
+	return paneldb.Finish(dataDir, j)
 }
 
 // resumeMove finishes or rolls back a database move a helper left unfinished:

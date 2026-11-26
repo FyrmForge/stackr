@@ -114,10 +114,13 @@ func (o *Orchestrator) movePanelLanded(j store.Job) bool {
 	if err != nil || jr.MoveID != p.MoveID {
 		return false
 	}
+	// the panel booting is the new one: its journal is at starting-new or gating
+	// of this move, or already at the end
+	trial := jr.Phase == paneldb.PhaseStartingNew || jr.Phase == paneldb.PhaseGating
 	if p.Back {
-		return jr.Phase == paneldb.PhaseNone && jr.Direction == paneldb.DirBack
+		return jr.Direction == paneldb.DirBack && (trial || jr.Phase == paneldb.PhaseNone)
 	}
-	return jr.Phase == paneldb.PhaseMoved
+	return jr.Direction == paneldb.DirIn && (trial || jr.Phase == paneldb.PhaseMoved)
 }
 
 // PanelDBState reads the card's row. Reads only: it makes no helper run.
@@ -223,6 +226,8 @@ func (o *Orchestrator) planWith(ctx context.Context, nodeID string, back, own bo
 		p.Refusal = "The panel database is on the system disk."
 	case j.Phase != paneldb.PhaseNone && j.Phase != paneldb.PhaseMoved:
 		p.Refusal = "A move is unfinished or was interrupted. Run stackr-install on this node: it reads move.journal and finishes or rolls back."
+	case back && j.OldCopy != "" && fileExists(filepath.Join(paneldb.Swap(o.cfg.DataDir), j.OldCopy)):
+		p.Refusal = "Remove the old copy of the database on the system disk first."
 	case o.UpgradeUnderway(ctx):
 		p.Refusal = "An update is running."
 	case !own && o.movePanelLive(ctx):
@@ -399,3 +404,5 @@ func (o *Orchestrator) RemovePanelDBOldCopy(ctx context.Context, by *Principal, 
 	}
 	return err
 }
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }

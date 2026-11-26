@@ -117,3 +117,21 @@ func TestUninstallRefusesWhileTheDatabaseIsOnADisk(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// A restore is refused on a moved install, also when an Update on it was
+// interrupted (its journal carries the moved state): the restore would rename
+// across filesystems.
+func TestRestoreRefusedOnAMovedInstall(t *testing.T) {
+	for _, j := range []paneldb.Journal{
+		{Phase: paneldb.PhaseMoved, Direction: paneldb.DirIn, DiskID: "d1"},
+		{Phase: paneldb.PhaseGating, Direction: paneldb.DirUpdate, Moved: true, DiskID: "d1"},
+	} {
+		dir := t.TempDir()
+		if err := paneldb.WriteJournal(dir, j); err != nil {
+			t.Fatal(err)
+		}
+		if err := restorePanelDB(dir); err == nil {
+			t.Errorf("restore let %+v through", j)
+		}
+	}
+}
