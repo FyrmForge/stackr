@@ -423,24 +423,90 @@ func TestQuarantineLeavesAFailedOverPrimaryAlone(t *testing.T) {
 	}
 }
 
-// A standalone operated primary, with its archive volume on the disk, keeps
-// running: it is left to failover, not stopped blindly.
-func TestQuarantineLeavesAnOperatedPrimaryAndItsArchiveVolumeAlone(t *testing.T) {
-	ctx := context.Background()
-	w := newForgetWorld(t, true, false)
-	w.wFake.StopExits = map[string]bool{w.cid: true}
-	m, err := w.orch.operated.Create(ctx, w.tl.ID, "postgres", "stackr", "")
+// A standalone operated primary (no standby), with its archive volume on the
+// disk, is stopped like a tile, recorded, kept out of the tick and resumed by
+// Check disk. A primary that has a standby stays up: it is left to failover.
+func TestQuarantineStopsAStandaloneOperatedPrimaryButNotOneWithAStandby(t *testing.T) {
+	for _, withStandby := range []bool{false, true} {
+		ctx := context.Background()
+		w := newForgetWorld(t, true, false)
+		w.wFake.StopExits = map[string]bool{w.cid: true}
+		m, err := w.orch.operated.Create(ctx, w.tl.ID, "postgres", "stackr", "")
+		must(t, err)
+		_, err = w.orch.members.CreatePrimary(ctx, m.ID)
+		must(t, err)
+		for _, v := range []store.Volume{w.v, func() store.Volume { a := w.vol(t, "db-archive"); w.ensure(t, a); return a }()} {
+			v.InstanceID = &m.ID
+			must(t, w.st.Volumes.Update(ctx, v))
+		}
+		if withStandby {
+			must(t, w.st.OperatedMembers.Create(ctx, store.OperatedMember{ID: "m-std", InstanceID: m.ID, Role: opmember.Replica,
+				NodeID: w.ctl.ID, Volume: "std-vol", State: opmember.Running, Phase: opmember.Streaming, CreatedAt: time.Now(), UpdatedAt: time.Now()}))
+		}
+		j := w.quarantine(t, w.row)
+		if j.State != job.Done {
+			t.Fatalf("standby=%v job = %s %q", withStandby, j.State, j.Error)
+		}
+		if got := sawCall(w.wFake, "Stop("+w.cid); got == withStandby {
+			t.Errorf("standby=%v: stopped = %v: %v", withStandby, got, callNames(w.wFake))
+		}
+		rec, _, _ := w.orch.quarLoad(ctx, w.row.ID)
+		if slices.Contains(rec.Tiles, w.tl.ID) == withStandby {
+			t.Errorf("standby=%v: record = %+v", withStandby, rec)
+		}
+		if withStandby {
+			continue
+		}
+		if p, _ := w.r0(t, m.ID); p.State != opmember.Running {
+			t.Errorf("the primary's member state = %s, want it kept running", p.State)
+		}
+		before := len(w.wFake.Calls())
+		w.orch.startMembers(ctx)
+		for _, c := range w.wFake.Calls()[before:] {
+			if strings.HasPrefix(c.String(), "Start(") {
+				t.Errorf("the tick started the primary on a missing disk: %v", c)
+			}
+		}
+		w.check(t)
+		if !w.deployJobs(t, w.tl) {
+			t.Error("Check disk did not redeploy the standalone primary")
+		}
+	}
+}
+
+func (w *forgetWorld) r0(t *testing.T, instanceID string) (InstanceMember, bool) {
+	t.Helper()
+	ms, err := w.orch.members.List(context.Background(), instanceID)
 	must(t, err)
-	for _, v := range []store.Volume{w.v, func() store.Volume { a := w.vol(t, "db-archive"); w.ensure(t, a); return a }()} {
-		v.InstanceID = &m.ID
-		must(t, w.st.Volumes.Update(ctx, v))
+	p, ok := opmember.PrimaryOf(ms)
+	return p, ok
+}
+
+// Volumes and envs are not moved onto an erroring disk.
+func TestMovesOntoAnErroringDiskAreRefused(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	v := d.vol(t, "data")
+	d.ensure(t, v)
+	for range diskMissingReads {
+		d.watch(t, ioRead(row))
 	}
-	j := w.quarantine(t, w.row)
-	if j.State != job.Done {
-		t.Fatalf("job = %s %q", j.State, j.Error)
+	if _, err := d.orch.MoveVolumeToDisk(ctx, adminP(), v.ID); !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), "failing") {
+		t.Errorf("MoveVolumeToDisk = %v", err)
 	}
-	if sawCall(w.wFake, "Stop(") {
-		t.Errorf("an operated primary was stopped: %v", callNames(w.wFake))
+	if _, err := d.orch.MoveAllToDisk(ctx, adminP(), "w1"); !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), "failing") {
+		t.Errorf("MoveAllToDisk = %v", err)
+	}
+	if err := d.orch.erroringDiskGate(ctx, "w1"); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("gate = %v", err)
+	}
+	if err := d.orch.erroringDiskGate(ctx, d.ctl.ID); err != nil {
+		t.Errorf("a node with a healthy disk: %v", err)
+	}
+	d.watch(t, readOf(row, 50*gig, 100*gig))
+	if err := d.orch.erroringDiskGate(ctx, "w1"); err != nil {
+		t.Errorf("after a good read: %v", err)
 	}
 }
 

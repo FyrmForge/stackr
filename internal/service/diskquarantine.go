@@ -96,7 +96,7 @@ func (o *Orchestrator) quarantineEnqueue(ctx context.Context, n store.Node, d st
 
 // runDiskQuarantine stops what runs against a missing disk: the ordinary tiles
 // with a volume on it and the standbys whose data folder is on it. The affected
-// set is built the way Forget builds it. A tile that is an operated primary and
+// set is built the way Forget builds it. A tile that is an operated primary with a standby, and
 // a primary that failed over onto the disk are left to the failover flow. The
 // job only records and stops: it never touches State, Fenced, role or routing
 // of a member (only the sync pass moves its sync_in flag).
@@ -125,9 +125,14 @@ func (o *Orchestrator) runDiskQuarantine(ctx context.Context, r *jobs.Run, p dis
 	var tiles []store.Tile
 	for _, e := range s.envs {
 		for _, t := range s.tiles[e.ID] {
-			if _, err := o.operated.GetByTile(ctx, t.ID); err == nil {
-				_, _ = fmt.Fprintf(r.Log, "%s is an operated primary: left to failover\n", t.Slug)
-				continue
+			if inst, err := o.operated.GetByTile(ctx, t.ID); err == nil {
+				// a primary with a standby is left to failover; a standalone one has none
+				if _, has, err := o.members.LiveReplica(ctx, inst.ID); err != nil {
+					return err
+				} else if has {
+					_, _ = fmt.Fprintf(r.Log, "%s is an operated primary with a standby: left to failover\n", t.Slug)
+					continue
+				}
 			}
 			if slices.Contains(rec.Tiles, t.ID) || o.tileRunning(ctx, t) {
 				tiles = append(tiles, t)
@@ -340,4 +345,38 @@ func (o *Orchestrator) failedDiskGate(ctx context.Context, e store.Environment) 
 		word = "missing"
 	}
 	return errs.Refusedf("The disk on this node is %s and this env keeps data on it. Check the disk first.", word)
+}
+
+// erroringDiskGate refuses new data on a node whose disk reads as erroring:
+// a move of volumes or an env onto it. Missing is the volume leaf's to refuse.
+func (o *Orchestrator) erroringDiskGate(ctx context.Context, nodeID string) error {
+	if nodeID == "" || !o.diskErroring(nodeID) {
+		return nil
+	}
+	if d, has, err := o.nodeDisk(ctx, nodeID); err != nil || !has || d.State != disk.StateReady {
+		return err
+	}
+	return errs.Refusedf("The disk on %s is failing. Check the disk first.", o.nodeName(ctx, nodeID))
+}
+
+// tileDiskDown: tile t has a volume on a missing disk of its node.
+func (o *Orchestrator) tileDiskDown(ctx context.Context, t store.Tile) bool {
+	e, err := o.store.Environments.Get(ctx, t.EnvironmentID)
+	if err != nil || e.NodeID == "" {
+		return false
+	}
+	d, has, err := o.nodeDisk(ctx, e.NodeID)
+	if err != nil || !has || d.State != disk.StateMissing {
+		return false
+	}
+	fs, err := o.diskLeaf.Folders(ctx, d)
+	if err != nil {
+		return false
+	}
+	on := map[string]bool{}
+	for _, f := range fs {
+		on[f.Name] = true
+	}
+	ts, err := o.diskTiles(ctx, e, on)
+	return err == nil && slices.ContainsFunc(ts, func(x Tile) bool { return x.ID == t.ID })
 }
