@@ -650,3 +650,75 @@ func TestSecondMoveWhileOneRunsIsRefused(t *testing.T) {
 		t.Errorf("a different move over a journal in progress: %v", err)
 	}
 }
+
+// An ordinary Update on a moved install: the copy and the restore are disk
+// helper copies (never a rename across filesystems), the moved journal is
+// written back, and the helper's own bind of db/ is never opened.
+func TestUpdateOnAMovedInstall(t *testing.T) {
+	for _, gate := range []string{"healthy", "unhealthy"} {
+		t.Run(gate, func(t *testing.T) {
+			e := newEnv(t)
+			ctx := context.Background()
+			if err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn()); err != nil {
+				t.Fatal(err)
+			}
+			e.d.health["stackr-v2"] = gate
+			rec := &recDisk{inner: e.dd}
+			l := e.leaf(nil)
+			l.Disk = rec
+			err := l.Swap(ctx, e.spec("stackr-v2"))
+			if (gate == "healthy") != (err == nil) {
+				t.Fatalf("err = %v", err)
+			}
+			j := e.journal()
+			if j.Phase != paneldb.PhaseMoved || j.DiskID != "d1" || j.Moved {
+				t.Errorf("journal after the update = %+v", j)
+			}
+			if got := readRows(t, e.h.DB()); !slices.Equal(got, e.rows) {
+				t.Errorf("rows = %v", got)
+			}
+			want := "stackr-v2"
+			if gate == "unhealthy" {
+				want = "stackr-new"
+			}
+			if !e.running(want) {
+				t.Errorf("%s is not running: %v", want, e.d.cs)
+			}
+			var copied bool
+			for _, r := range rec.reqs {
+				if r.Op == "rename" {
+					t.Errorf("the update renamed %+v: a rename onto the mount is EXDEV", r.DB)
+				}
+				if r.Op == "copy" {
+					copied = true
+				}
+			}
+			if !copied {
+				t.Error("no disk helper copy")
+			}
+			for _, n := range e.swapNames() {
+				if strings.Contains(n, ".pre-") {
+					t.Errorf("copy %s left behind", n)
+				}
+			}
+		})
+	}
+}
+
+// An Update on a moved install whose disk is not there is refused before it
+// stops anything.
+func TestUpdateOnAMovedInstallWithTheDiskGone(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn()); err != nil {
+		t.Fatal(err)
+	}
+	e.h.DiskGone()
+	err := e.leaf(nil).Swap(ctx, e.spec("stackr-v2"))
+	if err == nil || errors.Is(err, ErrRolledBack) {
+		t.Fatalf("err = %v", err)
+	}
+	if !e.running("stackr-new") {
+		t.Error("the running panel was stopped")
+	}
+}

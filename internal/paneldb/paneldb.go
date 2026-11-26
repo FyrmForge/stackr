@@ -196,7 +196,7 @@ func (j Journal) MovedBase() Journal {
 // Finish ends a swap's journal: an install whose database is on a disk goes
 // back to moved, any other to none. The moved state is never lost to an Update.
 func Finish(dataDir string, j Journal) error {
-	if j.Moved {
+	if j.Moved || j.Phase == PhaseMoved {
 		return WriteJournal(dataDir, j.MovedBase())
 	}
 	return ClearJournal(dataDir)
