@@ -62,6 +62,17 @@ const (
 	// new install and the panel may create its first database. The panel clears
 	// it once it has. Absence of a database is never read as "fresh" otherwise.
 	PhaseFresh = "fresh"
+	// The move onto a node disk (direction move-in) and back (move-back). Each
+	// external change is bracketed: an intent phase before it, a completion
+	// phase after (mounting before the files leave db/, unmounting before the
+	// unit goes).
+	PhasePrepared   = "prepared"   // folder placed, panel running or just stopped, nothing changed
+	PhaseCopied     = "copied"     // the copy is verified (move-in: and marked)
+	PhaseMounting   = "mounting"   // intent: db/ is being emptied, locked, mounted
+	PhaseMounted    = "mounted"    // the mount is live and its marker read
+	PhaseUnmounting = "unmounting" // move-back intent: the unit is going
+	PhaseUnmounted  = "unmounted"  // move-back: db/ is the bare underlay
+	PhasePlaced     = "placed"     // move-back: the copy is in db/stackr.db, no panel yet
 	// PhaseRestoring is a restore that has begun: the live database is being set
 	// aside and the archive's put in its place.
 	PhaseRestoring = "restoring"
@@ -77,6 +88,13 @@ const DirUpdate = "update"
 // InstallFile is the installer's answers file (installspec.File): its presence
 // is what makes a box an install, and an install never starts a fresh database.
 const InstallFile = "install.json"
+
+// DirIn and DirBack are the journal directions of the database move onto a
+// node disk and back to the system disk.
+const (
+	DirIn   = "in"
+	DirBack = "back"
+)
 
 // DirLayout is the journal direction of the layout change.
 const DirLayout = "layout"
@@ -94,6 +112,14 @@ type Journal struct {
 	DiskID    string `json:"disk_id,omitempty"`
 	InstallID string `json:"install_id,omitempty"`
 	MoveID    string `json:"move_id,omitempty"`
+	// Folder is the disk folder that holds the database (host path), OldCopy the
+	// base name the system-disk copy is kept under once a move-in has passed.
+	Folder  string `json:"folder,omitempty"`
+	OldCopy string `json:"old_copy,omitempty"`
+	// Moved: an ordinary Update is running on an install whose database is on a
+	// node disk. The journal says so until the swap ends, and Finish writes the
+	// moved journal back.
+	Moved bool `json:"moved,omitempty"`
 	// Aside is where a database found in db/ next to an old-path file is kept
 	// (swap/db.superseded-<ts>, a base name); AsideDone says every file of that
 	// set has moved. Recovery finishes exactly that set before anything else.
@@ -162,6 +188,20 @@ func WriteJournal(dataDir string, j Journal) error {
 // ClearJournal records phase none. The file is never deleted.
 func ClearJournal(dataDir string) error { return WriteJournal(dataDir, Journal{Phase: PhaseNone}) }
 
+// MovedBase is the journal of an install whose database is on a node disk.
+func (j Journal) MovedBase() Journal {
+	return Journal{Phase: PhaseMoved, Direction: DirIn, DiskID: j.DiskID, InstallID: j.InstallID, Folder: j.Folder, MoveID: j.MoveID, OldCopy: j.OldCopy}
+}
+
+// Finish ends a swap's journal: an install whose database is on a disk goes
+// back to moved, any other to none. The moved state is never lost to an Update.
+func Finish(dataDir string, j Journal) error {
+	if j.Moved {
+		return WriteJournal(dataDir, j.MovedBase())
+	}
+	return ClearJournal(dataDir)
+}
+
 // SyncDir fsyncs a directory.
 func SyncDir(dir string) error {
 	d, err := os.Open(dir)
@@ -220,14 +260,15 @@ func check(dataDir, dbPath string, m mode) error {
 			return err
 		}
 	case PhaseStartingNew, PhaseGating:
-		// The new panel is the one booting here: it must not refuse itself.
-		if j.Direction != DirLayout && j.Direction != DirUpdate {
+		// The new panel is the one booting here: it must not refuse itself. A
+		// move-back's panel runs on the system disk, so nothing is mounted.
+		if j.Direction == DirIn || j.Moved {
 			if err := checkMounted(dataDir, j); err != nil {
 				return err
 			}
 		}
 	default:
-		if m != modeBoot && (j.Direction == DirLayout || j.Direction == DirUpdate) {
+		if m != modeBoot && (j.Direction == DirLayout || j.Direction == DirUpdate || j.Direction == DirIn || j.Direction == DirBack) {
 			return nil // the recovery the installer runs resolves it
 		}
 		if m == modeRestore && j.Direction == DirRestore {
@@ -278,14 +319,17 @@ func refuse(format string, a ...any) error {
 // checkMounted is the "moved" judgement: db/ must be a mount point (another
 // device than its parent) holding the marker of this install, 0700 root.
 // The immutable-flag half of the RFC's test arrives with the move itself.
+// stat is os.Stat; tests swap it to give db/ another device.
+var stat = os.Stat
+
 func checkMounted(dataDir string, j Journal) error {
 	dir := filepath.Join(dataDir, DirName)
 	missing := refuse("disk missing: the database is on node disk %s and it is not mounted. Not starting, so no empty database is made. Attach the disk, then run stackr-install disk-check", j.DiskID)
-	a, err := os.Stat(dir)
+	a, err := stat(dir)
 	if err != nil {
 		return missing
 	}
-	p, err := os.Stat(dataDir)
+	p, err := stat(dataDir)
 	if err != nil {
 		return missing
 	}
@@ -303,8 +347,9 @@ func checkMounted(dataDir string, j Journal) error {
 	}
 	var m struct {
 		InstallID string `json:"install_id"`
+		DiskID    string `json:"disk_id"`
 	}
-	if json.Unmarshal(b, &m) != nil || m.InstallID != j.InstallID {
+	if json.Unmarshal(b, &m) != nil || m.InstallID != j.InstallID || (j.DiskID != "" && m.DiskID != j.DiskID) {
 		return refuse("the disk at %s belongs to another install. Not starting", dir)
 	}
 	return nil

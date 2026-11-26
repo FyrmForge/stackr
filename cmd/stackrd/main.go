@@ -298,6 +298,7 @@ func run(log *slog.Logger, generate bool) error {
 		return fmt.Errorf("start service: %w", err)
 	}
 	defer func() { _ = orch.Close() }()
+	startDBTicker(log, envDataDir)
 	if fake != "" {
 		fctx, stopFake := context.WithCancel(context.Background())
 		defer stopFake()

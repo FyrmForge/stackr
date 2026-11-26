@@ -101,9 +101,14 @@ func TestCheckInstaller(t *testing.T) {
 	if err := CheckInstaller(dir); err != nil {
 		t.Errorf("a layout change in progress: %v", err)
 	}
+	// a move in progress is the installer's to finish (it reads the journal first)
 	must(t, WriteJournal(dir, Journal{Phase: "copied", Direction: "in"}))
+	if err := CheckInstaller(dir); err != nil {
+		t.Errorf("a move in progress: %v", err)
+	}
+	must(t, WriteJournal(dir, Journal{Phase: "copied", Direction: "sideways"}))
 	if err := CheckInstaller(dir); err == nil {
-		t.Error("a move in progress was let through")
+		t.Error("an unknown direction was let through")
 	}
 }
 

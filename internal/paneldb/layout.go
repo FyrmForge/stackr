@@ -271,7 +271,7 @@ func Recover(dataDir string) error {
 			}
 		}
 	}
-	if err := ClearJournal(dataDir); err != nil {
+	if err := Finish(dataDir, j); err != nil {
 		return err
 	}
 	if j.Copy != "" {
