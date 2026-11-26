@@ -966,3 +966,41 @@ func TestCheckDiskLeavesTheRecordWhileTheRedeployIsPending(t *testing.T) {
 		t.Errorf("record = %+v", rec)
 	}
 }
+
+// A lookup that fails is an error the gate returns; only a typed not-found
+// means there is nothing to gate.
+type failTiles struct{ store.TileStore }
+
+func (failTiles) Get(context.Context, string) (store.Tile, error) {
+	return store.Tile{}, errors.New("the database is down")
+}
+
+type failEnvs struct{ store.EnvironmentStore }
+
+func (failEnvs) Get(context.Context, string) (store.Environment, error) {
+	return store.Environment{}, errors.New("the database is down")
+}
+
+func TestRunGateReturnsLookupErrors(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	d.addDisk(t)
+	if err := d.orch.runGateTile(ctx, "no-such-tile"); err != nil {
+		t.Errorf("a tile that is gone: %v", err)
+	}
+	if err := d.orch.runGateEnv(ctx, "no-such-env"); err != nil {
+		t.Errorf("an env that is gone: %v", err)
+	}
+	real := d.orch.store.Tiles
+	d.orch.store.Tiles = failTiles{real}
+	if err := d.orch.runGateTile(ctx, d.edgeT.ID); err == nil {
+		t.Error("a tile lookup that failed let the start through")
+	}
+	d.orch.store.Tiles = real
+	realEnvs := d.orch.store.Environments
+	d.orch.store.Environments = failEnvs{realEnvs}
+	if err := d.orch.runGateEnv(ctx, d.edge.ID); err == nil {
+		t.Error("an env lookup that failed let the start through")
+	}
+	d.orch.store.Environments = realEnvs
+}

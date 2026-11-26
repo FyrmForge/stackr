@@ -24,6 +24,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/startguard"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -239,6 +240,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 					r.Job.Payload = string(b)
 				}
 			}
+			ctx = startguard.With(ctx, func() error { return o.runGateTile(ctx, p.TileID) })
 			swap := gatedSwap(r.Swap, func() error { return o.runGateTile(ctx, p.TileID) })
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, swap); err != nil {
 				if ph := deploy.PhaseOf(err); ph == deploy.PhasePooler || ph == deploy.PhaseReconcile {
@@ -260,6 +262,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if err := o.runGateEnv(ctx, p.EnvID); err != nil {
 				return err
 			}
+			ctx = startguard.With(ctx, func() error { return o.runGateEnv(ctx, p.EnvID) })
 			o.ensureMesh(ctx)
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			var guard func(*promote.Plan) error
@@ -285,6 +288,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if err := o.runGateEnv(ctx, p.EnvID); err != nil {
 				return err
 			}
+			ctx = startguard.With(ctx, func() error { return o.runGateEnv(ctx, p.EnvID) })
 			var plan *promote.Sync
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			if len(p.Owed) > 0 {
@@ -311,6 +315,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if err := o.runGateTile(ctx, p.TileID); err != nil {
 				return err
 			}
+			ctx = startguard.With(ctx, func() error { return o.runGateTile(ctx, p.TileID) })
 			if err := o.skipDownCron(ctx, p.RunID); err != nil {
 				return err
 			}

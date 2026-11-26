@@ -448,27 +448,37 @@ func (o *Orchestrator) memberDiskDown(ctx context.Context, m InstanceMember) boo
 // the disk failed): it refuses a tile whose env has data on a failed disk.
 func (o *Orchestrator) runGateTile(ctx context.Context, tileID string) error {
 	t, err := o.store.Tiles.Get(ctx, tileID)
+	if errors.Is(err, errs.ErrNotFound) {
+		return nil // gone: the job's own lookup says so
+	}
 	if err != nil {
-		return nil
+		return err
 	}
 	// an operated primary that failed over runs on its member's node, on the
 	// member's own volume: that is the disk to ask, not the env's
-	if inst, err := o.operated.GetByTile(ctx, t.ID); err == nil {
-		if ms, err := o.members.List(ctx, inst.ID); err == nil {
-			if p, ok := opmember.PrimaryOf(ms); ok && p.Volume != "" {
-				node, err := o.primaryNode(ctx, t)
-				if err != nil {
-					return err
-				}
-				bad, err := o.volumeOnFailedDisk(ctx, node, p.Volume)
-				if err != nil {
-					return err
-				}
-				if bad {
-					return errs.Refusedf("The disk on %s has failed and this database keeps data on it. Check the disk first.", o.nodeName(ctx, node))
-				}
-				return nil
+	inst, err := o.operated.GetByTile(ctx, t.ID)
+	switch {
+	case errors.Is(err, errs.ErrNotFound): // not operated
+	case err != nil:
+		return err
+	default:
+		ms, err := o.members.List(ctx, inst.ID)
+		if err != nil {
+			return err
+		}
+		if p, ok := opmember.PrimaryOf(ms); ok && p.Volume != "" {
+			node, err := o.primaryNode(ctx, t)
+			if err != nil {
+				return err
 			}
+			bad, err := o.volumeOnFailedDisk(ctx, node, p.Volume)
+			if err != nil {
+				return err
+			}
+			if bad {
+				return errs.Refusedf("The disk on %s has failed and this database keeps data on it. Check the disk first.", o.nodeName(ctx, node))
+			}
+			return nil
 		}
 	}
 	return o.runGateEnv(ctx, t.EnvironmentID)
@@ -491,7 +501,13 @@ func gatedSwap(swap func() error, gate func() error) func() error {
 
 func (o *Orchestrator) runGateEnv(ctx context.Context, envID string) error {
 	e, err := o.store.Environments.Get(ctx, envID)
-	if err != nil || e.NodeID == "" {
+	if errors.Is(err, errs.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if e.NodeID == "" {
 		return nil
 	}
 	return o.failedDiskGate(ctx, e)
