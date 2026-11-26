@@ -304,7 +304,7 @@ type NodeRow struct {
 	Envs                     int
 	Disk                     string // "34 GB free", "" = not reported
 	Cores, Mem               string // "4 cores", "8 GB"
-	DiskState                string // the node disk's: adding | missing; "" = none or fine
+	DiskState                string // the node disk's: adding | failed (missing or erroring); "" = none or fine
 }
 
 // LostEnvRow is an env of a forgotten node. It comes back by repointing its
@@ -757,8 +757,8 @@ func NodeItem(r NodeRow) templ.Component {
 			}
 		}
 		switch r.DiskState {
-		case "missing":
-			templ_7745c5c3_Err = c.Chip("Disk missing", "danger").Render(ctx, templ_7745c5c3_Buffer)
+		case "failed":
+			templ_7745c5c3_Err = c.Chip("Disk failed", "danger").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

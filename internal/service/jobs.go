@@ -24,6 +24,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/startguard"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -222,6 +223,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				return err
 			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
+			if err := o.runGateTile(ctx, p.TileID); err != nil {
+				return err
+			}
 			o.ensureMesh(ctx)
 			if p.Rebuild {
 				if err := o.deploy.Rebuild(ctx, p.TileID, r.Log); err != nil {
@@ -236,7 +240,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 					r.Job.Payload = string(b)
 				}
 			}
-			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
+			ctx = startguard.With(ctx, func() error { return o.runGateTile(ctx, p.TileID) })
+			swap := gatedSwap(r.Swap, func() error { return o.runGateTile(ctx, p.TileID) })
+			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, swap); err != nil {
 				if ph := deploy.PhaseOf(err); ph == deploy.PhasePooler || ph == deploy.PhaseReconcile {
 					// the instance runs; only a step after its start failed
 					err = errors.Join(err, o.afterDeploy(ctx, []string{p.TileID}, false))
@@ -253,13 +259,17 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				return err
 			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
+			if err := o.runGateEnv(ctx, p.EnvID); err != nil {
+				return err
+			}
+			ctx = startguard.With(ctx, func() error { return o.runGateEnv(ctx, p.EnvID) })
 			o.ensureMesh(ctx)
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			var guard func(*promote.Plan) error
 			if p.CleanOnly {
 				guard = o.cleanGuard(ctx, p.EnvID, p.ReleaseID)
 			}
-			plan, err := o.promote.ApplyGuarded(context.WithValue(withMayPlace(ctx, p.MayPlace), placeAdminKey{}, p.Admin), p.EnvID, p.ReleaseID, p.Ticked, guard, lockLog{ctx, o, r, p.EnvID}, r.Swap)
+			plan, err := o.promote.ApplyGuarded(context.WithValue(withMayPlace(ctx, p.MayPlace), placeAdminKey{}, p.Admin), p.EnvID, p.ReleaseID, p.Ticked, guard, lockLog{ctx, o, r, p.EnvID}, gatedSwap(r.Swap, func() error { return o.runGateEnv(ctx, p.EnvID) }))
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
@@ -275,13 +285,17 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				return err
 			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
+			if err := o.runGateEnv(ctx, p.EnvID); err != nil {
+				return err
+			}
+			ctx = startguard.With(ctx, func() error { return o.runGateEnv(ctx, p.EnvID) })
 			var plan *promote.Sync
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			if len(p.Owed) > 0 {
 				// Parked after its writes: deploy what it still owes, no re-plan.
-				plan, err = o.promote.SyncRollout(ctx, p.Owed, lockLog{ctx, o, r, p.EnvID}, r.Swap)
+				plan, err = o.promote.SyncRollout(ctx, p.Owed, lockLog{ctx, o, r, p.EnvID}, gatedSwap(r.Swap, func() error { return o.runGateEnv(ctx, p.EnvID) }))
 			} else {
-				plan, err = o.promote.SyncApply(ctx, p.EnvID, p.FromID, p.Keep, p.Sig, lockLog{ctx, o, r, p.EnvID}, r.Swap)
+				plan, err = o.promote.SyncApply(ctx, p.EnvID, p.FromID, p.Keep, p.Sig, lockLog{ctx, o, r, p.EnvID}, gatedSwap(r.Swap, func() error { return o.runGateEnv(ctx, p.EnvID) }))
 			}
 			_, unset := errs.IsUnset(err)
 			_, approval := errs.IsNeedsApproval(err)
@@ -298,6 +312,10 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if err != nil {
 				return err
 			}
+			if err := o.runGateTile(ctx, p.TileID); err != nil {
+				return err
+			}
+			ctx = startguard.With(ctx, func() error { return o.runGateTile(ctx, p.TileID) })
 			if err := o.skipDownCron(ctx, p.RunID); err != nil {
 				return err
 			}
@@ -325,6 +343,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				if err := o.mayStartTile(ctx, t); err != nil {
 					return err
 				}
+				if err := o.runGateTile(ctx, t.ID); err != nil {
+					return err
+				}
 				return o.container.Restart(ctx, t, r.Log)
 			})
 		}),
@@ -341,6 +362,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindStart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error {
 				if err := o.mayStartTile(ctx, t); err != nil {
+					return err
+				}
+				if err := o.runGateTile(ctx, t.ID); err != nil {
 					return err
 				}
 				if err := o.container.Start(ctx, t, r.Log); err != nil {
@@ -458,6 +482,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindNodeBackup:     controllerJob(o, payload(o.runNodeBackup)),
 		kindDiskAdd:        controllerJob(o, payload(o.runDiskAdd)),
 		kindDiskCheck:      controllerJob(o, payload(o.runDiskCheck)),
+		kindDiskQuarantine: controllerJob(o, payload(o.runDiskQuarantine)),
 		kindDiskAddDevice:  controllerJob(o, payload(o.runDiskAddDevice)),
 		kindDiskGrow:       controllerJob(o, payload(o.runDiskGrow)),
 		kindDiskAdopt:      controllerJob(o, ownedJob(payload(o.runDiskAdopt))),

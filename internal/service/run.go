@@ -246,6 +246,9 @@ func (o *Orchestrator) RunTile(ctx context.Context, id string) (Job, Run, error)
 	if err := o.gateTile(ctx, id, false); err != nil {
 		return Job{}, Run{}, err
 	}
+	if err := o.runGateTile(ctx, id); err != nil {
+		return Job{}, Run{}, err
+	}
 	return o.queueRun(ctx, id, lrun.Manual)
 }
 

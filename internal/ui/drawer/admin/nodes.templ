@@ -121,7 +121,7 @@ type NodeRow struct {
 	Envs                     int
 	Disk                     string // "34 GB free", "" = not reported
 	Cores, Mem               string // "4 cores", "8 GB"
-	DiskState                string // the node disk's: adding | missing; "" = none or fine
+	DiskState                string // the node disk's: adding | failed (missing or erroring); "" = none or fine
 }
 
 // LostEnvRow is an env of a forgotten node. It comes back by repointing its
@@ -491,8 +491,8 @@ templ NodeItem(r NodeRow) {
 			<span class="text-xs text-rw-faint">no tags</span>
 		}
 		switch r.DiskState {
-			case "missing":
-				@c.Chip("Disk missing", "danger")
+			case "failed":
+				@c.Chip("Disk failed", "danger")
 			case "adding":
 				@c.Chip("Adding disk", "warn")
 		}

@@ -104,6 +104,9 @@ func (o *Orchestrator) enqueueVolumeMove(ctx context.Context, by *Principal, nod
 	if _, err := o.diskNodeUp(ctx, nodeID); err != nil {
 		return Job{}, err
 	}
+	if err := o.erroringDiskGate(ctx, nodeID); err != nil {
+		return Job{}, err
+	}
 	if err := o.moveLive(ctx, vs); err != nil {
 		return Job{}, err
 	}

@@ -767,6 +767,9 @@ func (o *Orchestrator) pmStartEnv(ctx context.Context, by *Principal, pm store.P
 	} else if forgotten {
 		return o.pmRestoreEnv(ctx, by, e, pm.ToNode, warn)
 	}
+	if err := o.erroringDiskGate(ctx, pm.ToNode); err != nil {
+		return Job{}, err
+	}
 	m, err := o.moveFlow().Begin(ctx, move.Request{EnvID: e.ID, From: e.NodeID, To: pm.ToNode, Live: true})
 	if err != nil {
 		return Job{}, err
@@ -1254,6 +1257,9 @@ func (o *Orchestrator) MoveEnvToPlacement(ctx context.Context, by *Principal, en
 		var warn []error
 		j, err := o.pmRestoreEnv(ctx, by, e, p.NodeID, &warn)
 		return j, errors.Join(append([]error{err}, warn...)...)
+	}
+	if err := o.erroringDiskGate(ctx, p.NodeID); err != nil {
+		return Job{}, err
 	}
 	m, err := o.moveFlow().Begin(ctx, move.Request{EnvID: e.ID, From: e.NodeID, To: p.NodeID, Live: true})
 	if err != nil {

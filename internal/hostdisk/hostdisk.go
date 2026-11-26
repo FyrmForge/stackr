@@ -96,6 +96,8 @@ type Fact struct {
 	DeviceBytes  int64     `json:"device_bytes,omitempty"` // xfs: its size now
 	FSUUID       string    `json:"fs_uuid,omitempty"`      // xfs: the filesystem uuid
 	ReadAt       time.Time `json:"read_at"`                // set by the worker: when this read happened
+	ReadOnly     bool      `json:"read_only,omitempty"`    // the mount table says read-only
+	IOErr        bool      `json:"io_err,omitempty"`       // the last read failed with an I/O error (never ENOSPC or a quota)
 }
 
 // Error codes are typed; callers never match on the message.

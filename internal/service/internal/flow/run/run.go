@@ -16,10 +16,11 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
-	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/metrics"
+	"github.com/FyrmForge/stackr/internal/service/internal/startguard"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 )
 
 type Flow struct {
@@ -168,6 +169,9 @@ func (f *Flow) Do(ctx context.Context, runID string, log io.Writer) error {
 		rctx, cancel = context.WithTimeout(ctx, time.Duration(t.TimeoutMinutes)*unit)
 	}
 	defer cancel()
+	if err := startguard.Check(ctx); err != nil { // the disk may have failed while the spec was made
+		return fail(lrun.Failed, err.Error(), nil)
+	}
 	_, _ = fmt.Fprintf(log, "running %s on %s\n", t.Slug, ref)
 	code, use, err := f.Tiles.RunOnce(rctx, t, spec, r.ID, out)
 	f.measure(ctx, r, use, err != nil || code != 0)
