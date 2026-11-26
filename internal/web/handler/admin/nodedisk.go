@@ -338,6 +338,11 @@ func (h *handler) diskActions(c echo.Context, dk *ui.NodeDisk, p service.NodeDis
 		if dk.MoveJobs, err = h.moveJobs(c, d.ID); err != nil {
 			return err
 		}
+		if d.Controller {
+			if err := h.movesCard(c, dk, d, base); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

@@ -162,6 +162,11 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 	g.POST(nodesBase+"/:node/disk/forget", h.diskForget, m)
 	g.POST(nodesBase+"/:node/disk/move-all/plan", h.diskMoveAllPlan, m)
 	g.POST(nodesBase+"/:node/disk/move-all", h.diskMoveAll, m)
+	g.POST(nodesBase+"/:node/disk/move-observe/plan", h.diskMoveObservePlan, m)
+	g.POST(nodesBase+"/:node/disk/move-observe", h.diskMoveObserve, m)
+	g.POST(nodesBase+"/:node/disk/move-paneldb/plan", h.diskMovePanelPlan, m)
+	g.POST(nodesBase+"/:node/disk/move-paneldb", h.diskMovePanel, m)
+	g.POST(nodesBase+"/:node/disk/move-paneldb/remove-old", h.diskRemoveOldCopy, m)
 	g.POST(nodesBase+"/:node/disk/check", h.nodeJob("overview", "Disk check queued.", func(c echo.Context) (service.Job, error) {
 		return h.orch.CheckNodeDisk(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 	}), m)

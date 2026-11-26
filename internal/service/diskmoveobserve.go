@@ -45,6 +45,12 @@ func (o *Orchestrator) observeOnDisk(ctx context.Context) (bool, error) {
 	return err == nil && ok && v == "1", err
 }
 
+// ObserveOnDisk is whether logs and metrics live on the node disk: the Node
+// disk card's row. A read of one setting.
+func (o *Orchestrator) ObserveOnDisk(ctx context.Context) (bool, error) {
+	return o.observeOnDisk(ctx)
+}
+
 // observeDiskRefusal is the refusal Forget (and Adopt) of a node's disk gives
 // while observe's data is on it: move it back first. nil when it is not.
 func (o *Orchestrator) observeDiskRefusal(ctx context.Context, nodeID string) error {
