@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -207,9 +209,8 @@ func (o *Orchestrator) memberRunning(ctx context.Context, m InstanceMember) bool
 // dropFromSync runs the instance's sync pass (under its topology lock), which
 // leaves out a standby whose disk is missing, so the primary stops waiting for
 // it and the pass clears the member's sync_in flag. A pass that cannot run (busy,
-// failing over) or fails while the primary is running is an error: the standby
-// stays up and the job runs again. A primary that is not running waits for
-// nobody, so the stop goes on.
+// failing over) or fails is an error: the standby stays up and the job runs
+// again. Only a primary seen exited or absent waits for nobody, so the stop goes on.
 func (o *Orchestrator) dropFromSync(ctx context.Context, instanceID string) error {
 	inst, err := o.operated.Get(ctx, instanceID)
 	if err != nil {
@@ -219,7 +220,17 @@ func (o *Orchestrator) dropFromSync(ctx context.Context, instanceID string) erro
 	if err != nil {
 		return err
 	}
-	if err := o.syncInstance(ctx, t, inst); err != nil && o.tileRunning(ctx, t) {
+	err = o.syncInstance(ctx, t, inst)
+	if err == nil {
+		return nil
+	}
+	// the stop goes on only when the primary is positively not running: a failed
+	// look, a restarting container or a running one keeps the standby up
+	cs, rerr := o.tiles.Replicas(ctx, t)
+	if rerr != nil {
+		return errors.Join(err, rerr)
+	}
+	if slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State != "exited" && c.State != "dead" }) {
 		return err
 	}
 	return nil
@@ -256,10 +267,8 @@ func (o *Orchestrator) resumeQuarantined(ctx context.Context, r *jobs.Run, d sto
 		}
 		_, _ = fmt.Fprintf(r.Log, "started member %s\n", id)
 	}
-	if ok {
-		if err := o.store.Settings.Delete(ctx, quarKey(d.ID)); err != nil {
-			failed = append(failed, err)
-		}
+	if ok { // the record stays until each redeploy and start is seen running
+		failed = append(failed, o.quarSettle(ctx, d))
 	}
 	return errors.Join(failed...)
 }
@@ -267,20 +276,14 @@ func (o *Orchestrator) resumeQuarantined(ctx context.Context, r *jobs.Run, d sto
 // memberDiskDown: standby m's data folder is on a missing disk. The tick's
 // startMembers must not bring it back before Check disk has.
 func (o *Orchestrator) memberDiskDown(ctx context.Context, m InstanceMember) bool {
-	if m.Role != opmember.Replica || m.Volume == "" {
-		return false
-	}
-	d, has, err := o.nodeDisk(ctx, m.NodeID)
-	if err != nil || !has || d.State != disk.StateMissing {
-		return false
-	}
-	fs, err := o.diskLeaf.Folders(ctx, d)
-	return err == nil && slices.ContainsFunc(fs, func(f store.DiskFolder) bool { return f.Name == m.Volume })
+	return m.Role == opmember.Replica && m.Volume != "" && o.folderDown(ctx, m.NodeID, m.Volume)
 }
 
 // DiskErroring is whether the node's ready disk reads as erroring now (the
 // Nodes list shows it as Disk failed, like a missing one).
-func (o *Orchestrator) DiskErroring(nodeID string) bool { return o.diskErroring(nodeID) }
+func (o *Orchestrator) DiskErroring(ctx context.Context, nodeID string) bool {
+	return o.diskErroring(ctx, nodeID)
+}
 
 // failedDisk is the node's disk when it is missing or erroring.
 func (o *Orchestrator) failedDisk(ctx context.Context, nodeID string) (store.NodeDisk, bool) {
@@ -288,7 +291,7 @@ func (o *Orchestrator) failedDisk(ctx context.Context, nodeID string) (store.Nod
 	if err != nil || !has {
 		return d, false
 	}
-	return d, d.State == disk.StateMissing || (d.State == disk.StateReady && o.diskErroring(nodeID))
+	return d, d.State == disk.StateMissing || (d.State == disk.StateReady && o.diskErroring(ctx, nodeID))
 }
 
 // failedDiskGate refuses a deploy of env e when its node's disk has failed and
@@ -350,7 +353,7 @@ func (o *Orchestrator) failedDiskGate(ctx context.Context, e store.Environment) 
 // erroringDiskGate refuses new data on a node whose disk reads as erroring:
 // a move of volumes or an env onto it. Missing is the volume leaf's to refuse.
 func (o *Orchestrator) erroringDiskGate(ctx context.Context, nodeID string) error {
-	if nodeID == "" || !o.diskErroring(nodeID) {
+	if nodeID == "" || !o.diskErroring(ctx, nodeID) {
 		return nil
 	}
 	if d, has, err := o.nodeDisk(ctx, nodeID); err != nil || !has || d.State != disk.StateReady {
@@ -359,13 +362,18 @@ func (o *Orchestrator) erroringDiskGate(ctx context.Context, nodeID string) erro
 	return errs.Refusedf("The disk on %s is failing. Check the disk first.", o.nodeName(ctx, nodeID))
 }
 
-// tileDiskDown: tile t has a volume on a missing disk of its node.
-func (o *Orchestrator) tileDiskDown(ctx context.Context, t store.Tile) bool {
+// primaryDiskDown: the primary of an instance runs on node, and its data is
+// on a missing disk there. After a failover that is the member's own volume on
+// its node; before, the env's volumes on the env's node.
+func (o *Orchestrator) primaryDiskDown(ctx context.Context, t store.Tile, m InstanceMember, node string) bool {
+	if m.Volume != "" {
+		return o.folderDown(ctx, node, m.Volume)
+	}
 	e, err := o.store.Environments.Get(ctx, t.EnvironmentID)
-	if err != nil || e.NodeID == "" {
+	if err != nil || e.NodeID == "" || e.NodeID != node {
 		return false
 	}
-	d, has, err := o.nodeDisk(ctx, e.NodeID)
+	d, has, err := o.nodeDisk(ctx, node)
 	if err != nil || !has || d.State != disk.StateMissing {
 		return false
 	}
@@ -379,4 +387,135 @@ func (o *Orchestrator) tileDiskDown(ctx context.Context, t store.Tile) bool {
 	}
 	ts, err := o.diskTiles(ctx, e, on)
 	return err == nil && slices.ContainsFunc(ts, func(x Tile) bool { return x.ID == t.ID })
+}
+
+// folderDown: folder name is on the missing disk of node.
+func (o *Orchestrator) folderDown(ctx context.Context, node, name string) bool {
+	d, has, err := o.nodeDisk(ctx, node)
+	if err != nil || !has || d.State != disk.StateMissing {
+		return false
+	}
+	fs, err := o.diskLeaf.Folders(ctx, d)
+	return err == nil && slices.ContainsFunc(fs, func(f store.DiskFolder) bool { return f.Name == name })
+}
+
+// runGateTile is the storage gate for anything that starts the tile's
+// containers (start, restart, a manual run, and a job that was queued before
+// the disk failed): it refuses a tile whose env has data on a failed disk.
+func (o *Orchestrator) runGateTile(ctx context.Context, tileID string) error {
+	t, err := o.store.Tiles.Get(ctx, tileID)
+	if err != nil {
+		return nil
+	}
+	return o.runGateEnv(ctx, t.EnvironmentID)
+}
+
+func (o *Orchestrator) runGateEnv(ctx context.Context, envID string) error {
+	e, err := o.store.Environments.Get(ctx, envID)
+	if err != nil || e.NodeID == "" {
+		return nil
+	}
+	return o.failedDiskGate(ctx, e)
+}
+
+// ---- the erroring latch, the check guard, the stopped set's settling
+
+func erroringKey(diskID string) string { return "diskerroring." + diskID }
+
+// diskErroring: the node's disk is latched erroring. The latch is a settings
+// row, so it survives a panel restart; only Check disk clears it.
+func (o *Orchestrator) diskErroring(ctx context.Context, nodeID string) bool {
+	d, has, err := o.nodeDisk(ctx, nodeID)
+	if err != nil || !has {
+		return false
+	}
+	_, ok, err := o.store.Settings.Get(ctx, erroringKey(d.ID))
+	return err == nil && ok
+}
+
+func (o *Orchestrator) latchErroring(ctx context.Context, d store.NodeDisk) {
+	if _, ok, err := o.store.Settings.Get(ctx, erroringKey(d.ID)); err == nil && !ok {
+		_ = o.store.Settings.Set(ctx, erroringKey(d.ID), time.Now().UTC().Format(time.RFC3339))
+	}
+}
+
+func (o *Orchestrator) clearErroring(ctx context.Context, d store.NodeDisk) {
+	_ = o.store.Settings.Delete(ctx, erroringKey(d.ID))
+}
+
+// diskGuard serializes Check disk's verify with the watch's latching of the
+// same node's disk, and remembers when the last check finished: reads taken
+// before that say nothing about the disk now.
+type diskGuard struct {
+	mu    sync.Mutex
+	epoch atomic.Int64 // UnixNano
+}
+
+func (g *diskGuard) epochAt() time.Time {
+	if n := g.epoch.Load(); n != 0 {
+		return time.Unix(0, n)
+	}
+	return time.Time{}
+}
+
+func (o *Orchestrator) diskGuard(nodeID string) *diskGuard {
+	g, _ := o.alertWatch().diskGuards.LoadOrStore(nodeID, &diskGuard{})
+	return g.(*diskGuard)
+}
+
+// quarSettle prunes the stopped set of a resumed quarantine: a tile or standby
+// that runs again (or is gone, or was stopped by the person since) is done.
+// The record goes when nothing is pending; until then it keeps the rest, so
+// a redeploy that has not finished, or a panel restart, loses nothing.
+func (o *Orchestrator) quarSettle(ctx context.Context, d store.NodeDisk) error {
+	rec, ok, err := o.quarLoad(ctx, d.ID)
+	if err != nil || !ok {
+		return err
+	}
+	var tiles, members []string
+	for _, id := range rec.Tiles {
+		t, err := o.tiles.Get(ctx, id)
+		if errors.Is(err, errs.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if t.Paused || o.tileRunning(ctx, t) {
+			continue
+		}
+		if stopped, err := o.stoppedByUser(ctx, t); err != nil {
+			return err
+		} else if stopped {
+			continue
+		}
+		tiles = append(tiles, id)
+	}
+	for _, id := range rec.Members {
+		m, err := o.members.Get(ctx, id)
+		if errors.Is(err, errs.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if m.State != opmember.Running || o.memberRunning(ctx, m) {
+			continue
+		}
+		members = append(members, id)
+	}
+	if len(tiles)+len(members) == 0 {
+		return o.store.Settings.Delete(ctx, quarKey(d.ID))
+	}
+	if len(tiles) != len(rec.Tiles) || len(members) != len(rec.Members) {
+		rec.Tiles, rec.Members = tiles, members
+		return o.quarSave(ctx, d.ID, rec)
+	}
+	return nil
+}
+
+func (o *Orchestrator) quarSettleQuiet(ctx context.Context, d store.NodeDisk) {
+	if err := o.quarSettle(ctx, d); err != nil {
+		slog.Warn("disk quarantine: settle", "disk", d.ID, "err", err)
+	}
 }

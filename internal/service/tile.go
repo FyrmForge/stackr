@@ -474,6 +474,9 @@ func (o *Orchestrator) replicaVerb(ctx context.Context, id, verb string, kind jo
 	if err := o.gateTile(ctx, id, false); err != nil {
 		return Job{}, err
 	}
+	if err := o.runGateTile(ctx, id); err != nil {
+		return Job{}, err
+	}
 	return o.enqueue(ctx, kind, tileJob{TileID: id}, id)
 }
 

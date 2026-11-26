@@ -468,24 +468,34 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 			count(false)
 		}
 	}()
-	erroring := false
 	if has && d.State == disk.StateReady {
 		i := slices.IndexFunc(f.Disks, func(x hostdisk.Fact) bool { return x.Path == d.MountPath })
 		if f.DisksRead && !f.DisksStale && i >= 0 {
 			x := f.Disks[i]
+			g := o.diskGuard(n.ID)
+			ioBad := x.IOErr || (x.Mounted && x.StampID == d.ID && x.ReadOnly)
+			gone := !x.Mounted || x.StampID != d.ID
 			switch {
-			case x.IOErr || (x.Mounted && x.StampID == d.ID && x.ReadOnly):
+			case (ioBad || gone) && !x.ReadAt.IsZero() && !x.ReadAt.After(g.epochAt()):
+				// read before the last Check disk finished: it says nothing about the disk now
+				o.ioRun(n.ID, false, x.ReadAt)
+			case ioBad:
 				// a read that failed on the device, or a mount gone read-only. ENOSPC
 				// and quota errors never get here: the worker leaves them stale.
-				run := o.ioRun(n.ID, true, x.ReadAt)
-				erroring = o.diskErroring(n.ID) || run >= diskMissingReads // set until a good read, the missing branch or Check disk
-			case !x.Mounted || x.StampID != d.ID:
+				if o.ioRun(n.ID, true, x.ReadAt) >= diskMissingReads {
+					o.latchErroring(ctx, d) // held until Check disk, whatever the reads say after
+				}
+			case gone:
 				freshBad = true // the same read seen twice neither counts nor breaks the run
 				o.ioRun(n.ID, false, x.ReadAt)
 				if o.newRead(n.ID, x.ReadAt) && count(true) >= diskMissingReads {
-					if m, err := o.diskLeaf.MarkMissing(ctx, d); err == nil {
-						d, freshBad = m, false // latched: the run is over
+					g.mu.Lock() // not while a Check disk is verifying, and not on a read it superseded
+					if x.ReadAt.After(g.epochAt()) {
+						if m, err := o.diskLeaf.MarkMissing(ctx, d); err == nil {
+							d, freshBad = m, false // latched: the run is over
+						}
 					}
+					g.mu.Unlock()
 				}
 			default:
 				o.ioRun(n.ID, false, x.ReadAt)
@@ -496,12 +506,11 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 				}
 			}
 		} else {
-			// a stale or unknown read ends the run; the flag stays until a good read
-			o.ioRun(n.ID, false, time.Time{})
-			erroring = o.diskErroring(n.ID)
+			o.ioRun(n.ID, false, time.Time{}) // a stale or unknown read ends the run
 		}
+		o.quarSettleQuiet(ctx, d) // a resumed quarantine ends once everything runs
 	}
-	o.setDiskErroring(n.ID, erroring)
+	erroring := has && d.State == disk.StateReady && o.diskErroring(ctx, n.ID)
 	if !has || d.State != disk.StateReady {
 		o.raise(ctx, diskFullKey(n.ID), false, Alert{})
 	}
@@ -535,26 +544,6 @@ func (o *Orchestrator) ioRun(nodeID string, bad bool, at time.Time) int {
 	w.diskAt[k] = at
 	w.diskBad[k]++
 	return w.diskBad[k]
-}
-
-func (o *Orchestrator) setDiskErroring(nodeID string, v bool) {
-	w := o.alertWatch()
-	w.diskMu.Lock()
-	defer w.diskMu.Unlock()
-	if v {
-		w.diskBad["err:"+nodeID] = 1
-	} else {
-		delete(w.diskBad, "err:"+nodeID)
-	}
-}
-
-// diskErroring is whether the node's ready disk reads as erroring now. Memory
-// only: after a panel restart it takes diskMissingReads fresh reads again.
-func (o *Orchestrator) diskErroring(nodeID string) bool {
-	w := o.alertWatch()
-	w.diskMu.Lock()
-	defer w.diskMu.Unlock()
-	return w.diskBad["err:"+nodeID] == 1
 }
 
 // newRead is true when the read stamped at is newer than the last bad read
@@ -841,6 +830,7 @@ type alertState struct {
 	diskMu             sync.Mutex
 	diskBad            map[string]int       // node id -> consecutive fresh reads of its ready disk as gone
 	diskAt             map[string]time.Time // node id -> ReadAt of the last bad read counted
+	diskGuards         sync.Map             // node id -> *diskGuard
 }
 
 type restartSample struct {

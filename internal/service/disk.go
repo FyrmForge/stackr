@@ -625,7 +625,11 @@ func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob)
 	}
 	// Check disk holds the disk lock a quarantine job holds, so it starts only
 	// after a quarantine queued before it has finished.
+	g := o.diskGuard(d.NodeID)
+	g.mu.Lock() // the watch cannot latch the row missing from an old read while this verifies
 	d, err = o.diskLeaf.Verify(ctx, d)
+	g.epoch.Store(time.Now().UnixNano())
+	g.mu.Unlock()
 	if err != nil {
 		return err
 	}
@@ -633,7 +637,7 @@ func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob)
 		return errs.Refusedf("Still missing. Reattach it, then check again.")
 	}
 	_, _ = fmt.Fprintf(r.Log, "disk ready: %s\n", d.MountPath)
-	o.setDiskErroring(d.NodeID, false) // a passed check ends an erroring spell too; bad reads count again from zero
+	o.clearErroring(ctx, d) // a passed check ends an erroring spell too; bad reads count again from zero
 	o.ioRun(d.NodeID, false, time.Time{})
 	return o.resumeQuarantined(ctx, r, d)
 }

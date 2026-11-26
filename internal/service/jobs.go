@@ -222,6 +222,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				return err
 			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
+			if err := o.runGateTile(ctx, p.TileID); err != nil {
+				return err
+			}
 			o.ensureMesh(ctx)
 			if p.Rebuild {
 				if err := o.deploy.Rebuild(ctx, p.TileID, r.Log); err != nil {
@@ -253,6 +256,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				return err
 			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
+			if err := o.runGateEnv(ctx, p.EnvID); err != nil {
+				return err
+			}
 			o.ensureMesh(ctx)
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			var guard func(*promote.Plan) error
@@ -275,6 +281,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				return err
 			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
+			if err := o.runGateEnv(ctx, p.EnvID); err != nil {
+				return err
+			}
 			var plan *promote.Sync
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			if len(p.Owed) > 0 {
@@ -296,6 +305,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindRun: payload(func(ctx context.Context, r *jobs.Run, p runJob) error {
 			ctx, err := o.withTileNode(ctx, p.TileID)
 			if err != nil {
+				return err
+			}
+			if err := o.runGateTile(ctx, p.TileID); err != nil {
 				return err
 			}
 			if err := o.skipDownCron(ctx, p.RunID); err != nil {
@@ -325,6 +337,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				if err := o.mayStartTile(ctx, t); err != nil {
 					return err
 				}
+				if err := o.runGateTile(ctx, t.ID); err != nil {
+					return err
+				}
 				return o.container.Restart(ctx, t, r.Log)
 			})
 		}),
@@ -341,6 +356,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindStart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error {
 				if err := o.mayStartTile(ctx, t); err != nil {
+					return err
+				}
+				if err := o.runGateTile(ctx, t.ID); err != nil {
 					return err
 				}
 				if err := o.container.Start(ctx, t, r.Log); err != nil {

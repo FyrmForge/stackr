@@ -731,7 +731,7 @@ func (o *Orchestrator) startMember(ctx context.Context, m InstanceMember) error 
 		if j, ok, err := o.jobRows.Last(ctx, t.ID); err != nil || (ok && job.Live(j.State)) {
 			return err
 		}
-		if o.tileDiskDown(ctx, t) {
+		if o.primaryDiskDown(ctx, t, m, node) {
 			return nil // quarantined with its disk: Check disk brings it back
 		}
 		labels = map[string]string{tile.LabelTile: t.ID, tile.LabelRole: "replica"}
