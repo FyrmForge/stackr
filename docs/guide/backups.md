@@ -71,13 +71,15 @@ The recovery key can also come on stdin with `--key-stdin`, or at the prompt in 
 
 After a restore the key you restored with stays the box's recovery key, so it opens every new backup too. The key the fresh install printed is dropped. A box that rotated its key after the archive was made keeps its newer one, and restore says so. Restore also brings back the old install's id, so new backups land under the same `_panel/<install id>/` prefix and old scheduled ones keep being pruned. It removes a leftover `master.key.next`.
 
-The old database is kept in `swap/` under the data dir as `stackr.db.before-restore-<time>`, with its `-wal` file beside it. Workers reconnect by themselves and keep their tiles running.
+A restore is refused while the panel database is on a node disk: move it back to the system disk first (`stkr node disk move-panel <node> --back`). The old database is kept in `swap/` under the data dir as `stackr.db.before-restore-<time>`, with its `-wal` file beside it. Workers reconnect by themselves and keep their tiles running.
 
 On its first boot the restored panel deploys again every tile on the controller that ran before and has no container now. Before those deploys it restores each of their env's empty volumes, operated databases too, from the newest finished backup. The restore jobs run first and the deploys wait for them, so no app starts on an empty volume. Tiles you had stopped stay stopped.
 
 The newest backup has to be reachable from the new box. A backup on an S3 destination is, since the destination's keys come back with the database. A backup on the old controller's local disk went with it. A volume with no backup starts empty, and its deploy log and the security log say `no backup for <volume>; it starts empty`. Anything written after the newest backup is lost. A volume that still holds data is left alone.
 
 The CLI on the controller is logged in as the admin again: restore makes a new API key and writes `/var/lib/stackr/cli.json`, on the admin's first org (the oldest one they are a member of, else the oldest org). The admin's older `installer` and `restore` keys are revoked, and the security log records each one.
+
+The pre-update and pre-move archives are taken before the panel restarts. While the database is on a node disk, backups still go where you set them: put one destination off that disk, since the disk then holds the live database. The old copy a move leaves in `swap/` (`stackr.db.moved-<time>`) is not a backup and is not pruned; Remove old copy deletes it.
 
 ## Volumes
 

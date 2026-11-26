@@ -152,6 +152,34 @@ stkr node disk move-all vps-fsn1
 
 If a move stops half way, the volume's Stored on card says so and has Finish move.
 
+### Move the panel database onto the disk
+
+The controller's node disk can also hold the panel's own database. On the controller's Node disk card, Move the panel database onto this disk shows the plan first: the size, the free space on the disk and on the system disk, what restarts (the panel, for about a minute), and this warning:
+
+> After this, the whole control plane depends on this one disk. If the disk is missing the panel does not start, and nothing alerts you while it is down. To bring the disk back without a reboot, run `stackr-install disk-check` on the node.
+
+Only a whole disk can hold it, only on the controller, and only while no update or volume move runs. The plan refuses when the data folder path goes through a symbolic link or its filesystem cannot set `chattr +i`.
+
+The helper stops the panel, copies the database (checked by hash and an integrity check), mounts the disk folder on `/var/lib/stackr/db` with a systemd unit, starts the panel and waits for it to be healthy. If anything fails the panel starts again on the old database. The keys, local backups and `install.json` stay on the system disk, so a stolen disk holds the database but not the master key.
+
+When it is done the row says "On this disk", with Move back to the system disk. The old copy on the system disk shows as "Old copy, taken DD-MM". Remove old copy is the only thing that deletes it.
+
+```bash
+stkr node disk move-panel vps-fsn1
+stkr node disk move-panel vps-fsn1 --back
+stkr node disk remove-panel-copy vps-fsn1
+```
+
+While the database is on the disk, Forget and Adopt refuse: move it back first. An Update works as usual; it copies the database through a helper that sees the real mount.
+
+If the disk is missing when the box boots, the panel exits with a clear line and Docker keeps restarting it. It never makes an empty database. Attach the disk, then on the node:
+
+```bash
+stackr-install disk-check
+```
+
+It starts the disk's mount units, and the restart loop brings the panel up without a reboot. If a move stops half way, `stackr-install` reads `/var/lib/stackr/move.journal` and finishes or rolls it back.
+
 ### A disk that is missing
 
 If the disk is unmounted or the device is gone, the node shows "The disk is missing", and tiles that use it do not start. Reattach or mount it, then press Check disk.

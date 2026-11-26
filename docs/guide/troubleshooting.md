@@ -39,6 +39,14 @@ The node shows offline in Admin, Nodes, and the alerts webhook fires `node.offli
 
 Apps on an offline worker keep running. Deploys to it wait.
 
+## The panel does not start and the database is on a node disk
+
+`docker logs stackr` says `panel database: disk missing: the database is on node disk <id> and it is not mounted. Not starting, so no empty database is made`. The panel exits on purpose and Docker restarts it in a loop. The empty folder under the mount is immutable, so nothing can make a database there. Attach the disk, then run `stackr-install disk-check` on the node. The restart loop brings the panel up, no reboot needed.
+
+If it says the disk has no marker or belongs to another install, it is the wrong disk: do not force it. If it says a move is in progress, run `stackr-install` on the node (no arguments): it reads `/var/lib/stackr/move.journal` and finishes or rolls the move back. The log line names the phase.
+
+If the disk is gone for good, restore from a backup on a new box (`stackr-install restore`). It needs the recovery key, as always.
+
 ## A failed upgrade or rollback
 
 **Panel.** The upgrade archives the database, starts the new image next to the old one and waits for it to be healthy. If it is not, the new one is removed, the database goes back to the copy taken before the swap and the old panel starts again. The Update page says the upgrade failed. Check `docker logs stackr` for the old panel and the Update page for the reason, fix it, then try again. The pre-upgrade archive is listed in Backups.
