@@ -230,7 +230,11 @@ func (d *dbOp) dir(area string) (string, *Error) {
 		}
 		return d.host(d.db), nil
 	case AreaSwap:
-		return d.host(d.data + "/swap"), nil
+		dir := d.host(d.data + "/swap")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", &Error{CodeIO, err.Error()}
+		}
+		return dir, nil
 	case AreaFolder:
 		if d.folder == "" {
 			return "", &Error{CodeBadName, "no disk named"}

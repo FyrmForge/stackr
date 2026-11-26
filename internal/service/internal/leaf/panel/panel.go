@@ -36,6 +36,7 @@ type Docker interface {
 	Pull(ctx context.Context, ref, auth string, log io.Writer) error
 	LocalDigest(ctx context.Context, ref string) (string, error)
 	Tag(ctx context.Context, src, dst string) error
+	Wait(ctx context.Context, id string) (int, error)
 }
 
 const (
@@ -55,6 +56,12 @@ type Leaf struct {
 	docker Docker
 	// Gate for the new panel: migrations may run before it answers.
 	Poll, Grace, Deadline time.Duration
+	// Disk runs the privileged disk helper for the database ops; nil = a
+	// container of the panel's image (HelperDisk). Tests inject a fake.
+	Disk DiskRunner
+	// crashAt is a test seam: a move calls it at each step, and an error stops
+	// it there as a dying process would.
+	crashAt func(step string) error
 }
 
 func New(d Docker) *Leaf {
@@ -91,6 +98,10 @@ func (l *Leaf) Digest(ctx context.Context, image string) (string, error) {
 // running `stackrd upgrade-swap` with the socket. Refused while a helper
 // still runs, which is the "already running" guard across panel restarts.
 func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
+	return l.launch(ctx, spec)
+}
+
+func (l *Leaf) launch(ctx context.Context, spec docker.ContainerSpec, extraEnv ...string) error {
 	busy, err := l.docker.List(ctx, map[string]string{LabelRole: "upgrader"})
 	if err != nil {
 		return err
@@ -126,7 +137,7 @@ func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
 		Name:    "stackr-upgrader",
 		Image:   spec.Image,
 		Cmd:     []string{"upgrade-swap"},
-		Env:     []string{SpecEnv + "=" + string(body), RetryEnv + "=1"},
+		Env:     append([]string{SpecEnv + "=" + string(body), RetryEnv + "=1"}, extraEnv...),
 		Labels:  map[string]string{LabelRole: "upgrader"},
 		Volumes: vols,
 		// The gate dials the new panel's listen address, which is the host's.
