@@ -642,6 +642,7 @@ func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob)
 		return err
 	}
 	o.ioRun(d.NodeID, false, time.Time{}) // bad reads count again from zero
+	o.resyncObserve(ctx, d.NodeID)
 	return o.resumeQuarantined(ctx, r, d)
 }
 

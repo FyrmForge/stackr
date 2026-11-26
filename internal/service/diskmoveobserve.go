@@ -36,17 +36,19 @@ const (
 	auditObserveFromDisk = "observe.from_disk"
 )
 
-// observeOnDisk is whether observe's data volume is the disk folder.
-func (o *Orchestrator) observeOnDisk(ctx context.Context) bool {
+// observeOnDisk is whether observe's data volume is the disk folder. A read
+// error is an error, never "not on the disk": the caller must not change the
+// running volume on a guess.
+func (o *Orchestrator) observeOnDisk(ctx context.Context) (bool, error) {
 	v, ok, err := o.store.Settings.Get(ctx, observeDataDiskKey)
-	return err == nil && ok && v == "1"
+	return err == nil && ok && v == "1", err
 }
 
 // observeDiskRefusal is the refusal Forget (and Adopt) of a node's disk gives
 // while observe's data is on it: move it back first. nil when it is not.
 func (o *Orchestrator) observeDiskRefusal(ctx context.Context, nodeID string) error {
-	if !o.observeOnDisk(ctx) {
-		return nil
+	if on, err := o.observeOnDisk(ctx); err != nil || !on {
+		return err
 	}
 	if ctl, err := o.controllerID(ctx); err != nil || ctl != nodeID {
 		return err
@@ -61,7 +63,28 @@ func (o *Orchestrator) observeDiskReady(ctx context.Context) bool {
 		return false
 	}
 	d, has, err := o.nodeDisk(ctx, ctl)
-	return err == nil && has && d.State == disk.StateReady
+	if err != nil || !has || d.State != disk.StateReady {
+		return false
+	}
+	bad, err := o.diskErroring(ctx, ctl)
+	return err == nil && !bad
+}
+
+// resyncObserve runs a serialized syncObserve in the background: the disk
+// observe's data is on went missing or erroring (stop it) or came back (start
+// it). A no-op when the data is not on the disk.
+func (o *Orchestrator) resyncObserve(ctx context.Context, nodeID string) {
+	if on, err := o.observeOnDisk(ctx); err != nil || !on {
+		return
+	}
+	if ctl, err := o.controllerID(ctx); err != nil || ctl != nodeID {
+		return
+	}
+	o.detach(context.Background(), func(ctx context.Context) {
+		if cctx, err := o.withController(ctx); err == nil {
+			o.syncObserve(cctx)
+		}
+	})
 }
 
 // observeCap is the xfs cap of the disk folder: twice today's data, and never
@@ -96,7 +119,7 @@ func observeVolumeRow(name, nodeID string) Volume {
 // job judges the move again when it runs.
 func (o *Orchestrator) PlanMoveObserve(ctx context.Context, by *Principal, nodeID string, back bool) (ObserveMovePlan, error) {
 	p := ObserveMovePlan{NodeID: nodeID, Back: back}
-	if err := o.observeMoveLoad(ctx, nodeID, back); err != nil {
+	if err := o.observeMoveLoad(ctx, nodeID, "", back); err != nil {
 		return p, err
 	}
 	src := installspec.ObserveVolume
@@ -104,18 +127,17 @@ func (o *Orchestrator) PlanMoveObserve(ctx context.Context, by *Principal, nodeI
 		src = installspec.ObserveDiskVolume
 	}
 	p.SizeBytes = o.volumes.SizeBytesFresh(ctx, observeVolumeRow(src, nodeID))
-	var err error
-	if back {
-		p.Free, _ = o.diskOf(ctx, nodeID)
-	} else {
-		p.Cap = o.observeCap(ctx, p.SizeBytes)
-		p.Free, _, err = o.dataDiskOf(ctx, nodeID)
-		if err != nil {
-			return p, err
-		}
+	if p.SizeBytes < 0 {
+		return p, errs.Refusedf("Cannot read the size of the logs and metrics. Try again.")
 	}
-	n := max(p.SizeBytes, 0)
-	p.Need = n + n/10
+	var err error
+	if p.Free, err = o.observeDestFree(ctx, nodeID, back); err != nil {
+		return p, err
+	}
+	if !back {
+		p.Cap = o.observeCap(ctx, p.SizeBytes)
+	}
+	p.Need = p.SizeBytes + p.SizeBytes/10
 	p.Fits = uint64(p.Need) <= p.Free
 	if p.Busy, err = o.todiskLive(ctx, nodeID); err != nil {
 		return p, err
@@ -123,8 +145,19 @@ func (o *Orchestrator) PlanMoveObserve(ctx context.Context, by *Principal, nodeI
 	return p, nil
 }
 
+// observeDestFree is the free space where the copy lands: the node disk, or
+// on the way back the system disk.
+func (o *Orchestrator) observeDestFree(ctx context.Context, nodeID string, back bool) (uint64, error) {
+	if back {
+		free, _ := o.diskOf(ctx, nodeID)
+		return free, nil
+	}
+	free, _, err := o.dataDiskOf(ctx, nodeID)
+	return free, err
+}
+
 // observeMoveLoad is every refusal of the move that does not depend on size.
-func (o *Orchestrator) observeMoveLoad(ctx context.Context, nodeID string, back bool) error {
+func (o *Orchestrator) observeMoveLoad(ctx context.Context, nodeID, diskID string, back bool) error {
 	if _, err := o.diskNodeUp(ctx, nodeID); err != nil {
 		return err
 	}
@@ -140,10 +173,17 @@ func (o *Orchestrator) observeMoveLoad(ctx context.Context, nodeID string, back 
 	if !has || d.State != disk.StateReady {
 		return errs.Refusedf("This node's disk is not ready.")
 	}
+	if diskID != "" && d.ID != diskID {
+		return errs.Conflictf("The node's disk changed, try again.")
+	}
 	if err := o.erroringDiskGate(ctx, nodeID); err != nil {
 		return err
 	}
-	if on := o.observeOnDisk(ctx); on != back {
+	on, err := o.observeOnDisk(ctx)
+	if err != nil {
+		return err
+	}
+	if on != back {
 		if back {
 			return errs.Refusedf("Logs and metrics are not on the disk.")
 		}
@@ -155,6 +195,7 @@ func (o *Orchestrator) observeMoveLoad(ctx context.Context, nodeID string, back 
 // observeMoveJob is the payload.
 type observeMoveJob struct {
 	NodeID string `json:"node_id"`
+	DiskID string `json:"disk_id,omitempty"` // the disk whose lock the job holds
 	Back   bool   `json:"back,omitempty"`
 	By     string `json:"by,omitempty"`
 	KeyID  string `json:"key_id,omitempty"`
@@ -174,9 +215,14 @@ func (o *Orchestrator) MoveObserve(ctx context.Context, by *Principal, nodeID st
 		return Job{}, errs.Conflictf("%s has %s free and the move needs %s (the data and a tenth over).",
 			map[bool]string{true: "The system disk", false: "The disk"}[back], gb(p.Free), gb(uint64(p.Need)))
 	}
+	d, _, err := o.nodeDisk(ctx, nodeID)
+	if err != nil {
+		return Job{}, err
+	}
 	uid, kid := actorOf(by)
-	return o.enqueueExclusive(ctx, kindObserveMove, observeMoveJob{NodeID: nodeID, Back: back, By: uid, KeyID: kid},
-		[]string{"observe-move"}, errs.Conflictf("Logs and metrics are already moving."), todiskKey(nodeID))
+	// the disk lock keeps a Forget or Adopt of this disk from overlapping the move
+	return o.enqueueExclusive(ctx, kindObserveMove, observeMoveJob{NodeID: nodeID, DiskID: d.ID, Back: back, By: uid, KeyID: kid},
+		[]string{"observe-move"}, errs.Conflictf("Logs and metrics are already moving."), todiskKey(nodeID), "disk:"+d.ID)
 }
 
 func (o *Orchestrator) runObserveMove(ctx context.Context, r *jobs.Run, p observeMoveJob) error {
@@ -207,7 +253,7 @@ func (m *observeMove) run(ctx context.Context) error {
 	// there is no banner while observe is down for the copy.
 	o.observe.mu.Lock()
 	defer o.observe.mu.Unlock()
-	if err := o.observeMoveLoad(ctx, p.NodeID, p.Back); err != nil {
+	if err := o.observeMoveLoad(ctx, p.NodeID, p.DiskID, p.Back); err != nil {
 		return err
 	}
 	nctx := docker.WithNode(ctx, p.NodeID)
@@ -216,7 +262,6 @@ func (m *observeMove) run(ctx context.Context) error {
 		srcName, dstName = dstName, srcName
 	}
 	src, dst := observeVolumeRow(srcName, p.NodeID), observeVolumeRow(dstName, p.NodeID)
-	size := max(o.volumes.SizeBytesFresh(nctx, src), 0)
 	d, _, err := o.nodeDisk(ctx, p.NodeID)
 	if err != nil {
 		return err
@@ -227,6 +272,20 @@ func (m *observeMove) run(ctx context.Context) error {
 		return err
 	}
 	m.step("stopped")
+
+	// Judge again with observe stopped: the size, the cap and the room are now
+	// the ones the copy meets.
+	size := o.volumes.SizeBytesFresh(nctx, src)
+	if size < 0 {
+		return m.fail(nctx, errs.Refusedf("Cannot read the size of the logs and metrics."))
+	}
+	free, err := o.observeDestFree(nctx, p.NodeID, p.Back)
+	if err != nil {
+		return m.fail(nctx, err)
+	}
+	if need := uint64(size + size/10); need > free {
+		return m.fail(nctx, errs.Conflictf("Only %s is free and the copy needs %s (the data and a tenth over).", gb(free), gb(need)))
+	}
 
 	// A retry starts clean: the destination goes first, every time.
 	m.logf("copying %s to %s", srcName, dstName)
@@ -274,7 +333,10 @@ func (m *observeMove) run(ctx context.Context) error {
 
 	// Switch: save the setting, run observe on the new volume, prove it. Any
 	// failure puts the old setting back and observe on its old volume.
-	old, hadOld, _ := o.store.Settings.Get(ctx, observeDataDiskKey)
+	old, hadOld, err := o.store.Settings.Get(ctx, observeDataDiskKey)
+	if err != nil {
+		return m.fail(nctx, err)
+	}
 	if err := m.setOnDisk(ctx, !p.Back); err != nil {
 		return m.fail(nctx, err)
 	}
@@ -286,12 +348,23 @@ func (m *observeMove) run(ctx context.Context) error {
 		err = o.observeCheck(nctx)
 	}
 	if err != nil {
+		// The job ctx may be the reason; the rollback must not be cancelled with it.
+		rb := context.WithoutCancel(ctx)
+		var rerr error
 		if hadOld {
-			_ = o.store.Settings.Set(ctx, observeDataDiskKey, old)
+			rerr = o.store.Settings.Set(rb, observeDataDiskKey, old)
 		} else {
-			_ = o.store.Settings.Delete(ctx, observeDataDiskKey)
+			rerr = o.store.Settings.Delete(rb, observeDataDiskKey)
 		}
-		o.syncObserveLocked(nctx)
+		if rerr == nil {
+			o.syncObserveLocked(docker.WithNode(rb, p.NodeID))
+			if e := o.observe.lastErr.Load(); e != nil && *e != "" {
+				rerr = errors.New(*e)
+			}
+		}
+		if rerr != nil {
+			return fmt.Errorf("observe did not come up on the new volume and the rollback is incomplete (check Settings, Observability): %w", errors.Join(err, rerr))
+		}
 		return fmt.Errorf("observe did not come up on the new volume, it is back on the old one: %w", err)
 	}
 	m.step("switched")

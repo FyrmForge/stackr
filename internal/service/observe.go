@@ -92,7 +92,9 @@ func (o *Orchestrator) observeKnobs(ctx context.Context) (observeKnobs, error) {
 	}
 	k.logsMax = uint64(gb) << 30
 	k.memoryMB, err = o.settings.Int(ctx, "observe_max_memory")
-	k.onDisk = o.observeOnDisk(ctx)
+	if err == nil {
+		k.onDisk, err = o.observeOnDisk(ctx)
+	}
 	for key, p := range map[string]*bool{"observe_access_query": &k.accessQuery,
 		"observe_access_ip": &k.accessIP, "observe_access_headers": &k.accessHeaders} {
 		v, _ := o.settings.Get(ctx, key)

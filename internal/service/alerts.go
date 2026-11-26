@@ -487,6 +487,7 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 				// and quota errors never get here: the worker leaves them stale.
 				if o.ioRun(n.ID, true, x.ReadAt) >= diskMissingReads {
 					o.latchErroring(ctx, d) // held until Check disk, whatever the reads say after
+					o.resyncObserve(ctx, d.NodeID)
 				}
 			case gone:
 				freshBad = true // the same read seen twice neither counts nor breaks the run
@@ -496,6 +497,7 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 					if !g.superseded(polled, x.ReadAt) {
 						if m, err := o.diskLeaf.MarkMissing(ctx, d); err == nil {
 							d, freshBad = m, false // latched: the run is over
+							o.resyncObserve(ctx, d.NodeID)
 						}
 					}
 					g.mu.Unlock()

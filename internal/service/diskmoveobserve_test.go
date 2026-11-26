@@ -99,7 +99,13 @@ func (r *observeRig) stepNames() string {
 	return strings.Join(r.steps, ",")
 }
 
-func (r *observeRig) onDisk() bool { return r.orch.observeOnDisk(context.Background()) }
+func (r *observeRig) onDisk() bool {
+	on, err := r.orch.observeOnDisk(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	return on
+}
 
 // removed is whether the controller's daemon was told to remove the volume.
 func (r *observeRig) removed(name string) bool {
