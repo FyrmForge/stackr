@@ -56,7 +56,7 @@ func confirmFlag(c *cobra.Command, dst *string, what string) {
 
 func (a *app) nodeDisk() *cobra.Command {
 	return noun("disk", "A node's disk: the folder its volumes live on",
-		a.diskLs(), a.diskDevices(), a.diskAdd(), a.diskGrow(), a.diskCheck(), a.diskAdopt(), a.diskForget(), a.diskMoveAll())
+		a.diskLs(), a.diskDevices(), a.diskAdd(), a.diskGrow(), a.diskCheck(), a.diskAdopt(), a.diskForget(), a.diskMoveAll(), a.diskMovePanel(), a.diskRemovePanelCopy())
 }
 
 func nodeDiskPath(node, sub string) string {
@@ -589,5 +589,74 @@ func (a *app) volumeDiscard() *cobra.Command {
 		}))
 	c.Flags().BoolVar(&bound, "bound", false, "the object is bound somewhere other than the volume's folder")
 	confirmFlag(c, &confirm, "the volume's slug")
+	return c
+}
+
+func (a *app) diskMovePanel() *cobra.Command {
+	var back bool
+	c := waits(leaf("move-panel <node>", "admin.node-disk-panel-db,admin.node-disk-move-panel-plan,admin.node-disk-move-panel",
+		"Move the panel database onto the controller's node disk, or back with --back (server admin)", exact(1),
+		func(c *cobra.Command, args []string) error {
+			st, err := a.call(GET, nodeDiskPath(args[0], "/panel-db"), nil)
+			if err != nil {
+				return err
+			}
+			if m := asMap(st); m["applicable"] != true {
+				return errors.New(cell(m["reason"]))
+			} else if m["on_disk"] == true && !back {
+				return errors.New("the panel database is already on the node disk")
+			} else if m["on_disk"] != true && back {
+				return errors.New("the panel database is on the system disk")
+			}
+			v, err := a.call(GET, nodeDiskPath(args[0], "/move-panel-plan")+"?back="+strconv.FormatBool(back), nil)
+			if err != nil {
+				return err
+			}
+			p := asMap(v)
+			if a.json {
+				return a.show(v)
+			}
+			a.say("database  %s", size(p["size_bytes"]))
+			a.say("free      %s on the node disk, %s on the system disk", size(p["disk_free"]), size(p["system_free"]))
+			a.say("%s", cell(p["restarts"]))
+			if w := cell(p["warning"]); w != "(none)" && w != "" {
+				a.say("%s", w)
+			}
+			if r := cell(p["refusal"]); r != "(none)" && r != "" {
+				return errors.New(r)
+			}
+			q := "Move the panel database onto the node disk?"
+			if back {
+				q = "Move the panel database back to the system disk?"
+			}
+			if err := a.confirm(q); err != nil {
+				return err
+			}
+			j, err := a.call(POST, nodeDiskPath(args[0], "/move-panel"), map[string]bool{"back": back})
+			if err != nil {
+				return err
+			}
+			if nw, _ := c.Flags().GetBool("no-wait"); nw {
+				return a.show(j)
+			}
+			// the panel restarts under this call: the follow reconnects
+			return a.follow("/admin", j, "move the panel database")
+		}))
+	c.Flags().BoolVar(&back, "back", false, "move the database back to the system disk")
+	c.Example = "  stkr node disk move-panel vps-fsn1\n  stkr node disk move-panel vps-fsn1 --back"
+	return c
+}
+
+func (a *app) diskRemovePanelCopy() *cobra.Command {
+	c := leaf("remove-panel-copy <node>", "admin.node-disk-remove-panel-copy",
+		"Remove the old copy of the panel database a move left (server admin)", exact(1),
+		func(c *cobra.Command, args []string) error {
+			if err := a.confirm("Remove the old copy of the panel database? It cannot be brought back."); err != nil {
+				return err
+			}
+			_, err := a.call(POST, nodeDiskPath(args[0], "/remove-panel-copy"), nil)
+			return err
+		})
+	c.Example = "  stkr node disk remove-panel-copy vps-fsn1"
 	return c
 }

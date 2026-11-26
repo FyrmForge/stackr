@@ -260,3 +260,31 @@ func TestNodeDiskGrowAndVolumeCap(t *testing.T) {
 		}
 	}
 }
+
+func TestNodeDiskMovePanel(t *testing.T) {
+	state := `{"applicable":true,"reason":"","on_disk":false}`
+	plan := `{"size_bytes":52428800,"disk_free":53687091200,"system_free":10737418240,"restarts":"The panel restarts.","warning":"After this, the whole control plane depends on this one disk.","refusal":""}`
+	r := fake(t, map[string]string{"/panel-db": state, "/move-panel-plan": plan, "/move-panel": `{"id":"","kind":""}`})
+	if code, out, _ := cli(t, "node", "disk", "move-panel", "n1"); code != 3 || !strings.Contains(out, "depends on this one disk") || len(writes(r)) != 0 {
+		t.Errorf("unconfirmed = %d %q, wrote %v", code, out, writes(r))
+	}
+	if code, _, errw := cli(t, "-y", "node", "disk", "move-panel", "n1", "--no-wait"); code != 0 || len(writes(r)) != 1 || writes(r)[0] != "POST "+nd+`/move-panel {"back":false}` {
+		t.Errorf("move = %d %q, wrote %v", code, errw, writes(r))
+	}
+	// back: only from the disk
+	if code, _, errw := cli(t, "-y", "node", "disk", "move-panel", "n1", "--back"); code != 1 || !strings.Contains(errw, "system disk") {
+		t.Errorf("back from the system disk = %d %q", code, errw)
+	}
+	r = fake(t, map[string]string{"/panel-db": `{"applicable":true,"on_disk":true}`, "/move-panel-plan": plan, "/move-panel": `{"id":"","kind":""}`})
+	if code, _, errw := cli(t, "-y", "node", "disk", "move-panel", "n1", "--back", "--no-wait"); code != 0 || writes(r)[0] != "POST "+nd+`/move-panel {"back":true}` {
+		t.Errorf("back = %d %q, wrote %v", code, errw, writes(r))
+	}
+	fake(t, map[string]string{"/panel-db": state, "/move-panel-plan": strings.Replace(plan, `"refusal":""`, `"refusal":"An update is running."`, 1)})
+	if code, _, errw := cli(t, "-y", "node", "disk", "move-panel", "n1"); code != 1 || !strings.Contains(errw, "An update is running.") {
+		t.Errorf("refused = %d %q", code, errw)
+	}
+	fake(t, map[string]string{"/panel-db": `{"applicable":false,"reason":"Only the controller holds the panel database."}`})
+	if code, _, errw := cli(t, "-y", "node", "disk", "move-panel", "n1"); code != 1 || !strings.Contains(errw, "controller") {
+		t.Errorf("worker = %d %q", code, errw)
+	}
+}

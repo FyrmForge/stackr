@@ -506,3 +506,85 @@ func (h *H) SetVolumeCap() Endpoint {
 		return VolumeCapOut{MaxSizeMB: v.MaxSizeMB, Enforced: on}, err
 	})
 }
+
+// MovePanelPlanOut is what moving the panel database onto the node disk (or
+// back) does.
+type MovePanelPlanOut struct {
+	NodeID     string `json:"node_id"`
+	DiskID     string `json:"disk_id"`
+	Back       bool   `json:"back"`
+	SizeBytes  int64  `json:"size_bytes"`
+	DiskFree   uint64 `json:"disk_free"`
+	SystemFree uint64 `json:"system_free"`
+	Need       int64  `json:"need"`
+	Fits       bool   `json:"fits"`
+	Restarts   string `json:"restarts"`
+	Warning    string `json:"warning"`
+	Refusal    string `json:"refusal"`
+}
+
+// PlanMovePanelDB (server admin) measures the database and both disks; it is
+// advisory, the job judges again. ?back=true plans the move back.
+func (h *H) PlanMovePanelDB() Endpoint {
+	return Get(func(c echo.Context) (MovePanelPlanOut, error) {
+		id, err := h.nodeID(c)
+		if err != nil {
+			return MovePanelPlanOut{}, err
+		}
+		p, err := h.Orch.PlanMovePanelDB(rc(c), middleware.Principal(c), id, c.QueryParam("back") == "true")
+		return MovePanelPlanOut(p), err
+	})
+}
+
+// MovePanelIn picks the direction.
+type MovePanelIn struct {
+	Back bool `json:"back"`
+}
+
+// MovePanelDB (server admin) queues the move of the panel database onto the
+// node disk, or back with back=true.
+func (h *H) MovePanelDB() Endpoint {
+	return Job(func(c echo.Context, in MovePanelIn) (service.Job, error) {
+		id, err := h.nodeID(c)
+		if err != nil {
+			return service.Job{}, err
+		}
+		return h.Orch.MovePanelDB(rc(c), middleware.Principal(c), id, in.Back)
+	})
+}
+
+// PanelDBOut is the card's panel database row.
+type PanelDBOut struct {
+	Applicable    bool      `json:"applicable"`
+	Reason        string    `json:"reason"`
+	OnDisk        bool      `json:"on_disk"`
+	Moving        bool      `json:"moving"`
+	DiskID        string    `json:"disk_id"`
+	OldCopy       bool      `json:"old_copy"`
+	OldCopyOnDisk bool      `json:"old_copy_on_disk"`
+	OldCopyAt     time.Time `json:"old_copy_at"`
+}
+
+// PanelDBState (server admin) is where the panel database is.
+func (h *H) PanelDBState() Endpoint {
+	return Get(func(c echo.Context) (PanelDBOut, error) {
+		id, err := h.nodeID(c)
+		if err != nil {
+			return PanelDBOut{}, err
+		}
+		v, err := h.Orch.PanelDBState(rc(c), id)
+		return PanelDBOut(v), err
+	})
+}
+
+// RemovePanelDBCopy (server admin) removes the old copy a move left. It is the
+// only deleter.
+func (h *H) RemovePanelDBCopy() Endpoint {
+	return Done(func(c echo.Context, _ None) error {
+		id, err := h.nodeID(c)
+		if err != nil {
+			return err
+		}
+		return h.Orch.RemovePanelDBOldCopy(rc(c), middleware.Principal(c), id)
+	})
+}

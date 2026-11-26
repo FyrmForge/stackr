@@ -1551,6 +1551,40 @@ Example:
   stkr node disk move-all vps-fsn1
 ```
 
+#### `stkr node disk move-panel`
+
+Move the panel database onto the controller's node disk, or back with --back (server admin)
+
+```
+stkr node disk move-panel <node> [flags]
+```
+
+```
+      --back      move the database back to the system disk
+      --no-wait   print the job and return; it runs server-side
+```
+
+Example:
+
+```
+  stkr node disk move-panel vps-fsn1
+  stkr node disk move-panel vps-fsn1 --back
+```
+
+#### `stkr node disk remove-panel-copy`
+
+Remove the old copy of the panel database a move left (server admin)
+
+```
+stkr node disk remove-panel-copy <node>
+```
+
+Example:
+
+```
+  stkr node disk remove-panel-copy vps-fsn1
+```
+
 ### `stkr node exit`
 
 Set the exits a node without egress sends its traffic out through, in order, up to three (server admin)
