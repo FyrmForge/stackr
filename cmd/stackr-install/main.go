@@ -225,6 +225,12 @@ Flags:
 			filepath.Join(in.DataDir, installspec.File))
 	}
 
+	// The journal first: a move or layout change in progress is seen (and a
+	// layout change undone) before any key or container is touched.
+	if err := r.panelDB(ctx, in); err != nil {
+		return err
+	}
+
 	// Decided before anything is written: a refused downgrade changes nothing.
 	panelID, cur := panelVersion(ctx)
 	mv := stay

@@ -1,0 +1,228 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/paneldb"
+)
+
+func put(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func get(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "<" + err.Error() + ">"
+	}
+	return string(b)
+}
+
+// Restore targets db/stackr.db, keeps the old database (and an old layout's
+// file) in swap/, and leaves the placeholder and the journal as they were.
+func TestSetAsideDB(t *testing.T) {
+	for name, setup := range map[string]func(t *testing.T, dir string){
+		"laid out": func(t *testing.T, dir string) {
+			if err := paneldb.EnsureLayout(dir); err != nil {
+				t.Fatal(err)
+			}
+			put(t, paneldb.Path(dir), "current")
+			put(t, paneldb.Path(dir)+"-wal", "current wal")
+			put(t, paneldb.Path(dir)+"-shm", "shm")
+		},
+		"old layout, file at the old path": func(t *testing.T, dir string) {
+			put(t, paneldb.Legacy(dir), "current")
+			put(t, paneldb.Legacy(dir)+"-wal", "current wal")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			setup(t, dir)
+			if err := paneldb.WriteJournal(dir, paneldb.Journal{Phase: paneldb.PhaseNone}); err != nil {
+				t.Fatal(err)
+			}
+			journal := get(filepath.Join(dir, paneldb.JournalName))
+			db, err := setAsideDB(dir, "20261126T101500")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if db != filepath.Join(dir, "db", "stackr.db") {
+				t.Errorf("target = %s", db)
+			}
+			if _, err := os.Lstat(db); err == nil {
+				t.Error("the old database is still at the target")
+			}
+			kept := filepath.Join(dir, "swap", "stackr.db.before-restore-20261126T101500")
+			if name == "old layout, file at the old path" {
+				kept += ".old-layout"
+			}
+			if get(kept) != "current" || get(kept+"-wal") != "current wal" {
+				t.Errorf("kept = %q %q", get(kept), get(kept+"-wal"))
+			}
+			for _, suf := range []string{"-shm"} {
+				if _, err := os.Lstat(paneldb.Path(dir) + suf); err == nil {
+					t.Error("the old -shm is left")
+				}
+			}
+			// the restore writes the file, then the placeholder is ensured
+			put(t, db, "restored")
+			if err := paneldb.EnsureLayout(dir); err != nil {
+				t.Fatal(err)
+			}
+			if fi, err := os.Stat(paneldb.Legacy(dir)); err != nil || !fi.IsDir() {
+				t.Errorf("no placeholder after the restore: %v", err)
+			}
+			if get(filepath.Join(dir, paneldb.JournalName)) != journal {
+				t.Error("the journal changed")
+			}
+			if err := paneldb.Check(dir, db); err != nil {
+				t.Errorf("the boot check refuses the restored layout: %v", err)
+			}
+		})
+	}
+}
+
+// A restore refuses while the journal says a layout change or a move is not
+// finished, and while the database is on a disk.
+func TestRestorePanelDBRefusals(t *testing.T) {
+	for name, j := range map[string]paneldb.Journal{
+		"layout":  {Phase: paneldb.PhaseLayout, Direction: paneldb.DirLayout},
+		"copying": {Phase: "copied", Direction: "in"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := paneldb.WriteJournal(dir, j); err != nil {
+				t.Fatal(err)
+			}
+			if err := restorePanelDB(dir); err == nil {
+				t.Error("restore went ahead")
+			}
+		})
+	}
+	dir := t.TempDir()
+	if err := paneldb.WriteJournal(dir, paneldb.Journal{Phase: paneldb.PhaseMoved, DiskID: "d1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := restorePanelDB(dir); err == nil || !strings.Contains(err.Error(), "disk") {
+		t.Errorf("moved database: %v", err)
+	}
+	if err := restorePanelDB(t.TempDir()); err != nil {
+		t.Errorf("a plain box: %v", err)
+	}
+}
+
+// A fresh install makes db/ and the placeholder before any key; an old
+// install's database file is left to the panel swap; a journal that says a
+// move is in progress stops the installer before it touches anything.
+func TestInstallerPanelDB(t *testing.T) {
+	ctx := context.Background()
+	fresh := t.TempDir()
+	if err := (runner{out: &bytes.Buffer{}}).panelDB(ctx, installspec.Input{DataDir: fresh}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(paneldb.Legacy(fresh)); err != nil || !fi.IsDir() {
+		t.Errorf("fresh install: no placeholder (%v)", err)
+	}
+	if fi, err := os.Stat(filepath.Join(fresh, "db")); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("fresh install: db/ = %v %v", fi, err)
+	}
+
+	old := t.TempDir()
+	put(t, paneldb.Legacy(old), "db")
+	if err := (runner{out: &bytes.Buffer{}}).panelDB(ctx, installspec.Input{DataDir: old}); err != nil {
+		t.Fatal(err)
+	}
+	if get(paneldb.Legacy(old)) != "db" {
+		t.Error("the installer moved an old install's database itself")
+	}
+
+	moving := t.TempDir()
+	if err := paneldb.WriteJournal(moving, paneldb.Journal{Phase: "copied", Direction: "in"}); err != nil {
+		t.Fatal(err)
+	}
+	before := len(listDir(t, moving))
+	if err := (runner{out: &bytes.Buffer{}}).panelDB(ctx, installspec.Input{DataDir: moving}); err == nil {
+		t.Fatal("a move in progress was let through")
+	}
+	if len(listDir(t, moving)) != before {
+		t.Error("the installer touched the data dir while refusing")
+	}
+}
+
+func listDir(t *testing.T, dir string) []string {
+	t.Helper()
+	var out []string
+	_ = filepath.WalkDir(dir, func(p string, _ os.DirEntry, err error) error { out = append(out, p); return err })
+	return out
+}
+
+// The helper died after the new panel's gate passed and before it cleared the
+// journal. The installer rerun keeps that panel and its database: the stale
+// copy is dropped and the journal cleared, nothing is restored.
+func TestInstallerKeepsALivePanelWhoseJournalWasNotCleared(t *testing.T) {
+	dir := t.TempDir()
+	if err := paneldb.EnsureLayout(dir); err != nil {
+		t.Fatal(err)
+	}
+	put(t, paneldb.Path(dir), "live data since the upgrade")
+	cp := filepath.Join(dir, "swap", "stackr.db.pre-0.2.0")
+	put(t, cp, "stale copy")
+	if err := paneldb.WriteJournal(dir, paneldb.Journal{Phase: paneldb.PhaseStartingNew, Direction: paneldb.DirLayout,
+		Src: paneldb.Legacy(dir), Dst: paneldb.Path(dir), Copy: cp, Container: "stackr-0.2.0"}); err != nil {
+		t.Fatal(err)
+	}
+	old := panelAnswers
+	t.Cleanup(func() { panelAnswers = old })
+	var asked string
+	panelAnswers = func(_ context.Context, _ installspec.Input, name string) bool { asked = name; return true }
+	if err := (runner{out: &bytes.Buffer{}}).panelDB(context.Background(), installspec.Input{DataDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	if asked != "stackr-0.2.0" {
+		t.Errorf("asked about %q", asked)
+	}
+	if get(paneldb.Path(dir)) != "live data since the upgrade" {
+		t.Errorf("database = %q", get(paneldb.Path(dir)))
+	}
+	if j, _ := paneldb.ReadJournal(dir); j.Phase != paneldb.PhaseNone {
+		t.Errorf("journal = %q", j.Phase)
+	}
+	if _, err := os.Stat(cp); err == nil {
+		t.Error("the stale copy is still there")
+	}
+}
+
+// An unfinished layout change is undone by the installer (dry run says so and
+// changes nothing; the real one needs Docker, which the recovery itself does not).
+func TestInstallerDryRunLeavesLayoutJournal(t *testing.T) {
+	dir := t.TempDir()
+	put(t, paneldb.Path(dir), "db")
+	if err := paneldb.EnsureLayout(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := paneldb.WriteJournal(dir, paneldb.Journal{Phase: paneldb.PhaseLayout, Direction: paneldb.DirLayout, Src: paneldb.Legacy(dir), Dst: paneldb.Path(dir)}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := (runner{dry: true, out: &out}).panelDB(context.Background(), installspec.Input{DataDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "would undo") {
+		t.Errorf("out = %q", out.String())
+	}
+	if get(paneldb.Path(dir)) != "db" {
+		t.Error("a dry run moved the database")
+	}
+}

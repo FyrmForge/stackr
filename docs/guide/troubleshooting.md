@@ -43,7 +43,7 @@ Apps on an offline worker keep running. Deploys to it wait.
 
 **Panel.** The upgrade archives the database, starts the new image next to the old one and waits for it to be healthy. If it is not, the new one is removed, the database goes back to the copy taken before the swap and the old panel starts again. The Update page says the upgrade failed. Check `docker logs stackr` for the old panel and the Update page for the reason, fix it, then try again. The pre-upgrade archive is listed in Backups.
 
-If the old panel did not come back, the swap's own error names the copy of the database it could not restore. Do not start the panel until the database is right. Restore the pre-upgrade archive ([below](#restore-from-a-backup)) or stop the panel, delete `stackr.db-wal` and `stackr.db-shm`, and move the copy back over `/var/lib/stackr/stackr.db`.
+If the old panel did not come back, the swap's own error names the copy of the database it could not restore. Do not start the panel until the database is right. Restore the pre-upgrade archive ([below](#restore-from-a-backup)) or stop the panel, delete `db/stackr.db-wal` and `db/stackr.db-shm`, and move the copy from `/var/lib/stackr/swap/` back over `/var/lib/stackr/db/stackr.db`. The panel database is always `/var/lib/stackr/db/stackr.db`. The old path `/var/lib/stackr/stackr.db` is a directory with a note in it.
 
 **Workers.** The rollout goes one worker at a time. A worker that does not come back on the new build rolls itself back and the rollout stops. The Workers list on the Update page shows `<node> failed to upgrade, rolled back` and the error. Fix the node, then press **Retry** or run `stkr admin upgrade-workers`. A worker that is offline is upgraded when it reconnects.
 
@@ -56,13 +56,13 @@ The installer refuses an older version than the one running, since migrations ma
 A migration that fails leaves the database marked dirty at that version. Every start then refuses it with `Dirty database version N`. The migration ran in a transaction, so its changes were rolled back. A normal upgrade puts the database back by itself; this is for a panel that was restarted or swapped by hand.
 
 1. Stop the panel: `docker stop stackr`.
-2. Copy the database with its journal files: `mkdir /var/lib/stackr/before-force && cp /var/lib/stackr/stackr.db* /var/lib/stackr/before-force/`.
+2. Copy the database with its journal files: `mkdir /var/lib/stackr/before-force && cp /var/lib/stackr/db/stackr.db* /var/lib/stackr/before-force/`.
 3. Read the state. This runs the panel image once and touches nothing:
 
    ```bash
    IMG=$(docker inspect -f '{{.Config.Image}}' stackr)
    docker run --rm -v /var/lib/stackr:/var/lib/stackr \
-     -e DATA_DIR=/var/lib/stackr -e DATABASE_PATH=/var/lib/stackr/stackr.db \
+     -e DATA_DIR=/var/lib/stackr -e DATABASE_PATH=/var/lib/stackr/db/stackr.db \
      "$IMG" migrate-force
    ```
 
@@ -71,7 +71,7 @@ A migration that fails leaves the database marked dirty at that version. Every s
 
    ```bash
    docker run --rm -v /var/lib/stackr:/var/lib/stackr \
-     -e DATA_DIR=/var/lib/stackr -e DATABASE_PATH=/var/lib/stackr/stackr.db \
+     -e DATA_DIR=/var/lib/stackr -e DATABASE_PATH=/var/lib/stackr/db/stackr.db \
      "$IMG" migrate-force $((N-1))
    docker start stackr
    ```
@@ -95,6 +95,6 @@ Use it when the box or its database is lost. The full steps are in [Backups](bac
 
 4. Workers reconnect by themselves. Tiles that ran on the controller are deployed again, and their empty volumes are restored from the newest backup first.
 
-The replaced database stays as `stackr.db.before-restore-<time>` with its `-wal` file. If the restored panel is wrong, stop it, delete the new `stackr.db-wal` and `stackr.db-shm`, and move both old files back.
+The replaced database stays in `/var/lib/stackr/swap/` as `stackr.db.before-restore-<time>` with its `-wal` file. If the restored panel is wrong, stop it, delete the new `db/stackr.db-wal` and `db/stackr.db-shm`, and move both old files back to `db/stackr.db`.
 
 A volume that has no reachable backup starts empty. A backup kept only on the old controller's disk went with it, so keep an S3 destination (see [Backups](backups.md#destinations)).
