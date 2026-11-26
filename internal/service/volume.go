@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -106,6 +108,11 @@ func capBytes(mb *int64) int64 {
 // re-place. A volume this panel has no row for has none.
 // ponytail: a scan of the volume rows per call; a by-name lookup if volumes ever number in the thousands.
 func (o *Orchestrator) folderCap(ctx context.Context, name string) (int64, error) {
+	if name == installspec.ObserveDiskVolume { // no row: the move job saved its cap
+		v, _, err := o.store.Settings.Get(ctx, observeDataCapKey)
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return n, err
+	}
 	for _, list := range []func(context.Context) ([]store.Volume, error){o.store.Volumes.ListLive, o.store.Volumes.ListOrphaned} {
 		vs, err := list(ctx)
 		if err != nil {

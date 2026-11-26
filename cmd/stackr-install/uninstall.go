@@ -245,17 +245,13 @@ func (e uninstallEnv) removeVolumes(ctx context.Context, fail func(error), all b
 	}
 }
 
-// observeDiskVolume is observe's volume once it lives on the node disk
-// (installspec.ObserveDiskVolume on the observe branch).
-const observeDiskVolume = "stackr-observe-data-disk"
-
 // stackrVolumes picks stackr's volumes out of every name the box has.
 func stackrVolumes(names, managed []string, all bool) []string {
 	var vs []string
 	for _, n := range names {
 		switch {
 		case n == installspec.ProxyVolume,
-			all && (slices.Contains(managed, n) || n == installspec.ObserveVolume || n == observeDiskVolume ||
+			all && (slices.Contains(managed, n) || n == installspec.ObserveVolume || n == installspec.ObserveDiskVolume ||
 				n == installspec.RegistryVolume || strings.HasPrefix(n, builderPrefix)):
 			vs = append(vs, n)
 		}

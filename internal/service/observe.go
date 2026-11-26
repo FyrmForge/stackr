@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
 	"github.com/FyrmForge/stackr/internal/service/internal/metrics"
 )
 
@@ -30,14 +32,18 @@ type observeState struct {
 		open  bool // the banner row is set
 		seen  bool // a stale row was cleared once since start
 	}
-	mu      sync.Mutex // one ensure at a time
-	lastErr atomic.Pointer[string]
-	vm      *metrics.Victoria
-	vmOnce  sync.Once
-	vl      *metrics.Victoria // VictoriaLogs, data size only until the log store lands
-	vlOnce  sync.Once
-	labels  sync.Map     // tile id -> its labels
-	memFrom atomic.Int64 // unix ns of memory's first write; 0 = none yet
+	mu sync.Mutex // one ensure at a time (the move job holds it for its whole run)
+	// test seams: a hook after each step of the move job, and a stand-in for
+	// the proof that observe answers after a move
+	moveStep func(step string)
+	check    func(ctx context.Context) error
+	lastErr  atomic.Pointer[string]
+	vm       *metrics.Victoria
+	vmOnce   sync.Once
+	vl       *metrics.Victoria // VictoriaLogs, data size only until the log store lands
+	vlOnce   sync.Once
+	labels   sync.Map     // tile id -> its labels
+	memFrom  atomic.Int64 // unix ns of memory's first write; 0 = none yet
 }
 
 // ObserveOn says whether metrics history is on (observe_enabled).
@@ -52,6 +58,7 @@ type observeKnobs struct {
 	logsDays int
 	logsMax  uint64 // bytes
 	memoryMB int    // the container's memory limit
+	onDisk   bool   // the data volume is on the node disk (observeDataDiskKey)
 
 	accessQuery, accessIP, accessHeaders bool // what access logs keep
 }
@@ -85,6 +92,9 @@ func (o *Orchestrator) observeKnobs(ctx context.Context) (observeKnobs, error) {
 	}
 	k.logsMax = uint64(gb) << 30
 	k.memoryMB, err = o.settings.Int(ctx, "observe_max_memory")
+	if err == nil {
+		k.onDisk, err = o.observeOnDisk(ctx)
+	}
 	for key, p := range map[string]*bool{"observe_access_query": &k.accessQuery,
 		"observe_access_ip": &k.accessIP, "observe_access_headers": &k.accessHeaders} {
 		v, _ := o.settings.Get(ctx, key)
@@ -94,20 +104,23 @@ func (o *Orchestrator) observeKnobs(ctx context.Context) (observeKnobs, error) {
 }
 
 // syncObserve brings stackr-observe in line with the settings: on runs it
-// at this build's spec, off stops and removes it (the volume stays).
+// at this build's spec, off stops and removes it (the volume stays). It takes
+// observe.mu; the move job holds the lock for its whole run and calls
+// syncObserveLocked.
 func (o *Orchestrator) syncObserve(ctx context.Context) {
 	o.observe.mu.Lock()
 	defer o.observe.mu.Unlock()
+	o.syncObserveLocked(ctx)
+}
+
+// syncObserveLocked is syncObserve for a caller that holds observe.mu.
+func (o *Orchestrator) syncObserveLocked(ctx context.Context) {
 	k, err := o.observeKnobs(ctx)
 	if err == nil {
 		o.observe.on.Store(k.on)
 		o.logship.on.Store(k.logs)
 		if k.on {
-			err = o.upgrade.EnsureObserve(ctx, installspec.ObserveOpts{
-				Retention: strconv.Itoa(k.days) + "d", MinFree: k.minFree,
-				Logs: k.logs, LogsRetention: strconv.Itoa(k.logsDays) + "d", LogsMax: k.logsMax,
-				MemoryMB: k.memoryMB,
-			})
+			err = o.ensureObserveKnobs(ctx, k)
 		} else {
 			err = o.upgrade.RemoveObserve(ctx)
 			_ = o.store.Settings.Delete(ctx, observeAlertKey)
@@ -119,6 +132,27 @@ func (o *Orchestrator) syncObserve(ctx context.Context) {
 		slog.Warn("observe: not ensured", "err", err)
 	}
 	o.observe.lastErr.Store(&msg)
+}
+
+// ensureObserveKnobs runs observe at the knobs. With its data on the node disk
+// it stays down while the disk is not ready, so the container never starts
+// on a missing mount (or on an empty folder made in its place).
+func (o *Orchestrator) ensureObserveKnobs(ctx context.Context, k observeKnobs) error {
+	opts := installspec.ObserveOpts{
+		Retention: strconv.Itoa(k.days) + "d", MinFree: k.minFree,
+		Logs: k.logs, LogsRetention: strconv.Itoa(k.logsDays) + "d", LogsMax: k.logsMax,
+		MemoryMB: k.memoryMB,
+	}
+	if k.onDisk {
+		if !o.observeDiskReady(ctx) {
+			if err := o.upgrade.RemoveObserve(ctx); err != nil {
+				return err
+			}
+			return errors.New(upgrade.ObserveDiskMissing)
+		}
+		opts.Volume = installspec.ObserveDiskVolume
+	}
+	return o.upgrade.EnsureObserve(ctx, opts)
 }
 
 // startSyncObserve runs syncObserve in the background on the controller:
@@ -266,7 +300,7 @@ func (o *Orchestrator) observeReach(ctx context.Context, err error) {
 		r.seen = true
 		if r.fails++; r.fails >= 2 && !r.open {
 			r.open = true
-			o.openProblem(ctx, observeDownKey, SevWarning, "Observe is not running. Logs and metrics history are unavailable; charts show the last 24 hours.")
+			o.openProblem(ctx, observeDownKey, SevWarning, o.observeDownText())
 		}
 		return
 	}
@@ -275,6 +309,15 @@ func (o *Orchestrator) observeReach(ctx context.Context, err error) {
 		o.clearProblem(ctx, observeDownKey)
 	}
 	r.open, r.seen = false, true
+}
+
+// observeDownText is the banner: the disk when observe is down because its
+// data's disk is missing, else the plain line.
+func (o *Orchestrator) observeDownText() string {
+	if p := o.observe.lastErr.Load(); p != nil && *p == upgrade.ObserveDiskMissing {
+		return upgrade.ObserveDiskMissing + " Charts show the last 24 hours."
+	}
+	return "Observe is not running. Logs and metrics history are unavailable; charts show the last 24 hours."
 }
 
 func (s tieredStore) Query(ctx context.Context, key string, from, to time.Time, step time.Duration) (map[string][]metrics.Sample, error) {

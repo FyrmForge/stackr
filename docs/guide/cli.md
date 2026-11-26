@@ -1551,6 +1551,26 @@ Example:
   stkr node disk move-all vps-fsn1
 ```
 
+#### `stkr node disk move-observe`
+
+Move logs and metrics onto the controller's disk, or back to the system disk with --back; they stop while they copy (server admin)
+
+```
+stkr node disk move-observe <node> [flags]
+```
+
+```
+      --back      move back to the system disk
+      --no-wait   print the job and return; it runs server-side
+```
+
+Example:
+
+```
+  stkr node disk move-observe vps-fsn1
+  stkr node disk move-observe vps-fsn1 --back
+```
+
 #### `stkr node disk move-panel`
 
 Move the panel database onto the controller's node disk, or back with --back (server admin)

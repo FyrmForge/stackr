@@ -4948,6 +4948,45 @@
         ],
         "type": "object"
       },
+      "ObserveMovePlanOut": {
+        "properties": {
+          "back": {
+            "type": "boolean"
+          },
+          "busy": {
+            "type": "boolean"
+          },
+          "cap": {
+            "type": "integer"
+          },
+          "fits": {
+            "type": "boolean"
+          },
+          "free": {
+            "type": "integer"
+          },
+          "need": {
+            "type": "integer"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_id",
+          "back",
+          "size_bytes",
+          "cap",
+          "need",
+          "free",
+          "fits",
+          "busy"
+        ],
+        "type": "object"
+      },
       "ObserveStatus": {
         "properties": {
           "access_headers": {
@@ -14349,6 +14388,91 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MoveAllPlanOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/disk/move-observe": {
+      "post": {
+        "operationId": "admin.node-disk-move-observe",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/disk/move-observe-plan": {
+      "get": {
+        "operationId": "admin.node-disk-move-observe-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObserveMovePlanOut"
                 }
               }
             },

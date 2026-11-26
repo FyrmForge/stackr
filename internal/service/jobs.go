@@ -489,6 +489,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindDiskAdopt:      controllerJob(o, ownedJob(payload(o.runDiskAdopt))),
 		kindDiskForget:     controllerJob(o, ownedJob(payload(o.runDiskForget))),
 		kindVolumeToDisk:   controllerJob(o, ownedJob(payload(o.runVolumeToDisk))),
+		kindObserveMove:    controllerJob(o, payload(o.runObserveMove)),
 		kindWorkerRollout:  controllerJob(o, o.runWorkerRollout),
 	}
 }

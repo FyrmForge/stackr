@@ -56,7 +56,7 @@ func confirmFlag(c *cobra.Command, dst *string, what string) {
 
 func (a *app) nodeDisk() *cobra.Command {
 	return noun("disk", "A node's disk: the folder its volumes live on",
-		a.diskLs(), a.diskDevices(), a.diskAdd(), a.diskGrow(), a.diskCheck(), a.diskAdopt(), a.diskForget(), a.diskMoveAll(), a.diskMovePanel(), a.diskRemovePanelCopy())
+		a.diskLs(), a.diskDevices(), a.diskAdd(), a.diskGrow(), a.diskCheck(), a.diskAdopt(), a.diskForget(), a.diskMoveAll(), a.diskMoveObserve(), a.diskMovePanel(), a.diskRemovePanelCopy())
 }
 
 func nodeDiskPath(node, sub string) string {
