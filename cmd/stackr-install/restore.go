@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -203,6 +204,9 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	// The restored panel's first boot redeploys the controller's tiles and
 	// closes the panel backup run the archive came from (settleRestored).
 	if err := os.WriteFile(filepath.Join(dataDir, installspec.RestoredMarker), []byte(markerBody(info.size, archiveName)), 0o600); err != nil {
+		return err
+	}
+	if err := finishRestore(dataDir); err != nil {
 		return err
 	}
 	in.DisksBind = installspec.HostDisksBind("")
@@ -603,8 +607,11 @@ func beginRestore(dataDir, stamp string) error {
 // installRestoredDB sets the live database aside, one file at a time and
 // resumably (a file already moved is skipped), verifies that no file of it is
 // left at db/stackr.db (a leftover -wal would be replayed onto the restored
-// main), publishes the restored main, puts the placeholder in place and only
-// then clears the journal.
+// main), publishes the restored main and puts the placeholder in place. The
+// journal stays at restoring: finishRestore clears it, after the rest of the
+// archived state is in. Run again after a crash it recognises a restored
+// database that is already published (same bytes as the archive's, no wal) and
+// leaves it, so repeated crashes never pile up.
 func installRestoredDB(dataDir, stage string) error {
 	j, err := paneldb.ReadJournal(dataDir)
 	if err != nil {
@@ -614,12 +621,25 @@ func installRestoredDB(dataDir, stage string) error {
 		return errors.New("move.journal does not record this restore")
 	}
 	db := paneldb.Path(dataDir)
+	staged := filepath.Join(stage, installspec.DBFile)
 	if err := os.MkdirAll(paneldb.Swap(dataDir), 0o700); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(db), 0o700); err != nil {
 		return err
 	}
+	want, err := fileSum(staged)
+	if err != nil {
+		return err
+	}
+	if got, _ := fileSum(db); got == want && !exists(db+"-wal") && !exists(db+"-shm") && !exists(paneldb.Legacy(dataDir)+"-wal") {
+		// published by an earlier run of this restore
+		if err := crashAt("installed"); err != nil {
+			return err
+		}
+		return ensureRestoredLayout(dataDir, db)
+	}
+	tag := ".resumed-" + time.Now().UTC().Format(paneldb.Stamp)
 	for i, old := range []string{db, paneldb.Legacy(dataDir)} {
 		if fi, err := os.Lstat(old); err == nil && fi.IsDir() {
 			continue // the placeholder
@@ -640,9 +660,9 @@ func installRestoredDB(dataDir, stage string) error {
 				continue
 			}
 			target := dst + suf
-			if _, err := os.Lstat(target); err == nil {
-				// a first run already kept one: this one (a restored copy) is another file
-				if target = dst + ".resumed" + suf; exists(target) {
+			if exists(target) {
+				// a first run already kept one: this is another file (a restored copy)
+				if target = dst + tag + suf; exists(target) {
 					return fmt.Errorf("%s exists already: not overwriting a kept database", target)
 				}
 			}
@@ -662,22 +682,48 @@ func installRestoredDB(dataDir, stage string) error {
 	if err := errors.Join(paneldb.SyncDir(filepath.Dir(db)), paneldb.SyncDir(paneldb.Swap(dataDir))); err != nil {
 		return err
 	}
-	if err := os.Rename(filepath.Join(stage, installspec.DBFile), db); err != nil {
+	if err := os.Rename(staged, db); err != nil {
 		return err
 	}
 	if err := crashAt("installed"); err != nil {
 		return err
 	}
+	return ensureRestoredLayout(dataDir, db)
+}
+
+func ensureRestoredLayout(dataDir, db string) error {
 	if err := paneldb.EnsureLayout(dataDir); err != nil {
 		return err
 	}
 	if err := errors.Join(paneldb.SyncDir(filepath.Dir(db)), paneldb.SyncDir(dataDir)); err != nil {
 		return err
 	}
-	if err := crashAt("layout"); err != nil {
-		return err
+	return crashAt("layout")
+}
+
+// finishRestore ends the restore's journal. It runs once every archived file is
+// installed and synced, right before the restored panel starts: until then a
+// boot is refused, so a half-restored box never runs.
+func finishRestore(dataDir string) error {
+	for _, d := range []string{dataDir, filepath.Join(dataDir, "keys")} {
+		if err := paneldb.SyncDir(d); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	return paneldb.ClearJournal(dataDir)
+}
+
+func fileSum(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func exists(path string) bool { _, err := os.Lstat(path); return err == nil }

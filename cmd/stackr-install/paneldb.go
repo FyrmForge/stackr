@@ -34,7 +34,7 @@ func (r runner) panelDB(ctx context.Context, in installspec.Input) error {
 	if err != nil {
 		return err
 	}
-	if j.Direction == paneldb.DirLayout && j.Phase != paneldb.PhaseNone {
+	if (j.Direction == paneldb.DirLayout || j.Direction == paneldb.DirUpdate) && j.Phase != paneldb.PhaseNone {
 		if r.dry {
 			r.say("  would undo the unfinished database layout change (move.journal: " + j.Phase + ")")
 			return nil
@@ -43,8 +43,11 @@ func (r runner) panelDB(ctx context.Context, in installspec.Input) error {
 		// running and answers is kept: the journal only missed its clearing.
 		if (j.Phase == paneldb.PhaseStartingNew || j.Phase == paneldb.PhaseGating) && j.Container != "" && panelAnswers(ctx, in, j.Container) {
 			r.say("  the new panel " + j.Container + " is up: finishing the database layout change")
-			paneldb.DropCopy(j.Copy)
-			return paneldb.ClearJournal(dataDir)
+			if err := paneldb.ClearJournal(dataDir); err != nil {
+				return err
+			}
+			paneldb.DropCopy(j.Copy) // only after the journal is clear
+			return nil
 		}
 		r.say("  undoing an unfinished database layout change (move.journal: " + j.Phase + ")")
 		// The new panel of the dead helper goes first: nothing may write while the files move back.

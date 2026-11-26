@@ -50,24 +50,29 @@ func EnsureLayout(dataDir string) error {
 	return nil
 }
 
-// EnsureFresh makes the layout of a new install and records the fresh phase,
-// the one state in which the panel may create its first database. An install
-// whose layout is already there is left alone: a missing database there is a
-// loss, not a start.
+// EnsureFresh makes the layout of a new install. The fresh phase, the one
+// state in which the panel may create its first database, is written first
+// (before anything is made, so a crash leaves a state a rerun accepts) and only
+// for a box that has no install.json, no database, no placeholder and no
+// journal. Anything else gets its layout ensured and no fresh phase: a missing
+// database there is a loss, not a start.
 func EnsureFresh(dataDir string) error {
-	if _, err := os.Lstat(Legacy(dataDir)); err == nil {
-		return EnsureLayout(dataDir)
-	}
-	if err := EnsureLayout(dataDir); err != nil {
+	_, ierr := os.Stat(filepath.Join(dataDir, InstallFile))
+	_, lerr := os.Lstat(Legacy(dataDir))
+	_, derr := os.Stat(Path(dataDir))
+	j, err := ReadJournal(dataDir)
+	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(Path(dataDir)); err == nil {
-		return nil
+	if ierr != nil && lerr != nil && derr != nil && j.Phase == PhaseNone {
+		if err := os.MkdirAll(dataDir, 0o700); err != nil {
+			return err
+		}
+		if err := WriteJournal(dataDir, Journal{Phase: PhaseFresh}); err != nil {
+			return err
+		}
 	}
-	if j, err := ReadJournal(dataDir); err != nil || j.Phase != PhaseNone {
-		return err
-	}
-	return WriteJournal(dataDir, Journal{Phase: PhaseFresh})
+	return EnsureLayout(dataDir)
 }
 
 // ApplyLayout is the layout change: journal first, then the files of an
@@ -224,25 +229,44 @@ func RollbackLayout(dataDir string) error {
 	return SyncDir(dataDir)
 }
 
-// Recover finishes a layout change that a helper left unfinished: the layout
-// goes back and the pre-upgrade copy, when one was made, is put over the
-// database. The copy is deleted only after the journal is cleared. The caller
-// has stopped the new panel. Nothing to do for any other journal state (a move
-// is another phase's business).
+// Recover finishes a swap that a helper left unfinished: a layout change goes
+// back, and the pre-upgrade copy the journal names, when there is one, is put
+// over the database. Once the new panel has run (Ran, or starting-new and
+// gating) the copy is required: without it nothing is rolled back and the
+// journal is not cleared. The copy is deleted only after the journal is
+// cleared. The caller has stopped the new panel. Nothing to do for any other
+// journal state (a move is another phase's business).
 func Recover(dataDir string) error {
 	j, err := ReadJournal(dataDir)
 	if err != nil {
 		return err
 	}
-	if j.Direction != DirLayout || j.Phase == PhaseNone {
+	if (j.Direction != DirLayout && j.Direction != DirUpdate) || j.Phase == PhaseNone {
 		return nil
 	}
-	if err := RollbackLayout(dataDir); err != nil {
-		return err
+	if j.Ran || j.Phase == PhaseStartingNew || j.Phase == PhaseGating {
+		if j.Copy == "" {
+			return errors.New("the new panel ran and the journal names no pre-upgrade copy: not rolling back")
+		}
+		if _, err := os.Stat(j.Copy); err != nil {
+			return fmt.Errorf("the new panel ran and its pre-upgrade copy is missing (%v): not rolling back, the journal stays", err)
+		}
 	}
-	if j.Copy != "" {
+	target := j.Dst
+	if j.Direction == DirLayout {
+		if err := RollbackLayout(dataDir); err != nil {
+			return err
+		}
+		target = Legacy(dataDir)
+	} else {
+		j.Phase = PhaseRollingBack
+		if err := WriteJournal(dataDir, j); err != nil {
+			return err
+		}
+	}
+	if j.Copy != "" && target != "" {
 		if _, err := os.Stat(j.Copy); err == nil {
-			if err := RestoreCopy(Legacy(dataDir), j.Copy); err != nil {
+			if err := RestoreCopy(target, j.Copy); err != nil {
 				return err
 			}
 		}
@@ -254,6 +278,20 @@ func Recover(dataDir string) error {
 		DropCopy(j.Copy)
 	}
 	return nil
+}
+
+// AsideCopy moves a copy no journal names (an earlier attempt's) to
+// swap/orphan-<timestamp>-<name>, so it can never be restored over newer data.
+func AsideCopy(dataDir, cp string) error {
+	dst := filepath.Join(Swap(dataDir), "orphan-"+time.Now().UTC().Format(Stamp)+"-"+filepath.Base(cp))
+	for _, suf := range suffixes {
+		for _, tmp := range []string{"", ".tmp"} {
+			if err := os.Rename(cp+suf+tmp, dst+suf+tmp); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return SyncDir(Swap(dataDir))
 }
 
 // SaveCopy copies the database files to cp (0600, synced). Each file lands
@@ -336,7 +374,14 @@ func RestoreCopy(db, cp string) error {
 // for a data dir that has no journal and an empty or absent db/; the caller
 // has judged there is no install. False means there was nothing to do.
 func AdoptDev(dataDir string) (bool, error) {
-	if _, err := os.Stat(filepath.Join(dataDir, JournalName)); err == nil {
+	// A layout change this function itself began (no container, no copy) and
+	// did not finish is undone first, then tried again.
+	if j, err := ReadJournal(dataDir); err == nil && j.Direction == DirLayout && j.Container == "" && j.Copy == "" &&
+		(j.Phase == PhaseLayout || j.Phase == PhaseRollingBack) {
+		if err := Recover(dataDir); err != nil {
+			return false, err
+		}
+	} else if _, err := os.Stat(filepath.Join(dataDir, JournalName)); err == nil {
 		return false, nil
 	}
 	if fi, err := os.Lstat(Legacy(dataDir)); err != nil || !fi.Mode().IsRegular() {

@@ -405,6 +405,7 @@ func TestLayoutChangeCrashWhileStartingNoContainerRollsBack(t *testing.T) {
 	must(t, paneldb.EnsureLayout(dir))
 	j := layoutJournal(dir)
 	j.Phase = paneldb.PhaseStartingNew
+	must(t, paneldb.SaveCopy(paneldb.Path(dir), j.Copy)) // the copy the journal names
 	must(t, paneldb.WriteJournal(dir, j))
 	h := newHook("unhealthy")
 	var atStart string
@@ -467,6 +468,95 @@ func TestLayoutChangeRefusesWhileOldPanelRuns(t *testing.T) {
 	}
 	if read(filepath.Join(dir, "stackr.db")) != "old db" || exists(filepath.Join(dir, "db")) {
 		t.Error("the layout changed under a running panel")
+	}
+}
+
+// laidOut is an install already on the new layout, with a live database.
+func laidOut(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	must(t, paneldb.EnsureLayout(dir))
+	write(t, paneldb.Path(dir), body)
+	return dir
+}
+
+func newSpec(dir string) docker.ContainerSpec {
+	return docker.ContainerSpec{Name: "stackr-0.2.0", Image: "img:0.2.0",
+		Env: []string{"DATA_DIR=" + dir, "DATABASE_PATH=" + paneldb.Path(dir)}}
+}
+
+// A copy left with no journal (the pass cleared the journal and died before it
+// deleted the copy) is an earlier attempt's. A later Update of the same version
+// must not restore it over newer data: it is put aside.
+func TestOrphanCopyIsNeverRestored(t *testing.T) {
+	for _, health := range []string{"unhealthy", "healthy"} {
+		t.Run(health, func(t *testing.T) {
+			dir := laidOut(t, "newer data")
+			orphan := filepath.Join(dir, "swap", "stackr.db.pre-0.2.0")
+			must(t, os.MkdirAll(filepath.Dir(orphan), 0o700))
+			write(t, orphan, "stale copy")
+			h := newHook(health)
+			var atStart string
+			h.onStart = func(string) { atStart = read(paneldb.Path(dir)) }
+			_ = leaf(h).Swap(context.Background(), newSpec(dir))
+			if got := read(paneldb.Path(dir)); health == "healthy" && got != "newer data" {
+				t.Errorf("db = %q", got)
+			}
+			if health == "unhealthy" && atStart != "newer data" {
+				t.Errorf("old panel started on %q: the stale copy was restored", atStart)
+			}
+			if m, _ := filepath.Glob(filepath.Join(dir, "swap", "orphan-*")); len(m) != 1 || read(m[0]) != "stale copy" {
+				t.Errorf("orphan not set aside: %v", m)
+			}
+			if got := journalPhase(t, dir); got != paneldb.PhaseNone {
+				t.Errorf("journal = %q", got)
+			}
+		})
+	}
+}
+
+// An ordinary swap journals its copy before the new panel starts, and a helper
+// killed after that is recovered from that copy: the gate runs again on the
+// recorded container; a missing container rolls back to the copy.
+func TestUpdateJournalCrashRollsBackToItsCopy(t *testing.T) {
+	dir := laidOut(t, "pre-upgrade")
+	cp := filepath.Join(dir, "swap", "stackr.db.pre-0.2.0")
+	must(t, paneldb.SaveCopy(paneldb.Path(dir), cp))
+	write(t, paneldb.Path(dir), "migrated by the dead attempt")
+	must(t, paneldb.WriteJournal(dir, paneldb.Journal{Phase: paneldb.PhaseStartingNew, Direction: paneldb.DirUpdate,
+		Dst: paneldb.Path(dir), Copy: cp, Container: "stackr-0.2.0", Ran: true}))
+	h := newHook("unhealthy")
+	var atStart string
+	h.onStart = func(string) { atStart = read(paneldb.Path(dir)) }
+	_ = leaf(h).Swap(context.Background(), newSpec(dir))
+	if atStart != "pre-upgrade" {
+		t.Errorf("old panel started on %q", atStart)
+	}
+	if got := journalPhase(t, dir); got != paneldb.PhaseNone {
+		t.Errorf("journal = %q", got)
+	}
+}
+
+// The new panel ran and its copy is gone: no rollback, no clearing, and the old
+// panel is not started on the migrated database.
+func TestUpdateJournalWithoutItsCopyRefuses(t *testing.T) {
+	dir := laidOut(t, "migrated")
+	must(t, paneldb.WriteJournal(dir, paneldb.Journal{Phase: paneldb.PhaseStartingNew, Direction: paneldb.DirUpdate,
+		Dst: paneldb.Path(dir), Copy: filepath.Join(dir, "swap", "stackr.db.pre-0.2.0"), Container: "stackr-0.2.0", Ran: true}))
+	h := newHook("healthy")
+	if err := leaf(h).Swap(context.Background(), newSpec(dir)); err == nil {
+		t.Fatal("swap went ahead without the copy")
+	}
+	for _, c := range h.Calls() {
+		if c.Method == "Start" || c.Method == "Run" {
+			t.Fatalf("docker %s after a refused recovery", c.Method)
+		}
+	}
+	if got := journalPhase(t, dir); got != paneldb.PhaseStartingNew {
+		t.Errorf("journal = %q, must stay", got)
+	}
+	if read(paneldb.Path(dir)) != "migrated" {
+		t.Error("the database was touched")
 	}
 }
 

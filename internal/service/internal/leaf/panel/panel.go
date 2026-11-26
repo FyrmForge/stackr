@@ -203,7 +203,7 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		if j, err = paneldb.ReadJournal(dataDir); err != nil {
 			return err
 		}
-		if j.Phase != paneldb.PhaseNone && j.Phase != paneldb.PhaseFresh && j.Direction != paneldb.DirLayout {
+		if j.Phase != paneldb.PhaseNone && j.Phase != paneldb.PhaseFresh && j.Direction != paneldb.DirLayout && j.Direction != paneldb.DirUpdate {
 			// A move onto a node disk is in progress: not this helper's to resolve.
 			return fmt.Errorf("the database is in phase %q (%s): run stackr-install on this node", j.Phase, j.Direction)
 		}
@@ -240,10 +240,10 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 			if d, err := l.docker.Inspect(ctx, c.ID); err != nil || !d.Running || l.gate(ctx, c.ID, spec) != nil {
 				continue
 			}
-			paneldb.DropCopy(j.Copy)
 			if err := paneldb.ClearJournal(dataDir); err != nil {
 				return err
 			}
+			paneldb.DropCopy(j.Copy) // only after the journal is clear: a crash before it still has its copy
 			j = paneldb.Journal{Phase: paneldb.PhaseNone}
 			if c.Name == spec.Name { // this very swap: done
 				for _, o := range old {
@@ -260,13 +260,13 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		if d, err := l.docker.Inspect(ctx, stale[0].ID); err == nil && d.Running {
 			pass := d.Health == "healthy"
 			if pass {
-				if db != "" {
-					paneldb.DropCopy(copyName(db, spec))
-				}
 				if layout {
 					if err := paneldb.ClearJournal(dataDir); err != nil {
 						return err
 					}
+				}
+				if db != "" {
+					paneldb.DropCopy(copyName(db, spec))
 				}
 				for _, c := range old {
 					_ = l.docker.StopRemove(ctx, c.ID)
@@ -308,14 +308,15 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 	var cp string
 	if db != "" {
 		cp = copyName(db, spec)
-		cur := db // where the database is now: the old path until the layout change ran
-		if layout {
-			if fi, err := os.Lstat(paneldb.Legacy(dataDir)); err == nil && fi.Mode().IsRegular() {
-				cur = paneldb.Legacy(dataDir)
-			}
-		}
-		if _, err := os.Stat(cp); err == nil { // left by the first try
-			if err := paneldb.RestoreCopy(cur, cp); err != nil {
+		if _, err := os.Stat(cp); err == nil {
+			if layout {
+				// Recover has already used the copy the journal names. One that is
+				// left with no journal is an earlier attempt's: it may be older than
+				// the database, so it is put aside, never restored.
+				if err := paneldb.AsideCopy(dataDir, cp); err != nil {
+					return back(fmt.Errorf("put aside an old copy: %w", err))
+				}
+			} else if err := paneldb.RestoreCopy(db, cp); err != nil { // left by the first try
 				return back(fmt.Errorf("restore the database of the first try: %w", err))
 			}
 		}
@@ -336,17 +337,22 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		}
 	}
 	undo := func(restoreCopy bool, cause error) error {
-		return l.undone(undoArgs{applied: applied, dataDir: dataDir, db: db, cp: cp, restoreCopy: restoreCopy}, back, cause)
+		return l.undone(undoArgs{applied: applied, layout: layout, dataDir: dataDir, db: db, cp: cp, restoreCopy: restoreCopy}, back, cause)
 	}
 	if db != "" {
 		if err := paneldb.SaveCopy(db, cp); err != nil {
 			return undo(false, fmt.Errorf("copy database: %w", err))
 		}
 	}
-	if applied {
+	if layout {
 		// From here the new panel may take writes: recovery re-runs the gate instead of rolling back.
-		if err := paneldb.WriteJournal(dataDir, paneldb.Journal{Phase: paneldb.PhaseStartingNew, Direction: paneldb.DirLayout,
-			Src: paneldb.Legacy(dataDir), Dst: db, Copy: cp, Container: spec.Name}); err != nil {
+		// The journal names this attempt's copy, the only one a recovery may restore.
+		dir := paneldb.DirUpdate
+		if applied {
+			dir = paneldb.DirLayout
+		}
+		if err := paneldb.WriteJournal(dataDir, paneldb.Journal{Phase: paneldb.PhaseStartingNew, Direction: dir,
+			Src: paneldb.Legacy(dataDir), Dst: db, Copy: cp, Container: spec.Name, Ran: true}); err != nil {
 			return undo(false, fmt.Errorf("journal: %w", err))
 		}
 	}
@@ -369,13 +375,13 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		_ = l.docker.StopRemove(ctx, id)
 		return undo(db != "", fmt.Errorf("new panel: %w", err))
 	}
-	if db != "" {
-		paneldb.DropCopy(cp)
-	}
-	if applied {
+	if layout {
 		if err := paneldb.ClearJournal(dataDir); err != nil {
 			return err
 		}
+	}
+	if db != "" {
+		paneldb.DropCopy(cp) // only after the journal is clear
 	}
 	for _, c := range old {
 		_ = l.docker.StopRemove(ctx, c.ID)
@@ -385,6 +391,7 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 
 type undoArgs struct {
 	applied     bool   // the layout change ran in this swap
+	layout      bool   // the swap keeps a journal
 	dataDir, db string // db: the path the new panel uses
 	cp          string // "" = no copy was made
 	restoreCopy bool   // the new panel ran: the copy goes over the database
@@ -408,11 +415,19 @@ func (l *Leaf) undone(a undoArgs, back func(error) error, cause error) error {
 			paneldb.DropCopy(a.cp)
 		}
 	case a.cp != "" && a.restoreCopy:
-		if err = paneldb.RestoreCopy(a.db, a.cp); err == nil {
+		if err = paneldb.RestoreCopy(a.db, a.cp); err == nil && a.layout {
+			err = paneldb.ClearJournal(a.dataDir)
+		}
+		if err == nil {
 			paneldb.DropCopy(a.cp)
 		}
 	case a.cp != "":
-		paneldb.DropCopy(a.cp)
+		if a.layout {
+			err = paneldb.ClearJournal(a.dataDir)
+		}
+		if err == nil {
+			paneldb.DropCopy(a.cp)
+		}
 	}
 	if err != nil {
 		// Starting the old panel on a migrated database would only crash it.

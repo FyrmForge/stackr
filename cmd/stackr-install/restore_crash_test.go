@@ -76,6 +76,13 @@ func TestRestoreCrashAtEveryStep(t *testing.T) {
 			if err := installRestoredDB(dir, stageWith(t, "restored")); err != nil {
 				t.Fatal(err)
 			}
+			// the rest of the archived state is not in yet: still refused
+			if err := paneldb.Check(dir, paneldb.Path(dir)); err == nil {
+				t.Error("the boot check lets a restore through before its keys are installed")
+			}
+			if err := finishRestore(dir); err != nil {
+				t.Fatal(err)
+			}
 			if get(paneldb.Path(dir)) != "restored" {
 				t.Errorf("db = %q", get(paneldb.Path(dir)))
 			}
@@ -103,6 +110,50 @@ func TestRestoreCrashAtEveryStep(t *testing.T) {
 	}
 }
 
+// Crashing again and again after the restored file went in never wedges the
+// restore: the already-published copy is recognised, not set aside as another.
+func TestRestoreRepeatedCrashesAreIdempotent(t *testing.T) {
+	dir := liveInstall(t)
+	t.Cleanup(func() { restoreCrash = nil })
+	for _, step := range []string{"aside", "installed", "installed", "layout", "layout"} {
+		restoreCrash = func(s string) error {
+			if s == step {
+				return errors.New("crash at " + s)
+			}
+			return nil
+		}
+		if err := beginRestore(dir, "20261126T101500"); err != nil {
+			t.Fatal(err)
+		}
+		if err := installRestoredDB(dir, stageWith(t, "restored")); err == nil {
+			t.Fatalf("no crash at %s", step)
+		}
+		if err := paneldb.Check(dir, paneldb.Path(dir)); err == nil {
+			t.Fatal("boot check lets a half-done restore start")
+		}
+	}
+	restoreCrash = nil
+	if err := installRestoredDB(dir, stageWith(t, "restored")); err != nil {
+		t.Fatalf("the final run is refused: %v", err)
+	}
+	if err := finishRestore(dir); err != nil {
+		t.Fatal(err)
+	}
+	if get(paneldb.Path(dir)) != "restored" || exists(paneldb.Path(dir)+"-wal") {
+		t.Error("final state wrong")
+	}
+	kept := filepath.Join(dir, "swap", "stackr.db.before-restore-20261126T101500")
+	if get(kept) != "live" || get(kept+"-wal") != "live wal" {
+		t.Errorf("the live set was not kept whole: %q %q", get(kept), get(kept+"-wal"))
+	}
+	if m, _ := filepath.Glob(kept + ".resumed*"); len(m) != 0 {
+		t.Errorf("a published copy was kept as another database: %v", m)
+	}
+	if err := paneldb.Check(dir, paneldb.Path(dir)); err != nil {
+		t.Error(err)
+	}
+}
+
 // A restore onto a box with an old-layout file at the old path keeps that too,
 // and a first-time box (nothing there) restores cleanly.
 func TestRestoreOldLayoutAndBareBox(t *testing.T) {
@@ -113,6 +164,9 @@ func TestRestoreOldLayoutAndBareBox(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := installRestoredDB(old, stageWith(t, "restored")); err != nil {
+		t.Fatal(err)
+	}
+	if err := finishRestore(old); err != nil {
 		t.Fatal(err)
 	}
 	kept := filepath.Join(old, "swap", "stackr.db.before-restore-S.old-layout")
@@ -131,6 +185,9 @@ func TestRestoreOldLayoutAndBareBox(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := installRestoredDB(bare, stageWith(t, "restored")); err != nil {
+		t.Fatal(err)
+	}
+	if err := finishRestore(bare); err != nil {
 		t.Fatal(err)
 	}
 	if err := paneldb.Check(bare, paneldb.Path(bare)); err != nil || get(paneldb.Path(bare)) != "restored" {

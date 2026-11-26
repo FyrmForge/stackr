@@ -70,6 +70,14 @@ const (
 // DirRestore is the journal direction of a restore.
 const DirRestore = "restore"
 
+// DirUpdate is the journal direction of an ordinary panel swap: it records the
+// attempt's pre-upgrade copy, the only one a recovery may restore.
+const DirUpdate = "update"
+
+// InstallFile is the installer's answers file (installspec.File): its presence
+// is what makes a box an install, and an install never starts a fresh database.
+const InstallFile = "install.json"
+
 // DirLayout is the journal direction of the layout change.
 const DirLayout = "layout"
 
@@ -92,7 +100,10 @@ type Journal struct {
 	// For a restore, Aside is the base name the replaced database is kept under.
 	Aside     string `json:"aside,omitempty"`
 	AsideDone bool   `json:"aside_done,omitempty"`
-	Time      string `json:"time,omitempty"`
+	// Ran: the new panel has been started on the database, so a recovery that
+	// must roll back needs the pre-upgrade copy and refuses without it.
+	Ran  bool   `json:"ran,omitempty"`
+	Time string `json:"time,omitempty"`
 }
 
 // ReadJournal reads the journal; none on disk means phase none.
@@ -205,13 +216,13 @@ func check(dataDir, dbPath string, m mode) error {
 		}
 	case PhaseStartingNew, PhaseGating:
 		// The new panel is the one booting here: it must not refuse itself.
-		if j.Direction != DirLayout {
+		if j.Direction != DirLayout && j.Direction != DirUpdate {
 			if err := checkMounted(dataDir, j); err != nil {
 				return err
 			}
 		}
 	default:
-		if m != modeBoot && j.Direction == DirLayout {
+		if m != modeBoot && (j.Direction == DirLayout || j.Direction == DirUpdate) {
 			return nil // the recovery the installer runs resolves it
 		}
 		if m == modeRestore && j.Direction == DirRestore {
@@ -225,12 +236,16 @@ func check(dataDir, dbPath string, m mode) error {
 	if m == modeRestore {
 		return nil
 	}
-	// Once the layout is established (the placeholder is there) a missing
-	// database is a loss, never a fresh start: only the fresh phase may create one.
+	// The database file must exist, on an install (install.json) and wherever
+	// the layout is established (the placeholder is there). Only the explicit
+	// fresh phase, written by the installer of a new install, may create one.
+	// An old-layout file still at the old path is the swap's to move.
 	if j.Phase != PhaseFresh && dbPath == Path(dataDir) {
-		if fi, err := os.Lstat(Legacy(dataDir)); err == nil && fi.IsDir() {
-			if _, err := os.Stat(dbPath); errors.Is(err, os.ErrNotExist) {
-				return refuse("%s is missing but the layout is established. Not starting, so no empty database is made. Restore a backup: stackr-install restore <archive>", dbPath)
+		if _, err := os.Stat(dbPath); errors.Is(err, os.ErrNotExist) {
+			lfi, lerr := os.Lstat(Legacy(dataDir))
+			_, ierr := os.Stat(filepath.Join(dataDir, InstallFile))
+			if (ierr == nil || (lerr == nil && lfi.IsDir())) && !(lerr == nil && lfi.Mode().IsRegular()) {
+				return refuse("%s is missing. Not starting, so no empty database is made. Restore a backup: stackr-install restore <archive>", dbPath)
 			}
 		}
 	}

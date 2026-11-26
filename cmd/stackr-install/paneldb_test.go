@@ -140,6 +140,19 @@ func TestInstallerKeepsALivePanelWhoseJournalWasNotCleared(t *testing.T) {
 	}
 }
 
+// An install whose database vanished is never turned into a fresh one by the
+// installer, with the layout there or not.
+func TestInstallerRefusesAnInstallWithoutItsDatabase(t *testing.T) {
+	dir := t.TempDir()
+	put(t, filepath.Join(dir, installspec.File), "{}")
+	if err := (runner{out: &bytes.Buffer{}}).panelDB(context.Background(), installspec.Input{DataDir: dir}); err == nil {
+		t.Fatal("the installer went ahead")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "db")); err == nil {
+		t.Error("the installer made db/ for an install with no database")
+	}
+}
+
 // An unfinished layout change is undone by the installer (dry run says so and
 // changes nothing; the real one needs Docker, which the recovery itself does not).
 func TestInstallerDryRunLeavesLayoutJournal(t *testing.T) {
