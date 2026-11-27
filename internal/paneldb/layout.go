@@ -134,7 +134,7 @@ func ApplyLayout(dataDir, cp, container string, predecessors ...string) (bool, e
 		return false, err
 	}
 	for _, suf := range suffixes {
-		if err := os.Rename(legacy+suf, db+suf); err != nil && !(suf != "" && errors.Is(err, os.ErrNotExist)) {
+		if err := os.Rename(legacy+suf, db+suf); err != nil && (suf == "" || !errors.Is(err, os.ErrNotExist)) {
 			return false, err
 		}
 		if err := crash("moved" + suf); err != nil {
@@ -283,7 +283,7 @@ func Recover(dataDir string) error {
 // RollbackBlocked: the new panel ran and the pre-upgrade copy is gone, so the
 // database cannot go back (ErrCopyMissing).
 func (j Journal) RollbackBlocked() bool {
-	if !(j.Ran || j.Phase == PhaseStartingNew || j.Phase == PhaseGating) {
+	if !j.Ran && j.Phase != PhaseStartingNew && j.Phase != PhaseGating {
 		return false
 	}
 	_, err := os.Stat(j.Copy)

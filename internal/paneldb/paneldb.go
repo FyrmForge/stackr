@@ -312,7 +312,7 @@ func check(dataDir, dbPath string, m mode) error {
 			_, ierr := os.Stat(filepath.Join(dataDir, InstallFile))
 			canonical := dbPath == Path(dataDir)
 			legacyFile := lerr == nil && lfi.Mode().IsRegular()
-			if (ierr == nil || (canonical && lerr == nil && lfi.IsDir())) && !(canonical && legacyFile) {
+			if (ierr == nil || (canonical && lerr == nil && lfi.IsDir())) && (!canonical || !legacyFile) {
 				return refuse("%s is missing. Not starting, so no empty database is made. Restore a backup: stackr-install restore <archive>", dbPath)
 			}
 		}

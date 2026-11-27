@@ -151,7 +151,7 @@ func TestCountable(t *testing.T) {
 func TestWatchExitsAfterConsecutiveFailures(t *testing.T) {
 	run := func(seq []error) (exited bool, calls int) {
 		var n atomic.Int32
-		done := make(chan error, 1)
+		done := make(chan struct{}, 1)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		go Watch(ctx, time.Millisecond, 3, func() error {
@@ -160,7 +160,7 @@ func TestWatchExitsAfterConsecutiveFailures(t *testing.T) {
 				return seq[i]
 			}
 			return nil
-		}, func(err error) { done <- err })
+		}, func(error) { done <- struct{}{} })
 		select {
 		case <-done:
 			return true, int(n.Load())

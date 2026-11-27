@@ -742,7 +742,7 @@ func exists(path string) bool { _, err := os.Lstat(path); return err == nil }
 // install are what a restore is for.
 func restorePanelDB(dataDir string) error { return restorePanelDBFor(dataDir, false) }
 
-const abandonHint = "If the node disk is gone or failing, run: stackr-install restore --abandon-disk <archive>. If it is healthy, move the database back first: stkr node disk move-panel <node> --back."
+const abandonHint = "If the node disk is gone or failing, run: stackr-install restore --abandon-disk <archive>. If it is healthy, move the database back first: stkr node disk move-panel <node> --back"
 
 func restorePanelDBFor(dataDir string, abandon bool) error {
 	j, err := paneldb.ReadJournal(dataDir)

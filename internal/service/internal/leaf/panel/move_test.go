@@ -619,10 +619,9 @@ func TestMoveInFailsAtEveryHostCommand(t *testing.T) {
 			ctx := context.Background()
 			err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn())
 			e.h.FailOn = nil
-			switch {
-			case err == nil:
+			if err == nil {
 				e.assertMoved("stackr-new")
-			default:
+			} else {
 				// rolled back, or the rollback itself failed and left the journal rolling-back
 				finish(t, e, ctx, e.spec("stackr-new"), mvIn(), true, "stackr-old")
 			}
