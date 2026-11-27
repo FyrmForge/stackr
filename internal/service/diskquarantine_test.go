@@ -1004,3 +1004,89 @@ func TestRunGateReturnsLookupErrors(t *testing.T) {
 	}
 	d.orch.store.Environments = realEnvs
 }
+
+// A Docker list that fails is not "nothing runs": the job fails and keeps no
+// finished record, so the 5-minute requeue runs it again.
+func TestQuarantineFailsOnADockerListError(t *testing.T) {
+	ctx := context.Background()
+	w := newForgetWorld(t, true, false)
+	w.wFake.Err = map[string]error{"List": errors.New("docker is down")}
+	j := w.quarantine(t, w.row)
+	if j.State != job.Failed {
+		t.Fatalf("job = %s, want failed", j.State)
+	}
+	if rec, _, _ := w.orch.quarLoad(ctx, w.row.ID); rec.Done {
+		t.Error("record is Done after a job that could not look")
+	}
+}
+
+func TestQuarantineStopsARestartingTile(t *testing.T) {
+	ctx := context.Background()
+	w := newForgetWorld(t, true, false)
+	w.wFake.Containers[0].State = "restarting"
+	w.wFake.StopExits = map[string]bool{w.cid: true}
+	if j := w.quarantine(t, w.row); j.State != job.Done {
+		t.Fatalf("job = %s %q", j.State, j.Error)
+	}
+	rec, _, _ := w.orch.quarLoad(ctx, w.row.ID)
+	if !slices.Contains(rec.Tiles, w.tl.ID) || !sawCall(w.wFake, "Stop("+w.cid) {
+		t.Errorf("restarting tile not recorded and stopped: %+v %v", rec, callNames(w.wFake))
+	}
+}
+
+// Check disk reopens the record, so an outage right after it is quarantined too.
+func TestSecondOutageAfterCheckDiskIsQuarantined(t *testing.T) {
+	ctx := context.Background()
+	w := newForgetWorld(t, true, false)
+	w.wFake.StopExits = map[string]bool{w.cid: true}
+	if j := w.quarantine(t, w.row); j.State != job.Done {
+		t.Fatalf("job = %s %q", j.State, j.Error)
+	}
+	w.check(t)
+	before := len(w.quarJobs(t))
+	n, _ := w.st.Nodes.Get(ctx, "w1")
+	row, _, _ := w.orch.nodeDisk(ctx, "w1")
+	_, err := w.orch.diskLeaf.MarkMissing(ctx, row)
+	must(t, err)
+	f := readOf(row, 0, 0)
+	f.Disks[0].ReadAt = time.Unix(2e9, 0)
+	w.orch.diskWatch(ctx, n, f, time.Now())
+	if got := len(w.quarJobs(t)); got != before+1 {
+		t.Errorf("jobs = %d, want %d: the second outage got no quarantine", got, before+1)
+	}
+}
+
+// Forgetting a disk takes its quarantine record, latch and problem with it.
+func TestForgetDropsQuarantineRows(t *testing.T) {
+	ctx := context.Background()
+	w := newForgetWorld(t, false, false)
+	w.lose(t)
+	must(t, w.orch.quarSave(ctx, w.row.ID, quarRec{Done: true}))
+	must(t, w.st.Settings.Set(ctx, erroringKey(w.row.ID), "x"))
+	w.orch.openProblem(ctx, quarProblemKey(w.row.ID), SevWarning, "stuck")
+	if j := w.forget(t); j.State != job.Done {
+		t.Fatalf("forget = %s %q", j.State, j.Error)
+	}
+	if _, ok, _ := w.orch.quarLoad(ctx, w.row.ID); ok {
+		t.Error("quarantine record outlived the disk")
+	}
+	if _, ok, _ := w.st.Settings.Get(ctx, erroringKey(w.row.ID)); ok {
+		t.Error("erroring latch outlived the disk")
+	}
+	if w.orch.hasProblem(ctx, quarProblemKey(w.row.ID)) {
+		t.Error("problem outlived the disk")
+	}
+}
+
+// A Docker object lookup that fails refuses the deploy instead of passing it.
+func TestFailedDiskGateRefusesOnAVolumeDeviceError(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	setState(t, d, row, disk.StateMissing)
+	d.vol(t, "data")
+	d.wFake.Err = map[string]error{"VolumeDevice": errors.New("docker is down")}
+	if err := d.orch.gateEnv(ctx, d.edge.ID, true); err == nil {
+		t.Error("deploy passed the gate on a failed lookup")
+	}
+}

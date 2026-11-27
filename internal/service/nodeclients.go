@@ -473,7 +473,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		ext  *workerclient.Client
 		up   bool
 		sent time.Time // when the facts request started, on this clock
-		ver  string // the version its facts reported
+		ver  string    // the version its facts reported
 		f    worker.Facts
 		skew time.Duration
 		// skewOK: the worker reported its time, so skew is known
