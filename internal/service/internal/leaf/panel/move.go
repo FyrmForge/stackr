@@ -31,6 +31,10 @@ import (
 // MoveEnv carries the move's parameters into the helper, as JSON.
 const MoveEnv = "STACKR_PANEL_MOVE"
 
+// MoveLabel is on a move's helper container: its value is the move's id, so a
+// boot can tell a move helper from an Update's and find the move job.
+const MoveLabel = "stackr.move"
+
 // Move is what the helper is told to do.
 type Move struct {
 	Dir       string `json:"dir"` // paneldb.DirIn or paneldb.DirBack
@@ -76,7 +80,7 @@ func (l *Leaf) LaunchMove(ctx context.Context, spec docker.ContainerSpec, mv Mov
 	if err != nil {
 		return err
 	}
-	return l.launch(ctx, spec, MoveEnv+"="+string(b))
+	return l.launch(ctx, spec, map[string]string{MoveLabel: mv.MoveID}, MoveEnv+"="+string(b))
 }
 
 // HelperDisk runs a request in a privileged container of the stackr image

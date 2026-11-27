@@ -10,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -167,5 +168,68 @@ func TestForgetRefusesDuringAMovedUpdate(t *testing.T) {
 	movedJournal(t, d.orch, paneldb.Journal{Phase: paneldb.PhaseGating, Direction: paneldb.DirUpdate})
 	if err := d.orch.forgetRefusals(ctx, disk, forgetSet{}); err != nil {
 		t.Errorf("unmoved update: %v", err)
+	}
+}
+
+func TestPanelMoveFitsNeedsArchiveAndCopyBothWays(t *testing.T) {
+	if panelMoveFits(true, 600, 0, 1000) {
+		t.Error("back fits with room for one copy only")
+	}
+	if !panelMoveFits(true, 600, 0, 1200) {
+		t.Error("back refused with room for two")
+	}
+	if panelMoveFits(false, 600, 600, 1000) || !panelMoveFits(false, 600, 600, 1200) || panelMoveFits(false, 600, 500, 1200) {
+		t.Error("move in fits wrong")
+	}
+}
+
+// installedRig is an observe rig whose controller is an installed panel with
+// an xfs disk, so the panel database row applies.
+func installedRig(t *testing.T) *observeRig {
+	t.Helper()
+	r := newObserveRig(t)
+	r.orch.cfg.PanelSpec = func(string) ContainerSpec { return ContainerSpec{} }
+	r.orch.cfg.Version = "v1"
+	r.row.Kind = disk.KindXFS
+	must(t, r.st.NodeDisks.Update(context.Background(), r.row))
+	return r
+}
+
+// An Update running on a moved install still reads as on the disk, and a move
+// asked then is refused as an update, not as an unfinished move.
+func TestMovedUpdateStateAndRefusal(t *testing.T) {
+	ctx := context.Background()
+	r := installedRig(t)
+	movedJournal(t, r.orch, paneldb.Journal{Phase: paneldb.PhaseGating, Direction: paneldb.DirUpdate, Moved: true, DiskID: r.row.ID, InstallID: "i"})
+	v, err := r.orch.PanelDBState(ctx, r.ctl())
+	must(t, err)
+	if !v.Applicable || !v.OnDisk || v.Moving {
+		t.Errorf("state = %+v", v)
+	}
+	for _, back := range []bool{false, true} {
+		p, err := r.orch.planWith(ctx, r.ctl(), back, false)
+		must(t, err)
+		if p.Refusal != "An update is running." {
+			t.Errorf("back=%v refusal = %q", back, p.Refusal)
+		}
+	}
+	// a real unfinished move keeps its own text
+	movedJournal(t, r.orch, paneldb.Journal{Phase: paneldb.PhaseGating, Direction: paneldb.DirIn, DiskID: r.row.ID, InstallID: "i"})
+	if p, _ := r.orch.planWith(ctx, r.ctl(), false, false); !strings.Contains(p.Refusal, "unfinished") {
+		t.Errorf("refusal = %q", p.Refusal)
+	}
+}
+
+// A latched-erroring disk takes no move in, but a move back is not gated.
+func TestErroringDiskRefusesMoveInNotMoveBack(t *testing.T) {
+	ctx := context.Background()
+	r := installedRig(t)
+	r.orch.latchErroring(ctx, r.row)
+	if _, err := r.orch.MovePanelDB(ctx, adminP(), r.ctl(), false); err == nil || !strings.Contains(err.Error(), "failing") {
+		t.Errorf("move in: %v", err)
+	}
+	_, err := r.orch.MovePanelDB(ctx, adminP(), r.ctl(), true)
+	if err == nil || strings.Contains(err.Error(), "failing") {
+		t.Errorf("move back: %v (want the plan's own refusal)", err)
 	}
 }

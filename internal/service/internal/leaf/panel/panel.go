@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -98,10 +99,10 @@ func (l *Leaf) Digest(ctx context.Context, image string) (string, error) {
 // running `stackrd upgrade-swap` with the socket. Refused while a helper
 // still runs, which is the "already running" guard across panel restarts.
 func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
-	return l.launch(ctx, spec)
+	return l.launch(ctx, spec, nil)
 }
 
-func (l *Leaf) launch(ctx context.Context, spec docker.ContainerSpec, extraEnv ...string) error {
+func (l *Leaf) launch(ctx context.Context, spec docker.ContainerSpec, extraLabels map[string]string, extraEnv ...string) error {
 	busy, err := l.docker.List(ctx, map[string]string{LabelRole: "upgrader"})
 	if err != nil {
 		return err
@@ -138,7 +139,7 @@ func (l *Leaf) launch(ctx context.Context, spec docker.ContainerSpec, extraEnv .
 		Image:   spec.Image,
 		Cmd:     []string{"upgrade-swap"},
 		Env:     append([]string{SpecEnv + "=" + string(body), RetryEnv + "=1"}, extraEnv...),
-		Labels:  map[string]string{LabelRole: "upgrader"},
+		Labels:  helperLabels(extraLabels),
 		Volumes: vols,
 		// The gate dials the new panel's listen address, which is the host's.
 		HostNetwork: true,
@@ -683,4 +684,11 @@ func RemoveFailure(db string) {
 	if err := os.Remove(FailureFile(db)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.Warn("upgrade: failure file not removed", "err", err)
 	}
+}
+
+// helperLabels is the upgrade helper's labels: its role, and extra ones.
+func helperLabels(extra map[string]string) map[string]string {
+	m := map[string]string{LabelRole: "upgrader"}
+	maps.Copy(m, extra)
+	return m
 }
