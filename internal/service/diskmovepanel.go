@@ -112,6 +112,11 @@ func (o *Orchestrator) movePanelLanded(j store.Job) bool {
 	if json.Unmarshal([]byte(j.Payload), &p) != nil {
 		return false
 	}
+	return o.moveLanded(p)
+}
+
+// moveLanded: the journal shows this move's new panel running or the move done.
+func (o *Orchestrator) moveLanded(p movePanelJob) bool {
 	jr, err := o.panelJournal()
 	if err != nil || jr.MoveID != p.MoveID {
 		return false
@@ -141,7 +146,7 @@ func (o *Orchestrator) PanelDBState(ctx context.Context, nodeID string) (PanelDB
 		return v, err
 	}
 	v.Applicable, v.DiskID = true, d.ID
-	v.OnDisk = j.Phase == paneldb.PhaseMoved
+	v.OnDisk = j.Phase == paneldb.PhaseMoved || j.Moved
 	v.Moving = o.movePanelLive(ctx) || (j.Phase != paneldb.PhaseNone && j.Phase != paneldb.PhaseMoved && j.Phase != paneldb.PhaseFresh &&
 		(j.Direction == paneldb.DirIn || j.Direction == paneldb.DirBack))
 	if j.OldCopy != "" && (j.Phase == paneldb.PhaseMoved || (j.Phase == paneldb.PhaseNone && j.Direction == paneldb.DirBack)) {
@@ -221,7 +226,12 @@ func (o *Orchestrator) planWith(ctx context.Context, nodeID string, back, own bo
 	if err != nil {
 		return p, err
 	}
+	// an Update or layout change in flight is not a move: say what it is
+	updating := j.Phase != paneldb.PhaseNone && j.Phase != paneldb.PhaseMoved && j.Phase != paneldb.PhaseFresh &&
+		(j.Direction == paneldb.DirUpdate || j.Direction == paneldb.DirLayout)
 	switch {
+	case updating:
+		p.Refusal = "An update is running."
 	case j.Phase == paneldb.PhaseMoved && !back:
 		p.Refusal = "The panel database is already on this disk."
 	case j.Phase != paneldb.PhaseMoved && back && j.Phase == paneldb.PhaseNone:
@@ -275,21 +285,29 @@ func (o *Orchestrator) planWith(ctx context.Context, nodeID string, back, own bo
 		return p, nil
 	}
 	// the archive and the kept copy land on the system disk; the copy on the disk
-	if back {
-		p.Fits = uint64(p.Need) <= p.SystemFree
-	} else {
-		p.Fits = uint64(p.Need) <= p.DiskFree && uint64(2*p.Need) <= p.SystemFree
-	}
+	p.Fits = panelMoveFits(back, p.Need, p.DiskFree, p.SystemFree)
 	if !p.Fits {
 		p.Refusal = fmt.Sprintf("Not enough room: the database is %s. The disk has %s free and the system disk %s.", gb(uint64(p.SizeBytes)), gb(p.DiskFree), gb(p.SystemFree))
 	}
 	return p, nil
 }
 
+// panelMoveFits: the archive and a copy land on the system disk in both
+// directions (a move in also writes the copy on the node disk).
+func panelMoveFits(back bool, need int64, diskFree, sysFree uint64) bool {
+	if back {
+		return uint64(2*need) <= sysFree
+	}
+	return uint64(need) <= diskFree && uint64(2*need) <= sysFree
+}
+
 // MovePanelDB queues the move (node.manage). A second press is refused.
 func (o *Orchestrator) MovePanelDB(ctx context.Context, by *Principal, nodeID string, back bool) (Job, error) {
-	if err := o.erroringDiskGate(ctx, nodeID); err != nil {
-		return Job{}, err
+	// a latched-erroring disk takes no new data, but a move back takes it off
+	if !back {
+		if err := o.erroringDiskGate(ctx, nodeID); err != nil {
+			return Job{}, err
+		}
 	}
 	p, err := o.PlanMovePanelDB(ctx, by, nodeID, back)
 	if err != nil {

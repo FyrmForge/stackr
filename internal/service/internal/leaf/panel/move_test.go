@@ -811,3 +811,110 @@ func TestMoveInInterruptedWithTheDiskGoneRollsBack(t *testing.T) {
 	}
 	e.assertUnmoved("stackr-old")
 }
+
+// crashAtStep returns a hook that fails with errCrash at the named step and
+// runs fn there.
+func crashAtStep(step string, fn func()) func(string) error {
+	return func(s string) error {
+		if s != step {
+			return nil
+		}
+		if fn != nil {
+			fn()
+		}
+		return errCrash
+	}
+}
+
+func TestRollbackAfterGatingKeepsTheNewerCopy(t *testing.T) {
+	ctx := context.Background()
+	newer := []byte("the new panel's bytes")
+	t.Run("in", func(t *testing.T) {
+		e := newEnv(t)
+		folderDB := filepath.Join(e.h.Folder(), paneldb.FileName)
+		l := e.leaf(crashAtStep("gating", func() {
+			if err := os.WriteFile(folderDB, newer, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(folderDB+"-wal", []byte("w"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}))
+		if err := l.Move(ctx, e.spec("stackr-new"), mvIn()); !errors.Is(err, errCrash) {
+			t.Fatalf("first run: %v", err)
+		}
+		if !e.journal().Started {
+			t.Fatal("journal does not say the new panel started")
+		}
+		e.d.health["stackr-new"] = "unhealthy"
+		if err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn()); !errors.Is(err, ErrRolledBack) {
+			t.Fatalf("resume: %v", err)
+		}
+		e.assertUnmoved("stackr-old")
+		if got, err := os.ReadFile(folderDB + ".rolled-back"); err != nil || !slices.Equal(got, newer) {
+			t.Errorf("rolled-back = %q, %v", got, err)
+		}
+		if _, err := os.Stat(folderDB + "-wal"); err == nil {
+			t.Error("-wal left in the folder")
+		}
+		if _, err := os.Stat(folderDB + ".rolled-back-wal"); err != nil {
+			t.Errorf("-wal not kept: %v", err)
+		}
+	})
+	t.Run("back", func(t *testing.T) {
+		e := newEnv(t)
+		if err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn()); err != nil {
+			t.Fatal(err)
+		}
+		l := e.leaf(crashAtStep("gating", func() {
+			if err := os.WriteFile(e.h.DB(), newer, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}))
+		if err := l.Move(ctx, e.spec("stackr-back"), mvBack()); !errors.Is(err, errCrash) {
+			t.Fatalf("first run: %v", err)
+		}
+		e.d.health["stackr-back"] = "unhealthy"
+		if err := e.leaf(nil).Move(ctx, e.spec("stackr-back"), mvBack()); !errors.Is(err, ErrRolledBack) {
+			t.Fatalf("resume: %v", err)
+		}
+		if got, err := os.ReadFile(filepath.Join(paneldb.Swap(e.dataDir), rolledBackName)); err != nil || !slices.Equal(got, newer) {
+			t.Errorf("rolled-back = %q, %v", got, err)
+		}
+		if got := readRows(t, e.h.DB()); !slices.Equal(got, e.rows) || !e.h.Mounted() {
+			t.Errorf("rows %v mounted=%v", got, e.h.Mounted())
+		}
+	})
+}
+
+func TestStaleFolderWalNeverReachesTheMount(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	folderWal := filepath.Join(e.h.Folder(), paneldb.FileName+"-wal")
+	e.d.health["stackr-new"] = "unhealthy"
+	if err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn()); !errors.Is(err, ErrRolledBack) {
+		t.Fatalf("first: %v", err)
+	}
+	// the failed attempt leaves a non-empty -wal behind
+	if err := os.WriteFile(folderWal, []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	delete(e.d.health, "stackr-new")
+	var seen bool
+	l := e.leaf(func(step string) error {
+		if step == "mount-unit-started" {
+			seen = true
+			if _, err := os.Stat(folderWal); err == nil {
+				t.Error("-wal in the folder at mount")
+			}
+		}
+		return nil
+	})
+	if err := l.Move(ctx, e.spec("stackr-new"), mvIn()); err != nil {
+		t.Fatal(err)
+	}
+	if !seen {
+		t.Error("never reached the mount")
+	}
+	e.assertMoved("stackr-new")
+}

@@ -4,12 +4,14 @@ import (
 	"context"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -143,5 +145,39 @@ func TestUndoFailedUpgradeKeepsRunningVersion(t *testing.T) {
 	must(t, err)
 	if len(js) != 1 || js[0].ID != r.job.ID {
 		t.Errorf("failed jobs: %v", js)
+	}
+}
+
+// A move helper that exited with the journal not showing the move fails the
+// move job with the helper's log, is removed, and never touches the Update job.
+func TestUndoFailedUpgradeSettlesAMoveHelper(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	newImg := installspec.Image("v0.9.1")
+	n.ctlFake.Containers = []docker.Container{
+		{ID: "mv", Name: "stackr-upgrader", State: "exited", Labels: map[string]string{installspec.LabelRole: "upgrader", "stackr.move": "m1"}},
+	}
+	n.ctlFake.Details = map[string]docker.Detail{"mv": {State: "exited", ExitCode: 1, Image: newImg}}
+	n.orch.cfg.Version = "v0.9.0"
+	mk := func(kind, payload string) store.Job {
+		j := store.Job{ID: uuid.NewString(), Kind: kind, State: "done", Payload: payload, LockSet: store.StringList{}, CreatedAt: time.Now()}
+		must(t, n.st.Jobs.Create(ctx, j))
+		return j
+	}
+	mv := mk(kindMovePanelDB, `{"node_id":"c","move_id":"m1"}`)
+	up := mk(string(kindUpgrade), `{"tag":"v0.9.1"}`)
+	must(t, paneldb.WriteJournal(n.orch.cfg.DataDir, paneldb.Journal{Phase: paneldb.PhaseNone}))
+	n.orch.undoFailedUpgrade(ctx)
+	if j, _ := n.st.Jobs.Get(ctx, mv.ID); j.State != "failed" || !strings.Contains(j.Error, "did not go through") {
+		t.Errorf("move job = %s %q", j.State, j.Error)
+	}
+	if j, _ := n.st.Jobs.Get(ctx, up.ID); j.State != "done" || j.Error != "" {
+		t.Errorf("update job = %s %q", j.State, j.Error)
+	}
+	if !slices.ContainsFunc(n.ctlFake.Calls(), func(c dockerfake.Call) bool { return c.Method == "StopRemove" && c.Args[0] == "mv" }) {
+		t.Error("helper kept")
+	}
+	if len(n.ctlFake.Specs) != 0 {
+		t.Error("the upgrade rollback ran for a move helper")
 	}
 }

@@ -214,3 +214,50 @@ func TestDiskMissingRefusesFolderOps(t *testing.T) {
 	wantCode(t, h.Run(ctx, req(h, "place", "", hostdisk.DBFile{}, hostdisk.DBFile{})), hostdisk.CodeDiskMissing)
 	wantCode(t, h.Run(ctx, req(h, "mount", "", hostdisk.DBFile{}, hostdisk.DBFile{})), hostdisk.CodeDiskMissing)
 }
+
+func TestCopyFailureKeepsTheOldDestination(t *testing.T) {
+	ctx := context.Background()
+	h := hostdisktest.New(t, "d1")
+	h.WriteFile(h.DataDir+"/swap/stackr.db.incoming", []byte("old"))
+	// missing source
+	wantCode(t, h.Run(ctx, req(h, "copy", "no", f("swap", "nope"), f("swap", "stackr.db.incoming"))), hostdisk.CodeIO)
+	// unreadable source (a directory)
+	if err := os.MkdirAll(h.Path(h.DataDir+"/swap/adir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if res := h.Run(ctx, req(h, "copy", "no", f("swap", "adir"), f("swap", "stackr.db.incoming"))); res.Error == nil {
+		t.Fatal("copy of a directory succeeded")
+	}
+	if b, err := os.ReadFile(h.Path(h.DataDir + "/swap/stackr.db.incoming")); err != nil || string(b) != "old" {
+		t.Errorf("dst = %q, %v", b, err)
+	}
+	// a good copy replaces it and drops a stale -wal and -shm beside it
+	h.WriteFile(h.DataDir+"/swap/new", []byte("new"))
+	h.WriteFile(h.DataDir+"/swap/stackr.db.incoming-wal", []byte("w"))
+	h.WriteFile(h.DataDir+"/swap/stackr.db.incoming-shm", []byte("s"))
+	mustOK(t, h.Run(ctx, req(h, "copy", "no", f("swap", "new"), f("swap", "stackr.db.incoming"))))
+	if b, _ := os.ReadFile(h.Path(h.DataDir + "/swap/stackr.db.incoming")); string(b) != "new" {
+		t.Errorf("dst = %q", b)
+	}
+	for _, s := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(h.Path(h.DataDir + "/swap/stackr.db.incoming" + s)); err == nil {
+			t.Errorf("%s left", s)
+		}
+	}
+}
+
+func TestRenameFinishesAHalfDoneLink(t *testing.T) {
+	ctx := context.Background()
+	h := hostdisktest.New(t, "d1")
+	h.WriteFile(h.DataDir+"/swap/a", []byte("x"))
+	if err := os.Link(h.Path(h.DataDir+"/swap/a"), h.Path(h.DataDir+"/swap/b")); err != nil {
+		t.Fatal(err)
+	}
+	mustOK(t, h.Run(ctx, req(h, "rename", "no", f("swap", "a"), f("swap", "b"))))
+	if _, err := os.Stat(h.Path(h.DataDir + "/swap/a")); err == nil {
+		t.Error("src left")
+	}
+	if b, _ := os.ReadFile(h.Path(h.DataDir + "/swap/b")); string(b) != "x" {
+		t.Errorf("dst = %q", b)
+	}
+}
