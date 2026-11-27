@@ -161,6 +161,12 @@ func TestObserveMoveToDiskAndBack(t *testing.T) {
 	if has, err := r.orch.diskLeaf.HasFolders(ctx, r.row, installspec.ObserveDiskVolume); err != nil || has[installspec.ObserveDiskVolume] {
 		t.Errorf("the disk folder row stayed: %v %v", has, err)
 	}
+	if ok, dev, _ := r.ctlFake.VolumeDevice(ctx, installspec.ObserveVolume); !ok || dev != "" {
+		t.Errorf("the plain volume's device = %q (found %v)", dev, ok)
+	}
+	if has, err := r.orch.diskLeaf.HasFolders(ctx, r.row, installspec.ObserveVolume); err != nil || has[installspec.ObserveVolume] {
+		t.Errorf("a folder row for the plain volume: %v %v", has, err)
+	}
 	if !r.removed(installspec.ObserveDiskVolume) || !sawCall(r.ctlFake, "CreateVolume("+installspec.ObserveVolume+")") {
 		t.Errorf("calls after back = %v", callNames(r.ctlFake))
 	}
@@ -301,14 +307,68 @@ func TestObserveMoveRefusals(t *testing.T) {
 	}
 	r.ctlFacts(t, ctlDiskFacts(10<<30))
 	// a move that holds the node's todisk key
-	j, err := r.orch.enqueue(ctx, kindObserveMove, observeMoveJob{NodeID: r.ctl()}, todiskKey(r.ctl()), "block")
+	hold := make(chan struct{})
+	r.orch.observe.moveStep = func(string) { <-hold }
+	t.Cleanup(func() { close(hold) })
+	_, err := r.orch.MoveObserve(ctx, adminP(), r.ctl(), false)
 	must(t, err)
 	if p, err := r.orch.PlanMoveObserve(ctx, adminP(), r.ctl(), false); err != nil || !p.Busy {
 		t.Errorf("busy plan = %+v, %v", p, err)
 	}
-	_ = j
 	if _, err := r.orch.MoveObserve(ctx, adminP(), r.ctl(), false); !errors.As(err, new(errs.Conflict)) {
 		t.Errorf("while another move holds the key: %v", err)
+	}
+}
+
+// The cap is never under the logs' own cap, a gigabyte and the free space
+// VictoriaMetrics keeps.
+func TestObserveCapCoversMinFree(t *testing.T) {
+	ctx := context.Background()
+	r := newObserveRig(t)
+	k, err := r.orch.observeKnobs(ctx)
+	must(t, err)
+	want := uint64(1<<30) + k.minFree
+	if k.logs {
+		want += k.logsMax
+	}
+	if c, err := r.orch.observeCap(ctx, 100); err != nil || c < want {
+		t.Errorf("cap = %d, %v; want >= %d", c, err, want)
+	}
+	must(t, r.orch.SetSettings(ctx, map[string]string{"observe_logs_enabled": "false"}))
+	if k, err = r.orch.observeKnobs(ctx); err != nil || k.logs {
+		t.Fatalf("logs still on: %v %v", k.logs, err)
+	}
+	if c, err := r.orch.observeCap(ctx, 100); err != nil || c < 1<<30+k.minFree {
+		t.Errorf("cap with logs off = %d, %v", c, err)
+	}
+}
+
+// Moving data off a failing disk is allowed; moving onto it is not.
+func TestObserveMoveErroringDiskGate(t *testing.T) {
+	ctx := context.Background()
+	r := newObserveRig(t)
+	must(t, r.st.Settings.Set(ctx, erroringKey(r.row.ID), "1"))
+	if _, err := r.orch.PlanMoveObserve(ctx, adminP(), r.ctl(), false); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("move in on a failing disk: %v", err)
+	}
+	must(t, r.st.Settings.Set(ctx, observeDataDiskKey, "1"))
+	if err := r.orch.observeMoveLoad(ctx, r.ctl(), "", true); err != nil {
+		t.Errorf("move back off a failing disk: %v", err)
+	}
+}
+
+// Two presses: the second is refused while the first holds the key.
+func TestObserveMoveSecondPressConflicts(t *testing.T) {
+	ctx := context.Background()
+	r := newObserveRig(t)
+	hold := make(chan struct{})
+	r.orch.observe.moveStep = func(string) { <-hold }
+	t.Cleanup(func() { close(hold) })
+	_, err := r.orch.MoveObserve(ctx, adminP(), r.ctl(), false)
+	must(t, err)
+	_, err = r.orch.MoveObserve(ctx, adminP(), r.ctl(), false)
+	if !errors.As(err, new(errs.Conflict)) {
+		t.Errorf("second press: %v", err)
 	}
 }
 
@@ -317,14 +377,14 @@ func TestObserveMoveRefusals(t *testing.T) {
 func TestObserveDiskRefusal(t *testing.T) {
 	ctx := context.Background()
 	r := newObserveRig(t)
-	if err := r.orch.observeDiskRefusal(ctx, r.ctl()); err != nil {
+	if err := r.orch.observeDiskRefusal(ctx, r.ctl(), false); err != nil {
 		t.Fatalf("observe off the disk: %v", err)
 	}
 	must(t, r.st.Settings.Set(ctx, observeDataDiskKey, "1"))
-	if err := r.orch.observeDiskRefusal(ctx, r.ctl()); !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), "Move them back") {
+	if err := r.orch.observeDiskRefusal(ctx, r.ctl(), false); !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), "Move them back") {
 		t.Errorf("observe on the disk: %v", err)
 	}
-	if err := r.orch.observeDiskRefusal(ctx, "w1"); err != nil {
+	if err := r.orch.observeDiskRefusal(ctx, "w1", false); err != nil {
 		t.Errorf("another node: %v", err)
 	}
 }

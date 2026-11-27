@@ -94,7 +94,7 @@ func (o *Orchestrator) forgetRefusals(ctx context.Context, d store.NodeDisk, s f
 	if err := o.panelDBDiskRefusal(d); err != nil {
 		return err
 	}
-	if err := o.observeDiskRefusal(ctx, d.NodeID); err != nil {
+	if err := o.observeDiskRefusal(ctx, d.NodeID, d.State == disk.StateMissing); err != nil {
 		return err
 	}
 	on := map[string]bool{}
@@ -371,6 +371,10 @@ func (o *Orchestrator) runDiskForget(ctx context.Context, r *jobs.Run, p diskFor
 		return err
 	}
 
+	if err := o.forgetObserve(ctx, d.NodeID); err != nil {
+		return err
+	}
+
 	// step 5: the row goes last; its folder rows go with it in the same statement
 	if err := o.diskLeaf.Delete(ctx, d); err != nil {
 		return err
@@ -435,6 +439,7 @@ type ForgetPlan struct {
 	Gone         bool
 	Volumes      []AdoptVolume // with their newest backup, when there is one
 	Refusal      string
+	ObserveOn    bool // logs and metrics are on this disk: a forget loses them
 }
 
 // PlanDiskForget reads what forgetting the disk would do.
@@ -481,6 +486,10 @@ func (o *Orchestrator) PlanDiskForget(ctx context.Context, diskID string) (Forge
 			}
 			p.Volumes = append(p.Volumes, av)
 		}
+	}
+	if on, err := o.observeOnDisk(ctx); err == nil && on {
+		ctl, err := o.controllerID(ctx)
+		p.ObserveOn = err == nil && ctl == d.NodeID
 	}
 	if d.State != disk.StateForgetting {
 		if err := o.forgetRefusals(ctx, d, s); err != nil {

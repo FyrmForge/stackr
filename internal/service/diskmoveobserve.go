@@ -11,8 +11,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
-	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/metrics"
@@ -53,7 +53,12 @@ func (o *Orchestrator) ObserveOnDisk(ctx context.Context) (bool, error) {
 
 // observeDiskRefusal is the refusal Forget (and Adopt) of a node's disk gives
 // while observe's data is on it: move it back first. nil when it is not.
-func (o *Orchestrator) observeDiskRefusal(ctx context.Context, nodeID string) error {
+// forgetMissing is a Forget of a missing disk: the data is unreachable, so
+// there is nothing to move back and the forget may go (forgetObserve).
+func (o *Orchestrator) observeDiskRefusal(ctx context.Context, nodeID string, forgetMissing bool) error {
+	if forgetMissing {
+		return nil
+	}
 	if on, err := o.observeOnDisk(ctx); err != nil || !on {
 		return err
 	}
@@ -61,6 +66,27 @@ func (o *Orchestrator) observeDiskRefusal(ctx context.Context, nodeID string) er
 		return err
 	}
 	return errs.Refusedf("Logs and metrics are on this disk. Move them back to the system disk first.")
+}
+
+// forgetObserve is the part of a Forget of the controller's disk that frees
+// observe from it: the settings go, the Docker object goes (best effort, the
+// forget already removed the bound ones), and observe restarts on the plain
+// volume. A no-op when observe is not on this node's disk.
+func (o *Orchestrator) forgetObserve(ctx context.Context, nodeID string) error {
+	if on, err := o.observeOnDisk(ctx); err != nil || !on {
+		return err
+	}
+	if ctl, err := o.controllerID(ctx); err != nil || ctl != nodeID {
+		return err
+	}
+	for _, k := range []string{observeDataDiskKey, observeDataCapKey} {
+		if err := o.store.Settings.Delete(ctx, k); err != nil {
+			return err
+		}
+	}
+	_ = o.docker.RemoveVolume(docker.WithNode(ctx, nodeID), installspec.ObserveDiskVolume)
+	o.resyncObserve(ctx, nodeID)
+	return nil
 }
 
 // observeDiskReady is whether the controller has a ready node disk.
@@ -126,18 +152,19 @@ func (o *Orchestrator) reconcileObserve(ctx context.Context, nodeID string) bool
 
 // observeCap is the xfs cap of the disk folder: twice today's data, and never
 // under what the logs may grow to (their own size cap) plus a gigabyte for
-// metrics, or the cap would stop observe before its own limits do.
+// metrics plus the free space VictoriaMetrics keeps (observe_min_free), or the
+// cap would stop observe before its own limits do.
 // ponytail: the floor is read once at the move; editable later.
 func (o *Orchestrator) observeCap(ctx context.Context, size int64) (uint64, error) {
 	k, err := o.observeKnobs(ctx)
 	if err != nil {
 		return 0, err
 	}
-	c := uint64(max(size, 0)) * 2
+	floor := uint64(1<<30) + k.minFree
 	if k.logs {
-		c = max(c, k.logsMax+1<<30)
+		floor += k.logsMax
 	}
-	return max(c, 1<<30), nil
+	return max(uint64(max(size, 0))*2, floor), nil
 }
 
 // ObserveMovePlan is what the move dialog shows before the confirm.
@@ -228,8 +255,11 @@ func (o *Orchestrator) observeMoveLoad(ctx context.Context, nodeID, diskID strin
 	if diskID != "" && d.ID != diskID {
 		return errs.Conflictf("The node's disk changed, try again.")
 	}
-	if err := o.erroringDiskGate(ctx, nodeID); err != nil {
-		return err
+	// moving data off a failing but readable disk is allowed
+	if !back {
+		if err := o.erroringDiskGate(ctx, nodeID); err != nil {
+			return err
+		}
 	}
 	on, err := o.observeOnDisk(ctx)
 	if err != nil {
@@ -274,7 +304,7 @@ func (o *Orchestrator) MoveObserve(ctx context.Context, by *Principal, nodeID st
 	uid, kid := actorOf(by)
 	// the disk lock keeps a Forget or Adopt of this disk from overlapping the move
 	return o.enqueueExclusive(ctx, kindObserveMove, observeMoveJob{NodeID: nodeID, DiskID: d.ID, Back: back, By: uid, KeyID: kid},
-		[]string{"observe-move"}, errs.Conflictf("Logs and metrics are already moving."), todiskKey(nodeID), "disk:"+d.ID)
+		[]string{"observe-move"}, errs.Conflictf("Logs and metrics are already moving."), "observe-move", todiskKey(nodeID), "disk:"+d.ID)
 }
 
 func (o *Orchestrator) runObserveMove(ctx context.Context, r *jobs.Run, p observeMoveJob) error {
@@ -337,6 +367,10 @@ func (m *observeMove) run(ctx context.Context) error {
 	}
 	if need := uint64(size + size/10); need > free {
 		return m.fail(nctx, errs.Conflictf("Only %s is free and the copy needs %s (the data and a tenth over).", gb(free), gb(need)))
+	} else if k, err := o.observeKnobs(ctx); err != nil {
+		return m.fail(nctx, err)
+	} else if !p.Back && free-need < k.minFree {
+		return m.fail(nctx, errs.Conflictf("The disk would have %s free after the move, under the %s that logs and metrics keep free.", gb(free-need), gb(k.minFree)))
 	}
 
 	// A retry starts clean: the destination goes first, every time.
@@ -353,7 +387,21 @@ func (m *observeMove) run(ctx context.Context) error {
 			return m.fail(nctx, err)
 		}
 	}
-	if err := o.volumes.EnsureNamed(nctx, p.NodeID, dstName, nil); err != nil {
+	if p.Back {
+		// a plain volume made directly: EnsureNamed would place it on the node disk
+		if err := o.docker.CreateVolume(nctx, dstName, "local", nil, nil); err != nil {
+			return m.fail(nctx, err)
+		}
+		has, err := o.diskLeaf.HasFolders(ctx, d, dstName)
+		if err != nil {
+			return m.fail(nctx, err)
+		}
+		if found, dev, err := o.docker.VolumeDevice(nctx, dstName); err != nil {
+			return m.fail(nctx, err)
+		} else if !found || dev != "" || has[dstName] {
+			return m.fail(nctx, errs.Conflictf("The plain volume came up on the disk."))
+		}
+	} else if err := o.volumes.EnsureNamed(nctx, p.NodeID, dstName, nil); err != nil {
 		return m.fail(nctx, err)
 	}
 	if !p.Back {
