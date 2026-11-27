@@ -180,6 +180,18 @@ stackr-install disk-check
 
 It starts the disk's mount units, and the restart loop brings the panel up without a reboot. If a move stops half way, `stackr-install` reads `/var/lib/stackr/move.journal` and finishes or rolls it back.
 
+### Known limitations
+
+- `stkr node disk move-panel` returns once the move starts. The node disk card shows the outcome.
+- A failing quarantine job retries every 5 minutes while the disk stays down.
+- Scheduled runs on a quarantined node show one failed job per tick until Check disk.
+- A standalone database primary that was relocated onto the failed disk is not stopped. Nothing new starts on that disk.
+- An app that had already exited when the disk failed is not redeployed by Check disk. Redeploy it by hand.
+- The logs and metrics size cap is set when they move. To change it, move them back and onto the disk again.
+- A disk that hangs instead of returning errors hangs the panel rather than stopping it.
+- On a worker, after re-attaching a disk run `stackr-install disk-check` on that node before Check disk.
+- Forgetting a missing controller disk that holds logs and metrics drops them. They start fresh on the system disk.
+
 ### A disk that is missing
 
 If the disk is unmounted or the device is gone, the node shows "The disk is missing", and tiles that use it do not start. Reattach or mount it, then press Check disk.
