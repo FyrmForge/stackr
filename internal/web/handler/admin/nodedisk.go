@@ -361,7 +361,7 @@ func (h *handler) forgetDialog(c echo.Context, diskID, node string) (ui.DiskForg
 	if err != nil {
 		return ui.DiskForget{}, err
 	}
-	f := ui.DiskForget{Node: fp.Node, Disk: diskID, Gone: fp.Gone, Refusal: fp.Refusal, Word: cmp.Or(node, diskID)}
+	f := ui.DiskForget{Node: fp.Node, Disk: diskID, Gone: fp.Gone, Refusal: fp.Refusal, ObserveOn: fp.ObserveOn, Word: cmp.Or(node, diskID)}
 	if fp.Gone {
 		f.Word = diskID
 	}

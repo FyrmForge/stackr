@@ -257,7 +257,7 @@ func (o *Orchestrator) adoptBlocks(ctx context.Context, d store.NodeDisk, n stor
 	if err := o.panelDBDiskRefusal(d); err != nil {
 		return err
 	}
-	if err := o.observeDiskRefusal(ctx, d.NodeID); err != nil {
+	if err := o.observeDiskRefusal(ctx, d.NodeID, false); err != nil {
 		return err
 	}
 	switch d.State {
