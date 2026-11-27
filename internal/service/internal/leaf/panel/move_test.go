@@ -474,7 +474,7 @@ func crashPoints(t *testing.T, dir, gate string) []string {
 	rec := func(s string) error { steps = append(steps, s); return nil }
 	ctx := context.Background()
 	settle := func(err error) {
-		if err != nil && !(gate == "unhealthy" && errors.Is(err, ErrRolledBack)) {
+		if err != nil && (gate != "unhealthy" || !errors.Is(err, ErrRolledBack)) {
 			t.Fatal(err)
 		}
 	}
