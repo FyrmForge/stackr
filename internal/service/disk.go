@@ -635,7 +635,7 @@ func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob)
 		return err
 	}
 	if d.State != disk.StateReady {
-		return errs.Refusedf("Still missing. Reattach it, then check again.")
+		return errs.Refusedf("Still missing. Reattach it, run stackr-install disk-check on the node, then check again.")
 	}
 	_, _ = fmt.Fprintf(r.Log, "disk ready: %s\n", d.MountPath)
 	if err := o.clearErroring(ctx, d); err != nil { // a passed check ends an erroring spell too

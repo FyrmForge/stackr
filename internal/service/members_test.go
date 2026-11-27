@@ -21,8 +21,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
-	"github.com/FyrmForge/stackr/internal/worker"
 	"github.com/FyrmForge/stackr/internal/service/internal/vip"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // subnetFake asks for a subnet the way a daemon does for a network that is

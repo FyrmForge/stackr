@@ -54,6 +54,18 @@ type quarRec struct {
 // quarRetry is how long a failed quarantine waits before the watch queues it again.
 const quarRetry = 5 * time.Minute
 
+// quarForget drops every row a disk left behind: the quarantine record, the
+// erroring latch and the problem. Called when the disk row itself goes.
+func (o *Orchestrator) quarForget(ctx context.Context, diskID string) {
+	for _, k := range []string{quarKey(diskID), erroringKey(diskID)} {
+		if err := o.store.Settings.Delete(ctx, k); err != nil {
+			slog.Warn("disk: row not deleted", "key", k, "err", err)
+		}
+	}
+	o.setLatchInMemory(diskID, false)
+	o.clearProblem(ctx, quarProblemKey(diskID))
+}
+
 func quarKey(diskID string) string { return "diskquarantine." + diskID }
 
 func (o *Orchestrator) quarLoad(ctx context.Context, diskID string) (quarRec, bool, error) {
@@ -141,7 +153,16 @@ func (o *Orchestrator) runDiskQuarantine(ctx context.Context, r *jobs.Run, p dis
 					continue
 				}
 			}
-			if slices.Contains(rec.Tiles, t.ID) || o.tileRunning(ctx, t) {
+			up := slices.Contains(rec.Tiles, t.ID)
+			if !up {
+				// a list that fails is an error, not "nothing runs": the job runs again
+				cs, err := o.tiles.Replicas(ctx, t)
+				if err != nil {
+					return err
+				}
+				up = slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" || c.State == "restarting" })
+			}
+			if up {
 				tiles = append(tiles, t)
 				if !slices.Contains(rec.Tiles, t.ID) {
 					rec.Tiles = append(rec.Tiles, t.ID)
@@ -155,7 +176,14 @@ func (o *Orchestrator) runDiskQuarantine(ctx context.Context, r *jobs.Run, p dis
 			_, _ = fmt.Fprintf(r.Log, "member %s is a primary: left to failover\n", m.ID)
 			continue
 		}
-		if slices.Contains(rec.Members, m.ID) || o.memberRunning(ctx, m) {
+		up := slices.Contains(rec.Members, m.ID)
+		if !up {
+			var err error
+			if up, err = o.memberRunning(ctx, m); err != nil {
+				return err
+			}
+		}
+		if up {
 			members = append(members, m)
 			if !slices.Contains(rec.Members, m.ID) {
 				rec.Members = append(rec.Members, m.ID)
@@ -206,9 +234,9 @@ func (o *Orchestrator) runDiskQuarantine(ctx context.Context, r *jobs.Run, p dis
 }
 
 // memberRunning: member m has a running container on its node.
-func (o *Orchestrator) memberRunning(ctx context.Context, m InstanceMember) bool {
+func (o *Orchestrator) memberRunning(ctx context.Context, m InstanceMember) (bool, error) {
 	cs, err := o.docker.List(docker.WithNode(ctx, m.NodeID), map[string]string{LabelMember: m.ID})
-	return err == nil && slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" || c.State == "restarting" })
+	return slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" || c.State == "restarting" }), err
 }
 
 // dropFromSync runs the instance's sync pass (under its topology lock), which
@@ -254,6 +282,7 @@ func (o *Orchestrator) resumeQuarantined(ctx context.Context, r *jobs.Run, d sto
 	}
 	var only map[string]bool
 	if ok {
+		rec.Done = false // the next outage gets its own quarantine
 		only = map[string]bool{}
 		for _, id := range rec.Tiles {
 			only[id] = true
@@ -326,7 +355,11 @@ func (o *Orchestrator) failedDiskGate(ctx context.Context, e store.Environment) 
 		if uses {
 			break
 		}
-		if found, _, err := o.docker.VolumeDevice(nctx, v.Name); err == nil && !found {
+		found, _, err := o.docker.VolumeDevice(nctx, v.Name)
+		if err != nil {
+			return err
+		}
+		if !found {
 			uses = true
 		}
 	}
@@ -767,7 +800,12 @@ func (o *Orchestrator) settleMember(ctx context.Context, rec *quarRec, id string
 	if err != nil {
 		return true, false, err
 	}
-	if m.State != opmember.Running || opmember.MayStart(m) != nil || o.memberRunning(ctx, m) {
+	if m.State != opmember.Running || opmember.MayStart(m) != nil {
+		return false, false, nil
+	}
+	if up, err := o.memberRunning(ctx, m); err != nil {
+		return true, false, err
+	} else if up {
 		return false, false, nil
 	}
 	key := "m:" + id

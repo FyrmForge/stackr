@@ -4064,7 +4064,7 @@ func diskStrip(d NodeDisk) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				if d.Check != "" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 317, "Tiles that use it do not start. Reattach it, then press Check disk.")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 317, "Tiles that use it do not start. Reattach it, run stackr-install disk-check on the node, then press Check disk.")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

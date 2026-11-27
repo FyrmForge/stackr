@@ -252,6 +252,7 @@ func (o *Orchestrator) forgetGoneDisk(ctx context.Context, by *Principal, d stor
 	if len(parts) > 0 {
 		return errs.Refusedf("%s still point at the forgotten node: recover them first", strings.Join(parts, ", "))
 	}
+	o.quarForget(ctx, d.ID)
 	if err := o.diskLeaf.Delete(ctx, d); err != nil {
 		return err
 	}
@@ -372,6 +373,7 @@ func (o *Orchestrator) runDiskForget(ctx context.Context, r *jobs.Run, p diskFor
 	}
 
 	// step 5: the row goes last; its folder rows go with it in the same statement
+	o.quarForget(ctx, d.ID)
 	if err := o.diskLeaf.Delete(ctx, d); err != nil {
 		return err
 	}

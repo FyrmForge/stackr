@@ -1091,7 +1091,7 @@ templ diskStrip(d NodeDisk) {
 					<li class="text-rw-danger font-medium">The disk is missing.</li>
 					<li class="text-rw-danger">
 						if d.Check != "" {
-							Tiles that use it do not start. Reattach it, then press Check disk.
+							Tiles that use it do not start. Reattach it, run stackr-install disk-check on the node, then press Check disk.
 						} else {
 							Tiles that use it do not start. The node is offline. Check it once it is back.
 						}
