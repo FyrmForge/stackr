@@ -45,6 +45,8 @@ type Move struct {
 const (
 	movingName   = "stackr.db.moving"
 	incomingName = "stackr.db.incoming"
+	// what a rollback keeps of a database the new panel may have written
+	rolledBackName = "stackr.db.rolled-back"
 )
 
 // DiskRunner runs one request of the privileged disk helper on the node.
@@ -369,6 +371,12 @@ func (m *mover) moveIn(ctx context.Context) error {
 		if _, err := m.op(ctx, "rm", "", marker, none); err != nil {
 			return err
 		}
+		// an earlier rollback's kept copy is never needed past the next move
+		for _, suf := range []string{"", "-wal"} {
+			if _, err := m.op(ctx, "rm", "", file(hostdisk.AreaFolder, rolledBackName+suf), none); err != nil {
+				return err
+			}
+		}
 		if _, err := m.op(ctx, "checkpoint", "no", dbMain, none); err != nil {
 			return err
 		}
@@ -404,7 +412,13 @@ func (m *mover) moveIn(ctx context.Context) error {
 		}
 	}
 	if j.Phase == paneldb.PhaseCopied {
-		// re-verify the copy and its marker before the source goes
+		// re-verify the copy and its marker before the source goes. A -wal
+		// beside it would be replayed onto the copy at the first open.
+		if w, err := m.op(ctx, "hash", "", file(hostdisk.AreaFolder, paneldb.FileName+"-wal"), none); err != nil {
+			return err
+		} else if w.Exists && w.Size > 0 {
+			return errors.New("the disk folder has a -wal beside the copy: refusing to mount it")
+		}
 		if err := m.verifyDisk(ctx, folderDB, "", j.SHA256); err != nil {
 			return err
 		}
@@ -489,6 +503,11 @@ func (m *mover) moveBack(ctx context.Context) error {
 		if err := m.crash("stopped"); err != nil {
 			return err
 		}
+		for _, suf := range []string{"", "-wal"} {
+			if _, err := m.op(ctx, "rm", "", file(hostdisk.AreaSwap, rolledBackName+suf), none); err != nil {
+				return err
+			}
+		}
 		if _, err := m.op(ctx, "checkpoint", "yes", dbMain, none); err != nil {
 			return err
 		}
@@ -558,6 +577,7 @@ func (m *mover) moveBack(ctx context.Context) error {
 
 // startNew journals starting-new, runs the new panel and gates it.
 func (m *mover) startNew(ctx context.Context) error {
+	m.j.Started = true // persisted by the next set: a rollback now keeps the new panel's database
 	if err := m.set(paneldb.PhaseStartingNew); err != nil {
 		return err
 	}
@@ -742,10 +762,27 @@ func (m *mover) rollbackIn(ctx context.Context) error {
 	if _, err := m.op(ctx, "rename", "no", file(hostdisk.AreaSwap, movingName+"-wal"), file(hostdisk.AreaDB, paneldb.FileName+"-wal"), true); err != nil {
 		return err
 	}
-	for _, f := range []string{paneldb.FileName, paneldb.FileName + ".partial", hostdisk.PanelDBMarker} {
-		if _, err := m.op(ctx, "rm", "", file(hostdisk.AreaFolder, f), none); err != nil {
-			slog.Warn("panel database move: disk folder not cleaned (the next move wipes it)", "file", f, "err", err)
+	folder := func(name string) hostdisk.DBFile { return file(hostdisk.AreaFolder, name) }
+	warn := func(what, f string, err error) {
+		if err != nil {
+			slog.Warn("panel database move: disk folder not cleaned (the next move wipes it)", "what", what, "file", f, "err", err)
 		}
+	}
+	// the new panel may have written the disk copy: keep it, never delete it.
+	// A failed keep leaves the files where they are, and the next move wipes
+	// them anyway.
+	for _, suf := range []string{"", "-wal"} {
+		if m.j.Started {
+			_, err := m.op(ctx, "rename", "", folder(paneldb.FileName+suf), folder(rolledBackName+suf), true)
+			warn("keep", paneldb.FileName+suf, err)
+		} else {
+			_, err := m.op(ctx, "rm", "", folder(paneldb.FileName+suf), none)
+			warn("rm", paneldb.FileName+suf, err)
+		}
+	}
+	for _, f := range []string{paneldb.FileName + "-shm", paneldb.FileName + ".partial", hostdisk.PanelDBMarker} {
+		_, err := m.op(ctx, "rm", "", folder(f), none)
+		warn("rm", f, err)
 	}
 	return nil
 }
@@ -770,6 +807,14 @@ func (m *mover) rollbackBack(ctx context.Context) error {
 		}
 		if _, err := m.op(ctx, "unlock", "no", none, none); err != nil {
 			return err
+		}
+		if m.j.Started {
+			// the new panel ran on db/: keep what it wrote before the underlay is cleared
+			for _, suf := range []string{"", "-wal"} {
+				if _, err := m.op(ctx, "rename", "no", file(hostdisk.AreaDB, paneldb.FileName+suf), file(hostdisk.AreaSwap, rolledBackName+suf), true); err != nil {
+					return err
+				}
+			}
 		}
 		if _, err := m.op(ctx, "clear-underlay", "no", none, none); err != nil {
 			return err

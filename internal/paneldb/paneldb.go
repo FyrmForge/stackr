@@ -139,6 +139,10 @@ type Journal struct {
 	// Ran: the new panel has been started on the database, so a recovery that
 	// must roll back needs the pre-upgrade copy and refuses without it.
 	Ran bool `json:"ran,omitempty"`
+	// Started: a move's new panel has been started on the moved database, so a
+	// rollback keeps the database it may have written as .rolled-back instead
+	// of deleting it. Journals from before this field read false.
+	Started bool `json:"started,omitempty"`
 	// Image is the new panel's image (so an installer rerun can start it again),
 	// Predecessors the exact containers (ids) that ran before it: the only ones
 	// a rollback may start.

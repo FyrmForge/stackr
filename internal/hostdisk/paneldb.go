@@ -379,7 +379,8 @@ func (d *dbOp) hash() Result {
 }
 
 // copy writes From to To through To.partial: fsync, rename, fsync the folder.
-// The destination is wiped first, so a retry never trusts an earlier try.
+// An existing destination stays until the rename replaces it atomically, so a
+// failed copy leaves the old content; its -wal and -shm go just before that.
 func (d *dbOp) copy() Result {
 	src, herr := d.file(d.q.From)
 	if herr != nil {
@@ -390,10 +391,8 @@ func (d *dbOp) copy() Result {
 		return Result{Error: herr}
 	}
 	part := dst + ".partial"
-	for _, p := range []string{part, dst} {
-		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fail(CodeIO, err.Error())
-		}
+	if err := os.Remove(part); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fail(CodeIO, err.Error())
 	}
 	in, err := os.Open(src)
 	if err != nil {
@@ -411,6 +410,15 @@ func (d *dbOp) copy() Result {
 	}
 	if cerr := out.Close(); err == nil {
 		err = cerr
+	}
+	// a -wal or -shm left beside dst belongs to an older database: SQLite would
+	// replay it onto the copy
+	for _, suf := range []string{"-wal", "-shm"} {
+		if err == nil {
+			if rerr := os.Remove(dst + suf); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+				err = rerr
+			}
+		}
 	}
 	if err == nil {
 		err = os.Rename(part, dst)
@@ -453,7 +461,17 @@ func (d *dbOp) rename() Result {
 		}
 		return fail(CodeIO, d.q.From.Name+" is not there")
 	}
-	if _, err := os.Lstat(dst); err == nil {
+	if di, err := os.Lstat(dst); err == nil {
+		// a link made and a crash before the unlink: finish it
+		if si, serr := os.Lstat(src); serr == nil && os.SameFile(si, di) {
+			if err := os.Remove(src); err != nil {
+				return fail(CodeIO, err.Error())
+			}
+			if err := syncPath(path.Dir(src)); err != nil {
+				return fail(CodeIO, err.Error())
+			}
+			return ok(&DBResult{Exists: true})
+		}
 		return fail(CodeBusy, d.q.To.Name+" already exists")
 	}
 	// link then unlink: never replaces, and fails with EXDEV across filesystems
