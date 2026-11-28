@@ -402,7 +402,11 @@ func (p *Plan) stacks(refs map[string]StackRef, live Live, stacks map[string]Sta
 		diffs = slices.DeleteFunc(diffs, func(c Change) bool { return c.Old == c.New })
 		// Connectors compare by id (two may share a name) and show by name.
 		if from, to := connectorOf(have, live), connectorOf(want, live); from != to {
-			diffs = append(diffs, rebind(s, "connector", connectorLabel(live, from), connectorLabel(live, to)))
+			fl, tl := connectorLabel(live, from), connectorLabel(live, to)
+			if fl == tl { // two of one name: a real change never reads "x -> x"
+				fl, tl = withShortID(fl, from), withShortID(tl, to)
+			}
+			diffs = append(diffs, rebind(s, "connector", fl, tl))
 		}
 		if want.ConnectorID == "" {
 			for i := range diffs {
@@ -461,6 +465,13 @@ func connectorLabel(live Live, id string) string {
 		return n
 	}
 	return id
+}
+
+func withShortID(label, id string) string {
+	if id == "" {
+		return label
+	}
+	return label + " (" + id[:min(6, len(id))] + ")"
 }
 
 func pathOf(path string) string {
