@@ -30,6 +30,7 @@ type TilePatch struct {
 	BuildArgs              *string          `json:"build_args,omitempty"`
 	Volumes                *json.RawMessage `json:"volumes,omitempty"`
 	Command                *string          `json:"command,omitempty"`
+	Entrypoint             *string          `json:"entrypoint,omitempty"`
 	ContainerPort          *int             `json:"container_port,omitempty"`
 	PublishedPorts         *json.RawMessage `json:"published_ports,omitempty"`
 	EndpointProtocol       *string          `json:"endpoint_protocol,omitempty"`

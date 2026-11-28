@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/url"
 
 	"github.com/spf13/cobra"
@@ -58,5 +59,31 @@ func (a *app) shares() *cobra.Command {
 			_, err = a.call(DELETE, p+"/shares/"+url.PathEscape(args[0]), nil)
 			return err
 		})
-	return noun("share", "Network shares: NFS or SMB exports tiles mount", ls, add, rm)
+	test := leaf("test <slug>", "share.test", "Mount a share once, read-only, and say whether it can be read", exact(1),
+		func(_ *cobra.Command, args []string) error {
+			p, err := a.orgPath()
+			if err != nil {
+				return err
+			}
+			v, err := a.call(POST, p+"/shares/"+url.PathEscape(args[0])+"/test", nil)
+			if err != nil {
+				return err
+			}
+			if a.json {
+				if err := a.show(v); err != nil {
+					return err
+				}
+			} else {
+				m, _ := v.(map[string]any)
+				_, _ = fmt.Fprintln(a.out, cell(m["message"]))
+				if raw := cell(m["raw"]); raw != "" {
+					_, _ = fmt.Fprintln(a.out, raw)
+				}
+			}
+			if m, _ := v.(map[string]any); m["ok"] != true {
+				return fmt.Errorf("share %s is not readable", args[0])
+			}
+			return nil
+		})
+	return noun("share", "Network shares: NFS or SMB exports tiles mount", ls, add, rm, test)
 }

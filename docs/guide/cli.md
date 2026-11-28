@@ -3362,6 +3362,14 @@ Remove a share; refused while a tile mounts it
 stkr share rm <slug>
 ```
 
+### `stkr share test`
+
+Mount a share once, read-only, and say whether it can be read
+
+```
+stkr share test <slug>
+```
+
 ## `stkr slice`
 
 Slice tiles: a database or bucket cut from an operated tile
@@ -3810,6 +3818,7 @@ stkr tile create <name> [flags]
       --depends-on string              tiles to start first, one per line: tile[:started|healthy|completed]
       --devices string                 devices, one per line: host[:container[:perms]] (needs admin approval)
       --dockerfile string              Dockerfile path
+      --entrypoint string              the entrypoint, split like a shell would (quotes work, nothing expands)
       --env string                     the environment (default: the linked one)
       --env-json string                environment, a JSON object of strings: '{"KEY":"value"}'
       --files string                   files from the repo to mount, one per line: repo/path:/container/path[:template]
@@ -4286,6 +4295,7 @@ stkr tile set [tile] [flags]
       --depends-on string              tiles to start first, one per line: tile[:started|healthy|completed]
       --devices string                 devices, one per line: host[:container[:perms]] (needs admin approval)
       --dockerfile string              Dockerfile path
+      --entrypoint string              the entrypoint, split like a shell would (quotes work, nothing expands)
       --env string                     the environment (default: the linked one)
       --env-json string                environment, a JSON object of strings: '{"KEY":"value"}'
       --files string                   files from the repo to mount, one per line: repo/path:/container/path[:template]
@@ -4485,16 +4495,47 @@ stkr volume move-to-disk <volume> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
+### `stkr volume restore`
+
+Take an orphaned volume (one a stack file dropped) back
+
+```
+stkr volume restore <volume> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
 ### `stkr volume rm`
 
-Delete a volume (its data is kept for the retention window, then backed up and removed)
+Delete a volume and its data now; --backup-first backs it up before it goes
 
 ```
 stkr volume rm <volume> [flags]
 ```
 
 ```
+      --backup-first   back the volume up first; nothing is deleted if the backup fails
       --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
       --stack string   the stack (default: the linked one)
+```
+
+### `stkr volume wipe`
+
+Empty a volume's contents; the volume, its cap and its schedules stay
+
+```
+stkr volume wipe <volume> [flags]
+```
+
+```
+      --backup-first   back the volume up first; nothing is wiped if the backup fails
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --stop-tiles     stop the tiles that mount it for the wipe, then start them again
 ```
 
