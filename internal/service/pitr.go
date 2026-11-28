@@ -240,14 +240,13 @@ func (o *Orchestrator) dataVolume(ctx context.Context, it store.Tile) (store.Vol
 	return o.volumes.BySlug(ctx, volume.Scope{Kind: "env", ID: it.EnvironmentID}, it.Slug+"-data")
 }
 
-// volumeCreated is what a new volume gets: the default daily backup, and for
-// an instance's data volume with PITR on, the weekly base backup. The archive
-// volume gets neither.
+// volumeCreated is what a new volume gets: for an instance's data volume
+// with PITR on, the weekly base backup. Nothing else gets a schedule; the
+// archive volume gets none.
 func (o *Orchestrator) volumeCreated(ctx context.Context, v store.Volume) {
 	if mflow.IsArchiveVolume(v) || o.restoredVolume(ctx, v) {
 		return
 	}
-	o.defaultBackup(ctx, v)
 	o.baseSchedule(ctx, v)
 }
 
