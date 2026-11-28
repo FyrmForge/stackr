@@ -21,7 +21,8 @@ type resolved struct {
 	ref         string // the reference asked for, before any import or pin
 	pinRef      string // repo@digest of image when known; "" = image itself
 	env, binds  []string
-	mounts      []docker.Mount // the files: volume, by subpath
+	mounts      []docker.Mount         // the files: volume, by subpath
+	shareVols   map[string]store.Share // docker volume name to its share, for the mount-denied text
 	cmd         []string
 	entrypoint  []string
 	ports       map[string]string
