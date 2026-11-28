@@ -162,3 +162,9 @@ func TestInterruptedStripOffersResume(t *testing.T) {
 	d.Resume.Text = "Adopting did not finish."
 	wants(t, "14l", renderC(t, diskStrip(d)), "Adopting did not finish.", ">Resume</button>")
 }
+
+// A disk latched erroring has a strip with Check disk.
+func TestErroringStripOffersCheck(t *testing.T) {
+	out := renderC(t, diskStrip(NodeDisk{Has: true, State: "ready", Erroring: true, Check: "/c"}))
+	wants(t, "erroring", out, "The disk is failing.", "Work that uses it is refused. Fix it, then press Check disk.", `hx-post="/c"`, `role="status"`)
+}

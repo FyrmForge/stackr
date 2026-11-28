@@ -86,7 +86,8 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 	if !p.MissingSince.IsZero() {
 		dk.Since = ago(p.MissingSince)
 	}
-	if (p.State != "ready" || p.Damaged != "") && online {
+	dk.Erroring = p.Erroring
+	if (p.State != "ready" || p.Damaged != "" || p.Erroring) && online {
 		dk.Check = base + "/disk/check"
 		if dk.Whole && p.State == "adding" && !p.Formatted {
 			dk.Check = "" // nothing was formatted yet: there is nothing to check

@@ -352,3 +352,16 @@ func must(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+// A ready disk latched erroring offers Check disk.
+func TestNodeDiskErroringOffersCheckDisk(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	id := diskNode(t, s)
+	addedDisk(t, s, root, id, "/data")
+	d, err := s.Store.NodeDisks.GetByNode(t.Context(), id)
+	must(t, err)
+	must(t, s.Store.Settings.Set(t.Context(), "diskerroring."+d.ID, "1"))
+	body := s.As(t, root, "GET", "/-/admin/nodes/"+id, nil).Body.String()
+	has(t, "erroring", body, "The disk is failing.", `hx-post="/-/admin/nodes/`+id+`/disk/check"`)
+}
