@@ -4,9 +4,11 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"net/http"
 	"slices"
 	"strings"
 
+	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
@@ -19,6 +21,7 @@ import (
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
 	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 	"github.com/FyrmForge/stackr/internal/web/connpanel"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // panelURL is path on the panel's public address (comp.PanelURL with the
@@ -277,6 +280,7 @@ func (h *handler) orgShares(c echo.Context, cd card, base string) (orgui.SharesV
 			Password: s.PasswordRef,
 		}
 		if owner {
+			row.Test = base + "/shares/" + s.ID + "/test"
 			row.Delete = comp.ConfirmView{
 				Button:  "Remove",
 				Title:   "Remove share \"" + s.Slug + "\"?",
@@ -391,6 +395,34 @@ func (h *handler) orgAction(tab string, do func(echo.Context, *service.Org) (str
 	}
 }
 
+// shareTest answers the Test button of a share row with the line that
+// replaces the row's slot. A refusal is the line too, not the drawer's banner.
+func (h *handler) shareTest(c echo.Context) error {
+	cd, _ := h.cardOf(c, "org")
+	ctx := c.Request().Context()
+	ref := c.Param("share")
+	slug := ref
+	if ss, err := h.orch.Shares(ctx, cd.s.Org.ID); err == nil {
+		for _, s := range ss {
+			if s.ID == ref {
+				slug = s.Slug
+			}
+		}
+	}
+	v := orgui.ShareTestView{Slug: slug}
+	r, err := h.orch.TestShare(ctx, middleware.Principal(c), cd.s.Org.ID, ref)
+	if err != nil {
+		msg, ok := render.Refused(err)
+		if !ok {
+			return middleware.HTTPError(err)
+		}
+		v.Msg = msg
+	} else {
+		v.OK, v.Msg, v.Raw = r.OK, r.Message, r.Raw
+	}
+	return respond.HTML(c, http.StatusOK, orgui.ShareTestLine(v))
+}
+
 func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	o := "/:org/-/drawer"
 	site.GET(o, h.drawerRoute("org"), a.Require("org.read"))
@@ -474,6 +506,7 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	site.POST(o+"/shares/:share/delete", h.orgAction("storage/shares", func(c echo.Context, og *service.Org) (string, error) {
 		return "Share removed.", h.orch.DeleteShare(c.Request().Context(), og.ID, c.Param("share"))
 	}), shr)
+	site.POST(o+"/shares/:share/test", h.shareTest, shr)
 	site.POST(o+"/backups", h.orgAction("storage/backups", func(c echo.Context, og *service.Org) (string, error) {
 		f := c.FormValue
 		_, err := h.orch.CreateBackupDest(c.Request().Context(), &og.ID, service.BackupDestSpec{
