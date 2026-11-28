@@ -498,6 +498,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// Boot budget rule: a deadline is wall clock, so no fatal local step (the
+	// database ones) may share one with a remote or Docker call. Those get a
+	// bounded context of their own (bootRemote), and the boot context is made
+	// again after them.
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -634,9 +638,14 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	orch.diskLeaf = disk.New(st.NodeDisks, st.DiskFolders, dhost).WithCaps(orch.folderCap)
 	orch.startMesh(ctl.ID)
-	if err := orch.refreshNodeClients(ctx); err != nil {
+	rctx, rcancel := bootRemote()
+	if err := orch.refreshNodeClients(rctx); err != nil {
 		slog.Warn("nodes: worker clients not all built", "err", err)
 	}
+	rcancel()
+	cancel()
+	ctx, cancel = context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	orch.track(orch.watchNodeClients)
 	orch.sessions = build("sessions", func() *auth.SessionManager {
 		opts := []auth.SessionOption{auth.WithCookieSecure(cfg.CookieSecure), auth.WithCookieDomain(cfg.CookieDomain)}
@@ -1041,11 +1050,18 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	case <-time.After(8 * time.Second):
 		slog.Warn("vip: boot rebuild still running, continuing")
 	}
-	// The wait may have spent the budget; the local steps get a fresh one. The
-	// first cancel is already deferred and still runs.
+	// Remote and Docker steps, on their own budget.
+	rctx, rcancel = bootRemote()
+	orch.vipLegacy(rctx) // runs up to a minute whatever rctx says
+	rcancel()
+	rctx, rcancel = bootRemote() // its own: vipLegacy may have spent the first
+	orch.bootUpgradeHold(rctx)   // before the queue starts (jobs.Start below): it holds while a helper runs
+	rcancel()
+	// The wait and those steps may have spent the budget; the local steps get a
+	// fresh one. The first cancels are already deferred and still run.
+	cancel()
 	ctx, cancel = context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	orch.vipLegacy(ctx)
 	orch.detach(context.Background(), orch.startMembers) // after a panel or host restart
 	orch.settleRestored(ctx)
 	orch.sweepMoveTemps()
@@ -1063,8 +1079,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if orch.localWorker != nil { // only a real host runs the boot publish (below)
 		orch.systemPublished = make(chan struct{})
 	}
-	orch.pinConnectors(ctx)   // before the queue starts, so no clone runs unpinned
-	orch.bootUpgradeHold(ctx) // before the queue starts: it holds while a helper runs
+	orch.pinConnectors(ctx) // before the queue starts, so no clone runs unpinned
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)
@@ -1138,6 +1153,14 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 	}
 	return orch, nil
+}
+
+// bootRemote is the context of a boot step that calls a worker or Docker:
+// its own cap, so a slow one never spends the boot context of the database
+// steps. 30s: the worker probes run in parallel (10s at worst), the VIP
+// reads that follow are 5s per answering worker.
+func bootRemote() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 30*time.Second)
 }
 
 // seedDB is a migrated empty database the tests set (main_test.go), so a new
