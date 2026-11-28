@@ -3,6 +3,9 @@ package docker
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -45,5 +48,47 @@ func TestDeviceOf(t *testing.T) {
 		if got := DeviceOf(c.opts); got != c.want {
 			t.Errorf("%s: %q, want %q", name, got, c.want)
 		}
+	}
+}
+
+// emptyDir removes files and dotfiles, accepts an empty dir, and fails when
+// an rm fails.
+func TestEmptyDir(t *testing.T) {
+	run := func(dir string) error {
+		return exec.Command("sh", "-c", emptyDir(dir)+"true").Run()
+	}
+	dir := t.TempDir()
+	if err := run(dir); err != nil {
+		t.Fatalf("empty dir: %v", err)
+	}
+	for _, n := range []string{"a", ".hidden", "..odd"} {
+		if err := os.WriteFile(filepath.Join(dir, n), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub", "f"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(dir); err != nil {
+		t.Fatalf("wipe: %v", err)
+	}
+	if left, _ := os.ReadDir(dir); len(left) != 0 {
+		t.Fatalf("left %v", left)
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root removes anything")
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "locked", "f"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "locked"), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(filepath.Join(dir, "locked"), 0o700) }()
+	if err := run(dir); err == nil {
+		t.Fatal("a failed rm did not fail the script")
 	}
 }

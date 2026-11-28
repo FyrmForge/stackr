@@ -194,13 +194,15 @@ func isTarChanged(err error) bool {
 // UntarVolume wipes the volume and extracts src into it, in one container and
 // one command so a crash cannot leave it emptied with no archive in it.
 // There is no way back from the wipe: the caller verifies the archive first.
-// The three globs catch dotfiles; ";" so an empty volume still extracts.
+// The three globs catch dotfiles; a glob that matches nothing stays literal
+// and is skipped, so an empty volume still extracts. A failed rm stops the
+// command: a wipe that left data behind must not read as done.
 func (d *Client) UntarVolume(ctx context.Context, vol string, src io.Reader) error {
 	out, wait, err := d.volumeTool(
 		ctx,
 		vol,
 		false,
-		[]string{"sh", "-c", "rm -rf /data/..?* /data/.[!.]* /data/* 2>/dev/null; tar -xzf - -C /data"},
+		[]string{"sh", "-c", emptyDir("/data") + "tar -xzf - -C /data"},
 		src,
 	)
 	if err != nil {
@@ -211,6 +213,12 @@ func (d *Client) UntarVolume(ctx context.Context, vol string, src io.Reader) err
 		return fmt.Errorf("restore into %s: %w", vol, err)
 	}
 	return nil
+}
+
+// emptyDir is a shell prelude that removes everything under dir, dotfiles
+// included, and stops the script on the first failure.
+func emptyDir(dir string) string {
+	return `set -e; for f in ` + dir + `/..?* ` + dir + `/.[!.]* ` + dir + `/*; do [ -e "$f" ] || [ -L "$f" ] || continue; rm -rf "$f"; done; `
 }
 
 // volumeTool mounts vol at /data (ro for reads) in a throwaway container.
