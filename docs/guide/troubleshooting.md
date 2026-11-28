@@ -98,3 +98,7 @@ Use it when the box or its database is lost. The full steps are in [Backups](bac
 The replaced database stays as `stackr.db.before-restore-<time>` with its `-wal` file. If the restored panel is wrong, stop it, delete the new `stackr.db-wal` and `stackr.db-shm`, and move both old files back.
 
 A volume that has no reachable backup starts empty. A backup kept only on the old controller's disk went with it, so keep an S3 destination (see [Backups](backups.md#destinations)).
+
+## The NAS refused access to a share
+
+A tile that mounts an NFS share fails with "The NAS refused access to share <name> (<source>)". The export maps root to nobody, so the node cannot read it. On the NAS, give Other read and execute on the export's top folder, or set maproot (no_root_squash). Then use Test on the share row in the org settings to check it before you deploy again.
