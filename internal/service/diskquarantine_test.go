@@ -1123,6 +1123,21 @@ func TestQuarantineSkippedWhenTheDiskAnswers(t *testing.T) {
 	}
 }
 
+// A disk that came back remounted read-only does not answer: quarantine is queued.
+func TestQuarantineNotSkippedWhenTheDiskIsReadOnly(t *testing.T) {
+	ctx := context.Background()
+	w := newForgetWorld(t, true, false)
+	w.lose(t)
+	n, _ := w.st.Nodes.Get(ctx, "w1")
+	f := readOf(w.row, 50*gig, 100*gig)
+	f.Disks[0].ReadAt = time.Unix(1e9, 0)
+	f.Disks[0].ReadOnly = true
+	w.orch.diskWatch(ctx, n, f, time.Now())
+	if len(w.quarJobs(t)) == 0 {
+		t.Fatalf("no quarantine job for a read-only disk")
+	}
+}
+
 // A quarantine job whose disk row went (Forget, node remove) is done, not failed.
 func TestQuarantineJobForADeletedRowIsDone(t *testing.T) {
 	ctx := context.Background()

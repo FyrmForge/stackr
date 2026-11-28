@@ -167,4 +167,9 @@ func TestInterruptedStripOffersResume(t *testing.T) {
 func TestErroringStripOffersCheck(t *testing.T) {
 	out := renderC(t, diskStrip(NodeDisk{Has: true, State: "ready", Erroring: true, Check: "/c"}))
 	wants(t, "erroring", out, "The disk is failing.", "Work that uses it is refused. Fix it, then press Check disk.", `hx-post="/c"`, `role="status"`)
+	out = renderC(t, diskStrip(NodeDisk{Has: true, State: "ready", Erroring: true}))
+	wants(t, "erroring offline", out, "The node is offline. Check it once it is back.")
+	if strings.Contains(out, "press Check disk") {
+		t.Errorf("offline strip points at a button that is not there")
+	}
 }

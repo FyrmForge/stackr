@@ -604,7 +604,7 @@ func diskAnswers(f worker.Facts, d store.NodeDisk) bool {
 		return false
 	}
 	x := f.Disks[i]
-	return x.Mounted && x.StampID == d.ID && !x.IOErr && !x.DeviceGone
+	return x.Mounted && x.StampID == d.ID && !x.IOErr && !x.DeviceGone && !x.ReadOnly
 }
 
 // maxSkew is how far a worker's clock may be from the controller's before

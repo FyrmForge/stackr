@@ -1099,7 +1099,13 @@ templ diskStrip(d NodeDisk) {
 					</li>
 				} else if d.Erroring {
 					<li class="text-rw-danger font-medium">The disk is failing.</li>
-					<li class="text-rw-danger">Work that uses it is refused. Fix it, then press Check disk.</li>
+					<li class="text-rw-danger">
+						if d.Check != "" {
+							Work that uses it is refused. Fix it, then press Check disk.
+						} else {
+							Work that uses it is refused. The node is offline. Check it once it is back.
+						}
+					</li>
 				} else if d.Damaged != "" {
 					<li class="text-rw-danger font-medium">{ d.Damaged }</li>
 					<li class="text-rw-danger">Tiles that use it do not start.</li>
