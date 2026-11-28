@@ -184,6 +184,15 @@ func observeVolumeRow(name, nodeID string) Volume {
 	return Volume{Name: name, NodeID: nodeID}
 }
 
+// observeUnreadable is the refusal for a size that cannot be read: on the way
+// back the disk is the likely cause and retrying will not help.
+func observeUnreadable(back bool, forward string) string {
+	if back {
+		return "The disk cannot be read. Unmount it on the node, wait until it shows missing, then forget it. Logs and metrics start empty on the system disk."
+	}
+	return forward
+}
+
 // PlanMoveObserve is read only (route verb node.manage). It is advisory: the
 // job judges the move again when it runs.
 func (o *Orchestrator) PlanMoveObserve(ctx context.Context, by *Principal, nodeID string, back bool) (ObserveMovePlan, error) {
@@ -197,7 +206,7 @@ func (o *Orchestrator) PlanMoveObserve(ctx context.Context, by *Principal, nodeI
 	}
 	p.SizeBytes = o.volumes.SizeBytesFresh(ctx, observeVolumeRow(src, nodeID))
 	if p.SizeBytes < 0 {
-		return p, errs.Refusedf("Cannot read the size of the logs and metrics. Try again.")
+		return p, errs.Refusedf("%s", observeUnreadable(back, "Cannot read the size of the logs and metrics. Try again."))
 	}
 	var err error
 	if p.Free, err = o.observeDestFree(ctx, nodeID, back); err != nil {
@@ -360,7 +369,7 @@ func (m *observeMove) run(ctx context.Context) error {
 	// the ones the copy meets.
 	size := o.volumes.SizeBytesFresh(nctx, src)
 	if size < 0 {
-		return m.fail(nctx, errs.Refusedf("Cannot read the size of the logs and metrics."))
+		return m.fail(nctx, errs.Refusedf("%s", observeUnreadable(p.Back, "Cannot read the size of the logs and metrics.")))
 	}
 	free, err := o.observeDestFree(nctx, p.NodeID, p.Back)
 	if err != nil {

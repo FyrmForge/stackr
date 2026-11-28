@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,4 +49,20 @@ func TestObserveResyncOnDiskChange(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Error("observe was not stopped when the disk went missing")
+}
+
+// Back, an unreadable size says what to do with the disk; forward keeps its text.
+func TestObserveMoveBackUnreadableSizeText(t *testing.T) {
+	ctx := context.Background()
+	r := newObserveRig(t)
+	must(t, r.st.Settings.Set(ctx, observeDataDiskKey, "1"))
+	r.ctlFake.Volumes = nil
+	_, err := r.orch.PlanMoveObserve(ctx, adminP(), r.ctl(), true)
+	if !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), "Unmount it on the node") {
+		t.Errorf("back: %v", err)
+	}
+	must(t, r.st.Settings.Delete(ctx, observeDataDiskKey))
+	if _, err := r.orch.PlanMoveObserve(ctx, adminP(), r.ctl(), false); err == nil || strings.Contains(err.Error(), "Unmount") {
+		t.Errorf("forward: %v", err)
+	}
 }
