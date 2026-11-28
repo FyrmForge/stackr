@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
@@ -30,7 +31,68 @@ var (
 		}
 		return nil
 	}
+	// restartUnit runs after a dead mount was cleared: a unit systemd still
+	// counts as active would make a plain start a no-op.
+	restartUnit = func(ctx context.Context, unit string) error {
+		out, err := exec.CommandContext(ctx, "systemctl", "restart", unit).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("systemctl restart %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	mountTable = func() []hostdisk.Mount {
+		b, _ := os.ReadFile("/proc/self/mountinfo")
+		return hostdisk.ParseMounts(b)
+	}
+	sysBlock = "/sys/dev/block"
 )
+
+const heldHint = "A running container still holds the old disk. Stop it, or wait for the panel to stop its tiles, then run this again."
+
+// unitWhere is the mount point a stackr mount unit file names ("" when none).
+func unitWhere(unit string) string {
+	b, _ := os.ReadFile(filepath.Join(systemdDir, unit))
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(l, "Where="); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// clearDeadMount lazily unmounts every mount of the device behind where when
+// that device left sysfs (a pulled disk): the mount point and Docker's volume
+// binds, last first. It reports whether it did.
+func clearDeadMount(ctx context.Context, where string) bool {
+	ms := mountTable()
+	dev := ""
+	for _, m := range ms {
+		if m.Point == where {
+			dev = m.Dev
+		}
+	}
+	if dev == "" {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(sysBlock, dev)); !errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	for i := len(ms) - 1; i >= 0; i-- {
+		if ms[i].Dev == dev {
+			_ = abandonUnmount(ctx, ms[i].Point)
+		}
+	}
+	return true
+}
+
+func pointMounted(where string) bool {
+	for _, m := range mountTable() {
+		if m.Point == where {
+			return true
+		}
+	}
+	return false
+}
 
 func diskCheck(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
@@ -84,8 +146,20 @@ func startDiskUnits(ctx context.Context, dataDir string, out io.Writer) error {
 	}
 	var errs []error
 	for _, u := range units {
-		if err := startUnit(ctx, u); err != nil {
+		where := unitWhere(u)
+		start := startUnit
+		if where != "" && clearDeadMount(ctx, where) {
+			start = restartUnit
+		}
+		err := start(ctx, u)
+		if err == nil && where != "" && !pointMounted(where) {
+			err = fmt.Errorf("%s is not mounted after starting %s", where, u)
+		}
+		if err != nil {
 			errs = append(errs, err)
+			if where != "" {
+				_, _ = fmt.Fprintln(out, heldHint)
+			}
 			continue
 		}
 		_, _ = fmt.Fprintln(out, "started", u)

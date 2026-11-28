@@ -175,3 +175,57 @@ func TestUninstallRefusesAMountedDB(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// A unit whose disk left sysfs: every mount of its device is lazily unmounted,
+// last first, then the unit is restarted. A live device is left alone.
+func TestDiskCheckClearsADeadMount(t *testing.T) {
+	xfs := hostdisk.UnitName(hostdisk.MountPoint("d1"))
+	where := hostdisk.MountPoint("d1")
+	started := withUnits(t, xfs)
+	if err := os.WriteFile(filepath.Join(systemdDir, xfs), []byte("[Mount]\nWhere="+where+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sys := t.TempDir()
+	oldTab, oldSys, oldUm, oldRe := mountTable, sysBlock, abandonUnmount, restartUnit
+	t.Cleanup(func() { mountTable, sysBlock, abandonUnmount, restartUnit = oldTab, oldSys, oldUm, oldRe })
+	sysBlock = sys
+	var order []string
+	mounted := true
+	mountTable = func() []hostdisk.Mount {
+		if !mounted {
+			return nil
+		}
+		return []hostdisk.Mount{{Dev: "8:16", Point: where}, {Dev: "0:50", Point: "/other"}, {Dev: "8:16", Point: "/var/lib/docker/vol"}}
+	}
+	abandonUnmount = func(_ context.Context, dir string) error { order = append(order, "umount "+dir); return nil }
+	restartUnit = func(_ context.Context, u string) error { order = append(order, "restart"); mounted = true; return nil }
+	t.Setenv("STACKR_DATA_DIR", t.TempDir())
+
+	// device gone: unmounts in reverse, then restart
+	if err := diskCheck(context.Background(), nil, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(order, ","); got != "umount /var/lib/docker/vol,umount "+where+",restart" || len(*started) != 0 {
+		t.Errorf("dead: %q, started %v", got, *started)
+	}
+
+	// device present: plain start, no unmount
+	order = nil
+	if err := os.MkdirAll(filepath.Join(sys, "8:16"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := diskCheck(context.Background(), nil, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(order) != 0 || len(*started) != 1 {
+		t.Errorf("live: %v, started %v", order, *started)
+	}
+
+	// a start that leaves nothing mounted fails and prints the hint
+	mounted = false
+	*started = nil
+	var out bytes.Buffer
+	if err := diskCheck(context.Background(), nil, &out); err == nil || !strings.Contains(out.String(), "still holds the old disk") {
+		t.Errorf("nothing mounted: err %v, out %q", err, out.String())
+	}
+}
