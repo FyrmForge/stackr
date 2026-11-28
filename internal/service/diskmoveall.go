@@ -119,6 +119,9 @@ func (o *Orchestrator) MoveAllToDisk(ctx context.Context, by *Principal, nodeID 
 	// as Busy.
 	// ponytail: in-process, so one controller process is the ceiling; a second
 	// controller needs the guard in the job store (an exclusive enqueue).
+	if err := o.erroringDiskGate(ctx, nodeID); err != nil {
+		return nil, err
+	}
 	mu, _ := o.moveAllLocks.LoadOrStore(nodeID, &sync.Mutex{})
 	if !mu.(*sync.Mutex).TryLock() {
 		return nil, errs.Conflictf("Volumes are already moving to the disk.")

@@ -5,7 +5,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/FyrmForge/stackr/internal/paneldb"
 )
+
+// dbAt is the database path a boot on dir uses by default (db/ made).
+func dbAt(dir string) string {
+	if err := os.MkdirAll(filepath.Join(dir, paneldb.DirName), 0o700); err != nil {
+		panic(err)
+	}
+	return paneldb.Path(dir)
+}
 
 // TestMain migrates one empty database up front. Most tests boot an
 // orchestrator on a fresh data dir, and running every migration each time

@@ -664,7 +664,7 @@ and `serverconfig_apply.go`.
 ## Environment
 
 - `DATA_DIR` — database, job logs and other state (default `./data`)
-- `DATABASE_PATH` — overrides `$DATA_DIR/stackr.db`
+- `DATABASE_PATH` — overrides `$DATA_DIR/db/stackr.db`
 - `STACKR_MASTER_KEY` — 64 hex chars, encrypts secrets at rest. Unset,
   stackrd reads `$DATA_DIR/keys/master.key` (the installer writes it) and
   refuses to start with neither. It never generates one. Dev: `openssl rand

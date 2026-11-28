@@ -121,7 +121,7 @@ type NodeRow struct {
 	Envs                     int
 	Disk                     string // "34 GB free", "" = not reported
 	Cores, Mem               string // "4 cores", "8 GB"
-	DiskState                string // the node disk's: adding | missing; "" = none or fine
+	DiskState                string // the node disk's: adding | failed (missing or erroring); "" = none or fine
 }
 
 // LostEnvRow is an env of a forgotten node. It comes back by repointing its
@@ -249,6 +249,7 @@ type NodeDisk struct {
 	Dialog              DiskDialog
 	Check               string // POST: check the disk
 	Checking            bool   // a check is running
+	Erroring            bool   // reads fail with I/O errors; the panel latched it
 	AddFailed           bool   // adding, and no add job is running
 	Used, Pct, StaleAt  string // "278 GB of 460 GB", "60", "4 min ago"
 	Low, Stale, Network bool
@@ -275,6 +276,7 @@ type NodeDisk struct {
 	Forget   *DiskForget
 	Resume   *DiskResume // the strip's button of an interrupted adopt or forget
 	MoveAll  *DiskMoveAll
+	Moves    *DiskMoves // the controller's logs and panel database rows
 	MoveJobs []MoveJobRow
 }
 
@@ -491,8 +493,8 @@ templ NodeItem(r NodeRow) {
 			<span class="text-xs text-rw-faint">no tags</span>
 		}
 		switch r.DiskState {
-			case "missing":
-				@c.Chip("Disk missing", "danger")
+			case "failed":
+				@c.Chip("Disk failed", "danger")
 			case "adding":
 				@c.Chip("Adding disk", "warn")
 		}
@@ -1083,16 +1085,25 @@ templ NodeBody(tab string, v NodeView) {
 // diskStrip is the node's disk warning: missing, or an add that did not
 // finish. A persistent state, so status and not alert.
 templ diskStrip(d NodeDisk) {
-	if d.State == "missing" || d.AddFailed || d.Resume != nil || d.Damaged != "" {
+	if d.State == "missing" || d.AddFailed || d.Resume != nil || d.Damaged != "" || d.Erroring {
 		<div class="node-warnings panel px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-3" role="status">
 			<ul class="space-y-1 flex-1 min-w-[16rem]">
 				if d.State == "missing" {
 					<li class="text-rw-danger font-medium">The disk is missing.</li>
 					<li class="text-rw-danger">
 						if d.Check != "" {
-							Tiles that use it do not start. Reattach it, then press Check disk.
+							Tiles that use it do not start. Reattach it, run stackr-install disk-check on the node, then press Check disk.
 						} else {
 							Tiles that use it do not start. The node is offline. Check it once it is back.
+						}
+					</li>
+				} else if d.Erroring {
+					<li class="text-rw-danger font-medium">The disk is failing.</li>
+					<li class="text-rw-danger">
+						if d.Check != "" {
+							Work that uses it is refused. Fix it, then press Check disk.
+						} else {
+							Work that uses it is refused. The node is offline. Check it once it is back.
 						}
 					</li>
 				} else if d.Damaged != "" {
@@ -1155,6 +1166,8 @@ templ diskSection(d NodeDisk) {
 						case "ready":
 							if d.Damaged != "" {
 								@c.Chip("Device changed", "danger")
+							} else if d.Erroring {
+								@c.Chip("Failing", "danger")
 							} else {
 								@c.Chip("Ready", "success")
 							}
@@ -1222,6 +1235,7 @@ templ diskSection(d NodeDisk) {
 			}
 			@nodeDiskForget(d)
 			@nodeDiskMoveAll(d)
+			@nodeDiskMoves(d)
 			if d.State == "ready" || d.State == "missing" {
 				@diskVolumes(d)
 			}

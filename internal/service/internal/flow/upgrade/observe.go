@@ -10,6 +10,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
 
+// ObserveDiskMissing is observe's last error, and the banner's text, while its
+// data is on the node disk and the disk is not ready: observe stays down.
+const ObserveDiskMissing = "The node disk is missing, so logs and metrics are off."
+
 // ObserveOff: no observe container on this box (dev, tests), so ensure and
 // remove do nothing.
 func (f *Flow) ObserveOff() bool {

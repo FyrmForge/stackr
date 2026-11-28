@@ -51,7 +51,7 @@ restore warns. When the archive's master key replaces the box's, `keys/master.ge
 
 Restore stops the proxy, keeps a copy of the current `stackr-caddy` tree, wipes and refills it from the
 archive (the copy goes back if the untar fails), starts the proxy, then starts the panel on the archived
-build. The replaced database is kept as `<data dir>/stackr.db.before-restore-<time>`; the staging dir, which
+build. The replaced database is kept as `<data dir>/swap/stackr.db.before-restore-<time>`; the staging dir, which
 holds unencrypted certificate keys, is deleted once the restore went through. An older archive without
 `caddy.tar.gz` restores as before.
 

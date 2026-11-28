@@ -224,7 +224,7 @@ func newTwoNodes(t *testing.T, opts ...Option) *twoNodes {
 	first, err := New(cfg, WithDocker(dockerfake.New()), WithVIP(vipStub{}), proxy)
 	must(t, err)
 	must(t, first.Close())
-	st := storetest.Open(t, filepath.Join(dir, "stackr.db"))
+	st := storetest.Open(t, dbAt(dir))
 	ctl := storetest.Controller(t, st)
 	must(t, st.Nodes.Create(ctx, store.Node{
 		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16",

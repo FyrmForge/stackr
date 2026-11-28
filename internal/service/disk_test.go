@@ -19,6 +19,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -1133,5 +1134,28 @@ func TestXFSAdoptResumeSkipsTheBindCheck(t *testing.T) {
 	must(t, d.st.NodeDisks.Update(ctx, row))
 	if _, err := d.orch.AdoptDisk(ctx, adminP(), d.ctl.ID, "xd1", row.MountPath, ""); err != nil && strings.Contains(err.Error(), cannot) {
 		t.Fatalf("an adopt under way was refused: %v", err)
+	}
+}
+
+type ioHost struct{}
+
+func (ioHost) Disk(context.Context, string, hostdisk.Request) (hostdisk.Result, error) {
+	return hostdisk.Result{Error: &hostdisk.Error{Code: hostdisk.CodeIO, Message: "read the stamp: read /host/var/lib/stackr-disks/d1/.stackr-disk: input/output error"}}, nil
+}
+
+// Check disk on a disk that still gives I/O errors says so in one sentence;
+// the raw error goes to the job log.
+func TestDiskCheckIOErrorIsReadable(t *testing.T) {
+	ctx := context.Background()
+	d := newDiskTest(t)
+	d.addDisk(t)
+	d.orch.diskLeaf = disk.New(d.st.NodeDisks, d.st.DiskFolders, ioHost{})
+	var log strings.Builder
+	err := d.orch.runDiskCheck(ctx, &jobs.Run{Log: &log}, diskJob{NodeID: "w1"})
+	if err == nil || err.Error() != "The disk still gives I/O errors. Fix it, then check again." {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(log.String(), "input/output error") {
+		t.Errorf("log = %q, want the raw error", log.String())
 	}
 }
