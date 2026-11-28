@@ -174,7 +174,7 @@ func (l *Leaf) Declare(
 		return v, false, err
 	}
 	adopted = v.OrphanedAt != nil
-	v.OrphanedAt, v.InstanceID = nil, instanceID
+	v.OrphanedAt, v.InstanceID, v.FromInstance = nil, instanceID, false
 	return v, adopted, l.volumes.Update(ctx, v)
 }
 
@@ -208,6 +208,7 @@ func (l *Leaf) Orphan(ctx context.Context, v store.Volume) (store.Volume, error)
 	}
 	now := time.Now().UTC()
 	v.OrphanedAt = &now
+	v.FromInstance = v.FromInstance || v.InstanceID != nil
 	return v, l.volumes.Update(ctx, v)
 }
 

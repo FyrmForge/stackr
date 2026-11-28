@@ -73,7 +73,7 @@ func (h *handler) dataJob(c echo.Context, id string, o *volume.OverviewView) err
 // removal is what the drawer says of a volume a stack file dropped; nil for
 // a volume in use and for a move's old copy.
 func (h *handler) removal(c echo.Context, vol service.Volume, base string) (*volume.Removal, error) {
-	if service.OldCopy(vol) {
+	if service.OldCopy(vol) || service.WasInstanceVolume(vol) {
 		return nil, nil
 	}
 	goes, err := h.orch.OrphanGoesOn(c.Request().Context(), vol)

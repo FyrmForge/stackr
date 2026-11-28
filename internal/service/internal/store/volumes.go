@@ -21,6 +21,9 @@ type Volume struct {
 	NodeID string `db:"node_id" json:"node_id"`
 	// MaxSizeMB is the volume's size cap in MB; nil = uncapped.
 	MaxSizeMB *int64 `db:"max_size_mb" json:"max_size_mb"`
+	// FromInstance is set when an operated instance owned the volume (stamped
+	// at orphaning, while InstanceID is still set; the FK clears it later).
+	FromInstance bool `db:"from_instance" json:"from_instance"`
 }
 
 type VolumeStore interface {

@@ -57,7 +57,10 @@ func IsBaseKey(key string) bool { return backup.IsPITRKey(key) }
 func IsArchiveVolume(v Volume) bool { return mflow.IsArchiveVolume(v) }
 
 // wasInstanceVolume: v belonged to an operated instance, which may be gone.
-func wasInstanceVolume(v Volume) bool { return v.InstanceID != nil || mflow.WasInstanceVolume(v) }
+func wasInstanceVolume(v Volume) bool { return v.InstanceID != nil || v.FromInstance }
+
+// WasInstanceVolume is the exported form, for the drawer.
+func WasInstanceVolume(v Volume) bool { return wasInstanceVolume(v) }
 
 // pitrState is one instance's shipper state, the settings row pitr.<id>.
 type pitrState struct {
