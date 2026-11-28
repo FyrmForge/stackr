@@ -587,6 +587,36 @@ func TestRestoreVolume(t *testing.T) {
 	}
 }
 
+// Deleting the instance clears instance_id on its volumes (ON DELETE SET NULL);
+// the volume still must not be restorable as a plain removed one.
+func TestRestoreVolumeRefusesInstanceVolumeAfterInstanceGone(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	tl, m, v := w.pg(t, "pg")
+	_, err := w.orch.volumes.Orphan(ctx, v)
+	must(t, err)
+	must(t, w.st.Tiles.Delete(ctx, tl.ID))
+	if err := w.st.OperatedInstances.Delete(ctx, m.ID); err != nil && !notFound(err) {
+		t.Fatal(err)
+	}
+	got, err := w.orch.Volume(ctx, v.ID)
+	must(t, err)
+	if got.InstanceID != nil {
+		t.Skipf("instance_id still %v: the store does not clear it here", *got.InstanceID)
+	}
+	if err := w.orch.RestoreVolume(ctx, v.ID); !conflict(err) || !strings.Contains(err.Error(), "operated instance") {
+		t.Errorf("restore after the instance went = %v", err)
+	}
+	// a plain volume of another name restores
+	pv := got
+	pv.Slug = "uploads"
+	must(t, w.st.Volumes.Update(ctx, pv))
+	if err := w.orch.RestoreVolume(ctx, v.ID); err != nil {
+		t.Errorf("plain removed volume = %v", err)
+	}
+}
+
 func TestRestoreVolumeRefusesInstanceVolume(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)

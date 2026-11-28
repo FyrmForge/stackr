@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -200,6 +201,13 @@ func ArchiveSlug(tileSlug string) string { return tileSlug + "-wal" }
 func IsArchiveVolume(v store.Volume) bool {
 	return v.InstanceID != nil && strings.HasSuffix(v.Slug, "-wal")
 }
+
+var instanceVolumeSlug = regexp.MustCompile(`-(data(-[0-9]+)?|wal)$`)
+
+// WasInstanceVolume says whether v's slug is one an operated instance gives
+// its volumes (<tile>-data, <tile>-data-2, <tile>-wal). Its instance_id is
+// cleared when the instance goes, so after that the name is all that is left.
+func WasInstanceVolume(v store.Volume) bool { return instanceVolumeSlug.MatchString(v.Slug) }
 
 // alias is the instance's name on its network (operated.Alias).
 func alias(t store.Tile, m store.OperatedInstance) string { return operated.Alias(t.Slug, m.ID) }

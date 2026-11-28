@@ -170,7 +170,7 @@ func (o *Orchestrator) RestoreVolume(ctx context.Context, id string) error {
 		return errs.Conflictf("%s is not removed.", v.Slug)
 	case OldCopy(v):
 		return errs.Conflictf("%s is the old copy of a move to a disk and cannot be restored", v.Slug)
-	case v.InstanceID != nil:
+	case wasInstanceVolume(v):
 		return errs.Conflictf("%s belonged to an operated instance and cannot be restored", v.Slug)
 	}
 	if _, err := o.scopeOrg(ctx, v.ScopeKind, v.ScopeID); err != nil {
