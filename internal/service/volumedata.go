@@ -12,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 )
 
 const (
@@ -140,6 +141,9 @@ func (o *Orchestrator) WipeVolume(ctx context.Context, id string, stopTiles, bac
 	if err := o.volumeBusy(ctx, v); err != nil {
 		return Job{}, err
 	}
+	if err := o.stoppedByOtherJob(ctx, v, mounting); err != nil {
+		return Job{}, err
+	}
 	p := volumeDataJob{VolumeID: v.ID, StopTiles: stopTiles, BackupFirst: backupFirst}
 	if backupFirst {
 		d, err := o.BackupFirstDest(ctx, v.ID)
@@ -153,6 +157,55 @@ func (o *Orchestrator) WipeVolume(ctx context.Context, id string, stopTiles, bac
 		lock = append(lock, t.ID)
 	}
 	return o.enqueueExclusive(ctx, kindVolumeWipe, p, lock[:1], errs.Conflictf("%s is already being wiped.", v.Slug), lock...)
+}
+
+// stoppedByOtherJob refuses while a live backup or restore of another volume
+// holds one of the tiles (it locks only its own volume, stops the tile and
+// starts it again by itself, which would be mid-wipe).
+func (o *Orchestrator) stoppedByOtherJob(ctx context.Context, v Volume, mounting []Tile) error {
+	if len(mounting) == 0 {
+		return nil
+	}
+	live, err := o.jobRows.List(ctx, job.Queued, job.Waiting, job.Running)
+	if err != nil {
+		return err
+	}
+	for _, j := range live {
+		var id string
+		switch j.Kind {
+		case string(kindBackup):
+			var p backupJob
+			if json.Unmarshal([]byte(j.Payload), &p) != nil || p.Mode == backup.Live {
+				continue
+			}
+			id = p.VolumeID
+		case string(kindRestore):
+			var p restoreJob
+			if json.Unmarshal([]byte(j.Payload), &p) != nil {
+				continue
+			}
+			id = p.TargetVolumeID
+		default:
+			continue
+		}
+		if id == v.ID {
+			continue
+		}
+		other, err := o.volumes.Get(ctx, id)
+		if err != nil {
+			continue
+		}
+		ts, err := o.mounters(ctx, other)
+		if err != nil {
+			return err
+		}
+		for _, t := range ts {
+			if slices.ContainsFunc(mounting, func(m Tile) bool { return m.ID == t.ID }) {
+				return errs.Conflictf("%s is stopped by a backup of %s. Try again when it is done.", t.Slug, other.Slug)
+			}
+		}
+	}
+	return nil
 }
 
 func (o *Orchestrator) runVolumeWipe(ctx context.Context, r *jobs.Run, p volumeDataJob) (runErr error) {
@@ -232,12 +285,23 @@ func (o *Orchestrator) runVolumeDelete(ctx context.Context, r *jobs.Run, p volum
 // or delete job of each, live or ended in the last ten minutes, by volume id.
 // Rows only; one read of the job list however many volumes a page shows.
 func (o *Orchestrator) VolumeDataJobs(ctx context.Context) (map[string]Job, error) {
-	js, err := o.Jobs(ctx, 200)
+	// Live jobs by state, never cut by a count: a long wipe must not drop out
+	// behind newer jobs. Terminal ones only matter for ten minutes.
+	// ponytail: reads every terminal row; ListTouching-style SQL filter when job history grows.
+	live, err := o.jobRows.List(ctx, job.Queued, job.Waiting, job.Running)
+	if err != nil {
+		return nil, err
+	}
+	ended, err := o.jobRows.Recent(ctx, 0, job.Done, job.Failed, job.Superseded, job.Cancelled, job.Skipped)
+	if err != nil {
+		return nil, err
+	}
+	js, err := o.annotate(ctx, append(live, ended...))
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]Job{}
-	for _, j := range js { // newest first
+	for _, j := range js { // live first, then ended, each newest first
 		var p volumeDataJob
 		if !slices.Contains([]string{string(kindVolumeWipe), string(kindVolumeDelete)}, j.Kind) ||
 			json.Unmarshal([]byte(j.Payload), &p) != nil {

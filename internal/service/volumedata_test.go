@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -695,4 +697,55 @@ func TestRestoreVolumeRefusesInstanceVolume(t *testing.T) {
 	if err := w.orch.RestoreVolume(ctx, v.ID); !conflict(err) {
 		t.Errorf("instance orphan = %v", err)
 	}
+}
+
+// A live backup of another volume that stops the same tile blocks the wipe:
+// the backup would start the tile again mid-wipe.
+func TestWipeVolumeRefusedWhileOtherVolumeBackupHoldsTile(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	v := w.dataVol(t)
+	tl := w.mountedBy(t, "api", false)
+	other, _, err := w.orch.DeclareEnvVolume(ctx, w.env, "logs")
+	must(t, err)
+	_, _, err = w.orch.UpdateTile(ctx, tl.ID, func(x *Tile) error { x.Volumes = "data:/data\nlogs:/logs"; return nil })
+	must(t, err)
+	p, _ := json.Marshal(backupJob{VolumeID: other.ID, Mode: backup.Pause})
+	must(t, w.orch.store.Jobs.Create(ctx, store.Job{
+		ID: uuid.NewString(), Kind: string(kindBackup), State: job.Running,
+		LockSet: store.StringList{"volume:" + other.ID}, Payload: string(p), CreatedAt: time.Now(),
+	}))
+	_, err = w.orch.WipeVolume(ctx, v.ID, false, false)
+	if err == nil || !strings.Contains(err.Error(), "api is stopped by a backup of logs. Try again when it is done.") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// The wipe note outlives any number of newer jobs.
+func TestVolumeDataJobsSurvivesNewerJobs(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	v := w.dataVol(t)
+	p, _ := json.Marshal(volumeDataJob{VolumeID: v.ID})
+	j, err := w.orch.jobRows.Create(ctx, string(kindVolumeWipe), []string{"volume:" + v.ID}, string(p), nil, t.TempDir())
+	must(t, err)
+	must(t, w.orch.jobRows.Finish(ctx, j, job.Failed, "boom"))
+	for range 210 {
+		nj, err := w.orch.jobRows.Create(ctx, string(kindBackup), []string{"x"}, "{}", nil, t.TempDir())
+		must(t, err)
+		must(t, w.orch.jobRows.Finish(ctx, nj, job.Done, ""))
+	}
+	got := mustVal(w.orch.VolumeDataJobs(ctx))
+	if got[v.ID].ID != j.ID {
+		t.Fatalf("job lost: %+v", got[v.ID])
+	}
+}
+
+func mustVal[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
