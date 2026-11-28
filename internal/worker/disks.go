@@ -283,6 +283,13 @@ func (s *Server) diskFacts(f *Facts) {
 				d.Network = hostdisk.IsNetwork(m.FSType)
 			}
 		}
+		// A read stuck in the kernel for 3 intervals is a dead disk, not a stale
+		// cache: report it erroring so the controller's latch can fire.
+		if e.running && now.Sub(e.started) > 3*s.diskEvery {
+			d.IOErr, d.ReadAt = true, now
+			f.Disks = append(f.Disks, d)
+			continue
+		}
 		f.Disks = append(f.Disks, d)
 		if e.at.IsZero() || now.Sub(e.at) > 2*s.diskEvery || (e.running && now.Sub(e.started) > s.diskTimeout) {
 			f.DisksStale = true

@@ -269,8 +269,8 @@ func TestDisksRefreshIsSingleFlightAndABlockedOneLeaksOneGoroutine(t *testing.T)
 	if n := calls.Load(); n != 1 {
 		t.Fatalf("%d reads started while the first was blocked", n)
 	}
-	if !facts(s).DisksStale {
-		t.Error("a blocked read past its timeout must mark the path stale")
+	if f := facts(s); f.DisksStale || !f.Disks[0].IOErr {
+		t.Error("a read blocked past 3 intervals is an I/O error, not stale")
 	}
 }
 
@@ -394,5 +394,22 @@ func TestReadDiskDefaultStatfsFailureIsAnError(t *testing.T) {
 	}
 	if _, _, _, err := s.readDiskDefault(context.Background(), "/mnt/data"); err == nil {
 		t.Fatal("a failed statfs was a read with zero sizes")
+	}
+}
+
+func TestDisksFactsHungReadReportsIOErrNotStale(t *testing.T) {
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	s := diskServer(t, rootLine+dataLine, func(context.Context, string) (hostdisk.Stamp, uint64, uint64, error) {
+		<-block // ignores its context, like a read stuck in the kernel
+		return hostdisk.Stamp{}, 0, 0, nil
+	})
+	s.diskEvery, s.diskTimeout = 10*time.Millisecond, 10*time.Millisecond
+	if err := s.PutDisks([]DiskReg{regA}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "hung read reported as an I/O error", func() bool { return facts(s).Disks[0].IOErr })
+	if f := facts(s); f.DisksStale || f.Disks[0].ReadAt.IsZero() {
+		t.Fatalf("hung read: %+v", f)
 	}
 }
