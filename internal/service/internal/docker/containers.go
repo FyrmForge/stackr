@@ -20,6 +20,9 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
+// startCleanup bounds Run's removal of a container that failed to start.
+const startCleanup = 30 * time.Second
+
 // Run creates and starts a container from a resolved spec and returns its id.
 func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 	id, err := d.Create(ctx, spec)
@@ -29,7 +32,10 @@ func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 	// A container that cannot start is not left lying around under a name the
 	// retry will collide with.
 	if err := d.cli.ContainerStart(ctx, id, container.StartOptions{}); err != nil {
-		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), id, container.RemoveOptions{Force: true, RemoveVolumes: true})
+		// Bounded: a hung mount must not hold the caller past its budget.
+		c, stop := context.WithTimeout(context.WithoutCancel(ctx), startCleanup)
+		defer stop()
+		_ = d.cli.ContainerRemove(c, id, container.RemoveOptions{Force: true, RemoveVolumes: true})
 		return "", mountDenied(err, specVolumes(spec))
 	}
 	return id, nil
