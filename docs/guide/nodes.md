@@ -192,6 +192,8 @@ It starts the disk's mount units, and the restart loop brings the panel up witho
 - On a worker, after re-attaching a disk run `stackr-install disk-check` on that node before Check disk.
 - Forgetting a missing controller disk that holds logs and metrics drops them. They start fresh on the system disk.
 - After a rolled-back move onto the disk, a copy named `stackr.db.rolled-back` stays in the disk folder until the next move.
+- After a move back, remove the old copy before the next Update. Otherwise it stays on the disk and has to be deleted by hand.
+- The low-space warning for logs and metrics does not see their size cap on a node disk.
 
 ### A disk that is missing
 
