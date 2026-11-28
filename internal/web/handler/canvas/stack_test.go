@@ -36,15 +36,20 @@ func TestRefusedSaveKeepsTyped(t *testing.T) {
 		t.Errorf("rename = %d\n%s", rec.Code, general)
 	}
 
-	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}, "add_group": {"app"}, "add_name": {"9 greeting"}, "add_value.stack_pr": {"hi"}, "add_secret.stack_pr": {"s3cret"}})
+	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}, "add_group": {"app"}, "add_name": {"9 greeting"}, "add_value.stack_pr": {"hi"}})
 	body = rec.Body.String()
 	for _, w := range []string{`<details class="group" open>`, `value="app"`, `value="9 greeting"`, `value="hi"`, "Use letters, digits and _ in a name, and start with a letter or _, like _9_greeting."} {
 		if rec.Code != 422 || !strings.Contains(body, w) {
 			t.Errorf("vars add = %d, lacks %s\n%s", rec.Code, w, body)
 		}
 	}
-	if strings.Contains(body, "s3cret") || strings.Count(body, " open>") != 1 || strings.Contains(body, "name:") {
-		t.Errorf("vars add echoes a secret, opens more than its form, or shows the key\n%s", body)
+	if strings.Count(body, " open>") != 1 || strings.Contains(body, "name:") {
+		t.Errorf("vars add opens more than its form, or shows the key\n%s", body)
+	}
+	// a refused secret add never echoes the typed value
+	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}, "add_group": {"app"}, "add_name": {"9 greeting"}, "add_kind": {"secret"}, "add_value.stack_pr": {"s3cret"}})
+	if body = rec.Body.String(); rec.Code != 422 || strings.Contains(body, "s3cret") || !strings.Contains(body, `value="9 greeting"`) {
+		t.Errorf("refused secret add = %d, echoes the secret or lost the name\n%s", rec.Code, body)
 	}
 }
 

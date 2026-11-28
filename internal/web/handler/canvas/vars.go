@@ -249,9 +249,9 @@ func (h *handler) SetVars(c echo.Context) error {
 func (h *handler) addVar(c echo.Context, s service.Scope, cs []col, form url.Values) error {
 	ctx := c.Request().Context()
 	e := service.ParamEntry{Collection: strings.TrimSpace(form.Get("add_group")), Name: strings.TrimSpace(form.Get("add_name")), Kind: "param"}
-	field := "add_value."
+	const field = "add_value."
 	if form.Get("add_kind") == "secret" {
-		e.Kind, field = "secret", "add_secret."
+		e.Kind = "secret"
 	}
 	bad := []error{render.AsFields(h.orch.CheckParam(e), map[string]string{"collection": "add_group", "name": "add_name"})}
 	var set []col
