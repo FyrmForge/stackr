@@ -20,8 +20,10 @@ import (
 // ShareTest is the answer of TestShare. Raw is the Docker text behind a
 // failure, secrets stripped.
 type ShareTest struct {
-	OK                 bool
-	Node, Message, Raw string
+	OK      bool   `json:"ok"`
+	Node    string `json:"node"`
+	Message string `json:"message"`
+	Raw     string `json:"raw"`
 }
 
 const (
