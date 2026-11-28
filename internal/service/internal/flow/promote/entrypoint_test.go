@@ -83,3 +83,35 @@ func tileRow(t *testing.T, w *world, name, ep string) store.Tile {
 	must(t, err)
 	return tl
 }
+
+// A change to the entrypoint alone shows a plan row, apply writes it, and the
+// same file applied to the next rung (promote) carries it too.
+func TestEntrypointOnlyChangePlansAppliesPromotes(t *testing.T) {
+	w := setup(t)
+	file := func(ep string) string {
+		return "version: 1\nstack: shop\nladder: [dev, prd]\nhead: main\nbase:\n  tiles:\n    api:\n      image: nginx:1\n      port: 80\n" + ep
+	}
+	w.files["c1"] = file("")
+	_, err := w.f.Apply(ctx, w.dev.ID, w.release(t, "c1").ID, io.Discard, nil)
+	must(t, err)
+	w.running(w.tileIn(t, w.dev, "api"))
+
+	w.files["c2"] = file("      entrypoint: [/bin/app, 'a b']\n")
+	r2 := w.release(t, "c2")
+	p, err := w.f.Plan(ctx, w.dev.ID, r2.ID, io.Discard)
+	must(t, err)
+	if got := kinds(p); !strings.Contains(got, "entrypoint") {
+		t.Fatalf("plan = %q, want an entrypoint row", got)
+	}
+	_, err = w.f.Apply(ctx, w.dev.ID, r2.ID, io.Discard, nil)
+	must(t, err)
+	if got := w.tileIn(t, w.dev, "api").Entrypoint; got != "/bin/app 'a b'" {
+		t.Errorf("dev entrypoint = %q", got)
+	}
+
+	_, err = w.f.Apply(ctx, w.prd.ID, r2.ID, io.Discard, nil)
+	must(t, err)
+	if got := w.tileIn(t, w.prd, "api").Entrypoint; got != "/bin/app 'a b'" {
+		t.Errorf("prd entrypoint = %q", got)
+	}
+}

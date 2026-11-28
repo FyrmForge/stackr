@@ -87,8 +87,7 @@ func (h *handler) removal(c echo.Context, vol service.Volume, base string) (*vol
 
 // volumeData is what the Settings tab offers on the volume's data.
 func (h *handler) volumeData(c echo.Context, vol service.Volume, base string) (volume.Data, error) {
-	switch {
-	case vol.OrphanedAt != nil:
+	if vol.OrphanedAt != nil {
 		r, err := h.removal(c, vol, base)
 		if err != nil || r == nil {
 			return volume.Data{}, err // a move's old copy: nothing to offer

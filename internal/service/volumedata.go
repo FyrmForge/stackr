@@ -169,7 +169,7 @@ func (o *Orchestrator) runVolumeWipe(ctx context.Context, r *jobs.Run, p volumeD
 		defer func() {
 			if rerr := resume(); rerr != nil {
 				_, _ = fmt.Fprintf(r.Log, "could not start the tiles again: %v\n", rerr)
-				runErr = errors.Join(runErr, fmt.Errorf("The tiles did not start again (%s). Start them from their pages: %w", tileSlugs(running), rerr))
+				runErr = errors.Join(runErr, fmt.Errorf("tiles did not start again (%s), start them from their pages: %w", tileSlugs(running), rerr))
 			} else {
 				_, _ = fmt.Fprintf(r.Log, "started %s again\n", tileSlugs(running))
 			}

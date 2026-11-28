@@ -125,14 +125,6 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(e+"/dns-banner", h.DNSBanner, a.Require("tile.read"))
 }
 
-// when is a moment a drawer shows, zero for none.
-func when(t *time.Time) time.Time {
-	if t == nil {
-		return time.Time{}
-	}
-	return *t
-}
-
 // refused is an action's error as the drawer shows it; a real failure
 // goes to the error page instead (ok false).
 func refused(err error) (msg string, status int, fail error) {
