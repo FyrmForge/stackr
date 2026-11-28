@@ -515,15 +515,18 @@ templ Plan(v PlanView) {
 		if v.Approve != "" || v.Reject != "" {
 			<div class="flex flex-wrap items-center gap-2 mt-6">
 				if v.Approve != "" {
-					<form
-						novalidate
-						hx-post={ v.Approve }
-						if len(v.Destroys) > 0 {
-							hx-confirm={ "This apply DESTROYS: " + strings.Join(v.Destroys, ", ") + ". Continue?" }
-						}
-					>
-						<button type="submit" class="btn btn-primary btn-sm" disabled?={ v.Blocked != "" }>Approve &amp; apply</button>
-					</form>
+					if len(v.Destroys) > 0 && v.Blocked == "" {
+						@c.Confirm(c.ConfirmView{
+							Button:  "Approve & apply",
+							Title:   "Apply destroys resources",
+							Warning: "This apply destroys: " + strings.Join(v.Destroys, ", ") + ".",
+							Action:  v.Approve,
+						})
+					} else {
+						<form novalidate hx-post={ v.Approve }>
+							<button type="submit" class="btn btn-primary btn-sm" disabled?={ v.Blocked != "" }>Approve &amp; apply</button>
+						</form>
+					}
 				}
 				if v.Reject != "" {
 					<form novalidate hx-post={ v.Reject }>

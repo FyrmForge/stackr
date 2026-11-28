@@ -29,6 +29,15 @@ templ SideDrawer(body templ.Component, tab string) {
 				}
 			</div>
 		</aside>
+		<dialog class="modal-panel text-rw-text" data-discard aria-labelledby="discard-title">
+			<div class="modal-head">
+				<h2 class="modal-title" id="discard-title">Discard your unsaved changes?</h2>
+			</div>
+			<div class="modal-foot">
+				<button type="button" class="btn btn-ghost btn-sm" data-keep autofocus>Cancel</button>
+				<button type="button" class="btn btn-danger btn-sm" data-discard-yes>Discard</button>
+			</div>
+		</dialog>
 	</side-drawer>
 }
 

@@ -5,7 +5,8 @@
 // open row) leave the URL through history.replaceState, and a
 // bubbling "drawer-closed" fires. While open, Tab cycles inside the drawer
 // and closing hands focus back to what opened it. An edited form asks
-// before a close drops it; a failed request into the open drawer shows
+// (in a modal of its own) before a close drops it; a save from inside the
+// drawer (any non-GET request that ends well) clears the edits; a failed request into the open drawer shows
 // there, with its request id, instead of as a toast.
 // ponytail: a close during an in-flight open reopens on arrival; add a
 // request guard if that shows up.
@@ -17,13 +18,16 @@ class SideDrawer extends HTMLElement {
   private opener: HTMLElement | null = null;
   private dirty = false;
   private fullByLink = false; // a data-full link set full: the close undoes it
+  private saves = new WeakSet<object>(); // xhrs of non-GET requests sent from inside the drawer
 
   private onSwap = (e: Event): void => {
     const d = (e as CustomEvent<{ target?: Element; requestConfig?: { elt?: Element } }>).detail;
     const target = d?.target;
     const body = this.body();
     if (!body || !target || !body.contains(target)) return;
-    this.dirty = false;
+    // only a new drawer (the body itself) resets edits and focus: a swap
+    // of a child (a poll, a tab's refresh) must not
+    if (target === body) this.dirty = false;
     const was = document.activeElement as HTMLElement | null;
     if (!this.hasAttribute("open") && was && !this.contains(was)) this.opener = was;
     this.setAttribute("open", "");
@@ -32,14 +36,19 @@ class SideDrawer extends HTMLElement {
     const tab = new URLSearchParams(location.search).get("tab");
     if (tab) this.setAttribute("tab", tab);
     else this.removeAttribute("tab");
-    this.querySelector<HTMLElement>("[data-close]")?.focus({ preventScroll: true });
+    if (target === body) this.querySelector<HTMLElement>("[data-close]")?.focus({ preventScroll: true });
   };
 
   // A card's request into the closed drawer opens it at once on a loading
   // body, so a slow answer never looks like nothing happened.
   private onBefore = (e: Event): void => {
     const body = this.body();
-    if (!body || (e as CustomEvent<{ target?: Element }>).detail?.target !== body || this.hasAttribute("open")) return;
+    const d = (e as CustomEvent<{ elt?: Element; xhr?: object; target?: Element; requestConfig?: { verb?: string } }>).detail;
+    // a save is a non-GET request sent from inside the drawer; onDone clears
+    // dirty when it ends well, even when it swaps nothing or its target
+    // is replaced, which onSwap never sees
+    if (body && d?.xhr && d.elt && body.contains(d.elt) && (d.requestConfig?.verb ?? "get").toLowerCase() !== "get") this.saves.add(d.xhr);
+    if (!body || d?.target !== body || this.hasAttribute("open")) return;
     const was = document.activeElement as HTMLElement | null;
     if (was && !this.contains(was)) this.opener = was;
     const p = document.createElement("p");
@@ -59,13 +68,21 @@ class SideDrawer extends HTMLElement {
   // An answer that swapped nothing (204, redirect header) leaves the loading
   // text up: this request's end closes it, another request's does not.
   private onDone = (e: Event): void => {
-    if ((e as CustomEvent<{ target?: Element }>).detail?.target === this.body()) this.onLost();
+    const d = (e as CustomEvent<{ target?: Element; xhr?: object; successful?: boolean }>).detail;
+    if (d?.xhr && this.saves.delete(d.xhr) && d.successful) this.dirty = false;
+    if (d?.target === this.body()) this.onLost();
   };
 
   private onClick = (e: Event): void => {
     const el = e.target as Element;
     if (el.closest("[data-expand]")) return this.expand(!this.hasAttribute("full"), false);
-    if (el.closest("[data-close], [data-backdrop]")) this.close();
+    if (el.closest("[data-close], [data-backdrop]")) return this.close();
+    const ask = this.querySelector<HTMLDialogElement>("dialog[data-discard]");
+    if (el.closest("[data-keep]")) ask?.close();
+    else if (el.closest("[data-discard-yes]")) {
+      ask?.close();
+      this.close(true);
+    }
   };
 
   // "full" outlives the body, so the next drawer opens full too; every
@@ -164,7 +181,10 @@ class SideDrawer extends HTMLElement {
   // force skips the unsaved-edits question (the body is already gone).
   private close(force = false): void {
     if (!this.hasAttribute("open")) return;
-    if (this.dirty && !force && !window.confirm("Discard your unsaved changes?")) return;
+    if (this.dirty && !force) {
+      const ask = this.querySelector<HTMLDialogElement>("dialog[data-discard]");
+      if (ask) return void (ask.open || ask.showModal());
+    }
     this.dirty = false;
     if (this.fullByLink) this.expand(false); // the next canvas drawer opens at its own width
     this.removeAttribute("open");

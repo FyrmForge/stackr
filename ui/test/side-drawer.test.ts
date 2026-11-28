@@ -46,3 +46,77 @@ test("expand swaps the full-screen button's label and pressed state", () => {
   expand.call(el, false);
   assert.deepEqual([attrs["aria-pressed"], attrs["aria-label"], btn.title], ["false", "Full screen", "Full screen"]);
 });
+
+function drawer(opts: { dirty?: boolean; contains?: (n: unknown) => boolean } = {}) {
+  const calls = { show: 0, closed: 0 };
+  const dlg = { open: false, showModal: () => { calls.show++; dlg.open = true; }, close: () => { dlg.open = false; } };
+  const body = { contains: opts.contains ?? (() => true), querySelector: () => null, replaceChildren: () => {} };
+  let open = true;
+  const el = Object.assign(new Ctor(), {
+    addEventListener: () => {},
+    querySelector: (s: string) => (s === "#drawer-body" ? body : s === "dialog[data-discard]" ? dlg : null),
+    hasAttribute: (a: string) => (a === "open" ? open : false),
+    setAttribute: () => {},
+    removeAttribute: () => (open = false),
+    dispatchEvent: () => { calls.closed++; },
+    dirty: opts.dirty ?? false,
+  });
+  g.document = { addEventListener: (n: string, f: (e: unknown) => void) => (handlers[n] = f), activeElement: null };
+  (el.connectedCallback as () => void).call(el);
+  return { el, body, dlg, calls, isOpen: () => open };
+}
+
+test("a successful non-GET request from inside the drawer clears dirty, even with no swap", () => {
+  const { el, body } = drawer({ dirty: true });
+  const xhr = {}, elt = {};
+  handlers["htmx:beforeRequest"]({ detail: { elt, xhr, target: elt, requestConfig: { verb: "post" } } });
+  handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: body } });
+  assert.equal(el.dirty, false);
+});
+
+test("a failed (422) save, a GET poll and a request from outside keep dirty", () => {
+  const { el } = drawer({ dirty: true });
+  const bad = {}, poll = {}, out = {};
+  handlers["htmx:beforeRequest"]({ detail: { elt: {}, xhr: bad, target: {}, requestConfig: { verb: "post" } } });
+  handlers["htmx:afterRequest"]({ detail: { xhr: bad, successful: false, target: {} } });
+  handlers["htmx:beforeRequest"]({ detail: { elt: {}, xhr: poll, target: {}, requestConfig: { verb: "get" } } });
+  handlers["htmx:afterRequest"]({ detail: { xhr: poll, successful: true, target: {} } });
+  assert.equal(el.dirty, true);
+  const o = drawer({ dirty: true, contains: () => false });
+  handlers["htmx:beforeRequest"]({ detail: { elt: {}, xhr: out, target: {}, requestConfig: { verb: "post" } } });
+  handlers["htmx:afterRequest"]({ detail: { xhr: out, successful: true, target: {} } });
+  assert.equal(o.el.dirty, true);
+});
+
+test("a swap into a child keeps dirty; a swap into the body itself resets it", () => {
+  const { el, body } = drawer({ dirty: true });
+  handlers["htmx:afterSwap"]({ detail: { target: {} } });
+  assert.equal(el.dirty, true);
+  handlers["htmx:afterSwap"]({ detail: { target: body } });
+  assert.equal(el.dirty, false);
+});
+
+test("a dirty close asks in the panel modal: Cancel keeps the drawer, Discard closes it", () => {
+  const { el, dlg, calls, isOpen } = drawer({ dirty: true });
+  const close = el.close as (force?: boolean) => void;
+  close.call(el);
+  assert.deepEqual([calls.show, isOpen()], [1, true]);
+  close.call(el); // the modal is already open: no second showModal
+  assert.equal(calls.show, 1);
+  const click = el.onClick as (e: unknown) => void;
+  const hit = (attr: string) => ({ target: { closest: (s: string) => (s.includes(attr) ? {} : null) } });
+  click.call(el, hit("data-keep"));
+  assert.deepEqual([dlg.open, isOpen(), el.dirty], [false, true, true]);
+  close.call(el);
+  click.call(el, hit("data-discard-yes"));
+  assert.deepEqual([dlg.open, isOpen(), calls.closed], [false, false, 1]);
+});
+
+test("a clean or forced close never asks", () => {
+  const a = drawer();
+  (a.el.close as () => void).call(a.el);
+  assert.deepEqual([a.calls.show, a.isOpen()], [0, false]);
+  const b = drawer({ dirty: true });
+  (b.el.close as (f: boolean) => void).call(b.el, true);
+  assert.deepEqual([b.calls.show, b.isOpen()], [0, false]);
+});
