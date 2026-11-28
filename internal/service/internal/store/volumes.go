@@ -71,7 +71,8 @@ func (s volumes) RepointNode(ctx context.Context, from, to string) error {
 }
 
 func (s volumes) DeleteIfOrphaned(ctx context.Context, id string, at time.Time) (bool, error) {
-	res, err := s.q.ExecContext(ctx, `DELETE FROM volumes WHERE id = ? AND orphaned_at = ?`, id, at)
+	// Compared in UTC seconds (all writers stamp UTC): a trigger stamps CURRENT_TIMESTAMP, a Go write keeps more.
+	res, err := s.q.ExecContext(ctx, `DELETE FROM volumes WHERE id = ? AND replace(substr(orphaned_at, 1, 19), 'T', ' ') = ?`, id, at.UTC().Format("2006-01-02 15:04:05"))
 	if err != nil {
 		return false, mapErr(err)
 	}
