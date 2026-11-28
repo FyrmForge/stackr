@@ -32,6 +32,7 @@ func createDetails(tc TileConf, row store.Tile, node string, vol func(spec strin
 	}
 	add("Image", row.ImageRef)
 	add("Node", node)
+	add("Entrypoint", string(tc.Entrypoint))
 	add("Command", tc.Command)
 	if tc.Replicas > 1 {
 		add("Replicas", strconv.Itoa(tc.Replicas))

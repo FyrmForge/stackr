@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/robfig/cron/v3"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
@@ -83,11 +84,71 @@ type Reservation struct {
 // VolumeConf is one entry of volumes:. A volume is its own thing, scoped to
 // its env; promote never carries one across envs.
 type VolumeConf struct {
-	// Backup is read only to refuse it with a reason; schedules are set from the panel.
-	Backup any `yaml:"backup"`
+	// Backup: absent leaves the volume's schedules alone; none removes them;
+	// a map is exactly one schedule.
+	Backup *VolumeBackup `yaml:"backup"`
 	// MaxSizeMB is the volume's size cap in MB. Absent or null leaves the cap
 	// as it is; 0 removes it. Enforced only on an xfs disk, saved either way.
 	MaxSizeMB *int `yaml:"max_size_mb"`
+}
+
+// VolumeBackup is a volume's backup: none, or one schedule with how many
+// backups to keep (0 = keep everything).
+type VolumeBackup struct {
+	None     bool
+	Schedule string
+	Keep     int
+}
+
+func (b *VolumeBackup) UnmarshalYAML(n *yaml.Node) error {
+	bad := func() error {
+		return planfile.LineError(n.Line, "backup is none, or a map with schedule and keep")
+	}
+	switch n.Kind {
+	case yaml.ScalarNode:
+		if n.Value != "none" {
+			return bad()
+		}
+		*b = VolumeBackup{None: true}
+		return nil
+	case yaml.MappingNode:
+		var m struct {
+			Schedule string `yaml:"schedule"`
+			Keep     int    `yaml:"keep"`
+		}
+		if err := strictNode(n, &m); err != nil || m.Schedule == "" {
+			return bad()
+		}
+		*b = VolumeBackup{Schedule: m.Schedule, Keep: m.Keep}
+		return nil
+	}
+	return bad()
+}
+
+// Argv is an entrypoint: a string (split like command) or a list (used as
+// is). It is kept as one string, the form the tile row stores.
+type Argv string
+
+func (a *Argv) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		if _, err := deploy.SplitCommand(n.Value); err != nil {
+			return planfile.LineError(n.Line, "entrypoint: %s", err)
+		}
+		*a = Argv(n.Value)
+		return nil
+	case yaml.SequenceNode:
+		var l []string
+		for _, c := range n.Content {
+			if c.Kind != yaml.ScalarNode {
+				return planfile.LineError(n.Line, "entrypoint: a list holds plain words")
+			}
+			l = append(l, c.Value)
+		}
+		*a = Argv(deploy.JoinCommand(l))
+		return nil
+	}
+	return planfile.LineError(n.Line, "entrypoint is a string or a list")
 }
 
 // VolumeNode is a volumes: entry: a body, or false to drop a base volume.
@@ -338,6 +399,7 @@ type TileConf struct {
 	WatchPaths       []string          `yaml:"watch_paths"` // regex per line, "!" = ignore
 	UpdatePolicy     string            `yaml:"update_policy"`
 	TagPolicy        string            `yaml:"tag_policy"`
+	Entrypoint       Argv              `yaml:"entrypoint"`
 	Command          string            `yaml:"command"`
 	Port             int               `yaml:"port"`
 	PublishedPorts   []string          `yaml:"published_ports"`
@@ -566,7 +628,7 @@ var removedKeys = map[string]string{
 	"healthcheck_timeout":      "use health:",
 	"healthcheck_retries":      "use health:",
 	"healthcheck_start_period": "use health:",
-	"backup":                   "backup: is not applied from the file; set a volume's schedule in the panel",
+	"backup":                   "backup: belongs on a volume, under volumes.<name>",
 }
 
 // Parse decodes and checks the top level.
@@ -838,6 +900,9 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 	if err := checkSliceKeys(name, tc); err != nil {
 		return err
 	}
+	if strings.Contains(string(tc.Entrypoint), "${{") {
+		return fmt.Errorf("tile %s: entrypoint takes no ${{ }} refs", name)
+	}
 	switch tc.Type {
 	case "service", "image":
 		if tc.Engine != "" {
@@ -1021,6 +1086,7 @@ func checkSlice(name string, tc TileConf) error {
 		{"env", len(tc.Env) > 0},
 		{"domains", len(tc.Domains) > 0},
 		{"volumes", len(tc.Volumes) > 0},
+		{"entrypoint", tc.Entrypoint != ""},
 		{"command", tc.Command != ""},
 		{"schedule", tc.Schedule != ""},
 		{"trigger", tc.Trigger != ""},
@@ -1057,8 +1123,13 @@ func checkVolume(name string, v VolumeConf) error {
 	if len(name) > volume.MaxName {
 		return fmt.Errorf("volume %s: keep the name to %d characters or fewer", name, volume.MaxName)
 	}
-	if v.Backup != nil {
-		return fmt.Errorf("volume %s: backup: is not applied from the file; set the schedule on the volume in the panel", name)
+	if b := v.Backup; b != nil && !b.None {
+		if _, err := cron.ParseStandard(b.Schedule); err != nil {
+			return fmt.Errorf("volume %s: backup schedule %q is not a cron expression: %w", name, b.Schedule, err)
+		}
+		if b.Keep < 0 {
+			return fmt.Errorf("volume %s: backup keep is 0 (everything) or more", name)
+		}
 	}
 	if v.MaxSizeMB != nil && (*v.MaxSizeMB < 0 || *v.MaxSizeMB > 1<<30) {
 		return fmt.Errorf("volume %s: max_size_mb is 1 MB to 1 PB, or 0 for no cap", name)
