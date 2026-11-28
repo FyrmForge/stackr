@@ -73,6 +73,9 @@ func (h *handler) dataJob(c echo.Context, id string, o *volume.OverviewView) err
 // removal is what the drawer says of a volume a stack file dropped; nil for
 // a volume in use and for a move's old copy.
 func (h *handler) removal(c echo.Context, vol service.Volume, base string) (*volume.Removal, error) {
+	if service.OldCopy(vol) {
+		return nil, nil
+	}
 	goes, err := h.orch.OrphanGoesOn(c.Request().Context(), vol)
 	if err != nil || goes.IsZero() {
 		return nil, err
@@ -89,8 +92,11 @@ func (h *handler) volumeData(c echo.Context, vol service.Volume, base string) (v
 	switch {
 	case vol.OrphanedAt != nil:
 		r, err := h.removal(c, vol, base)
-		if err != nil || r == nil {
-			return volume.Data{}, err // a move's old copy: nothing to offer
+		if err != nil {
+			return volume.Data{}, err
+		}
+		if r == nil { // a move's old copy: no Restore, but it can be deleted
+			return volume.Data{Delete: service.OldCopy(vol)}, nil
 		}
 		return volume.Data{Restore: r.Restore, Hint: r.Hint}, nil
 	}

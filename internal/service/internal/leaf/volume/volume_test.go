@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -148,5 +149,24 @@ func TestWipeAndRestore(t *testing.T) {
 	}
 	if err := volume.CheckDetached([]string{"api"}); err == nil {
 		t.Error("a mounted volume passed CheckDetached")
+	}
+}
+
+func TestOldCopy(t *testing.T) {
+	past, hold := time.Now().Add(-time.Hour), time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+	id := "abcd1234-0000-0000-0000-000000000000"
+	for name, c := range map[string]struct {
+		v    store.Volume
+		want bool
+	}{
+		"not orphaned":  {store.Volume{ID: id, Slug: "data-abcd1234"}, false},
+		"held":          {store.Volume{ID: id, Slug: "data", OrphanedAt: &hold}, true},
+		"released":      {store.Volume{ID: id, Slug: "data-abcd1234", OrphanedAt: &past}, true},
+		"stack removal": {store.Volume{ID: id, Slug: "data", OrphanedAt: &past}, false},
+		"short id":      {store.Volume{ID: "x", Slug: "data-x", OrphanedAt: &past}, false},
+	} {
+		if got := volume.OldCopy(c.v); got != c.want {
+			t.Errorf("%s: %v", name, got)
+		}
 	}
 }

@@ -188,6 +188,18 @@ func (l *Leaf) Ensure(ctx context.Context, v store.Volume) (string, error) {
 	return v.Name, l.EnsureNamed(ctx, node, v.Name, map[string]string{"stackr.volume": v.ID})
 }
 
+// OldCopy is whether an orphaned volume is a disk move's old copy, held until
+// the deploy proves the new one, or released to the orphan job after it. A
+// move names the row after the moved volume plus its own id's first 8
+// characters (and holds it at year 9999), a mark no stack-file removal
+// carries. No column: the name rule is the record.
+func OldCopy(v store.Volume) bool {
+	if v.OrphanedAt == nil {
+		return false
+	}
+	return v.OrphanedAt.Year() >= 9999 || (len(v.ID) >= 8 && strings.HasSuffix(v.Slug, "-"+v.ID[:8]))
+}
+
 // Orphan flags the volume; row and data stay. Idempotent: the first
 // timestamp is the one retention counts from.
 func (l *Leaf) Orphan(ctx context.Context, v store.Volume) (store.Volume, error) {

@@ -85,8 +85,14 @@ func TestGhostBannersAndOldCopy(t *testing.T) {
 	o.Ghost = nil
 	o.OldCopy = true
 	out = draw(t, Overview(o))
-	want(t, "old copy", out, "Old copy, kept until the move finishes.")
+	want(t, "old copy", out, "Old copy from a move, kept until the move finishes.")
 	if strings.Contains(out, "Removed on") {
 		t.Error("a held old copy shows a date")
+	}
+	o.OldGoes = "01-08"
+	out = draw(t, Overview(o))
+	want(t, "released old copy", out, "Old copy from a move. Its data is deleted on 01-08.")
+	if strings.Contains(out, "Removed on") || strings.Contains(out, "Restore") {
+		t.Error("a released old copy reads as a removal")
 	}
 }

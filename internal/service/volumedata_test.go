@@ -177,16 +177,64 @@ func TestDeleteVolumeRefusals(t *testing.T) {
 	}
 	intact("busy")
 
-	// an old copy of a move
+	// an old copy of a move whose job still runs
 	hold := moveHold
 	ov := v
 	ov.OrphanedAt = &hold
 	must(t, w.st.Volumes.Update(ctx, ov))
+	_, err = w.orch.jobRows.Create(ctx, string(kindVolumeToDisk), []string{"todisk:n"}, `{"volumes":[{"volume_id":"x","old_name":"`+v.Name+`"}]}`, nil, "")
+	must(t, err)
 	if _, err := w.orch.DeleteVolume(ctx, v.ID, false); !conflict(err) {
-		t.Errorf("old copy = %v", err)
+		t.Errorf("old copy of a live move = %v", err)
 	}
 	if got := w.callsFrom(0, "RemoveVolume"); len(got) != 0 {
 		t.Errorf("old copy: removed %v", got)
+	}
+}
+
+// A held old copy whose move never finishes (no live job names it) can be
+// deleted by hand.
+func TestDeleteHeldOldCopyWithoutLiveMove(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	v := w.dataVol(t)
+	hold := moveHold
+	v.OrphanedAt = &hold
+	must(t, w.st.Volumes.Update(ctx, v))
+	if _, err := w.orch.DeleteVolume(ctx, v.ID, false); err != nil {
+		t.Fatalf("delete = %v", err)
+	}
+	if _, err := w.orch.Volume(ctx, v.ID); !notFound(err) {
+		t.Errorf("the old copy is still there: %v", err)
+	}
+}
+
+// A released old copy (a real orphaned_at, the move's name rule) is still not
+// a stack-file removal: no restore, no removal date from OrphanGoesOn's caller
+// treating it as one.
+func TestReleasedOldCopyIsNotARemoval(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	v := w.dataVol(t)
+	at := time.Now().UTC().Add(-time.Hour)
+	v.OrphanedAt = &at
+	v.Slug = "data-" + v.ID[:8]
+	must(t, w.st.Volumes.Update(ctx, v))
+	if !OldCopy(v) {
+		t.Fatal("a released old copy is not recognised")
+	}
+	if err := w.orch.RestoreVolume(ctx, v.ID); !conflict(err) {
+		t.Errorf("restore of an old copy = %v", err)
+	}
+	if goes, err := w.orch.OrphanGoesOn(ctx, v); err != nil || goes.IsZero() {
+		t.Errorf("a released copy has a day: %v %v", goes, err)
+	}
+	// a stack-file removal is not one
+	v.Slug = "data"
+	if OldCopy(v) {
+		t.Error("a plain removal reads as an old copy")
 	}
 }
 

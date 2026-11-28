@@ -1151,8 +1151,8 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		n.NoBackup = noBackup[vol.ID]
 		switch {
 		case vol.OrphanedAt == nil:
-		case vol.OrphanedAt.Year() >= 9999: // a move's old copy (service moveHold): no date
-			n.Detail, n.Orphan = "orphaned", true
+		case volume.OldCopy(vol): // a move's old copy, held or released: not a removal
+			n.Detail, n.Orphan = "Old copy from a move", true
 		default:
 			n.Detail, n.Orphan = "Removed on "+vol.OrphanedAt.Format("02-01"), true
 		}

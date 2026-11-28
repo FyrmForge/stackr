@@ -1640,7 +1640,12 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 		o := volume.OverviewView{
 			Docker:  vol.Name,
 			Created: vol.CreatedAt,
-			OldCopy: vol.OrphanedAt != nil && service.OldCopyHeld(*vol.OrphanedAt),
+			OldCopy: service.OldCopy(vol),
+		}
+		if o.OldCopy {
+			if goes, err := h.orch.OrphanGoesOn(ctx, vol); err == nil && !goes.IsZero() {
+				o.OldGoes = goes.Format("02-01") // released: its day
+			}
 		}
 		if o.Removal, err = h.removal(c, vol, b.Base); err != nil {
 			return middleware.HTTPError(err)

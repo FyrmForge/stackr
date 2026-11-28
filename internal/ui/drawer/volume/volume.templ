@@ -73,7 +73,8 @@ func Drawer(v View, body templ.Component) templ.Component {
 type OverviewView struct {
 	Docker  string
 	Created time.Time
-	OldCopy bool // the orphan is a move's old copy: no date, it goes when the move ends
+	OldCopy bool // the orphan is a move's old copy, never a removal
+	OldGoes string // DD-MM its data is deleted, once released; "" = still held until the move ends
 	Removal *Removal // a volume a stack file dropped; nil = in use
 	Backup  *BackupFact // nil = not shown (a removed volume)
 	Mounts            []Mount
@@ -209,8 +210,10 @@ templ Overview(o OverviewView) {
 		</div>
 		<div class="space-y-1">
 			<p class="text-xs text-rw-muted">Data persists across redeploys and tile deletion.</p>
-			if o.OldCopy {
-				<p class="text-xs text-rw-warn">Old copy, kept until the move finishes.</p>
+			if o.OldCopy && o.OldGoes != "" {
+				<p class="text-xs text-rw-warn">{ "Old copy from a move. Its data is deleted on " + o.OldGoes + "." }</p>
+			} else if o.OldCopy {
+				<p class="text-xs text-rw-warn">Old copy from a move, kept until the move finishes.</p>
 			} else if r := o.Removal; r != nil {
 				<p class="text-xs text-rw-warn">{ "Removed on " + r.On + ". Its data is deleted on " + r.Goes + "." }</p>
 				if r.Hint != "" {
