@@ -470,6 +470,12 @@ func runSummary(s SettingsView) string {
 	if s.Vals["command"] != "" {
 		cmdWord = "own command"
 	}
+	if s.Vals["entrypoint"] != "" {
+		cmdWord = "own entrypoint"
+		if s.Vals["command"] != "" {
+			cmdWord = "own entrypoint and command"
+		}
+	}
 	restart, reps := "", ""
 	if s.Has("restart_policy") {
 		restart = restartWords[cmp.Or(s.Vals["restart_policy"], "always")]

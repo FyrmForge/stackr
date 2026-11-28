@@ -1644,7 +1644,7 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 			return middleware.HTTPError(err)
 		}
 		if vol.OrphanedAt == nil && !service.IsArchiveVolume(vol) {
-			o.Backup = &volume.BackupFact{Words: "No backup", None: true, Setup: b.Base + "?tab=backups"}
+			o.Backup = &volume.BackupFact{Words: "No backup", None: true, Setup: b.Base + "?tab=backups", Node: vol.ID}
 			if n := len(b.Schedules); n > 0 {
 				o.Backup = &volume.BackupFact{Words: volume.Runs(b.Schedules[0].Cron)}
 				if n > 1 {

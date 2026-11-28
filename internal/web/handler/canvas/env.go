@@ -179,7 +179,7 @@ func (h *handler) volumesView(c echo.Context, page string, vs service.EnvVolumes
 		}
 		if edit && ev.OwnedBy == "" {
 			r.Remove = volume.DeleteConfirm(ev.Slug, base+"/volumes/"+ev.ID+"/remove", "#"+comp.DrawerRoot, dests[ev.ID])
-			r.Remove.Button, r.Remove.Quiet, r.Remove.Label = "Remove", true, "Remove volume "+ev.Slug
+			r.Remove.Quiet, r.Remove.Label = true, "Remove volume "+ev.Slug
 			r.Remove.Vals = `{"open":"volumes"}`
 		}
 		// A delete that backs up first runs as a job: its progress, and why it

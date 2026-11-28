@@ -95,7 +95,7 @@ type Removal struct{ On, Goes, Restore, Hint string }
 // Setup the GET that opens the schedule UI. Otherwise Words is the schedule.
 type BackupFact struct {
 	None         bool
-	Words, Setup string
+	Words, Setup, Node string
 }
 
 // Storage is where the volume lives. Disk and Docker both = two copies.
@@ -196,7 +196,7 @@ templ Overview(o OverviewView) {
 				@stat("Backup") {
 					<p class={ "text-sm", templ.KV("text-rw-muted", b.None), templ.KV("text-rw-text", !b.None) }>{ b.Words }</p>
 					if b.None && b.Setup != "" {
-						<button type="button" class="btn btn-ghost btn-sm mt-2" hx-get={ b.Setup } hx-target={ "#" + Root } hx-swap="outerHTML" hx-disabled-elt="this">Set up backup</button>
+						<button type="button" class="btn btn-ghost btn-sm mt-2" hx-get={ b.Setup } hx-push-url={ templ.SafeURL("?drawer=" + b.Node + "&tab=backups") } hx-target={ "#" + Root } hx-swap="outerHTML" hx-disabled-elt="this">Set up backup</button>
 					}
 				}
 			}

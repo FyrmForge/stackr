@@ -112,9 +112,9 @@ templ confirm(v ConfirmView, swap string) {
 					if len(v.Kept) > 0 {
 						<div>
 							<p class="mb-1.5 text-xs font-medium text-rw-muted">Kept:</p>
-							<ul class="modal-list">
+							<ul class="space-y-1 text-xs text-rw-text">
 								for _, k := range v.Kept {
-									<li class="modal-list-row text-rw-text">{ k }</li>
+									<li>{ k }</li>
 								}
 							</ul>
 						</div>

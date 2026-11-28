@@ -35,7 +35,7 @@ func WipeConfirm(v View, d Data) c.ConfirmView {
 func DeleteConfirm(name, action, target, dest string) c.ConfirmView {
 	return c.ConfirmView{
 		Button:  "Delete volume",
-		Title:   "Delete " + name + "?",
+		Title:   "Delete volume?",
 		Warning: "Its data is deleted at once.",
 		Kept:    []string{"backups already in a destination"},
 		Word:    name,
