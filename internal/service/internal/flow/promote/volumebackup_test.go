@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 )
 
@@ -19,6 +21,8 @@ func TestParseVolumeBackup(t *testing.T) {
 		"  data:\n    backup: true\n":                                      false,
 		"  data:\n    backup:\n      keep: 7\n":                            false,
 		"  data:\n    backup:\n      schedule: 'nope'\n":                   false,
+		"  data:\n    backup:\n      schedule: '@every 1h'\n":              false, // the panel refuses it too
+		"  data:\n    backup:\n      schedule: '0  3 * *  *'\n":            true,
 		"  data:\n    backup:\n      schedule: '@daily'\n      keep: -1\n": false,
 		"  data:\n    backup:\n      schedule: '@daily'\n      dest: x\n":  false,
 	} {
@@ -26,6 +30,15 @@ func TestParseVolumeBackup(t *testing.T) {
 		if (err == nil) != ok {
 			t.Errorf("%q: err = %v", src, err)
 		}
+	}
+}
+
+// The schedule is kept with its whitespace collapsed, so a plan that compares
+// it with the stored one sees no change.
+func TestVolumeBackupCronNormalised(t *testing.T) {
+	var b VolumeBackup
+	if err := yaml.Unmarshal([]byte("schedule: '0  3 *\t* *'\nkeep: 2\n"), &b); err != nil || b.Schedule != "0 3 * * *" {
+		t.Fatalf("got %+v, %v", b, err)
 	}
 }
 
