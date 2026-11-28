@@ -637,6 +637,11 @@ func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob)
 	g.epoch.Store(time.Now().UnixNano())
 	g.hw.Store(o.diskReadHW(ctx, d).UnixNano())
 	g.mu.Unlock()
+	var he *hostdisk.Error
+	if errors.As(err, &he) && he.Code == hostdisk.CodeIO {
+		_, _ = fmt.Fprintf(r.Log, "%v\n", err)
+		return errs.Refusedf("The disk still gives I/O errors. Fix it, then check again.")
+	}
 	if err != nil {
 		return err
 	}
