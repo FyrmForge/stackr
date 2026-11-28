@@ -53,8 +53,18 @@ func TestDiskCheckStartsTheUnitsInOrder(t *testing.T) {
 	if len(*started) != 2 || (*started)[0] != xfs || (*started)[1] != bind {
 		t.Errorf("started %v, want the xfs unit then %s", *started, bind)
 	}
+	if strings.Contains(out.String(), "restart loop") {
+		t.Errorf("worker (no install.json) got the panel message: %q", out.String())
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, installspec.File), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := diskCheck(context.Background(), nil, &out); err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(out.String(), "restart loop") {
-		t.Errorf("output %q", out.String())
+		t.Errorf("controller output %q", out.String())
 	}
 }
 

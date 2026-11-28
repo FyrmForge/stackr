@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/paneldb"
 )
 
@@ -189,7 +190,10 @@ func startDiskUnits(ctx context.Context, dataDir string, out io.Writer) error {
 		_, _ = fmt.Fprintln(out, "started", u)
 	}
 	if len(errs) == 0 {
-		_, _ = fmt.Fprintln(out, "Docker's restart loop brings the panel up on its own now. Watch it with: docker ps")
+		// Only the controller runs the panel (install.json lives in its data dir).
+		if _, err := os.Stat(filepath.Join(dataDir, installspec.File)); err == nil {
+			_, _ = fmt.Fprintln(out, "Docker's restart loop brings the panel up on its own now. Watch it with: docker ps")
+		}
 		if j, err := paneldb.ReadJournal(dataDir); err == nil && j.Phase == paneldb.PhaseMoved {
 			_, _ = fmt.Fprintln(out, "The panel database is on node disk", j.DiskID+".")
 		}
