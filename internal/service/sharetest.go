@@ -50,12 +50,15 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 	if err != nil {
 		return ShareTest{}, err
 	}
-	if by == nil || authz.Can(by.Access, "hostgrant.approve", authz.Resource{}) != nil {
-		ok, err := o.shareApproved(ctx, orgID, deploy.ShareGrant(s.Slug, addr))
-		if err != nil {
+	// A non-admin may use only the stacks that hold the grant: the node and
+	// env come from a tile in one of them.
+	var approved map[string]bool
+	nonAdmin := by == nil || authz.Can(by.Access, "hostgrant.approve", authz.Resource{}) != nil
+	if nonAdmin {
+		if approved, err = o.approvedStacks(ctx, orgID, deploy.ShareGrant(s.Slug, addr)); err != nil {
 			return ShareTest{}, err
 		}
-		if !ok {
+		if len(approved) == 0 {
 			return ShareTest{}, errs.Refusedf("An admin has to approve this share on a stack first.")
 		}
 	}
@@ -64,7 +67,7 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 	var stack store.Stack
 	found := false
 	if err := o.eachShareLine(ctx, orgID, func(t store.Tile, m tile.Mount) {
-		if found || m.Share != s.Slug || t.EnvironmentID == "" {
+		if found || m.Share != s.Slug || t.EnvironmentID == "" || (nonAdmin && !approved[t.StackID]) {
 			return
 		}
 		e, err := o.envs.Get(ctx, t.EnvironmentID)
@@ -78,6 +81,9 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 		env, stack, found = e, st, true
 	}); err != nil {
 		return ShareTest{}, err
+	}
+	if nonAdmin && !found {
+		return ShareTest{}, errs.Conflictf("Mount share %s on a tile in an approved stack first.", s.Slug)
 	}
 	var nctx context.Context
 	if found {
@@ -179,22 +185,23 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 	return fail(out), nil
 }
 
-// shareApproved reports a stack of the org whose grant holds perm.
-func (o *Orchestrator) shareApproved(ctx context.Context, orgID, perm string) (bool, error) {
+// approvedStacks are the stacks of the org whose grant holds perm.
+func (o *Orchestrator) approvedStacks(ctx context.Context, orgID, perm string) (map[string]bool, error) {
 	sts, err := o.stacks.List(ctx, orgID)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
+	out := map[string]bool{}
 	for _, st := range sts {
 		have, err := o.hostgrant.Of(ctx, st.ID)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		for _, l := range have.Lines {
 			if _, p := hostgrant.Split(l); p == perm {
-				return true, nil
+				out[st.ID] = true
 			}
 		}
 	}
-	return false, nil
+	return out, nil
 }

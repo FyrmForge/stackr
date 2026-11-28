@@ -416,8 +416,38 @@ func TestShareTestNodePick(t *testing.T) {
 	if err := r.env.Store.Tiles.Update(ctx, tl); err != nil {
 		t.Fatal(err)
 	}
-	back, err := r.env.Orch.TestShare(ctx, &service.Principal{}, r.org, "media")
+	adm := &service.Principal{User: store.User{Role: "admin"}, Access: authz.User{ID: "a", Admin: true, Active: true}}
+	back, err := r.env.Orch.TestShare(ctx, adm, r.org, "media")
 	if err != nil || back.Node != ctl.Node {
 		t.Fatalf("unmounted = %+v, %v", back, err)
+	}
+}
+
+// A non-admin's grant covers only its own stack: a tile mounting the share in
+// another stack must not pick the node, and with none in the granted stack
+// the test is refused (not run on the controller). An admin keeps the old pick.
+func TestShareTestNonAdminNeedsTileInApprovedStack(t *testing.T) {
+	ctx := context.Background()
+	r, _, _ := shareTestRig(t, false)
+	st2, err := r.env.Orch.CreateStack(ctx, r.org, "other", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := r.env.Store.Users.Create(ctx, store.User{ID: "adm", Email: "a@b.c", Name: "A", Role: "admin", Active: true, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	g := store.HostGrant{ID: "g2", StackID: st2.ID, Lines: "api share:media@10.0.0.5", ApprovedBy: "adm", CreatedAt: now}
+	if err := r.env.Store.HostGrants.Create(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.env.Orch.TestShare(ctx, &service.Principal{}, r.org, "media")
+	var c errs.Conflict
+	if !errors.As(err, &c) || !strings.Contains(err.Error(), "approved stack") || sawRun(r) {
+		t.Fatalf("non-admin: err=%v ran=%v", err, sawRun(r))
+	}
+	adm := &service.Principal{User: store.User{Role: "admin"}, Access: authz.User{ID: "a", Admin: true, Active: true}}
+	if res, err := r.env.Orch.TestShare(ctx, adm, r.org, "media"); err != nil || !res.OK {
+		t.Fatalf("admin: %+v %v", res, err)
 	}
 }
