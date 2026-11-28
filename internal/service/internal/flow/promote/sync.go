@@ -475,14 +475,15 @@ func instMoved(a, b store.OperatedInstance) bool {
 func thinConf(t store.Tile, m store.OperatedInstance) TileConf {
 	lim := cmp.Or(m.SyncLimitMS, 10)
 	tc := TileConf{
-		Type:     t.Kind,
-		Engine:   m.Engine,
-		Allow:    m.Allow,
-		EnvPairs: m.EnvPairs,
-		Command:  t.Command,
-		PITRDays: &m.PITRDays,
-		Settings: map[string]string{},
-		Sync:     &m.PreferSync, SyncRequired: &m.SyncRequired, SyncLimitMS: &lim,
+		Type:       t.Kind,
+		Engine:     m.Engine,
+		Allow:      m.Allow,
+		EnvPairs:   m.EnvPairs,
+		Command:    t.Command,
+		Entrypoint: Argv(t.Entrypoint),
+		PITRDays:   &m.PITRDays,
+		Settings:   map[string]string{},
+		Sync:       &m.PreferSync, SyncRequired: &m.SyncRequired, SyncLimitMS: &lim,
 	}
 	maps.Copy(tc.Settings, m.Settings) // never nil: a plan reads nil as "untouched"
 	if m.Engine == "postgres" {
