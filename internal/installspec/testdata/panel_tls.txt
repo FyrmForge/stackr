@@ -19,6 +19,8 @@ docker run
   -v
   /var/lib/stackr:/var/lib/stackr
   -v
+  /sys:/host/sys:ro
+  -v
   /sys/fs/cgroup:/host/sys/fs/cgroup:ro
   -v
   /proc:/host/proc:ro

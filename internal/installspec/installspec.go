@@ -442,6 +442,7 @@ func Panel(image string, in Input) Container {
 		in.DataDir + ":" + in.DataDir,
 		// Read-only host views for container and host metrics: the
 		// panel's own cgroup namespace and pid namespace hide them.
+		"/sys:" + HostRoot + "/sys:ro", // the disk watch reads /sys/dev/block to tell a pulled disk
 		"/sys/fs/cgroup:" + HostRoot + "/sys/fs/cgroup:ro",
 		"/proc:" + HostRoot + "/proc:ro",
 	}
