@@ -18,8 +18,8 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	envui "github.com/FyrmForge/stackr/internal/ui/drawer/env"
-	"github.com/FyrmForge/stackr/internal/ui/drawer/volume"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/vars"
+	"github.com/FyrmForge/stackr/internal/ui/drawer/volume"
 	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
