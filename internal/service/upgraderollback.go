@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -102,7 +103,7 @@ func (o *Orchestrator) settleMoveHelper(ctx context.Context, c docker.Container,
 		}
 		if !o.moveLanded(p) {
 			slog.Warn("panel database move: the helper did not finish the move", "helper", logs)
-			msg := "The move did not go through: " + strings.TrimSpace(logs)
+			msg := "The move did not go through: " + helperCause(logs)
 			if err := o.jobRows.Finish(ctx, j, job.Failed, msg); err != nil {
 				slog.Warn("panel database move: job not settled, retried at next boot", "err", err)
 				return
@@ -185,4 +186,24 @@ func (o *Orchestrator) LastUpgradeError(ctx context.Context) string {
 		}
 	}
 	return ""
+}
+
+// helperCause is the one line a person can read out of a helper's log tail:
+// the last line's JSON msg, or its err= value, or the line itself.
+func helperCause(logs string) string {
+	lines := strings.Split(strings.TrimSpace(logs), "\n")
+	line := strings.TrimSpace(lines[len(lines)-1])
+	var rec struct {
+		Msg string `json:"msg"`
+	}
+	if json.Unmarshal([]byte(line), &rec) == nil && rec.Msg != "" {
+		line = rec.Msg
+	}
+	if _, v, ok := strings.Cut(line, " err="); ok {
+		if u, err := strconv.Unquote(v); err == nil {
+			return u
+		}
+		return v
+	}
+	return line
 }

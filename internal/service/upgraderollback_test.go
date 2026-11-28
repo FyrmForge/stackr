@@ -211,3 +211,20 @@ func TestWatchUpgraderSettlesAFailedMoveHelper(t *testing.T) {
 		t.Errorf("update job = %s %q", j.State, j.Error)
 	}
 }
+
+func TestHelperCause(t *testing.T) {
+	for name, c := range map[string]struct{ in, want string }{
+		"json with err": {
+			`{"level":"info","ts":0,"msg":"earlier"}` + "\n" +
+				`{"level":"info","ts":1,"msg":"WARN panel database move: rolling back direction=in from_phase=gating err=\"new panel: the container restarted during the health check\""}` + "\n",
+			"new panel: the container restarted during the health check",
+		},
+		"plain":  {"x\nstackrd upgrade-swap: boom\n", "stackrd upgrade-swap: boom"},
+		"empty":  {"", ""},
+		"blanks": {"\n  \n", ""},
+	} {
+		if got := helperCause(c.in); got != c.want {
+			t.Errorf("%s: helperCause = %q, want %q", name, got, c.want)
+		}
+	}
+}
