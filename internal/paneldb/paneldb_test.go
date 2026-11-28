@@ -257,12 +257,12 @@ func TestWatchExitsWhenTheProbeNeverAnswers(t *testing.T) {
 	block := make(chan struct{})
 	t.Cleanup(func() { close(block) })
 	var calls atomic.Int32
-	got := make(chan error, 1)
+	got := make(chan struct{}, 1)
 	go Watch(context.Background(), 10*time.Millisecond, TickMax, func() error {
 		calls.Add(1)
 		<-block
 		return nil
-	}, func(err error) { got <- err })
+	}, func(error) { got <- struct{}{} })
 	select {
 	case <-got:
 	case <-time.After(5 * time.Second):
