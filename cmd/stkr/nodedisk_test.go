@@ -1,8 +1,12 @@
 package main
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 const nd = "/api/v1/admin/nodes/n1/disk"
@@ -299,5 +303,53 @@ func TestNodeDiskForgetWarnsWhenObserveIsOnTheDisk(t *testing.T) {
 	fake(t, map[string]string{"/forget-plan": plan})
 	if _, out, _ := cli(t, "node", "disk", "forget", "d1"); !strings.Contains(out, "Logs and metrics are on this disk and are lost.") {
 		t.Errorf("no warning: %q", out)
+	}
+}
+
+// The move job is done once the helper launches; the CLI must wait for the
+// real end, so a rollback is an error and not "done".
+func TestNodeDiskMovePanelWaitsForTheRealEnd(t *testing.T) {
+	movePollEvery = time.Millisecond
+	t.Cleanup(func() { movePollEvery = 2 * time.Second })
+	for _, c := range []struct {
+		name, job, db string
+		code          int
+		out, errw     string
+	}{
+		{"rolled back", `{"id":"j1","state":"failed","error":"The move did not go through: boom"}`,
+			`{"applicable":true,"on_disk":false,"moving":false}`, 1, "", "the panel database move failed: The move did not go through: boom"},
+		{"moved", `{"id":"j1","state":"done"}`,
+			`{"applicable":true,"on_disk":true,"moving":false}`, 0, "the panel database is on the node disk", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			first := true
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				p := req.URL.Path
+				switch {
+				case strings.HasSuffix(p, "/events"):
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, "event: end\ndata: {\"job\":{\"id\":\"j1\",\"state\":\"done\"},\"log\":\"\"}\n\n")
+				case req.Method == http.MethodPost:
+					_, _ = io.WriteString(w, `{"id":"j1","kind":"x","state":"queued"}`)
+				case strings.HasSuffix(p, "/move-panel-plan"):
+					_, _ = io.WriteString(w, `{"size_bytes":1,"restarts":"r","refusal":""}`)
+				case strings.HasSuffix(p, "/panel-db"):
+					if first { // the pre-flight read
+						first = false
+						_, _ = io.WriteString(w, `{"applicable":true,"on_disk":false}`)
+						return
+					}
+					_, _ = io.WriteString(w, c.db)
+				case strings.HasSuffix(p, "/jobs/j1"):
+					_, _ = io.WriteString(w, c.job)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			useServer(t, srv.URL)
+			code, out, errw := cli(t, "-y", "node", "disk", "move-panel", "n1")
+			if code != c.code || !strings.Contains(out, c.out) || !strings.Contains(errw, c.errw) || strings.Contains(out, "\nthe panel database move: done") {
+				t.Errorf("= %d %q %q", code, out, errw)
+			}
+		})
 	}
 }

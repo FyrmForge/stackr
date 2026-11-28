@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -647,11 +648,45 @@ func (a *app) diskMovePanel() *cobra.Command {
 				return a.show(j)
 			}
 			// the panel restarts under this call: the follow reconnects
-			return a.follow("/admin", j, "move the panel database")
+			if err := a.follow("/admin", j, "start of the panel database move"); err != nil || a.json {
+				return err
+			}
+			return a.settleMovePanel(args[0], cell(asMap(j)["id"]), back)
 		}))
 	c.Flags().BoolVar(&back, "back", false, "move the database back to the system disk")
 	c.Example = "  stkr node disk move-panel vps-fsn1\n  stkr node disk move-panel vps-fsn1 --back"
 	return c
+}
+
+var (
+	movePollEvery = 2 * time.Second
+	movePollCap   = 10 * time.Minute
+)
+
+// settleMovePanel waits for the move's real end. The job is done once the
+// helper launches; the helper can still roll back, which fails the job row
+// afterwards. Call errors are ignored: the panel restarts under this.
+func (a *app) settleMovePanel(node, id string, back bool) error {
+	for end := time.Now().Add(movePollCap); time.Now().Before(end); time.Sleep(movePollEvery) {
+		if j, err := a.call(GET, "/admin/jobs/"+id, nil); err == nil {
+			if m := asMap(j); m["state"] == "failed" {
+				return fmt.Errorf("the panel database move failed: %s", cell(m["error"]))
+			}
+		}
+		st, err := a.call(GET, nodeDiskPath(node, "/panel-db"), nil)
+		if err != nil {
+			continue
+		}
+		if m := asMap(st); m["moving"] != true && m["on_disk"] == !back {
+			if back {
+				a.say("the panel database is back on the system disk")
+			} else {
+				a.say("the panel database is on the node disk")
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the panel database move did not finish in %s; check the node drawer in the panel", movePollCap)
 }
 
 func (a *app) diskRemovePanelCopy() *cobra.Command {
