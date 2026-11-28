@@ -670,7 +670,7 @@ templ Shares(v SharesView) {
 			<p class="text-sm text-rw-faint mb-5">No shares yet.</p>
 		}
 		if v.Add != "" {
-			<form novalidate hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4 has-[option[value=nfs]:checked]:[&_[data-smb]]:hidden">
+			<form novalidate hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4 [&:has(option[value=nfs]:checked)_[data-smb]]:hidden">
 				@c.Field(c.FieldView{Name: "slug", Label: "Name", Placeholder: "media", Required: true})
 				<div>
 					<label for="share-kind" class="label">Kind</label>

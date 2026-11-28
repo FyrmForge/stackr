@@ -4,7 +4,7 @@ package components
 
 // StaticManifest maps original asset paths to fingerprinted paths.
 var StaticManifest = map[string]string{
-	"css/output.css": "css/output.ea5830aad21a.css",
+	"css/output.css": "css/output.a0dc7934ce52.css",
 	"css/uplot.min.css": "css/uplot.min.df630c6a8d6f.css",
 	"css/xterm.css": "css/xterm.854a7c0fb70e.css",
 	"images/apple-touch-icon.png": "images/apple-touch-icon.bf7ad3fd7ca1.png",
@@ -20,12 +20,12 @@ var StaticManifest = map[string]string{
 	"js/elements/password-toggle.js": "js/elements/password-toggle.cf296dcb046e.js",
 	"js/elements/settings-find.js": "js/elements/settings-find.dcdfc09a00ac.js",
 	"js/elements/settings-read.js": "js/elements/settings-read.c40f2b1f672f.js",
-	"js/elements/side-drawer.js": "js/elements/side-drawer.a406edabfd36.js",
+	"js/elements/side-drawer.js": "js/elements/side-drawer.cdb9503cde35.js",
 	"js/elements/tab-strip.js": "js/elements/tab-strip.14a44def6fa5.js",
 	"js/elements/term-pane.js": "js/elements/term-pane.70f08ef74b6d.js",
 	"js/elements/theme-toggle.js": "js/elements/theme-toggle.2b6c88b4c400.js",
 	"js/elements/waiting-select.js": "js/elements/waiting-select.39880bfd345f.js",
-	"js/main.js": "js/main.d409e0c1e3b9.js",
+	"js/main.js": "js/main.e7afd9d9f9e9.js",
 	"js/vendor/htmx.min.js": "js/vendor/htmx.min.e209dda5c823.js",
 	"js/vendor/sse.min.js": "js/vendor/sse.min.e39082065977.js",
 	"js/vendor/uplot.min.js": "js/vendor/uplot.min.19c8d4c6ad88.js",
