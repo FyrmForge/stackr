@@ -191,10 +191,11 @@ It starts the disk's mount units, and the restart loop brings the panel up witho
 - A disk that hangs instead of returning errors hangs the panel rather than stopping it.
 - On a worker, after re-attaching a disk run `stackr-install disk-check` on that node before Check disk.
 - Forgetting a missing controller disk that holds logs and metrics drops them. They start fresh on the system disk.
+- After a rolled-back move onto the disk, a copy named `stackr.db.rolled-back` stays in the disk folder until the next move.
 
 ### A disk that is missing
 
-If the disk is unmounted or the device is gone, the node shows "The disk is missing", and tiles that use it do not start. Reattach or mount it, then press Check disk.
+If the disk is unmounted or the device is gone, the node shows "The disk is missing", and tiles that use it do not start. Reattach or mount it, run `stackr-install disk-check` on the node, then press Check disk.
 
 ```bash
 stkr node disk check vps-fsn1
