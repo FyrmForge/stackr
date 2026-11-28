@@ -585,7 +585,7 @@ func (w *alertState) freshRead(key string, at time.Time) bool {
 	if at.IsZero() || at.Equal(w.diskAt[key]) {
 		return false
 	}
-	if !at.After(w.diskAt[key]) && w.diskAt[key].Sub(time.Now()) <= maxSkew {
+	if !at.After(w.diskAt[key]) && time.Until(w.diskAt[key]) <= maxSkew {
 		return false
 	}
 	w.diskAt[key] = at
