@@ -406,6 +406,41 @@ func TestWipeVolumeStopsAndRestartsTiles(t *testing.T) {
 	}
 }
 
+// Paused and restarting replicas hold the volume too: without the switch they
+// refuse the wipe, with it they stop, and only the restarting one starts again.
+func TestWipeVolumeCountsPausedAndRestartingReplicas(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	v := w.dataVol(t)
+	for _, name := range []string{"held", "loop"} {
+		tl := w.mountedBy(t, name, false)
+		state := map[string]string{"held": "paused", "loop": "restarting"}[name]
+		w.fake.Containers = append(w.fake.Containers, docker.Container{
+			ID: "c-" + name, Name: "c-" + name, State: state,
+			Labels: map[string]string{tile.LabelTile: tl.ID, tile.LabelRole: "replica"},
+		})
+	}
+	if _, err := w.orch.WipeVolume(ctx, v.ID, false, false); !conflict(err) || !strings.Contains(err.Error(), "in use by") {
+		t.Fatalf("paused or restarting replica did not refuse: %v", err)
+	}
+	before := len(w.fake.Calls())
+	j, err := w.orch.WipeVolume(ctx, v.ID, true, false)
+	must(t, err)
+	if got := w.wait(t, j.ID); got.State != "done" {
+		t.Fatalf("job = %s", got.State)
+	}
+	got := w.callsFrom(before, "UntarVolume", "Stop", "Start")
+	for _, want := range []string{"Stop c-held", "Stop c-loop", "Start c-loop"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("calls %v miss %q", got, want)
+		}
+	}
+	if slices.Contains(got, "Start c-held") {
+		t.Errorf("paused replica started again: %v", got)
+	}
+}
+
 // A failed backup cancels the wipe; the tiles it stopped start again.
 func TestWipeVolumeBackupFirstFailure(t *testing.T) {
 	t.Parallel()
