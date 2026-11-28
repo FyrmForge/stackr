@@ -1581,7 +1581,7 @@ func (h *handler) DeleteSchedule(c echo.Context) error {
 }
 
 func (h *handler) DeleteVolume(c echo.Context) error {
-	err := h.orch.DeleteVolume(c.Request().Context(), c.Param("volume"))
+	_, err := h.orch.DeleteVolume(c.Request().Context(), c.Param("volume"), false)
 	if err == nil {
 		return respond.HTML(c, http.StatusOK, volume.Deleted())
 	}

@@ -355,7 +355,8 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		return "Added " + v.Slug + ".", err
 	}), write)
 	site.POST(e+"/volumes/:volume/remove", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
-		return "Volume removed. Its data is kept for the retention window.", h.orch.RemoveEnvVolume(c.Request().Context(), cd.s.Env.ID, c.Param("volume"))
+		_, err := h.orch.RemoveEnvVolume(c.Request().Context(), cd.s.Env.ID, c.Param("volume"), false)
+		return "Volume deleted.", err
 	}), write)
 	site.POST(e+"/settings", h.saveRung(
 		"env",

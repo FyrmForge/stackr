@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 )
 
@@ -91,44 +90,28 @@ func (o *Orchestrator) DeclareEnvVolume(ctx context.Context, envID, name string)
 	return o.volumes.Declare(ctx, sc, name, nil)
 }
 
-// RemoveEnvVolume orphans a volume of the env: its data stays for the
-// retention window, and declaring the name again takes it back. Refused
-// while a tile mounts it or an operated instance owns it.
-func (o *Orchestrator) RemoveEnvVolume(ctx context.Context, envID, volumeID string) error {
+// RemoveEnvVolume deletes a volume of the env at once (DeleteVolume): data,
+// row and schedules go, its backup archives stay. Refused while a tile mounts
+// it or an operated instance owns it. backupFirst makes it a job that backs
+// up first; a failed backup deletes nothing.
+func (o *Orchestrator) RemoveEnvVolume(ctx context.Context, envID, volumeID string, backupFirst bool) (Job, error) {
 	if err := o.envVolumesWritable(ctx, envID); err != nil {
-		return err
+		return Job{}, err
 	}
 	v, err := o.volumes.Get(ctx, volumeID)
 	if err != nil {
-		return err
+		return Job{}, err
 	}
 	if v.ScopeKind != "env" || v.ScopeID != envID || v.OrphanedAt != nil {
-		return errs.ErrNotFound
+		return Job{}, errs.ErrNotFound
 	}
-	if v.InstanceID != nil {
-		return errs.Conflictf("%s belongs to an operated instance; it goes when the instance does", v.Slug)
-	}
-	ts, err := o.tiles.List(ctx, envID)
-	if err != nil {
-		return err
-	}
-	// a tile whose delete is queued or running lets go: right after a
-	// tile delete, its row is still there for a few seconds
-	var keep []Tile
-	for _, t := range ts {
-		j, ok, err := o.jobRows.Last(ctx, t.ID)
-		if err != nil {
-			return err
+	if by, _, err := o.deleteChecks(ctx, v); err != nil {
+		if len(by) > 0 {
+			return Job{}, errs.Conflictf("%s is mounted by %s; take it out of their Volumes & mounts first", v.Slug, strings.Join(by, ", "))
 		}
-		if !ok || j.Kind != string(kindDelete) || !job.Live(j.State) {
-			keep = append(keep, t)
-		}
+		return Job{}, err
 	}
-	if by := mountedBy(keep, v.Slug); len(by) > 0 {
-		return errs.Conflictf("%s is mounted by %s; take it out of their Volumes & mounts first", v.Slug, strings.Join(by, ", "))
-	}
-	_, err = o.volumes.Orphan(ctx, v)
-	return err
+	return o.deleteVolume(ctx, v, backupFirst)
 }
 
 // envVolumesWritable refuses a config-managed stack: its file declares

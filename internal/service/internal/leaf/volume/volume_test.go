@@ -1,8 +1,11 @@
 package volume_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -111,4 +114,39 @@ func isInvalid(err error) bool {
 func isConflict(err error) bool {
 	_, ok := errs.IsConflict(err)
 	return ok
+}
+
+// Wipe sends an empty tar through the restore container and keeps the row;
+// Restore un-orphans.
+func TestWipeAndRestore(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	l := volume.New(st.Volumes, fake)
+	v, _, _ := l.Declare(ctx, env, "data", nil)
+	if err := l.Wipe(ctx, v); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(fake.Untarred))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(zr)
+	if len(b) != 1024 || len(bytes.Trim(b, "\x00")) != 0 {
+		t.Errorf("wipe archive = %d bytes, want 1024 zero bytes", len(b))
+	}
+	if _, err := l.Get(ctx, v.ID); err != nil {
+		t.Errorf("row after wipe = %v", err)
+	}
+
+	o, _ := l.Orphan(ctx, v)
+	back, err := l.Restore(ctx, o)
+	if err != nil || back.OrphanedAt != nil {
+		t.Fatalf("restore = %+v, %v", back, err)
+	}
+	if got, _ := l.Get(ctx, v.ID); got.OrphanedAt != nil {
+		t.Error("restore did not reach the row")
+	}
+	if err := volume.CheckDetached([]string{"api"}); err == nil {
+		t.Error("a mounted volume passed CheckDetached")
+	}
 }

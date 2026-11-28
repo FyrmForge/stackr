@@ -2,11 +2,14 @@
 // scoped (env, or the scope of the operated instance that owns it) and is
 // never removed by a deploy, rollback, promote or tile delete. It is orphaned
 // (row and data stay) when its entry leaves the stack file or its instance
-// goes; declaring the same slug again re-adopts it. Only an explicit Delete
-// removes data.
+// goes; declaring the same slug again, or Restore, takes it back. A delete
+// from the panel, API or CLI removes row and data at once; an orphan's data
+// goes with the orphan job after the retention window.
 package volume
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -266,18 +269,6 @@ func (l *Leaf) Delete(ctx context.Context, v store.Volume, mountedBy []string) e
 	return l.volumes.Delete(ctx, v.ID)
 }
 
-// Retire is the user's delete: the volume leaves its scope as an orphan, its
-// data kept for the retention window and backed up once before the orphan job
-// removes it (flow/backup Orphans), so its runs stay restorable. mountedBy
-// are the tiles whose volumes lines still name it.
-func (l *Leaf) Retire(ctx context.Context, v store.Volume, mountedBy []string) error {
-	if err := detached(mountedBy); err != nil {
-		return err
-	}
-	_, err := l.Orphan(ctx, v)
-	return err
-}
-
 // DeleteRow is Delete for a volume whose node is gone: the row only. The
 // folder cannot be reached, so it stays on the disk with its folder row.
 func (l *Leaf) DeleteRow(ctx context.Context, v store.Volume, mountedBy []string) error {
@@ -286,6 +277,10 @@ func (l *Leaf) DeleteRow(ctx context.Context, v store.Volume, mountedBy []string
 	}
 	return l.volumes.Delete(ctx, v.ID)
 }
+
+// CheckDetached is the refusal a delete gets while tiles still mount the
+// volume; the service asks it before it queues anything.
+func CheckDetached(mountedBy []string) error { return detached(mountedBy) }
 
 func detached(mountedBy []string) error {
 	if len(mountedBy) > 0 {
@@ -457,6 +452,26 @@ func (l *Leaf) Untar(ctx context.Context, v store.Volume, src io.Reader) error {
 		return err
 	}
 	return l.docker.UntarVolume(ctx, v.Name, src)
+}
+
+// Wipe empties the volume and keeps it: its row, mounts, cap and Docker
+// object stay. Same container, node and disk folder as Untar.
+// ponytail: an empty archive through the restore container; a WipeVolume on the Docker interface if busybox tar ever refuses it
+func (l *Leaf) Wipe(ctx context.Context, v store.Volume) error {
+	var b bytes.Buffer
+	zw := gzip.NewWriter(&b)
+	_, _ = zw.Write(make([]byte, 1024)) // the two zero blocks that end a tar
+	if err := zw.Close(); err != nil {
+		return err
+	}
+	return l.Untar(ctx, v, &b)
+}
+
+// Restore takes an orphan back: it is live again with its data. Re-declaring
+// the same slug does the same.
+func (l *Leaf) Restore(ctx context.Context, v store.Volume) (store.Volume, error) {
+	v.OrphanedAt = nil
+	return v, l.volumes.Update(ctx, v)
 }
 
 // ensureOnDisk is at, plus EnsureNamed when the node has a disk row (or the

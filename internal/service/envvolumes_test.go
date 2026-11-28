@@ -54,22 +54,28 @@ func TestEnvVolumes(t *testing.T) {
 	if len(vs.Volumes) != 1 || vs.Managed || strings.Join(vs.Volumes[0].MountedBy, ",") != "api" {
 		t.Fatalf("list = %+v", vs)
 	}
-	if err := w.orch.RemoveEnvVolume(ctx, w.env, v.ID); err == nil || !strings.Contains(err.Error(), "mounted by api") {
+	if _, err := w.orch.RemoveEnvVolume(ctx, w.env, v.ID, false); err == nil || !strings.Contains(err.Error(), "mounted by api") {
 		t.Fatalf("remove in use = %v", err)
 	}
-	if err := w.orch.RemoveEnvVolume(ctx, "other-env", v.ID); err == nil {
+	if _, err := w.orch.RemoveEnvVolume(ctx, "other-env", v.ID, false); err == nil {
 		t.Error("removed through another env")
 	}
 
 	_, _, err = w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error { t.Volumes = ""; return nil })
 	must(t, err)
-	must(t, w.orch.RemoveEnvVolume(ctx, w.env, v.ID))
+	_, err = w.orch.RemoveEnvVolume(ctx, w.env, v.ID, false)
+	must(t, err)
 	if vs, _ := w.orch.ListEnvVolumes(ctx, w.env); len(vs.Volumes) != 0 {
 		t.Errorf("orphan still listed: %+v", vs.Volumes)
 	}
-	if got, err := w.orch.Volume(ctx, v.ID); err != nil || got.OrphanedAt == nil {
-		t.Errorf("removed volume = %+v %v, want kept and orphaned", got, err)
+	if _, err := w.orch.Volume(ctx, v.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("removed volume = %v, want deleted at once", err)
 	}
+	// a stack file removal still orphans: the same name takes it back
+	v, _, err = w.orch.DeclareEnvVolume(ctx, w.env, "data")
+	must(t, err)
+	_, err = w.orch.volumes.Orphan(ctx, v)
+	must(t, err)
 	// an orphan is no longer declared for a tile
 	if _, _, err := w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error { t.Volumes = "data:/data"; return nil }); !invalidOn(err, "volumes", "data") {
 		t.Errorf("orphan mount = %v", err)
@@ -86,7 +92,7 @@ func TestEnvVolumes(t *testing.T) {
 	if ts, err := w.orch.Tiles(ctx, w.env); err != nil || len(ts) != 1 {
 		t.Fatalf("tile gone before its delete ran: %d %v", len(ts), err)
 	}
-	if err := w.orch.RemoveEnvVolume(ctx, w.env, v.ID); err != nil {
+	if _, err := w.orch.RemoveEnvVolume(ctx, w.env, v.ID, false); err != nil {
 		t.Errorf("remove after the tile's delete = %v", err)
 	}
 }
@@ -107,7 +113,7 @@ func TestEnvVolumesOwnedAndOperated(t *testing.T) {
 	if len(vs.Volumes) != 1 || vs.Volumes[0].OwnedBy != "pg" {
 		t.Fatalf("instance volume = %+v", vs.Volumes)
 	}
-	if err := w.orch.RemoveEnvVolume(ctx, w.env, "v-pg"); err == nil {
+	if _, err := w.orch.RemoveEnvVolume(ctx, w.env, "v-pg", false); err == nil {
 		t.Error("removed an instance's volume")
 	}
 	if _, _, err := w.orch.DeclareEnvVolume(ctx, w.env, "pgdata"); err == nil {

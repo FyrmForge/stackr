@@ -196,7 +196,10 @@ func (h *H) DeclareVolume(at At) Endpoint {
 }
 
 func (h *H) DeleteVolume() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteVolume(rc(c), c.Param("volume")) })
+	return Done(func(c echo.Context, _ None) error {
+		_, err := h.Orch.DeleteVolume(rc(c), c.Param("volume"), false)
+		return err
+	})
 }
 
 func (h *H) BackupMethods() Endpoint {

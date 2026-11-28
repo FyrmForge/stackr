@@ -755,6 +755,19 @@ func (l *Leaf) running(ctx context.Context, ts []store.Tile) ([]string, error) {
 	return ids, nil
 }
 
+// AnyRunning says whether any replica of ts is running.
+func (l *Leaf) AnyRunning(ctx context.Context, ts []store.Tile) (bool, error) {
+	if len(ts) == 0 {
+		return false, nil
+	}
+	ctx, err := l.atFirst(ctx, ts)
+	if err != nil {
+		return false, err
+	}
+	ids, err := l.running(ctx, ts)
+	return len(ids) > 0, err
+}
+
 // hold is one container's Freeze bookkeeping. Its own lock is held across
 // that container's Pause/Unpause, so a second Freeze of it waits for the
 // first to finish pausing, while a dead node never blocks another tile's.
@@ -877,6 +890,16 @@ func (l *Leaf) Freeze(ctx context.Context, ts []store.Tile) (thaw func(), err er
 // Quiesce stops every running replica of ts and waits for each to exit (a
 // stop that returns early gives a torn tar); resume starts them again.
 func (l *Leaf) Quiesce(ctx context.Context, ts []store.Tile) (resume func(), err error) {
+	r, err := l.QuiesceChecked(ctx, ts)
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = r() }, nil
+}
+
+// QuiesceChecked is Quiesce whose resume reports the replicas that did not
+// start again, so a caller can tell the user.
+func (l *Leaf) QuiesceChecked(ctx context.Context, ts []store.Tile) (resume func() error, err error) {
 	if ctx, err = l.atFirst(ctx, ts); err != nil {
 		return nil, err
 	}
@@ -885,15 +908,19 @@ func (l *Leaf) Quiesce(ctx context.Context, ts []store.Tile) (resume func(), err
 		return nil, err
 	}
 	var done []string
-	resume = func() {
+	resume = func() error {
+		var failed []error
 		for _, id := range done {
-			_ = l.docker.Start(context.WithoutCancel(ctx), id)
+			if err := l.docker.Start(context.WithoutCancel(ctx), id); err != nil {
+				failed = append(failed, fmt.Errorf("starting %s: %w", id, err))
+			}
 		}
+		return errors.Join(failed...)
 	}
 	for _, id := range ids {
 		if err := l.docker.Stop(ctx, id); err != nil {
-			resume()
-			return nil, fmt.Errorf("stopping %s: %w", id, err)
+			rerr := resume()
+			return nil, errors.Join(fmt.Errorf("stopping %s: %w", id, err), rerr)
 		}
 		done = append(done, id)
 	}
