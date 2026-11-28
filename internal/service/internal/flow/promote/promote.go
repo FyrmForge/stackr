@@ -36,6 +36,12 @@ type Flow struct {
 	// SetVolumeCap sets or clears (nil) a volume's size cap through the
 	// service, which puts it on the host. Nil = the file's caps are ignored.
 	SetVolumeCap func(ctx context.Context, volumeID string, mb *int64) error
+	// VolumeBackup reads a volume's non-base schedules: the cron and keep of
+	// the first, n = how many. Nil = the file's backup: is ignored.
+	VolumeBackup func(ctx context.Context, volumeID string) (cron string, keep, n int, err error)
+	// SetVolumeBackup makes the volume's non-base schedules exactly one with
+	// cron and keep; cron "" = none. Nil = the file's backup: is ignored.
+	SetVolumeBackup func(ctx context.Context, volumeID, cron string, keep int) error
 	// Tx runs fn in one store transaction: a new instance and its primary row
 	// are written together.
 	Tx func(ctx context.Context, fn func(store.Tx) error) error

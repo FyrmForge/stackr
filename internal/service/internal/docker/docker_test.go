@@ -146,3 +146,19 @@ func TestMounts(t *testing.T) {
 		t.Error("no mounts must map to none")
 	}
 }
+
+func TestMountDenied(t *testing.T) {
+	spec := ContainerSpec{Volumes: []string{"stackr-share-a1-abc:/data:ro", "/host:/h"}, Mounts: []Mount{{Volume: "stackr-vol-x"}}}
+	nfs := errors.New(`Error response from daemon: failed to mount local volume: mount :/srv:/var/lib/docker/volumes/stackr-share-a1-abc/_data: permission denied`)
+	var md MountDeniedError
+	if err := mountDenied(nfs, specVolumes(spec)); !errors.As(err, &md) || md.Volume != "stackr-share-a1-abc" || md.Raw != nfs.Error() {
+		t.Errorf("nfs = %v", err)
+	}
+	other := errors.New("no such image")
+	if err := mountDenied(other, specVolumes(spec)); err != other {
+		t.Errorf("unrelated wrapped: %v", err)
+	}
+	if err := mountDenied(errors.New("permission denied on /etc/foo"), specVolumes(spec)); errors.As(err, &md) && md.Volume != "stackr-share-a1-abc" {
+		t.Errorf("unnamed volume wrapped: %v", err)
+	}
+}

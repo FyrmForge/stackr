@@ -30,7 +30,7 @@ func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 	// retry will collide with.
 	if err := d.cli.ContainerStart(ctx, id, container.StartOptions{}); err != nil {
 		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), id, container.RemoveOptions{Force: true, RemoveVolumes: true})
-		return "", err
+		return "", mountDenied(err, specVolumes(spec))
 	}
 	return id, nil
 }
@@ -52,6 +52,9 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 		Env:    spec.Env,
 		User:   spec.User,
 		Labels: labels,
+	}
+	if len(spec.Entrypoint) > 0 {
+		cfg.Entrypoint = spec.Entrypoint
 	}
 	if spec.HealthCmd != "" {
 		cfg.Healthcheck = &container.HealthConfig{
@@ -213,7 +216,17 @@ func (d *Client) Stop(ctx context.Context, id string) error {
 }
 
 func (d *Client) Start(ctx context.Context, id string) error {
-	return wrap(d.cli.ContainerStart(ctx, id, container.StartOptions{}))
+	err := wrap(d.cli.ContainerStart(ctx, id, container.StartOptions{}))
+	// Start has no spec: any stackr-share volume the text names is the one.
+	if err != nil {
+		if i := strings.Index(err.Error(), "stackr-share-"); i >= 0 {
+			name, _, _ := strings.Cut(strings.FieldsFunc(err.Error()[i:], func(r rune) bool {
+				return r == ' ' || r == ':' || r == '"' || r == '\'' || r == ',' || r == '(' || r == ')'
+			})[0], ":")
+			return mountDenied(err, []string{name})
+		}
+	}
+	return err
 }
 
 // Restart keeps networks and addresses, unlike a recreate.

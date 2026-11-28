@@ -1,0 +1,1 @@
+ALTER TABLE tiles ADD COLUMN entrypoint TEXT NOT NULL DEFAULT '';

@@ -80,6 +80,11 @@ func (f *Flow) shareBind(ctx context.Context, o store.Org, e store.Environment, 
 // ShareGrant is the perm an approval of mounting share slug at addr holds.
 func ShareGrant(slug, addr string) string { return hostgrant.Share + slug + "@" + addr }
 
+// ShareAddr is shareAddr for callers outside the package.
+func (f *Flow) ShareAddr(ctx context.Context, s store.Share) (string, error) {
+	return f.shareAddr(ctx, s)
+}
+
 // shareAddr is the IP the node mounts for s: its source when that is an IP,
 // else the first IPv4 its name resolves to in sorted order (an IPv6 only when
 // there is none), so the pin is stable. No answer is an error, no mount.

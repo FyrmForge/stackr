@@ -69,3 +69,18 @@ func TestSpecRestart(t *testing.T) {
 		t.Errorf("an engine's restart = %q, want no", got)
 	}
 }
+
+func TestJoinCommandRoundTrip(t *testing.T) {
+	for _, want := range [][]string{
+		{"sh", "-c"},
+		{"echo", "a b", "c"},
+		{"it's", `say "hi"`},
+		{`a\b`, ``, `both ' and "`},
+		{"tab\there"},
+	} {
+		got, err := SplitCommand(JoinCommand(want))
+		if err != nil || !slices.Equal(got, want) {
+			t.Errorf("round trip of %q = %q (%q), %v", want, got, JoinCommand(want), err)
+		}
+	}
+}

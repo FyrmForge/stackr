@@ -121,6 +121,26 @@ func publishedPorts(s string) (map[string]string, []string) {
 	return out, warn
 }
 
+// SplitCommand is splitCommand for callers outside the package.
+func SplitCommand(s string) ([]string, error) { return splitCommand(s) }
+
+// JoinCommand is the inverse of SplitCommand: an element is quoted only when
+// it is empty or holds whitespace, a quote or a backslash.
+func JoinCommand(argv []string) string {
+	parts := make([]string, len(argv))
+	for i, a := range argv {
+		switch {
+		case a != "" && !strings.ContainsAny(a, " \t\n'\"\\"):
+			parts[i] = a
+		case !strings.Contains(a, "'"):
+			parts[i] = "'" + a + "'"
+		default:
+			parts[i] = `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(a) + `"`
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 // splitCommand tokenizes a command into argv like a shell word-splits, with
 // no expansion and no "sh -c": Docker appends Cmd to the entrypoint, and
 // images like prometheus take flags on their own binary.

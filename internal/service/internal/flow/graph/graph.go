@@ -38,6 +38,9 @@ import (
 )
 
 type Flow struct {
+	// NoBackup marks live, non-archive volumes with no schedule; nil = none
+	// asked. ponytail: declared in wave 0, wired later.
+	NoBackup func(ctx context.Context, vs []store.Volume) map[string]bool
 	Orgs     *org.Leaf
 	Stacks   *stack.Leaf
 	Envs     *environment.Leaf
