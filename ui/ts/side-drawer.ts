@@ -20,7 +20,7 @@ class SideDrawer extends HTMLElement {
   private dirty = false;
   private fullByLink = false; // a data-full link set full: the close undoes it
   private saves = new WeakSet<object>(); // xhrs of non-GET requests sent from an edited form
-  private edited = new WeakSet<Element>(); // forms the user changed
+  private edited = new Set<Element>(); // forms the user changed
 
   private onSwap = (e: Event): void => {
     const d = (e as CustomEvent<{ target?: Element; requestConfig?: { elt?: Element } }>).detail;
@@ -29,7 +29,15 @@ class SideDrawer extends HTMLElement {
     if (!body || !target || !body.contains(target)) return;
     // only a new drawer (the body itself) resets edits and focus: a swap
     // of a child (a poll, a tab's refresh) must not
-    if (target === body) this.dirty = false;
+    if (target === body) {
+      this.dirty = false;
+      this.edited.clear();
+    } else {
+      // a child swap may have replaced the edited form (a tab switch): only a
+      // form still inside the body keeps the drawer dirty
+      for (const f of this.edited) if (!body.contains(f)) this.edited.delete(f);
+      this.dirty = this.edited.size > 0;
+    }
     const was = document.activeElement as HTMLElement | null;
     if (!this.hasAttribute("open") && was && !this.contains(was)) this.opener = was;
     this.setAttribute("open", "");
@@ -72,7 +80,10 @@ class SideDrawer extends HTMLElement {
   // text up: this request's end closes it, another request's does not.
   private onDone = (e: Event): void => {
     const d = (e as CustomEvent<{ target?: Element; xhr?: object; successful?: boolean }>).detail;
-    if (d?.xhr && this.saves.delete(d.xhr) && d.successful) this.dirty = false;
+    if (d?.xhr && this.saves.delete(d.xhr) && d.successful) {
+      this.dirty = false;
+      this.edited.clear();
+    }
     if (d?.target === this.body()) this.onLost();
   };
 
@@ -110,11 +121,12 @@ class SideDrawer extends HTMLElement {
 
   // Only a form's own fields count: not a confirm's typed word, not the
   // log pane's filters, not the vars grid's staging forms (their pending
-  // footer says so in close()).
+  // footer says so in close()). Nor a filter (a form with hx-get) or an
+  // auto-save (hx-trigger with "change"): they hold nothing unsaved.
   private onEdit = (e: Event): void => {
     const el = e.target as Element;
     const form = el.closest("form");
-    if (form && !el.closest("dialog") && !el.closest("[data-hold]") && this.body()?.contains(el)) {
+    if (form && !el.closest('dialog, [data-hold], form[hx-get], [hx-trigger*="change"]') && this.body()?.contains(el)) {
       this.edited.add(form);
       this.dirty = true;
     }
@@ -194,6 +206,7 @@ class SideDrawer extends HTMLElement {
       if (ask) return void (ask.open || ask.showModal());
     }
     this.dirty = false;
+    this.edited.clear();
     this.querySelector<HTMLDialogElement>("dialog[data-discard]")?.close();
     if (this.fullByLink) this.expand(false); // the next canvas drawer opens at its own width
     this.removeAttribute("open");

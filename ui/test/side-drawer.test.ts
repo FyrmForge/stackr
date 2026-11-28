@@ -69,7 +69,7 @@ function drawer(opts: { dirty?: boolean; contains?: (n: unknown) => boolean; foo
 test("a successful non-GET request from inside the drawer clears dirty, even with no swap", () => {
   const { el, body } = drawer({ dirty: true });
   const xhr = {}, form = {}, elt = { closest: (s: string) => (s === "form" ? form : null) };
-  (el.edited as WeakSet<object>).add(form);
+  (el.edited as Set<object>).add(form);
   handlers["htmx:beforeRequest"]({ detail: { elt, xhr, target: elt, requestConfig: { verb: "post" } } });
   handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: body } });
   assert.equal(el.dirty, false);
@@ -91,6 +91,7 @@ test("a failed (422) save, a GET poll and a request from outside keep dirty", ()
 
 test("a swap into a child keeps dirty; a swap into the body itself resets it", () => {
   const { el, body } = drawer({ dirty: true });
+  (el.edited as Set<object>).add({});
   handlers["htmx:afterSwap"]({ detail: { target: {} } });
   assert.equal(el.dirty, true);
   handlers["htmx:afterSwap"]({ detail: { target: body } });
@@ -125,7 +126,7 @@ test("a clean or forced close never asks", () => {
 test("a staging POST (preview) or an unrelated button keeps dirty; saving the edited form clears it", () => {
   const { el, body } = drawer({ dirty: true });
   const form = {}, other = {};
-  (el.edited as WeakSet<object>).add(form);
+  (el.edited as Set<object>).add(form);
   const send = (elt: object, xhr: object) => {
     handlers["htmx:beforeRequest"]({ detail: { elt, xhr, target: elt, requestConfig: { verb: "post" } } });
     handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: body } });
@@ -154,5 +155,30 @@ test("a pending footer's Apply clears dirty", () => {
   const elt = { closest: (s: string) => (s.includes("-held") ? {} : null) };
   handlers["htmx:beforeRequest"]({ detail: { elt, xhr, target: elt, requestConfig: { verb: "post" } } });
   handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: body } });
+  assert.equal(el.dirty, false);
+});
+
+// an input event from a field in form: filter = the form has hx-get, auto = an hx-trigger with change
+function type(el: Record<string, unknown>, form: object, kind: "plain" | "filter" | "auto" = "plain") {
+  const target = { closest: (s: string) => (s === "form" ? form : kind === "filter" && s.includes("form[hx-get]") ? {} : kind === "auto" && s.includes("hx-trigger") ? {} : null) };
+  (el.onEdit as (e: unknown) => void).call(el, { target });
+}
+
+test("a log filter change or an auto-save field never makes the drawer dirty", () => {
+  const { el } = drawer();
+  type(el, {}, "filter");
+  type(el, {}, "auto");
+  assert.equal(el.dirty, false);
+});
+
+test("a typed settings field is dirty; a tab switch that drops its form is not; no save keeps it", () => {
+  const { el, body } = drawer();
+  const form = {};
+  type(el, form);
+  assert.equal(el.dirty, true);
+  handlers["htmx:afterSwap"]({ detail: { target: {} } }); // a poll: the form is still there
+  assert.equal(el.dirty, true);
+  (body as { contains: (n: unknown) => boolean }).contains = (n) => n !== form; // the tab swap replaced it
+  handlers["htmx:afterSwap"]({ detail: { target: {} } });
   assert.equal(el.dirty, false);
 });
