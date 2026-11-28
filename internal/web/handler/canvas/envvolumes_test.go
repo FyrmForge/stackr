@@ -48,7 +48,7 @@ func TestEnvVolumesRow(t *testing.T) {
 
 	rec = s.Do(t, "POST", remove, url.Values{"open": {"volumes"}})
 	b = rec.Body.String()
-	form, why := strings.Index(b, `hx-post="`+remove+`"`), strings.Index(b, "take it out of their Storage")
+	form, why := strings.Index(b, `hx-post="`+remove+`"`), strings.Index(b, "take it out of their Volumes &amp; mounts")
 	if rec.Code != http.StatusUnprocessableEntity || form < 0 || why < form {
 		t.Errorf("remove in use = %d, reason at %d, form at %d\n%s", rec.Code, why, form, b)
 	}

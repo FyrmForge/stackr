@@ -90,7 +90,7 @@ func TestForgetDiskIsOfferedOnAMissingDiskOnly(t *testing.T) {
 		"controller, disk "+diskID, `word="controller"`, `data-word`,
 		"Its volumes come back from their newest backup. Tiles that use them restart.",
 		"Volumes without a backup start empty.", ">pgdata</span>", "starts empty", "shop / dev",
-		"Type <span class=\"font-mono text-rw-text\">controller</span> to confirm", `hx-post="/-/admin/nodes/`+id+`/disk/forget"`)
+		`<button type="button" class="font-mono text-rw-text cursor-pointer px-1 rounded" data-copy="controller" title="Copy">controller</button>`, `hx-post="/-/admin/nodes/`+id+`/disk/forget"`)
 	if strings.Contains(card, "Move all to disk") {
 		t.Error("Move all is offered on a missing disk")
 	}
@@ -205,7 +205,7 @@ func TestAdoptEntryStepOneAndForgetRecord(t *testing.T) {
 	has(t, "pointing", one, "Disks of forgotten nodes · 1", diskID, "was oldbox", "Forget record", "Forget this disk record",
 		diskID+", was on oldbox", "The record of this disk is removed. Nothing else changes.",
 		"still point at oldbox. Recover them first.", `role="alert"`, ">Close</button>")
-	if strings.Contains(one, "Type <span") {
+	if strings.Contains(one, "data-copy") {
 		t.Errorf("a refused record asks for a typed word\n%s", one)
 	}
 
@@ -215,7 +215,7 @@ func TestAdoptEntryStepOneAndForgetRecord(t *testing.T) {
 	must(t, err)
 	_ = v
 	one = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/disk/adopt/plan", url.Values{}).Body.String()
-	has(t, "free", one, "Forget this disk record", `word="`+diskID+`"`, ">Forget record</button>", "Type <span class=\"font-mono text-rw-text\">"+diskID+"</span> to confirm")
+	has(t, "free", one, "Forget this disk record", `word="`+diskID+`"`, ">Forget record</button>", `data-copy="`+diskID+`"`)
 
 	rec := s.As(t, root, "POST", "/-/admin/nodes/"+id+"/disk/forget", url.Values{"disk": {diskID}, "confirm": {"nope"}})
 	if rec.Code != 422 {

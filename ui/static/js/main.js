@@ -150,15 +150,32 @@ document.addEventListener('input', function(evt) {
     el._hamrRevalidate = setTimeout(function() { htmx.trigger(el, 'hamr:revalidate'); }, 300);
 });
 
+// The add-variable form's Secret toggle: a secret's value is a password input
+// (not only CSS-masked), so it is not readable by the page's text tools.
+document.addEventListener('change', function (evt) {
+    var el = evt.target;
+    if (!el.matches || !el.matches('input[type=checkbox][name=add_kind]')) return;
+    var form = el.closest('form');
+    if (!form) return;
+    form.querySelectorAll('input[name^="add_value."]').forEach(function (v) {
+        v.type = el.checked ? 'password' : 'text';
+    });
+});
+
 // Copy-to-clipboard buttons: any element with data-copy copies its value and
 // flashes "Copied" for a moment.
 document.addEventListener('click', function (evt) {
     var btn = evt.target.closest('[data-copy]');
-    if (!btn) return;
+    if (!btn || !navigator.clipboard) return; // plain http has no clipboard
     navigator.clipboard.writeText(btn.dataset.copy).then(function () {
-        var old = btn.textContent;
+        // the original text is kept once: a second click inside the window must not capture "Copied"
+        if (btn.dataset.copyWas === undefined) btn.dataset.copyWas = btn.textContent;
         btn.textContent = 'Copied';
-        setTimeout(function () { btn.textContent = old; }, 1500);
+        clearTimeout(btn._copyTimer);
+        btn._copyTimer = setTimeout(function () {
+            btn.textContent = btn.dataset.copyWas;
+            delete btn.dataset.copyWas;
+        }, 1500);
     });
 });
 

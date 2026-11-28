@@ -71,7 +71,7 @@ func SideDrawer(body templ.Component, tab string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></aside></side-drawer>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></aside><dialog class=\"modal-panel text-rw-text\" data-discard aria-labelledby=\"discard-title\"><div class=\"modal-head\"><h2 class=\"modal-title\" id=\"discard-title\">Discard your unsaved changes?</h2></div><div class=\"modal-foot\"><button type=\"button\" class=\"btn btn-ghost btn-sm\" data-keep autofocus>Cancel</button> <button type=\"button\" class=\"btn btn-danger btn-sm\" data-discard-yes>Discard</button></div></dialog></side-drawer>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -140,7 +140,7 @@ func DrawerLoad(url string) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templruntime.NewAttributeExpression(url).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer.templ`, Line: 46, Col: 18}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer.templ`, Line: 55, Col: 18}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {

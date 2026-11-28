@@ -651,6 +651,8 @@ func (o *Orchestrator) envHealth(ctx context.Context, e store.Environment, nodeU
 		return HealthDegraded
 	case "running", "done", "building", "queued", "removing":
 		return HealthHealthy
+	case "paused": // Docker-paused (a backup holds it): stopped, as before
+		return HealthStopped
 	}
 	return HealthStopped
 }

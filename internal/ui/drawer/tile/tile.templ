@@ -52,7 +52,7 @@ templ actionButtons(v View) {
 			default:
 				if v.Stopped {
 					@c.PostButton("Start", v.Base+"/start")
-				} else if v.Status != "none" {
+				} else if v.Status != "none" && v.Status != "paused" {
 					@c.Confirm(quiet(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root)))
 					@c.PostButton("Restart", v.Base+"/restart")
 				}
@@ -228,7 +228,11 @@ templ LiveAccess(s StatusView) {
 	} else {
 		<ul class="space-y-1 text-sm text-rw-muted">
 			if s.Port != "" {
-				<li>container port <span class="font-mono text-rw-text">{ s.Port }</span> (proxied via domains above)</li>
+				<li>container port <span class="font-mono text-rw-text">{ s.Port }</span>
+					if len(s.URLs) > 0 {
+						(proxied via domains above)
+					}
+				</li>
 			}
 			for _, p := range s.Ports {
 				<li>host port <span class="font-mono text-rw-text">{ p }</span> published directly</li>
@@ -838,7 +842,9 @@ templ networkRow(v View, s SettingsView) {
 templ storageRow(v View, s SettingsView) {
 	@rowForm(v, s, "storage", storageKeys) {
 		@mounts(v, s)
-		@area(s, "files", "Files", "config/loki.yml:/etc/loki/config.yml", "Read-only from the repo; add :template to resolve references.")
+		if s.ShowFiles() {
+			@area(s, "files", "Files", "config/loki.yml:/etc/loki/config.yml", "Read-only from the stack's config repo; add :template to resolve references.")
+		}
 	}
 	if len(s.Volumes) > 0 {
 		@volumes(s.Volumes)
@@ -1082,7 +1088,7 @@ templ addDomain(v View, d DomainsView) {
 					</label>
 				</div>
 			</details>
-			<button type="submit" class="btn btn-primary">Add</button>
+			<button type="submit" class="btn btn-primary">Attach domain</button>
 		</form>
 		if d.Replace != nil && !d.Replace.Adopt {
 			<p class="mt-2 text-sm text-rw-muted">{ d.Replace.Host } already has a DNS record.</p>

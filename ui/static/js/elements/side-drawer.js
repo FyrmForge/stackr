@@ -3,13 +3,32 @@ class SideDrawer extends HTMLElement {
     opener = null;
     dirty = false;
     fullByLink = false;
+    saves = new WeakSet();
+    edited = new Set();
     onSwap = (e) => {
         const d = e.detail;
         const target = d?.target;
         const body = this.body();
         if (!body || !target || !body.contains(target))
             return;
-        this.dirty = false;
+        const x = d.xhr;
+        const refused = !!x && this.saves.has(x) && x.status >= 400;
+        if (refused) {
+            this.edited.clear();
+            for (const f of target.querySelectorAll("form:not([data-hold], [hx-get], [hx-trigger*=change])"))
+                this.edited.add(f);
+            this.dirty = true;
+        }
+        else if (target === body) {
+            this.dirty = false;
+            this.edited.clear();
+        }
+        else {
+            for (const f of this.edited)
+                if (!body.contains(f))
+                    this.edited.delete(f);
+            this.dirty = this.edited.size > 0;
+        }
         const was = document.activeElement;
         if (!this.hasAttribute("open") && was && !this.contains(was))
             this.opener = was;
@@ -21,11 +40,17 @@ class SideDrawer extends HTMLElement {
             this.setAttribute("tab", tab);
         else
             this.removeAttribute("tab");
-        this.querySelector("[data-close]")?.focus({ preventScroll: true });
+        if (target === body)
+            this.querySelector("[data-close]")?.focus({ preventScroll: true });
     };
     onBefore = (e) => {
         const body = this.body();
-        if (!body || e.detail?.target !== body || this.hasAttribute("open"))
+        const d = e.detail;
+        const form = d?.elt?.closest("form");
+        const save = (form && this.edited.has(form) && !d?.elt?.closest("[data-hold]")) || d?.elt?.closest('form[id$="-held"]');
+        if (body && d?.xhr && d.elt && save && body.contains(d.elt) && (d.requestConfig?.verb ?? "get").toLowerCase() !== "get")
+            this.saves.add(d.xhr);
+        if (!body || d?.target !== body || this.hasAttribute("open"))
             return;
         const was = document.activeElement;
         if (was && !this.contains(was))
@@ -43,7 +68,12 @@ class SideDrawer extends HTMLElement {
             this.close(true);
     };
     onDone = (e) => {
-        if (e.detail?.target === this.body())
+        const d = e.detail;
+        if (d?.xhr && this.saves.delete(d.xhr) && d.successful && d.xhr.status < 400) {
+            this.dirty = false;
+            this.edited.clear();
+        }
+        if (d?.target === this.body())
             this.onLost();
     };
     onClick = (e) => {
@@ -51,7 +81,14 @@ class SideDrawer extends HTMLElement {
         if (el.closest("[data-expand]"))
             return this.expand(!this.hasAttribute("full"), false);
         if (el.closest("[data-close], [data-backdrop]"))
-            this.close();
+            return this.close();
+        const ask = this.querySelector("dialog[data-discard]");
+        if (el.closest("[data-keep]"))
+            ask?.close();
+        else if (el.closest("[data-discard-yes]")) {
+            ask?.close();
+            this.close(true);
+        }
     };
     expand(on, byLink = false) {
         this.fullByLink = byLink;
@@ -68,8 +105,11 @@ class SideDrawer extends HTMLElement {
     onSettle = () => this.expand(this.hasAttribute("full"), this.fullByLink);
     onEdit = (e) => {
         const el = e.target;
-        if (el.closest("form") && !el.closest("dialog") && this.body()?.contains(el))
+        const form = el.closest("form");
+        if (form && !el.closest('dialog, form[hx-get], [hx-trigger*="change"]:not([data-hold])') && this.body()?.contains(el)) {
+            this.edited.add(form);
             this.dirty = true;
+        }
     };
     onError = (e) => {
         const d = e.detail;
@@ -137,9 +177,14 @@ class SideDrawer extends HTMLElement {
     close(force = false) {
         if (!this.hasAttribute("open"))
             return;
-        if (this.dirty && !force && !window.confirm("Discard your unsaved changes?"))
-            return;
+        if ((this.dirty || this.querySelector('#drawer-body form[id$="-held"]')) && !force) {
+            const ask = this.querySelector("dialog[data-discard]");
+            if (ask)
+                return void (ask.open || ask.showModal());
+        }
         this.dirty = false;
+        this.edited.clear();
+        this.querySelector("dialog[data-discard]")?.close();
         if (this.fullByLink)
             this.expand(false);
         this.removeAttribute("open");

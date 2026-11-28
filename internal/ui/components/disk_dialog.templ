@@ -60,7 +60,11 @@ templ DiskConfirm(v DiskConfirmView) {
 					}
 					if v.Word != "" {
 						<div>
-							<label class="label">Type <span class="font-mono text-rw-text">{ v.Word }</span> to confirm</label>
+							<p class="label">
+								{ "Type " }
+								@CopyWord(v.Word)
+								{ " to confirm" }
+							</p>
 							<input type="text" class="input font-mono" data-word autocomplete="off" if v.Include != "" { name="typed" } aria-label={ "Type " + v.Word + " to confirm" }/>
 						</div>
 					}

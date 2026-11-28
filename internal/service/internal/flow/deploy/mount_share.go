@@ -17,7 +17,7 @@ import (
 )
 
 // shareBind is a "share:slug/sub:/abs[:ro]" line: a Docker volume on the
-// org's network share, as a Docker bind. The share is the tile's own org's;
+// org's network share, as a Docker bind (":nocopy" or ":ro,nocopy"). The share is the tile's own org's;
 // its user and password are ${{ org.params }} refs only (a share is an org
 // object), read as the tile's env reads them (its tier's block, or an unlocked [x] one), expanded here, so a
 // secret reaches Docker's volume opts and nothing else.
@@ -68,7 +68,13 @@ func (f *Flow) shareBind(ctx context.Context, o store.Org, e store.Environment, 
 	if err != nil {
 		return "", err
 	}
-	return name + ":" + m.Path + roSuffix(m), nil
+	// nocopy: the first mount of an empty volume must not copy the image's
+	// files at the path into the share.
+	opts := ":nocopy"
+	if m.RO {
+		opts = ":ro,nocopy"
+	}
+	return name + ":" + m.Path + opts, nil
 }
 
 // ShareGrant is the perm an approval of mounting share slug at addr holds.

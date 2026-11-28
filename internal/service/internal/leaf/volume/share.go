@@ -47,7 +47,7 @@ var (
 // on the host with whatever an org owner writes here, so only options that
 // tune the transport or the file view pass.
 var shareOpts = map[string][]string{
-	NFS: {"nfsvers", "vers", "ro", "rw", "soft", "hard", "timeo", "retrans", "rsize", "wsize", "proto", "port", "nolock", "noatime", "nconnect", "sec", "noresvport", "actimeo", "lookupcache"},
+	NFS: {"nfsvers", "vers", "ro", "rw", "soft", "hard", "timeo", "retrans", "rsize", "wsize", "proto", "port", "nolock", "noatime", "nconnect", "sec", "noresvport", "actimeo", "lookupcache", "noac", "sync"},
 	SMB: {"vers", "ro", "rw", "uid", "gid", "file_mode", "dir_mode", "domain", "sec", "iocharset", "noperm", "nounix", "cache", "soft", "hard", "rsize", "wsize", "actimeo", "mfsymlinks", "seal", "nobrl", "port"},
 }
 

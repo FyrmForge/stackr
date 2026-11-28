@@ -59,7 +59,8 @@ type ContainerSpec struct {
 	// extract: dropped RestartAlways bool + NormalizeRestart, belongs in leaf/tile.
 	Restart string
 
-	// Docker-native HEALTHCHECK, run as CMD-SHELL. Empty HealthCmd = none.
+	// Docker-native HEALTHCHECK, run as CMD (argv) for plain words, else as
+	// CMD-SHELL (see healthTest). Empty HealthCmd = none.
 	// Zero values are docker's defaults.
 	// extract: dropped the 5s interval default (docker's is 30s, the deploy
 	// gate waits on the first check), belongs in flow/deploy spec build.

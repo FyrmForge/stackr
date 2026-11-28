@@ -206,15 +206,18 @@ func TestRunningPushShows(t *testing.T) {
 		t.Fatal(err)
 	}
 	pid := s.LivePushJob(t, empty.ID, "running", `{"event":{"Commit":"abc1234def"}}`)
-	if body := get(t, s, "/acme/huginn"); !strings.Contains(body, "Building huginn at abc1234, started ") || !strings.Contains(body, `href="/acme/-/jobs/`+pid+`"`) {
+	if body := get(t, s, "/acme/huginn"); !strings.Contains(body, "Building huginn at abc1234, started ") || !strings.Contains(body, `href="/acme/-/jobs/`+pid+`"`) ||
+		strings.Count(body, `hx-get="/acme/huginn/-/new-env"`) != 1 { // the top bar only
 		t.Errorf("empty stack, running:\n%s", body)
 	}
 	s.EndJob(t, pid, "done", "", `{"skipped":["prod: the file gives it no branch or promote"]}`)
-	if body := get(t, s, "/acme/huginn"); !strings.Contains(body, "This stack has no environments yet.") || !strings.Contains(body, "prod: the file gives it no branch or promote") {
+	if body := get(t, s, "/acme/huginn"); !strings.Contains(body, "This stack has no environments yet.") || !strings.Contains(body, "prod: the file gives it no branch or promote") ||
+		strings.Count(body, `hx-get="/acme/huginn/-/new-env"`) != 2 { // the top bar and the empty page
 		t.Errorf("empty stack, done:\n%s", body)
 	}
 	s.EndJob(t, pid, "failed", "buildx build: exit status 1", "")
-	if body := get(t, s, "/acme/huginn"); !strings.Contains(body, "The last push failed: buildx build: exit status 1.") {
+	if body := get(t, s, "/acme/huginn"); !strings.Contains(body, "The last push failed: buildx build: exit status 1.") ||
+		strings.Count(body, `hx-get="/acme/huginn/-/new-env"`) != 1 {
 		t.Errorf("empty stack, failed:\n%s", body)
 	}
 }

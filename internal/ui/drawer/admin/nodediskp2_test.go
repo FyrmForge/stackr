@@ -46,7 +46,7 @@ func TestForgetDialogRefusedOnOpenHasCloseOnly(t *testing.T) {
 	out := renderC(t, forgetDialog(f, false))
 	wants(t, "12h", out, "Forget this disk", "vm-hel-2, disk dk_7f3a", "Its volumes come back from their newest backup. Tiles that use them restart.",
 		"Volumes without a backup start empty.", "backup of Nov 17", "starts empty", "Promote or remove the standby of shop / prod postgres first.", `role="alert"`, ">Close</button>")
-	for _, no := range []string{"data-word", "data-confirm", "Type "} {
+	for _, no := range []string{"data-word", "data-confirm", "Type ", "data-copy"} {
 		if strings.Contains(out, no) {
 			t.Errorf("a refused forget carries %q\n%s", no, out)
 		}

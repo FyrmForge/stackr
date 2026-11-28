@@ -131,7 +131,7 @@ templ capCard(k CapCard) {
 			<span class="col-span-2 text-xs text-rw-muted sm:col-span-1 sm:text-sm">Size cap</span>
 			switch k.Mode {
 				case "edit":
-					<form id="cap-form" class="min-w-0" hx-post={ k.Base + "/cap/stage" } hx-trigger="change, submit" hx-target={ "#" + Root } hx-swap="outerHTML">
+					<form data-hold id="cap-form" class="min-w-0" hx-post={ k.Base + "/cap/stage" } hx-trigger="change, submit" hx-target={ "#" + Root } hx-swap="outerHTML">
 						<div class="flex items-center gap-2">
 							<input
 								class={ "input font-mono !w-28", templ.KV("!border-rw-danger", k.Err != "") }
@@ -192,7 +192,7 @@ templ capCard(k CapCard) {
 
 // capPending is the footer of a staged cap: what changes, and Apply.
 templ capPending(k CapCard) {
-	<div class="-mx-4 -mb-4 mt-4 border-t border-rw-border bg-rw-inset px-4 py-3">
+	<form data-hold id="cap-held" class="-mx-4 -mb-4 mt-4 border-t border-rw-border bg-rw-inset px-4 py-3">
 		<p class="text-xs font-medium text-rw-muted">1 change not saved</p>
 		<ul class="mt-1.5 space-y-1">
 			<li class="flex flex-wrap items-baseline gap-x-2 text-sm">
@@ -220,7 +220,7 @@ templ capPending(k CapCard) {
 			</button>
 			<button type="button" class="btn btn-ghost btn-sm" hx-get={ k.settings() } hx-target={ "#" + Root } hx-swap="outerHTML">Cancel</button>
 		</div>
-	</div>
+	</form>
 }
 
 func capVals(mb string) string { return `{"max_size_mb":"` + mb + `"}` }
