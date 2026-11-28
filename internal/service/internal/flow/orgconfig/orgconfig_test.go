@@ -94,6 +94,7 @@ func live() orgconfig.Live {
 		Connectors: []store.Connector{
 			{
 				ID:   "cn1",
+				Name: "work",
 				Host: "github.com",
 			},
 		},
@@ -327,7 +328,7 @@ func TestDiff(t *testing.T) {
     branch: main
 `,
 			live: func(l *orgconfig.Live) {
-				l.Connectors = append(l.Connectors, store.Connector{ID: "cn2", Host: "github.com"})
+				l.Connectors = append(l.Connectors, store.Connector{ID: "cn2", Name: "home", Host: "github.com"})
 				l.Stacks[0].Stack.ConfigConnectorID = "cn2"
 			},
 			changes: []orgconfig.Change{
@@ -335,8 +336,30 @@ func TestDiff(t *testing.T) {
 					Kind:  "rebind",
 					Tile:  "shop",
 					Field: "connector",
-					Old:   "cn2",
-					New:   "cn1",
+					Old:   "home",
+					New:   "work",
+					Note:  "inherits the organization's connector",
+				},
+			},
+		},
+		{
+			name: "two connectors of one name are still a connector change",
+			file: v1 + `stacks:
+  shop:
+    repo: https://github.com/acme/shop
+    branch: main
+`,
+			live: func(l *orgconfig.Live) {
+				l.Connectors = append(l.Connectors, store.Connector{ID: "cn2", Name: "work", Host: "github.com"})
+				l.Stacks[0].Stack.ConfigConnectorID = "cn2"
+			},
+			changes: []orgconfig.Change{
+				{
+					Kind:  "rebind",
+					Tile:  "shop",
+					Field: "connector",
+					Old:   "work",
+					New:   "work",
 					Note:  "inherits the organization's connector",
 				},
 			},
@@ -371,7 +394,7 @@ func TestDiff(t *testing.T) {
 					Kind:  "rebind",
 					Tile:  "legacy",
 					Field: "connector",
-					New:   "cn1",
+					New:   "work",
 				},
 			},
 		},
