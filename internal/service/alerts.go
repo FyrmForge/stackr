@@ -632,7 +632,8 @@ func (o *Orchestrator) controllerDiskAlert(ctx context.Context) {
 	}
 	free, total := o.diskOf(ctx, n.ID)
 	o.diskAlert(ctx, n, free, total)
-	o.observeDiskAlert(ctx, n, free)
+	of, _ := o.observeDiskOf(ctx, n.ID)
+	o.observeDiskAlert(ctx, n, of)
 	if f := o.diskFacts(ctx, n); f != nil {
 		if err := o.reconcileDisks(ctx, n, *f); err != nil {
 			slog.Warn("disk: registry not pushed", "node", n.Name, "err", err)

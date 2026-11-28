@@ -379,7 +379,7 @@ func (o *Orchestrator) ObserveStatus(ctx context.Context) (ObserveStatus, error)
 		s.Error = *p
 	}
 	if n, err := o.nodeLeaf().Controller(ctx); err == nil {
-		s.DiskFree, s.DiskTotal = o.diskOf(ctx, n.ID)
+		s.DiskFree, s.DiskTotal = o.observeDiskOf(ctx, n.ID)
 		if s.Container, err = o.upgrade.ObserveState(docker.WithNode(ctx, n.ID)); err != nil {
 			s.Container = ""
 		}
@@ -393,4 +393,14 @@ func (o *Orchestrator) ObserveStatus(ctx context.Context) (ObserveStatus, error)
 		}
 	}
 	return s, nil
+}
+
+// observeDiskOf is the free and total space logs and metrics live on: the node
+// disk when they are on it, else the system disk. 0, 0 when that disk is not there.
+func (o *Orchestrator) observeDiskOf(ctx context.Context, nodeID string) (free, total uint64) {
+	if on, err := o.observeOnDisk(ctx); err == nil && on {
+		free, total, _ = o.dataDiskOf(ctx, nodeID)
+		return free, total
+	}
+	return o.diskOf(ctx, nodeID)
 }

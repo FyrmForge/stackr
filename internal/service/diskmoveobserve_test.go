@@ -418,3 +418,16 @@ func TestObserveMoveBackSurvivesAFailedOldCopyRemoval(t *testing.T) {
 		t.Errorf("audit: %v %v", evs, err)
 	}
 }
+
+// With logs and metrics on the node disk, the status shows that disk's room.
+func TestObserveStatusReportsTheNodeDiskWhenObserveIsOnIt(t *testing.T) {
+	ctx := context.Background()
+	r := newObserveRig(t)
+	if s, err := r.orch.ObserveStatus(ctx); err != nil || s.DiskFree != 1<<30 {
+		t.Fatalf("system disk: %+v %v", s, err)
+	}
+	must(t, r.st.Settings.Set(ctx, observeDataDiskKey, "1"))
+	if s, err := r.orch.ObserveStatus(ctx); err != nil || s.DiskFree != 10<<30 || s.DiskTotal != 1<<40 {
+		t.Fatalf("node disk: %+v %v", s, err)
+	}
+}
