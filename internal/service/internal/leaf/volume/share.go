@@ -407,8 +407,37 @@ func (l *Leaf) EnsureShare(ctx context.Context, s store.Share, sub, addr, user, 
 	return name, l.docker.CreateVolume(ctx, name, "local", opts, map[string]string{ShareLabel: s.ID})
 }
 
-// ShareDenied is the plain text for an NFS export that refused the mount
-// with "permission denied": the NAS maps root to nobody.
+// ShareDenied is the plain text for a share that refused the mount with
+// "permission denied". NFS: the NAS maps root to nobody. SMB: the login or
+// the access was refused.
 func ShareDenied(s store.Share) string {
+	if s.Kind == SMB {
+		return fmt.Sprintf("The NAS refused the login or access for share %s (%s).", s.Slug, s.Source)
+	}
 	return fmt.Sprintf("The NAS refused access to share %s (%s). It likely maps root to nobody: give Other read and execute on the export's top folder, or set maproot.", s.Slug, s.Source)
+}
+
+var (
+	maskData  = regexp.MustCompile(`(?i)\bdata:\s*\S*`)
+	maskOpts  = regexp.MustCompile(`(?im)(\s-o\b|\boptions?\b\s*[:=]).*$`)
+	maskCreds = regexp.MustCompile(`(?i)\b(username|user|password|pass|credentials|cred)\s*=\s*("[^"]*"|'[^']*'|\S*)`)
+)
+
+// MaskMount strips the credentials out of a mount error before anybody sees
+// it. It fails closed: the driver's option text ("data: ...", "-o ...") goes
+// whole, any user, pass or credentials value goes whatever its quoting, and
+// each known secret goes wherever it still appears, plain or escaped.
+func MaskMount(raw string, secrets ...string) string {
+	for _, sec := range secrets {
+		if sec == "" {
+			continue
+		}
+		raw = strings.ReplaceAll(raw, sec, "***")
+		if q := strings.Trim(fmt.Sprintf("%q", sec), `"`); q != sec {
+			raw = strings.ReplaceAll(raw, q, "***")
+		}
+	}
+	raw = maskCreds.ReplaceAllString(raw, "$1=***")
+	raw = maskData.ReplaceAllString(raw, "data: ***")
+	return maskOpts.ReplaceAllString(raw, "$1 ***")
 }

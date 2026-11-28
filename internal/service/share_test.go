@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -248,7 +249,19 @@ func TestShareTestNeedsGrantOrAdmin(t *testing.T) {
 		t.Fatalf("nil caller: err=%v", err)
 	}
 	// An admin needs no grant.
-	adm := &service.Principal{User: store.User{Role: "admin"}}
+	adm := &service.Principal{User: store.User{Role: "admin"}, Access: authz.User{ID: "a", Admin: true, Active: true}}
+	// An admin's key capped below admin, or bound to an org or a stack, is not an admin here.
+	for name, k := range map[string]authz.User{
+		"capped":    {ID: "a", Admin: true, Active: true, Key: true, KeyCapped: true, KeyLevel: authz.LevelOwner},
+		"org key":   {ID: "a", Admin: true, Active: true, Key: true, KeyOrg: r.org},
+		"stack key": {ID: "a", Admin: true, Active: true, Key: true, KeyStack: "s1"},
+		"disabled":  {ID: "a", Admin: true},
+	} {
+		_, err := r.env.Orch.TestShare(ctx, &service.Principal{User: adm.User, Access: k}, r.org, "media")
+		if !errors.As(err, &ref) || sawRun(r) {
+			t.Fatalf("%s: err=%v ran=%v", name, err, sawRun(r))
+		}
+	}
 	res, err := r.env.Orch.TestShare(ctx, adm, r.org, "media")
 	if err != nil || !res.OK || !sawRun(r) || !sawRemove(r) {
 		t.Fatalf("admin: %+v %v", res, err)
@@ -275,8 +288,10 @@ func TestShareTestDenied(t *testing.T) {
 	ctx := context.Background()
 	raw := "mount: permission denied, user=bob,password=hunter2 nfs"
 	for name, setup := range map[string]func(r orgRig){
-		"mount error": func(r orgRig) { r.env.Docker.Err = map[string]error{"Run": docker.MountDeniedError{Volume: "v", Raw: raw}} },
-		"exit code":   func(r orgRig) { r.env.Docker.ExitCode, r.env.Docker.LogsOut = 2, raw },
+		"mount error": func(r orgRig) {
+			r.env.Docker.Err = map[string]error{"Run": docker.MountDeniedError{Volume: "v", Raw: raw}}
+		},
+		"exit code": func(r orgRig) { r.env.Docker.ExitCode, r.env.Docker.LogsOut = 2, raw },
 	} {
 		t.Run(name, func(t *testing.T) {
 			r, s, _ := shareTestRig(t, true)

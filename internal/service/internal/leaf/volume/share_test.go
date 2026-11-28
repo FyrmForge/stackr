@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -239,6 +240,35 @@ func TestShareDenied(t *testing.T) {
 	got := volume.ShareDenied(store.Share{Slug: "media", Source: "nas:/export"})
 	want := "The NAS refused access to share media (nas:/export). It likely maps root to nobody: give Other read and execute on the export's top folder, or set maproot."
 	if got != want {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestShareDeniedSMB(t *testing.T) {
+	got := volume.ShareDenied(store.Share{Slug: "media", Kind: volume.SMB, Source: "nas/export"})
+	want := "The NAS refused the login or access for share media (nas/export)."
+	if got != want {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMaskMount(t *testing.T) {
+	for _, pass := range []string{`p"w`, `p'w`, `a=b`, `back\slash`, `p:w`, `"quoted"`, `x"y'z=\`} {
+		for _, raw := range []string{
+			`error while mounting volume: mount //nas/x:/var/lib/docker/volumes/v/_data, data: username=bob,password=` + pass + `,addr=10.0.0.5: permission denied`,
+			`mount error(13): Permission denied; mount -t cifs -o "username=bob,password=` + pass + `" //nas/x /mnt`,
+			`failed: password="` + pass + `" refused`,
+			`opts were ` + pass + ` end`,
+		} {
+			got := volume.MaskMount(raw, "bob", pass)
+			if strings.Contains(got, pass) || strings.Contains(got, "bob") {
+				t.Fatalf("leaked %q from %q: %q", pass, raw, got)
+			}
+		}
+	}
+	// Without known secrets the driver option text still goes.
+	got := volume.MaskMount(`mount //nas/x, data: username=bob,password=a"b\c=d,addr=1.2.3.4: permission denied`)
+	if strings.Contains(got, "bob") || strings.Contains(got, `a"b`) || !strings.Contains(got, "permission denied") {
 		t.Fatalf("got %q", got)
 	}
 }

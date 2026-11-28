@@ -29,7 +29,7 @@ func (r resolved) shareDenied(err error, log io.Writer) error {
 	if !ok {
 		return err
 	}
-	msg := volume.ShareDenied(s) + "\n" + md.Raw
+	msg := volume.ShareDenied(s) + "\n" + volume.MaskMount(md.Raw)
 	logf(log, "%s\n", msg)
 	return deniedErr{msg: msg, err: err}
 }

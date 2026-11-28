@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"errors"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
@@ -32,8 +32,6 @@ const (
 	shareTestClean = 15 * time.Second // removal, after the rest has timed out
 )
 
-var mountSecret = regexp.MustCompile(`(?i)(password|pass|username|user)=[^\s,"']+`)
-
 // TestShare mounts the share once, read-only, on the node a deploy would use
 // and says whether it can be read. The host mounts a LAN export, so it runs
 // only for a server admin or when a stack of the org holds an admin grant
@@ -50,7 +48,7 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 	if err != nil {
 		return ShareTest{}, err
 	}
-	if by == nil || !by.User.Admin() {
+	if by == nil || authz.Can(by.Access, "hostgrant.approve", authz.Resource{}) != nil {
 		ok, err := o.shareApproved(ctx, orgID, deploy.ShareGrant(s.Slug, addr))
 		if err != nil {
 			return ShareTest{}, err
@@ -113,10 +111,7 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 		}
 	}
 	clean := func(raw string) string {
-		if pass != "" {
-			raw = strings.ReplaceAll(raw, pass, "***")
-		}
-		return mountSecret.ReplaceAllString(raw, "$1=***")
+		return volume.MaskMount(raw, user, pass)
 	}
 	fail := func(raw string) ShareTest {
 		return ShareTest{Node: nodeName, Message: "Could not mount share " + s.Slug + " from " + nodeName + ".", Raw: clean(raw)}
