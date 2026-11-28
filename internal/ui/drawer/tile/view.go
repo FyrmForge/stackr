@@ -292,6 +292,8 @@ type SettingsView struct {
 	OwnExits   bool   // the tile lists its own exits
 	// PlacementSet: the tile picks its own ingress or exits
 	PlacementSet bool
+	// ConfigRepo: the stack has a config repo, so Files has something to read
+	ConfigRepo bool
 }
 
 // rowRefused: the refusal drawn here came from a row's settings form (it
@@ -333,6 +335,13 @@ func (s SettingsView) Has(key string) bool {
 	return ok
 }
 
+// ShowFiles: the Files field draws when the stack has a config repo or the
+// tile already holds files lines; its key is then left out of Keys, so a
+// save leaves the stored value alone.
+func (s SettingsView) ShowFiles() bool {
+	return s.ConfigRepo || s.Vals["files"] != ""
+}
+
 // Any: the kind carries one of keys, so their row draws.
 func (s SettingsView) Any(keys ...string) bool {
 	return slices.ContainsFunc(keys, s.Has)
@@ -342,7 +351,7 @@ func (s SettingsView) Any(keys ...string) bool {
 // writes only these (an unticked checkbox posts nothing, and still
 // clears).
 func (s SettingsView) Keys(keys ...string) string {
-	ks := slices.DeleteFunc(slices.Clone(keys), func(k string) bool { return !s.Has(k) })
+	ks := slices.DeleteFunc(slices.Clone(keys), func(k string) bool { return !s.Has(k) || k == "files" && !s.ShowFiles() })
 	slices.Sort(ks)
 	return strings.Join(ks, " ")
 }
@@ -616,7 +625,7 @@ func settingsRows(v View, s SettingsView) []c.AccRow {
 		{s.Any(scheduleKeys...), "schedule", "Schedule", scheduleSummary, scheduleKeys, scheduleRow(v, s)},
 		{s.Any(runKeys...), "run", "Run", runSummary, runKeys, runRow(v, s)},
 		{true, "network", "Network", networkSummary, networkKeys, networkRow(v, s)},
-		{s.Any(storageKeys...), "storage", "Storage", storageSummary, storageKeys, storageRow(v, s)},
+		{s.Any(storageKeys...), "storage", "Volumes & mounts", storageSummary, storageKeys, storageRow(v, s)},
 		{s.Any(healthKeys...), "health", "Health", healthSummary, healthKeys, healthRow(v, s)},
 		{s.Any(resourceKeys...), "resources", "Resources", resourcesSummary, resourceKeys, resourcesRow(v, s)},
 		{true, "variables", "Variables", variablesSummary, nil, Env(v, s.Env)},

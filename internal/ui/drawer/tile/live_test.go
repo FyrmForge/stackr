@@ -84,3 +84,34 @@ func TestStatusRegions(t *testing.T) {
 		t.Error("the Terminal tab opens a stream")
 	}
 }
+
+// The Access line names the domains only when there are some; Files stays
+// out of the form (and its Keys) without a config repo or files lines.
+func TestAccessAndFilesFact(t *testing.T) {
+	var b strings.Builder
+	if err := LiveAccess(StatusView{Port: "80"}).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "container port") || strings.Contains(b.String(), "proxied") {
+		t.Errorf("no domains: %s", b.String())
+	}
+	b.Reset()
+	if err := LiveAccess(StatusView{Port: "80", URLs: []DomainRow{{}}}).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "proxied via domains above") {
+		t.Errorf("domains: %s", b.String())
+	}
+	for _, tc := range []struct {
+		s    SettingsView
+		keys string
+	}{
+		{SettingsView{Vals: map[string]string{"files": "", "volumes": ""}}, "volumes"},
+		{SettingsView{Vals: map[string]string{"files": "", "volumes": ""}, ConfigRepo: true}, "files volumes"},
+		{SettingsView{Vals: map[string]string{"files": "a:/b", "volumes": ""}}, "files volumes"},
+	} {
+		if got := tc.s.Keys(storageKeys...); got != tc.keys {
+			t.Errorf("Keys = %q, want %q", got, tc.keys)
+		}
+	}
+}

@@ -273,6 +273,7 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 	ctx, s := c.Request().Context(), middleware.ScopeOf(c)
 	sv := settingsView(t)
 	sv.Open = c.FormValue("open")
+	sv.ConfigRepo = s.Stack.ConfigRepo != ""
 	sv.Env = envView(t.EnvJSON)
 	server, err := h.orch.SettingDefaults(ctx)
 	if err != nil {
