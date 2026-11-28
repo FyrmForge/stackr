@@ -54,7 +54,7 @@ function drawer(opts: { dirty?: boolean; contains?: (n: unknown) => boolean; foo
   let open = true;
   const el = Object.assign(new Ctor(), {
     addEventListener: () => {},
-    querySelector: (s: string) => (s === "#drawer-body" ? body : s === "dialog[data-discard]" ? dlg : s.includes("form[data-hold]") && opts.footer ? {} : null),
+    querySelector: (s: string) => (s === "#drawer-body" ? body : s === "dialog[data-discard]" ? dlg : s.includes("-held") && opts.footer ? {} : null),
     hasAttribute: (a: string) => (a === "open" ? open : false),
     setAttribute: () => {},
     removeAttribute: () => (open = false),
@@ -68,7 +68,7 @@ function drawer(opts: { dirty?: boolean; contains?: (n: unknown) => boolean; foo
 
 test("a successful non-GET request from inside the drawer clears dirty, even with no swap", () => {
   const { el, body } = drawer({ dirty: true });
-  const xhr = {}, form = {}, elt = { closest: (s: string) => (s === "form" ? form : null) };
+  const xhr = { status: 200 }, form = {}, elt = { closest: (s: string) => (s === "form" ? form : null) };
   (el.edited as Set<object>).add(form);
   handlers["htmx:beforeRequest"]({ detail: { elt, xhr, target: elt, requestConfig: { verb: "post" } } });
   handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: body } });
@@ -128,6 +128,7 @@ test("a staging POST (preview) or an unrelated button keeps dirty; saving the ed
   const form = {}, other = {};
   (el.edited as Set<object>).add(form);
   const send = (elt: object, xhr: object) => {
+    Object.assign(xhr, { status: 200 });
     handlers["htmx:beforeRequest"]({ detail: { elt, xhr, target: elt, requestConfig: { verb: "post" } } });
     handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: body } });
   };
@@ -151,7 +152,7 @@ test("an open staging form or a pending footer makes close ask; a forced close s
 
 test("a pending footer's Apply clears dirty", () => {
   const { el, body } = drawer({ dirty: true });
-  const xhr = {};
+  const xhr = { status: 200 };
   const elt = { closest: (s: string) => (s.includes("-held") ? {} : null) };
   handlers["htmx:beforeRequest"]({ detail: { elt, xhr, target: elt, requestConfig: { verb: "post" } } });
   handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: body } });
@@ -181,4 +182,26 @@ test("a typed settings field is dirty; a tab switch that drops its form is not; 
   (body as { contains: (n: unknown) => boolean }).contains = (n) => n !== form; // the tab swap replaced it
   handlers["htmx:afterSwap"]({ detail: { target: {} } });
   assert.equal(el.dirty, false);
+});
+
+test("an open edit form with nothing typed does not make close ask", () => {
+  const { el, calls, isOpen } = drawer(); // querySelector finds no pending footer
+  (el.close as () => void).call(el);
+  assert.deepEqual([calls.show, isOpen()], [0, false]);
+});
+
+test("a refused save swaps the form back and stays edited; a successful 200 save is not refused", () => {
+  const { el, body } = drawer();
+  const form = {}, back = {};
+  type(el, form);
+  const xhr = { status: 422 };
+  handlers["htmx:beforeRequest"]({ detail: { elt: { closest: (s: string) => (s === "form" ? form : null) }, xhr, target: {}, requestConfig: { verb: "post" } } });
+  const t = { querySelectorAll: () => [back] };
+  (body as { contains: (n: unknown) => boolean }).contains = (n) => n !== form; // the old form is gone
+  handlers["htmx:afterSwap"]({ detail: { target: t, xhr } });
+  handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: t } }); // htmx may call a swapped 422 successful
+  assert.equal(el.dirty, true);
+  assert.ok((el.edited as Set<object>).has(back));
+  handlers["htmx:afterSwap"]({ detail: { target: {} } }); // a poll keeps it
+  assert.equal(el.dirty, true);
 });

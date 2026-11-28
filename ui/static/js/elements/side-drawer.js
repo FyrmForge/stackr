@@ -11,7 +11,15 @@ class SideDrawer extends HTMLElement {
         const body = this.body();
         if (!body || !target || !body.contains(target))
             return;
-        if (target === body) {
+        const x = d.xhr;
+        const refused = !!x && this.saves.has(x) && x.status >= 400;
+        if (refused) {
+            this.edited.clear();
+            for (const f of target.querySelectorAll("form:not([data-hold], [hx-get], [hx-trigger*=change])"))
+                this.edited.add(f);
+            this.dirty = true;
+        }
+        else if (target === body) {
             this.dirty = false;
             this.edited.clear();
         }
@@ -61,7 +69,7 @@ class SideDrawer extends HTMLElement {
     };
     onDone = (e) => {
         const d = e.detail;
-        if (d?.xhr && this.saves.delete(d.xhr) && d.successful) {
+        if (d?.xhr && this.saves.delete(d.xhr) && d.successful && d.xhr.status < 400) {
             this.dirty = false;
             this.edited.clear();
         }
@@ -169,7 +177,7 @@ class SideDrawer extends HTMLElement {
     close(force = false) {
         if (!this.hasAttribute("open"))
             return;
-        if ((this.dirty || this.querySelector("#drawer-body form[data-hold]")) && !force) {
+        if ((this.dirty || this.querySelector('#drawer-body form[id$="-held"]')) && !force) {
             const ask = this.querySelector("dialog[data-discard]");
             if (ask)
                 return void (ask.open || ask.showModal());

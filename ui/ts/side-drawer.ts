@@ -7,7 +7,8 @@
 // and closing hands focus back to what opened it. An edited form asks
 // (in a modal of its own) before a close drops it; a save from inside the
 // drawer's edited form clears the edits (the vars grid's staging requests do
-// not; its pending footer counts as unsaved); a failed request into the open
+// not; its pending footer counts as unsaved, an open edit form does not);
+// a refused save keeps the typed form edited; a failed request into the open
 // drawer shows there, with its request id, instead of as a toast.
 // ponytail: a close during an in-flight open reopens on arrival; add a
 // request guard if that shows up.
@@ -27,9 +28,16 @@ class SideDrawer extends HTMLElement {
     const target = d?.target;
     const body = this.body();
     if (!body || !target || !body.contains(target)) return;
+    // a refused save (4xx) swaps the form back with what was typed: it stays edited
+    const x = (d as { xhr?: { status: number } }).xhr;
+    const refused = !!x && this.saves.has(x) && x.status >= 400;
     // only a new drawer (the body itself) resets edits and focus: a swap
     // of a child (a poll, a tab's refresh) must not
-    if (target === body) {
+    if (refused) {
+      this.edited.clear();
+      for (const f of target.querySelectorAll("form:not([data-hold], [hx-get], [hx-trigger*=change])")) this.edited.add(f);
+      this.dirty = true;
+    } else if (target === body) {
       this.dirty = false;
       this.edited.clear();
     } else {
@@ -79,8 +87,8 @@ class SideDrawer extends HTMLElement {
   // An answer that swapped nothing (204, redirect header) leaves the loading
   // text up: this request's end closes it, another request's does not.
   private onDone = (e: Event): void => {
-    const d = (e as CustomEvent<{ target?: Element; xhr?: object; successful?: boolean }>).detail;
-    if (d?.xhr && this.saves.delete(d.xhr) && d.successful) {
+    const d = (e as CustomEvent<{ target?: Element; xhr?: { status: number }; successful?: boolean }>).detail;
+    if (d?.xhr && this.saves.delete(d.xhr) && d.successful && d.xhr.status < 400) {
       this.dirty = false;
       this.edited.clear();
     }
@@ -201,7 +209,7 @@ class SideDrawer extends HTMLElement {
   // force skips the unsaved-edits question (the body is already gone).
   private close(force = false): void {
     if (!this.hasAttribute("open")) return;
-    if ((this.dirty || this.querySelector("#drawer-body form[data-hold]")) && !force) {
+    if ((this.dirty || this.querySelector('#drawer-body form[id$="-held"]')) && !force) {
       const ask = this.querySelector<HTMLDialogElement>("dialog[data-discard]");
       if (ask) return void (ask.open || ask.showModal());
     }
