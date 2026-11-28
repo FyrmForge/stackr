@@ -811,13 +811,13 @@ func OldCopy(v Volume) bool { return volume.OldCopy(v) }
 // oldCopyMoving says whether a volume-to-disk job that is queued, waiting or
 // running still has v as the old copy it will release.
 func (o *Orchestrator) oldCopyMoving(ctx context.Context, v Volume) (bool, error) {
-	js, err := o.Jobs(ctx, 200)
+	js, err := o.jobRows.List(ctx, job.Queued, job.Waiting, job.Running)
 	if err != nil {
 		return false, err
 	}
 	for _, j := range js {
 		var p volumeMoveJob
-		if j.Kind != string(kindVolumeToDisk) || !job.Live(j.State) || json.Unmarshal([]byte(j.Payload), &p) != nil {
+		if j.Kind != string(kindVolumeToDisk) || json.Unmarshal([]byte(j.Payload), &p) != nil {
 			continue
 		}
 		if slices.ContainsFunc(p.Volumes, func(it volumeMoveItem) bool { return it.OldName == v.Name }) {

@@ -3,6 +3,7 @@ package deploy
 import (
 	"bytes"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 
@@ -30,5 +31,18 @@ func TestShareDenied(t *testing.T) {
 	plain := errors.New("port is already allocated")
 	if got := r.shareDenied(plain, &log); got != plain {
 		t.Fatalf("unrelated error changed: %v", got)
+	}
+	// Any other error carrying the mount options is masked, and stays wrapped.
+	leaky := &net.OpError{Op: "mount", Err: errors.New("failed: data: username=bob,password=hunter2,addr=1.2.3.4")}
+	got := r.shareDenied(leaky, &log)
+	if strings.Contains(got.Error(), "hunter2") || strings.Contains(got.Error(), "bob") {
+		t.Fatalf("leaked: %q", got)
+	}
+	var oe *net.OpError
+	if !errors.As(got, &oe) {
+		t.Fatalf("original lost: %v", got)
+	}
+	if got := (resolved{}).shareDenied(leaky, &log); got != error(leaky) {
+		t.Fatalf("no share volume, error changed: %v", got)
 	}
 }

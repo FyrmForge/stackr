@@ -260,10 +260,20 @@ func TestMaskMount(t *testing.T) {
 			`failed: password="` + pass + `" refused`,
 			`opts were ` + pass + ` end`,
 		} {
-			got := volume.MaskMount(raw, "bob", pass)
+			got := volume.MaskMount(raw, pass)
 			if strings.Contains(got, pass) || strings.Contains(got, "bob") {
 				t.Fatalf("leaked %q from %q: %q", pass, raw, got)
 			}
+		}
+	}
+	// A known user name is masked by position only, never inside a host path.
+	if got := volume.MaskMount(`mount //bob.nas/bob: failed, username=bob`, "pw"); !strings.Contains(got, "//bob.nas/bob") || strings.Contains(got, "username=bob") {
+		t.Fatalf("got %q", got)
+	}
+	// Whitespace and commas cannot go in a login, so no mask has to cope.
+	for _, bad := range []string{"a\tb", "a\rb", "a b", "a,b"} {
+		if _, err := volume.ShareOpts(store.Share{Kind: volume.SMB, Source: "//nas/x"}, "", "", "bob", bad); err == nil {
+			t.Errorf("password %q accepted", bad)
 		}
 	}
 	// Without known secrets the driver option text still goes.
