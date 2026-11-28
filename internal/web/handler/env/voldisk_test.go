@@ -296,9 +296,19 @@ func TestVolumeOldCopyShowsNoDate(t *testing.T) {
 	mk("v-old", "old", hold)
 	mk("v-orph", "orph", time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC))
 	old := s.Do(t, "GET", "/acme/shop/dev/-/volumes/v-old", nil).Body.String()
-	hasAll(t, "old copy", old, "Old copy, kept until the move finishes.")
+	hasAll(t, "old copy", old, "Old copy from a move, kept until the move finishes.")
 	if strings.Contains(old, "Removed on") || strings.Contains(old, "9999") || strings.Contains(old, "Restore") {
 		t.Errorf("the hold shows as a date\n%.2000s", old)
+	}
+	if set := s.Do(t, "GET", "/acme/shop/dev/-/volumes/v-old?tab=settings", nil).Body.String(); !strings.Contains(set, "/volumes/v-old/delete") || strings.Contains(set, "restore-volume") {
+		t.Errorf("a held old copy offers no delete, or a restore\n%.2000s", set)
+	}
+	// released: the move deployed, retention runs; still not a removal
+	mk("abcd1234-1111-2222-3333-444444444444", "old-abcd1234", time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC))
+	rel := s.Do(t, "GET", "/acme/shop/dev/-/volumes/abcd1234-1111-2222-3333-444444444444", nil).Body.String()
+	hasAll(t, "released old copy", rel, "Old copy from a move. Its data is deleted on 01-08.")
+	if strings.Contains(rel, "Removed on") || strings.Contains(rel, "restore-volume") {
+		t.Errorf("a released old copy reads as a removal\n%.2000s", rel)
 	}
 	hasAll(t, "orphan", s.Do(t, "GET", "/acme/shop/dev/-/volumes/v-orph", nil).Body.String(), "Removed on 02-07. Its data is deleted on 01-08.", "Restore", "/volumes/v-orph/restore-volume")
 }

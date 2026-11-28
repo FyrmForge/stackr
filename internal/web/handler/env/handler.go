@@ -1582,9 +1582,6 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 	}
 	ctx, s := c.Request().Context(), scope(c)
 	vol, err := h.orch.Volume(ctx, c.Param("volume"))
-	if errors.Is(err, errs.ErrNotFound) && c.Request().Header.Get("HX-Request") != "" {
-		return volumeGone(c) // a delete job finished under an open drawer
-	}
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
@@ -1627,12 +1624,21 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		body = volume.Settings(v, blocked(vol, ms), h.capCard(c, vol, h.storage(c, vol.ID), enforced), d)
+		why := blocked(vol, ms)
+		if why == "" && vol.ScopeKind == "env" && vol.OrphanedAt == nil && s.Stack.ConfigRepo != "" {
+			why = "Remove it from the stack file."
+		}
+		body = volume.Settings(v, why, h.capCard(c, vol, h.storage(c, vol.ID), enforced), d)
 	default:
 		o := volume.OverviewView{
 			Docker:  vol.Name,
 			Created: vol.CreatedAt,
-			OldCopy: vol.OrphanedAt != nil && service.OldCopyHeld(*vol.OrphanedAt),
+			OldCopy: service.OldCopy(vol),
+		}
+		if o.OldCopy {
+			if goes, err := h.orch.OrphanGoesOn(ctx, vol); err == nil && !goes.IsZero() {
+				o.OldGoes = goes.Format("02-01") // released: its day
+			}
 		}
 		if o.Removal, err = h.removal(c, vol, b.Base); err != nil {
 			return middleware.HTTPError(err)

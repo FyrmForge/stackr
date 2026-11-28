@@ -15,7 +15,7 @@ func WipeConfirm(v View, d Data) c.ConfirmView {
 		Word:    v.Name,
 		Action:  v.Base + "/wipe",
 		Target:  "#" + Root,
-		Body:    dataSwitches(d, true),
+		Body:    dataSwitches(d, true, "vol-wipe-"+v.Name),
 		Include: "input[type=checkbox]",
 	}
 }
@@ -32,23 +32,24 @@ func DeleteConfirm(name, action, target, dest string) c.ConfirmView {
 		Word:    name,
 		Action:  action,
 		Target:  target,
-		Body:    dataSwitches(Data{Dest: dest}, false),
+		Body:    dataSwitches(Data{Dest: dest}, false, "vol-delete-"+name),
 		Include: "input[type=checkbox]",
 	}
 }
 
 // dataSwitches are the dialog's ticks. Each hint is wired to its box.
-templ dataSwitches(d Data, stop bool) {
+// id makes the hint ids unique: the drawer and the env row hold several of them.
+templ dataSwitches(d Data, stop bool, id string) {
 	if stop {
 		<div class="space-y-1">
-			<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="stop" value="on" class="accent-rw-accent" aria-describedby="vol-stop-hint"/> Stop tiles using it</label>
-			<p id="vol-stop-hint" class="text-xs text-rw-muted">They start again afterwards.</p>
+			<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="stop" value="on" class="accent-rw-accent" aria-describedby={ id + "-stop-hint" }/> Stop tiles using it</label>
+			<p id={ id + "-stop-hint" } class="text-xs text-rw-muted">They start again afterwards.</p>
 		</div>
 	}
 	if d.Dest != "" {
 		<div class="space-y-1">
-			<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="backup" value="on" class="accent-rw-accent" aria-describedby="vol-backup-hint"/> Back up first</label>
-			<p id="vol-backup-hint" class="text-xs text-rw-muted">{ "Backs up to " + d.Dest + " first." }</p>
+			<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="backup" value="on" class="accent-rw-accent" aria-describedby={ id + "-backup-hint" }/> Back up first</label>
+			<p id={ id + "-backup-hint" } class="text-xs text-rw-muted">{ "Backs up to " + d.Dest + " first." }</p>
 		</div>
 	}
 }

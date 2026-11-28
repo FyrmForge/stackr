@@ -629,6 +629,18 @@ func JobViewNote(ctx context.Context, orch *service.Orchestrator, page string, j
 	return v
 }
 
+// DataJobView is a volume's wipe or delete job as a static status line (the
+// tab polls). A failed delete says nothing was deleted: the volume is still
+// there, and its backup-first step is what fails.
+func DataJobView(ctx context.Context, orch *service.Orchestrator, page string, j service.Job) components.JobStatusView {
+	v := JobViewNote(ctx, orch, page, j)
+	v.Live = false
+	if j.Kind == "volume-delete" && j.State == "failed" {
+		v.Note = "Nothing was deleted."
+	}
+	return v
+}
+
 // TilesStopped is "web is stopped", "web and api are stopped".
 func TilesStopped(tiles []string) string {
 	if len(tiles) == 1 {

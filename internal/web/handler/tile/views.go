@@ -299,8 +299,8 @@ func volumeRows(env string, vs []service.Volume) []ui.VolumeRow {
 		state := "in use"
 		switch {
 		case x.OrphanedAt == nil:
-		case service.OldCopyHeld(*x.OrphanedAt):
-			state = "orphaned"
+		case service.OldCopy(x):
+			state = "old copy from a move"
 		default:
 			state = "removed on " + x.OrphanedAt.Format("02-01")
 		}

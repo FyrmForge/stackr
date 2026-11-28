@@ -43,6 +43,17 @@ func (o *Orchestrator) DeleteVolume(ctx context.Context, id string, backupFirst 
 	if err != nil {
 		return Job{}, err
 	}
+	// A stack file declares a managed env's volumes: the next apply would
+	// make a deleted one again, empty.
+	if v.ScopeKind == "env" && v.OrphanedAt == nil {
+		st, err := o.envStack(ctx, v.ScopeID)
+		if err != nil {
+			return Job{}, err
+		}
+		if st.ConfigRepo != "" {
+			return Job{}, errs.Conflictf("Remove it from the stack file.")
+		}
+	}
 	return o.deleteVolume(ctx, v, backupFirst)
 }
 
@@ -80,7 +91,15 @@ func (o *Orchestrator) deleteChecks(ctx context.Context, v Volume) (by []string,
 		return nil, false, errs.Conflictf("%s belongs to an operated instance; it goes when the instance does", v.Slug)
 	}
 	if v.OrphanedAt != nil && OldCopyHeld(*v.OrphanedAt) {
-		return nil, false, errs.Conflictf("%s is the old copy of a move to a disk; it goes when the move is done", v.Slug)
+		// held until the move deploys: delete it only once the move is not
+		// running any more (a move that never finishes holds it forever)
+		live, err := o.oldCopyMoving(ctx, v)
+		if err != nil {
+			return nil, false, err
+		}
+		if live {
+			return nil, false, errs.Conflictf("%s is the old copy of a move to a disk; it goes when the move is done", v.Slug)
+		}
 	}
 	ts, err := o.mounters(ctx, v)
 	if err != nil {
@@ -160,9 +179,9 @@ func (o *Orchestrator) RestoreVolume(ctx context.Context, id string) error {
 	switch {
 	case v.OrphanedAt == nil:
 		return errs.Conflictf("%s is not removed.", v.Slug)
-	case OldCopyHeld(*v.OrphanedAt):
+	case OldCopy(v):
 		return errs.Conflictf("%s is the old copy of a move to a disk and cannot be restored", v.Slug)
-	case v.InstanceID != nil:
+	case wasInstanceVolume(v):
 		return errs.Conflictf("%s belonged to an operated instance and cannot be restored", v.Slug)
 	}
 	if _, err := o.scopeOrg(ctx, v.ScopeKind, v.ScopeID); err != nil {
@@ -336,8 +355,9 @@ func (o *Orchestrator) TileVolumes(ctx context.Context, tileID string) ([]Volume
 }
 
 // OrphanGoesOn is the day a removed volume's data is deleted: its removal
-// plus orphan_retention_days. Zero for a volume that is not removed or is a
-// move's old copy (it goes when the move ends).
+// plus orphan_retention_days. Zero for a volume that is not removed, and for
+// a move's old copy still held (it goes when the move ends). A released old
+// copy has a day too.
 func (o *Orchestrator) OrphanGoesOn(ctx context.Context, v Volume) (time.Time, error) {
 	if v.OrphanedAt == nil || OldCopyHeld(*v.OrphanedAt) {
 		return time.Time{}, nil

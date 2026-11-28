@@ -221,7 +221,7 @@ func (d *Client) Start(ctx context.Context, id string) error {
 	if err != nil {
 		if i := strings.Index(err.Error(), "stackr-share-"); i >= 0 {
 			name, _, _ := strings.Cut(strings.FieldsFunc(err.Error()[i:], func(r rune) bool {
-				return r == ' ' || r == ':' || r == '"' || r == '\'' || r == ',' || r == '(' || r == ')'
+				return r == ' ' || r == '/' || r == ':' || r == '"' || r == '\'' || r == ',' || r == '(' || r == ')'
 			})[0], ":")
 			return mountDenied(err, []string{name})
 		}

@@ -56,6 +56,9 @@ func IsBaseKey(key string) bool { return backup.IsPITRKey(key) }
 // holds WAL in transit, not data: no backup of its own, no panel.
 func IsArchiveVolume(v Volume) bool { return mflow.IsArchiveVolume(v) }
 
+// wasInstanceVolume: v belonged to an operated instance, which may be gone.
+func wasInstanceVolume(v Volume) bool { return v.InstanceID != nil || mflow.WasInstanceVolume(v) }
+
 // pitrState is one instance's shipper state, the settings row pitr.<id>.
 type pitrState struct {
 	Since time.Time `json:"since"` // first tick that saw the instance

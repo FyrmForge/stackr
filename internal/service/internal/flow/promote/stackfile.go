@@ -14,6 +14,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -119,7 +120,7 @@ func (b *VolumeBackup) UnmarshalYAML(n *yaml.Node) error {
 		if err := strictNode(n, &m); err != nil || m.Schedule == "" {
 			return bad()
 		}
-		*b = VolumeBackup{Schedule: m.Schedule, Keep: m.Keep}
+		*b = VolumeBackup{Schedule: strings.Join(strings.Fields(m.Schedule), " "), Keep: m.Keep}
 		return nil
 	}
 	return bad()
@@ -1124,6 +1125,9 @@ func checkVolume(name string, v VolumeConf) error {
 		return fmt.Errorf("volume %s: keep the name to %d characters or fewer", name, volume.MaxName)
 	}
 	if b := v.Backup; b != nil && !b.None {
+		if _, ok := backup.NormCron(b.Schedule); !ok {
+			return fmt.Errorf("volume %s: backup schedule %q is not a cron line", name, b.Schedule)
+		}
 		if _, err := cron.ParseStandard(b.Schedule); err != nil {
 			return fmt.Errorf("volume %s: backup schedule %q is not a cron expression: %w", name, b.Schedule, err)
 		}

@@ -116,7 +116,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 		Below:     below(es, e.ID),
 		Color:     e.Color,
 		Cascade:   cascade,
-		Volumes:   volumesView(vols, f.Base, write, h.backupDests(c, vols)),
+		Volumes:   h.volumesView(c, urlOf(cd.s), vols, f.Base, write),
 		Vars:      varsLoad(cd.s),
 		Placement: placementui.Load(urlOf(cd.s) + "/-/placement"),
 		Open:      c.FormValue("open"),
@@ -159,7 +159,8 @@ func (h *handler) backupDests(c echo.Context, vs service.EnvVolumes) map[string]
 
 // volumesView is the Volumes row: Add and each Remove only for a writer on
 // an env the panel may change (a stack file declares a managed one's).
-func volumesView(vs service.EnvVolumes, base string, write bool, dests map[string]string) envui.VolumesView {
+func (h *handler) volumesView(c echo.Context, page string, vs service.EnvVolumes, base string, write bool) envui.VolumesView {
+	ctx, dests := c.Request().Context(), h.backupDests(c, vs)
 	edit := write && !vs.Managed
 	v := envui.VolumesView{Live: base + "?tab=settings"}
 	switch {
@@ -179,6 +180,12 @@ func volumesView(vs service.EnvVolumes, base string, write bool, dests map[strin
 			r.Remove = volume.DeleteConfirm(ev.Slug, base+"/volumes/"+ev.ID+"/remove", "#"+comp.DrawerRoot, dests[ev.ID])
 			r.Remove.Button, r.Remove.Quiet, r.Remove.Label = "Remove", true, "Remove volume "+ev.Slug
 			r.Remove.Vals = `{"open":"volumes"}`
+		}
+		// A delete that backs up first runs as a job: its progress, and why it
+		// failed, show on the row.
+		if j, ok, err := h.orch.VolumeDataJob(ctx, ev.ID); err == nil && ok && j.Kind == "volume-delete" {
+			jv := render.DataJobView(ctx, h.orch, page, j)
+			r.Job = &jv
 		}
 		v.Rows = append(v.Rows, r)
 	}

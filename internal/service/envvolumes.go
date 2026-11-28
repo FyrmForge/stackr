@@ -117,11 +117,7 @@ func (o *Orchestrator) RemoveEnvVolume(ctx context.Context, envID, volumeID stri
 // envVolumesWritable refuses a config-managed stack: its file declares
 // the env's volumes, and a sync would orphan one added here.
 func (o *Orchestrator) envVolumesWritable(ctx context.Context, envID string) error {
-	e, err := o.envs.Get(ctx, envID)
-	if err != nil {
-		return err
-	}
-	st, err := o.stacks.Get(ctx, e.StackID)
+	st, err := o.envStack(ctx, envID)
 	if err != nil {
 		return err
 	}
@@ -129,6 +125,14 @@ func (o *Orchestrator) envVolumesWritable(ctx context.Context, envID string) err
 		return errs.Conflictf("stack %s is config-managed; declare volumes in its stack file", st.Slug)
 	}
 	return nil
+}
+
+func (o *Orchestrator) envStack(ctx context.Context, envID string) (Stack, error) {
+	e, err := o.envs.Get(ctx, envID)
+	if err != nil {
+		return Stack{}, err
+	}
+	return o.stacks.Get(ctx, e.StackID)
 }
 
 // checkTileVolumes refuses a volumes line naming a volume the env does not

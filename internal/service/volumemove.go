@@ -20,6 +20,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -802,6 +803,29 @@ func (o *Orchestrator) PlanVolumeMove(ctx context.Context, by *Principal, volume
 // OldCopyHeld is whether an orphaned_at stamp is the hold of a move's old
 // copy: the panel then shows no date.
 func OldCopyHeld(at time.Time) bool { return at.Equal(moveHold) }
+
+// OldCopy is whether v is a move's old copy, held or released. It is never a
+// stack-file removal: no Restore, its own text.
+func OldCopy(v Volume) bool { return volume.OldCopy(v) }
+
+// oldCopyMoving says whether a volume-to-disk job that is queued, waiting or
+// running still has v as the old copy it will release.
+func (o *Orchestrator) oldCopyMoving(ctx context.Context, v Volume) (bool, error) {
+	js, err := o.Jobs(ctx, 200)
+	if err != nil {
+		return false, err
+	}
+	for _, j := range js {
+		var p volumeMoveJob
+		if j.Kind != string(kindVolumeToDisk) || !job.Live(j.State) || json.Unmarshal([]byte(j.Payload), &p) != nil {
+			continue
+		}
+		if slices.ContainsFunc(p.Volumes, func(it volumeMoveItem) bool { return it.OldName == v.Name }) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 // VolumeMoveJob is the newest volume-to-disk job that holds the volume: a
 // live one, or one that ended in the last ten minutes. Rows only.

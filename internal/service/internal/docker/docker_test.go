@@ -1,10 +1,14 @@
 package docker
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 )
 
@@ -160,5 +164,24 @@ func TestMountDenied(t *testing.T) {
 	}
 	if err := mountDenied(errors.New("permission denied on /etc/foo"), specVolumes(spec)); errors.As(err, &md) && md.Volume != "stackr-share-a1-abc" {
 		t.Errorf("unnamed volume wrapped: %v", err)
+	}
+}
+
+// The daemon names the share volume with its path and "/_data" on the end;
+// Start must still find the volume name in it.
+func TestStartMountDeniedFullWording(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"error while mounting volume '/var/lib/docker/volumes/stackr-share-x/_data': failed to mount local volume: mount :/export:/var/lib/docker/volumes/stackr-share-x/_data: permission denied"}`))
+	}))
+	defer srv.Close()
+	cli, err := client.NewClientWithOpts(client.WithHost("tcp://"+srv.Listener.Addr().String()), client.WithHTTPClient(srv.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = (&Client{cli: cli}).Start(context.Background(), "c1")
+	var md MountDeniedError
+	if !errors.As(err, &md) || md.Volume != "stackr-share-x" {
+		t.Fatalf("got %#v", err)
 	}
 }

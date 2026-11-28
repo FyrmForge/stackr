@@ -18,6 +18,22 @@ func TestWipeForm(t *testing.T) {
 	}
 }
 
+// The wipe and the delete dialog sit in one drawer: no id may repeat.
+func TestDataSwitchIDsAreUnique(t *testing.T) {
+	out := renderT(t, Settings(dataView, "", nil, Data{Wipe: true, Delete: true, Dest: "the local disk"}))
+	seen := map[string]bool{}
+	for _, part := range strings.Split(out, ` id="`)[1:] {
+		id, _, _ := strings.Cut(part, `"`)
+		if seen[id] {
+			t.Errorf("duplicate id %q", id)
+		}
+		seen[id] = true
+	}
+	if !seen["vol-wipe-uploads-backup-hint"] || !seen["vol-delete-uploads-backup-hint"] {
+		t.Errorf("hint ids missing: %v", seen)
+	}
+}
+
 func TestWipeFormWithoutDest(t *testing.T) {
 	out := renderT(t, Settings(dataView, "", nil, Data{Wipe: true, Delete: true}))
 	if strings.Contains(out, `name="backup"`) || !strings.Contains(out, `name="stop"`) {
@@ -48,9 +64,4 @@ func TestOverviewBackupAndRemoval(t *testing.T) {
 	if strings.Contains(gone, "Set up backup") {
 		t.Error("a removed volume offers backup setup")
 	}
-}
-
-func TestDeletedSaysTheTruth(t *testing.T) {
-	out := renderT(t, Deleted())
-	wantAll(t, "deleted", out, "The volume and its data are deleted. Backups in a destination are kept.")
 }
