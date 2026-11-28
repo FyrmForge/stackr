@@ -195,7 +195,9 @@ It starts the disk's mount units, and the restart loop brings the panel up witho
 
 ### A disk that is missing
 
-If the disk is unmounted or the device is gone, the node shows "The disk is missing", and tiles that use it do not start. Reattach or mount it, run `stackr-install disk-check` on the node, then press Check disk.
+If the disk is unmounted or the device is gone, the node shows "The disk is missing", and tiles that use it do not start. A pulled or dead disk goes missing in about 90 seconds, and its tiles are stopped. Reattach or mount it, run `stackr-install disk-check` on the node, then press Check disk. disk-check clears the dead mount first, so the disk can mount again. If a running container still holds the old disk, it says so: stop the container and run it again.
+
+`stkr node disk ls` shows the state `failing` while reads of the disk return I/O errors. The space line is then the last good read.
 
 ```bash
 stkr node disk check vps-fsn1
