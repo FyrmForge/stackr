@@ -73,3 +73,17 @@ func TestOrgShareNFSDropsSMBFields(t *testing.T) {
 		t.Errorf("nfs share refused:\n%s", body)
 	}
 }
+
+// Test on a share row answers the row's line: an owner who is no server
+// admin gets the approval sentence there, not a drawer banner.
+func TestOrgShareTestRefusalIsTheLine(t *testing.T) {
+	b := newBrowser(t, "owner")
+	b.do(t, "POST", "/acme/-/drawer/shares", url.Values{"slug": {"media"}, "kind": {"nfs"}, "source": {"203.0.113.5:/export"}}, true)
+	drawer := b.do(t, "GET", "/acme/-/drawer?tab=storage&open=shares", nil, true).Body.String()
+	_, rest, _ := strings.Cut(drawer, `hx-post="/acme/-/drawer/shares/`)
+	id, _, _ := strings.Cut(rest, "/test")
+	body := b.do(t, "POST", "/acme/-/drawer/shares/"+id+"/test", nil, true).Body.String()
+	if !strings.Contains(body, `id="share-test-media"`) || !strings.Contains(body, "An admin has to approve this share on a stack first.") {
+		t.Errorf("test line:\n%s", body)
+	}
+}

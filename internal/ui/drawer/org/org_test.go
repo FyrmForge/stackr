@@ -179,3 +179,21 @@ func TestPickerEmptyConnectorNote(t *testing.T) {
 		t.Errorf("c2 lists a repo, the note is hidden:\n%s", out)
 	}
 }
+
+func TestShareTestLine(t *testing.T) {
+	ok := html(t, ShareTestLine(ShareTestView{Slug: "media", OK: true, Msg: "Readable from n1."}))
+	if !strings.Contains(ok, `id="share-test-media"`) || !strings.Contains(ok, "Readable from n1.") || strings.Contains(ok, "<details") {
+		t.Errorf("ok:\n%s", ok)
+	}
+	bad := html(t, ShareTestLine(ShareTestView{Slug: "media", Msg: "The NAS refused access.", Raw: "permission denied"}))
+	if !strings.Contains(bad, "The NAS refused access.") || !strings.Contains(bad, "<details") || !strings.Contains(bad, "permission denied") {
+		t.Errorf("bad:\n%s", bad)
+	}
+	row := html(t, Shares(SharesView{Rows: []ShareRow{{Slug: "media", Test: "/o/shares/s1/test"}}}))
+	if !strings.Contains(row, `hx-post="/o/shares/s1/test"`) || !strings.Contains(row, `hx-target="#share-test-media"`) || !strings.Contains(row, "hx-disabled-elt") {
+		t.Errorf("row:\n%s", row)
+	}
+	if strings.Contains(html(t, Shares(SharesView{Rows: []ShareRow{{Slug: "media"}}})), ">Test<") {
+		t.Error("Test button shown to a non-owner")
+	}
+}
