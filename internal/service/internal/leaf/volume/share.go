@@ -406,3 +406,9 @@ func (l *Leaf) EnsureShare(ctx context.Context, s store.Share, sub, addr, user, 
 	}
 	return name, l.docker.CreateVolume(ctx, name, "local", opts, map[string]string{ShareLabel: s.ID})
 }
+
+// ShareDenied is the plain text for an NFS export that refused the mount
+// with "permission denied": the NAS maps root to nobody.
+func ShareDenied(s store.Share) string {
+	return fmt.Sprintf("The NAS refused access to share %s (%s). It likely maps root to nobody: give Other read and execute on the export's top folder, or set maproot.", s.Slug, s.Source)
+}

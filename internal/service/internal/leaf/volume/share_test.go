@@ -234,3 +234,11 @@ func TestShareOldOptionsReadClean(t *testing.T) {
 		t.Errorf("edit of an old row: %v", err)
 	}
 }
+
+func TestShareDenied(t *testing.T) {
+	got := volume.ShareDenied(store.Share{Slug: "media", Source: "nas:/export"})
+	want := "The NAS refused access to share media (nas:/export). It likely maps root to nobody: give Other read and execute on the export's top folder, or set maproot."
+	if got != want {
+		t.Fatalf("got %q", got)
+	}
+}
