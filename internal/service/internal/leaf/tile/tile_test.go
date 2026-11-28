@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -864,5 +865,56 @@ func TestSliceBucketEffects(t *testing.T) {
 	}
 	if fx := tile.Effects(tile.Slice, tile.Changed{"default_access": true}); len(fx) != 0 {
 		t.Errorf("default_access = %v", fx)
+	}
+}
+
+// Two volumes of one tile back up at once: both Freezes succeed, the replica
+// is paused once and stays paused until the last thaw.
+func TestFreezeOverlap(t *testing.T) {
+	l, fake, _, base := setup(t)
+	tl := svc(base, "jelly")
+	tl.ID = uuid.NewString()
+	fake.Containers = []docker.Container{{
+		ID: "c1", State: "running",
+		Labels: map[string]string{tile.LabelTile: tl.ID, tile.LabelRole: "replica"},
+	}}
+	count := func(m string) (n int) {
+		for _, c := range fake.Calls() {
+			if c.Method == m {
+				n++
+			}
+		}
+		return
+	}
+	thaw1, err := l.Freeze(ctx, []store.Tile{tl})
+	must(t, err)
+	fake.Edit(func() { fake.Containers[0].State = "paused" })
+	var wg sync.WaitGroup
+	var thaw2 func()
+	var err2 error
+	wg.Go(func() { thaw2, err2 = l.Freeze(ctx, []store.Tile{tl}) })
+	wg.Wait()
+	must(t, err2)
+	thaw1()
+	if count("Pause") != 1 || count("Unpause") != 0 {
+		t.Fatalf("after first thaw: pause %d unpause %d", count("Pause"), count("Unpause"))
+	}
+	thaw2()
+	thaw2() // a repeat thaw is harmless
+	if count("Pause") != 1 || count("Unpause") != 1 {
+		t.Fatalf("after last thaw: pause %d unpause %d", count("Pause"), count("Unpause"))
+	}
+
+	// A failed Freeze leaves no count behind: the next one pauses afresh.
+	fake.Edit(func() { fake.Containers[0].State = "running"; fake.Err = map[string]error{"Pause": errors.New("boom")} })
+	if _, err := l.Freeze(ctx, []store.Tile{tl}); err == nil {
+		t.Fatal("want pause error")
+	}
+	fake.Edit(func() { fake.Err = nil })
+	thaw3, err := l.Freeze(ctx, []store.Tile{tl})
+	must(t, err)
+	thaw3()
+	if count("Pause") != 3 || count("Unpause") != 2 {
+		t.Fatalf("after failure: pause %d unpause %d", count("Pause"), count("Unpause"))
 	}
 }

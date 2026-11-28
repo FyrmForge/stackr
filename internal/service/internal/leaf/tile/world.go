@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -746,27 +747,59 @@ func (l *Leaf) running(ctx context.Context, ts []store.Tile) ([]string, error) {
 	return ids, nil
 }
 
+// frozen counts the Freezes holding each container paused, by container id.
+// Package level because tile.New runs at several sites: two volumes of one
+// tile back up concurrently and must share it. The lock is held across the
+// pauses, so a second Freeze waits for the first to finish pausing.
+var frozen = struct {
+	sync.Mutex
+	n map[string]int
+}{n: map[string]int{}}
+
 // Freeze pauses every running replica of ts (a backup's pause mode); thaw
-// unpauses them and runs even after the caller's context is gone.
+// releases them and runs even after the caller's context is gone. Overlapping
+// Freezes share a pause: the container unpauses when the last thaw runs.
 func (l *Leaf) Freeze(ctx context.Context, ts []store.Tile) (thaw func(), err error) {
 	if ctx, err = l.atFirst(ctx, ts); err != nil {
 		return nil, err
 	}
-	ids, err := l.running(ctx, ts)
-	if err != nil {
-		return nil, err
+	frozen.Lock()
+	defer frozen.Unlock()
+	var ids []string
+	for _, t := range ts {
+		cs, err := l.Replicas(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range cs {
+			// A replica another Freeze paused is still ours to hold.
+			if c.State == "running" || (c.State == "paused" && frozen.n[c.ID] > 0) {
+				ids = append(ids, c.ID)
+			}
+		}
 	}
 	var done []string
 	thaw = func() {
+		frozen.Lock()
+		defer frozen.Unlock()
 		for _, id := range done {
-			_ = l.docker.Unpause(context.WithoutCancel(ctx), id)
+			if frozen.n[id]--; frozen.n[id] <= 0 {
+				delete(frozen.n, id)
+				_ = l.docker.Unpause(context.WithoutCancel(ctx), id)
+			}
 		}
+		done = nil
 	}
 	for _, id := range ids {
-		if err := l.docker.Pause(ctx, id); err != nil {
-			thaw()
-			return nil, fmt.Errorf("pausing %s: %w", id, err)
+		if frozen.n[id] == 0 {
+			if err := l.docker.Pause(ctx, id); err != nil {
+				frozen.Unlock()
+				thaw()
+				frozen.Lock()
+				return nil, fmt.Errorf("pausing %s: %w", id, err)
+			}
 		}
+		frozen.n[id]++
 		done = append(done, id)
 	}
 	return thaw, nil
