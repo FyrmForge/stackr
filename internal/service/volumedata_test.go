@@ -722,6 +722,32 @@ func TestWipeVolumeRefusedWhileOtherVolumeBackupHoldsTile(t *testing.T) {
 	}
 }
 
+// A scheduled backup's payload has no mode: the schedule's decides.
+func TestWipeVolumeScheduledBackupModeFromSchedule(t *testing.T) {
+	t.Parallel()
+	for mode, refused := range map[string]bool{backup.Live: false, backup.Pause: true} {
+		w := newWorld(t)
+		ctx := context.Background()
+		v := w.dataVol(t)
+		tl := w.mountedBy(t, "api", false)
+		other, _, err := w.orch.DeclareEnvVolume(ctx, w.env, "logs")
+		must(t, err)
+		_, _, err = w.orch.UpdateTile(ctx, tl.ID, func(x *Tile) error { x.Volumes = "data:/data\nlogs:/logs"; return nil })
+		must(t, err)
+		must(t, w.orch.store.BackupSchedules.Create(ctx, store.BackupSchedule{ID: "sch", VolumeID: other.ID, Method: "tar",
+			Cron: "0 3 * * *", Timezone: "UTC", Keep: 1, Mode: mode, CreatedAt: time.Now()}))
+		p, _ := json.Marshal(backupJob{VolumeID: other.ID, ScheduleID: "sch"})
+		must(t, w.orch.store.Jobs.Create(ctx, store.Job{
+			ID: uuid.NewString(), Kind: string(kindBackup), State: job.Queued,
+			LockSet: store.StringList{"volume:" + other.ID}, Payload: string(p), CreatedAt: time.Now(),
+		}))
+		_, err = w.orch.WipeVolume(ctx, v.ID, false, false)
+		if got := err != nil && strings.Contains(err.Error(), "is stopped by a backup"); got != refused {
+			t.Errorf("mode %s: refused=%v err=%v", mode, got, err)
+		}
+	}
+}
+
 // The wipe note outlives any number of newer jobs.
 func TestVolumeDataJobsSurvivesNewerJobs(t *testing.T) {
 	t.Parallel()

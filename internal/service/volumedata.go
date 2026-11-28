@@ -176,7 +176,18 @@ func (o *Orchestrator) stoppedByOtherJob(ctx context.Context, v Volume, mounting
 		switch j.Kind {
 		case string(kindBackup):
 			var p backupJob
-			if json.Unmarshal([]byte(j.Payload), &p) != nil || p.Mode == backup.Live {
+			if json.Unmarshal([]byte(j.Payload), &p) != nil {
+				continue
+			}
+			// A scheduled run carries no mode: it is the schedule's (as in
+			// the backup job itself).
+			mode := p.Mode
+			if p.ScheduleID != "" {
+				if sc, err := o.backups.GetSchedule(ctx, p.ScheduleID); err == nil {
+					mode = sc.Mode
+				}
+			}
+			if mode == backup.Live {
 				continue
 			}
 			id = p.VolumeID
