@@ -65,8 +65,7 @@ func (h *handler) dataJob(c echo.Context, id string, o *volume.OverviewView) err
 	if err != nil || !ok {
 		return err
 	}
-	jv := render.JobViewNote(c.Request().Context(), h.orch, render.EnvURL(c), j)
-	jv.Live = false
+	jv := render.DataJobView(c.Request().Context(), h.orch, render.EnvURL(c), j)
 	o.Job = &jv
 	return nil
 }

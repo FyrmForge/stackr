@@ -80,6 +80,16 @@ func TestVolumeDeleteWithBackupShowsTheJob(t *testing.T) {
 	hasAll(t, "delete job", rec.Body.String(), "volume.delete")
 }
 
+// A backup-first delete that failed leaves the volume and says so in the drawer.
+func TestVolumeDeleteFailureShown(t *testing.T) {
+	s, root, base, vid := dataSite(t)
+	now := time.Now()
+	create(t, s.Store.Jobs.Create, map[string]any{"ID": "jd", "Kind": "volume-delete", "State": "failed",
+		"Payload": `{"volume_id":"` + vid + `","backup_first":true}`, "Error": "backup before the delete failed, nothing was deleted: dest down",
+		"CreatedAt": now, "FinishedAt": &now})
+	hasAll(t, "overview", s.As(t, root, "GET", base, nil).Body.String(), "volume.delete", "failed", "dest down", "Nothing was deleted.")
+}
+
 func TestRemovedVolumeRestores(t *testing.T) {
 	s := webtest.New(t)
 	root := s.Session(t, s.User(t, "root@x.test", true))
