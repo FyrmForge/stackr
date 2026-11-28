@@ -113,7 +113,7 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 		}
 	}
 	clean := func(raw string) string {
-		return volume.MaskMount(raw, user, pass)
+		return volume.MaskMount(raw, pass)
 	}
 	fail := func(raw string) ShareTest {
 		return ShareTest{Node: nodeName, Message: "Could not mount share " + s.Slug + " from " + nodeName + ".", Raw: clean(raw)}
@@ -122,14 +122,13 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 		return ShareTest{Node: nodeName, Message: volume.ShareDenied(s), Raw: clean(raw)}
 	}
 
-	name, err := o.volumes.EnsureShare(nctx, s, "", addr, user, pass)
+	name, err := o.volumes.EnsureShareProbe(nctx, s, addr, user, pass)
 	if err != nil {
 		return fail(err.Error()), nil
 	}
-	// The volume holds the login it was made with: remove it when the test is
-	// done, or a fixed password would never take effect. Runs after the helper
-	// is gone (defers run last in, first out); a volume a tile still holds
-	// stays, which is fine.
+	// A volume of its own, so the deploy's is never made or removed here:
+	// removed when the test is done, after the helper is gone (defers run last
+	// in, first out).
 	defer func() {
 		c, stop := context.WithTimeout(context.WithoutCancel(nctx), shareTestClean)
 		defer stop()

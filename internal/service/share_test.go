@@ -12,6 +12,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -313,6 +315,31 @@ func TestShareTestCleansUpVolumeAndNamesUniquely(t *testing.T) {
 	}
 	if len(names) != 2 || names[0] == names[1] {
 		t.Fatalf("helper names = %v", names)
+	}
+}
+
+// The Test uses a volume of its own, labelled so a sweep clears a leaked one;
+// the deploy's volume of the same recipe is never created or removed.
+func TestShareTestNeverTouchesDeployVolume(t *testing.T) {
+	r, s, _ := shareTestRig(t, true)
+	if res, err := r.env.Orch.TestShare(context.Background(), &service.Principal{}, r.org, "media"); err != nil || !res.OK {
+		t.Fatalf("got %+v, %v", res, err)
+	}
+	deploy := volume.ShareVolumeName(s, "")
+	if len(r.env.Docker.Created) != 1 {
+		t.Fatalf("created = %+v", r.env.Docker.Created)
+	}
+	c := r.env.Docker.Created[0]
+	if !strings.HasPrefix(c.Name, "stackr-sharetest-") || strings.HasPrefix(c.Name, deploy) || c.Labels[volume.ShareLabel] != s.ID {
+		t.Fatalf("created %+v, deploy name %s", c, deploy)
+	}
+	for _, call := range r.env.Docker.Calls() {
+		if call.Method == "RemoveVolume" && call.Args[0] != c.Name {
+			t.Fatalf("removed %v", call)
+		}
+	}
+	if !slices.ContainsFunc(r.env.Docker.Calls(), func(x dockerfake.Call) bool { return x.Method == "RemoveVolume" }) {
+		t.Fatal("test volume not removed")
 	}
 }
 

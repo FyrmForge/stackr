@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -317,7 +318,7 @@ func ShareOpts(s store.Share, sub, addr, user, password string) (map[string]stri
 	if sub != "" && (path.IsAbs(sub) || path.Clean(sub) != sub || sub == ".." || strings.HasPrefix(sub, "../")) {
 		return nil, errs.Invalidf("volumes", "share %s: %q is not a plain sub path", s.Slug, sub)
 	}
-	if strings.ContainsAny(user+password, ", \n") {
+	if strings.ContainsFunc(user+password, func(r rune) bool { return r == ',' || unicode.IsSpace(r) }) {
 		return nil, errs.Conflictf("share %s: a user or password with a comma or space cannot go in a mount option", s.Slug)
 	}
 	var host, root, o string
@@ -396,11 +397,22 @@ func shareVolume(s store.Share, sub, addr string) string {
 // EnsureShare makes the Docker volume for sub inside s, mounting addr (the
 // approved IP, "" = the server name), and returns its name.
 func (l *Leaf) EnsureShare(ctx context.Context, s store.Share, sub, addr, user, password string) (string, error) {
+	return l.ensureShareAs(ctx, s, shareVolume(s, sub, addr), sub, addr, user, password)
+}
+
+// EnsureShareProbe makes a throwaway volume (stackr-sharetest-<id>) with the
+// share's recipe for the Test button. It never touches the deploy's volume of
+// the same recipe, which a running tile may hold; the share label lets a
+// sweep clear one a crash leaked.
+func (l *Leaf) EnsureShareProbe(ctx context.Context, s store.Share, addr, user, password string) (string, error) {
+	return l.ensureShareAs(ctx, s, "stackr-sharetest-"+uuid.NewString()[:8], "", addr, user, password)
+}
+
+func (l *Leaf) ensureShareAs(ctx context.Context, s store.Share, name, sub, addr, user, password string) (string, error) {
 	opts, err := ShareOpts(s, sub, addr, user, password)
 	if err != nil {
 		return "", err
 	}
-	name := shareVolume(s, sub, addr)
 	if ctx, err = l.orController(ctx); err != nil {
 		return name, err
 	}
@@ -419,14 +431,16 @@ func ShareDenied(s store.Share) string {
 
 var (
 	maskData  = regexp.MustCompile(`(?i)\bdata:\s*\S*`)
-	maskOpts  = regexp.MustCompile(`(?im)(\s-o\b|\boptions?\b\s*[:=]).*$`)
+	maskOpts  = regexp.MustCompile(`(?im)(\s-o\b).*$`)
 	maskCreds = regexp.MustCompile(`(?i)\b(username|user|password|pass|credentials|cred)\s*=\s*("[^"]*"|'[^']*'|\S*)`)
 )
 
 // MaskMount strips the credentials out of a mount error before anybody sees
 // it. It fails closed: the driver's option text ("data: ...", "-o ...") goes
 // whole, any user, pass or credentials value goes whatever its quoting, and
-// each known secret goes wherever it still appears, plain or escaped.
+// each known password goes wherever it still appears, plain or escaped. Pass
+// passwords only: a short user name would also eat host paths, and it is
+// masked in its key=value position anyway.
 func MaskMount(raw string, secrets ...string) string {
 	for _, sec := range secrets {
 		if sec == "" {
