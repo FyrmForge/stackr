@@ -365,6 +365,8 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return err
 		}),
 		kindRestore:       payload(o.runRestore),
+		kindVolumeWipe:    payload(o.runVolumeWipe),
+		kindVolumeDelete:  payload(o.runVolumeDelete),
 		kindSeed:          payload(o.runSeed),
 		kindBucketRestore: payload(o.runBucketRestore),
 		kindBucketSync:    payload(o.runBucketSync),

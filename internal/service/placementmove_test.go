@@ -425,13 +425,13 @@ func TestForgottenNodeEditsAreRecordOnly(t *testing.T) {
 	tl.Volumes = "data:/data"
 	must(t, n.st.Tiles.Update(ctx, tl))
 
-	if err := n.orch.DeleteVolume(ctx, "v-lost"); !pmConflict(err) {
+	if _, err := n.orch.DeleteVolume(ctx, "v-lost", false); !pmConflict(err) {
 		t.Fatalf("deleted a mounted volume: %v", err)
 	}
 	if _, j, err := n.orch.UpdateTile(ctx, tl.ID, func(t *Tile) error { t.Volumes = ""; return nil }); err != nil || j != nil {
 		t.Fatalf("detach on a forgotten node: job %v, %v", j, err)
 	}
-	if err := n.orch.DeleteVolume(ctx, "v-lost"); err != nil {
+	if _, err := n.orch.DeleteVolume(ctx, "v-lost", false); err != nil {
 		t.Fatalf("delete on a forgotten node: %v", err)
 	}
 	if _, err := n.st.Volumes.Get(ctx, "v-lost"); !errors.Is(err, errs.ErrNotFound) {
