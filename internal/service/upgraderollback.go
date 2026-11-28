@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -62,6 +63,19 @@ func (o *Orchestrator) undoFailedUpgrade(ctx context.Context) {
 		}
 		if err := o.docker.StopRemove(ctx, c.ID); err != nil {
 			slog.Warn("upgrade helper: not removed", "err", err)
+		}
+	}
+}
+
+// settleMoveHelpers settles every finished move helper (labelled), nothing else.
+func (o *Orchestrator) settleMoveHelpers(ctx context.Context) {
+	cs, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: "upgrader"})
+	if err != nil {
+		return
+	}
+	for _, c := range cs {
+		if id := c.Labels[panel.MoveLabel]; id != "" {
+			o.settleMoveHelper(ctx, c, id)
 		}
 	}
 }

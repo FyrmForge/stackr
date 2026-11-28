@@ -728,6 +728,7 @@ func (o *Orchestrator) watchUpgrader(ctx context.Context) {
 			id, err = o.runningUpgrader(cctx)
 		}
 		if err == nil && id == "" {
+			o.settleMoveHelpers(cctx) // one that failed before the swap is never seen by the boot path otherwise
 			return
 		}
 		if err == nil {

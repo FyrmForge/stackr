@@ -181,3 +181,33 @@ func TestUndoFailedUpgradeSettlesAMoveHelper(t *testing.T) {
 		t.Error("the upgrade rollback ran for a move helper")
 	}
 }
+
+// A move helper that fails before the swap is settled when the hold ends, with
+// no reboot: the move job fails with the log, the Update job is untouched.
+func TestWatchUpgraderSettlesAFailedMoveHelper(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	watchFast(t, n)
+	lbl := map[string]string{installspec.LabelRole: "upgrader", installspec.LabelMove: "m1"}
+	n.ctlFake.Edit(func() {
+		n.ctlFake.Containers = []docker.Container{{ID: "mv", Name: "stackr-upgrader", State: "running", Labels: lbl}}
+		n.ctlFake.Details = map[string]docker.Detail{"mv": {State: "exited", ExitCode: 1}}
+	})
+	mk := func(kind, payload string) store.Job {
+		j := store.Job{ID: uuid.NewString(), Kind: kind, State: "done", Payload: payload, LockSet: store.StringList{}, CreatedAt: time.Now()}
+		must(t, n.st.Jobs.Create(ctx, j))
+		return j
+	}
+	mv := mk(kindMovePanelDB, `{"node_id":"c","move_id":"m1"}`)
+	up := mk(string(kindUpgrade), `{"tag":"v0.9.1"}`)
+	must(t, paneldb.WriteJournal(n.orch.cfg.DataDir, paneldb.Journal{Phase: paneldb.PhaseNone}))
+	n.orch.bootUpgradeHold(ctx)
+	n.ctlFake.Edit(func() { n.ctlFake.Containers[0].State = "exited" })
+	released(t, n)
+	if j, _ := n.st.Jobs.Get(ctx, mv.ID); j.State != "failed" || !strings.Contains(j.Error, "did not go through") {
+		t.Errorf("move job = %s %q", j.State, j.Error)
+	}
+	if j, _ := n.st.Jobs.Get(ctx, up.ID); j.State != "done" || j.Error != "" {
+		t.Errorf("update job = %s %q", j.State, j.Error)
+	}
+}
