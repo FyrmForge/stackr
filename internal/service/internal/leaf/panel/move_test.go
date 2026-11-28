@@ -918,3 +918,19 @@ func TestStaleFolderWalNeverReachesTheMount(t *testing.T) {
 	}
 	e.assertMoved("stackr-new")
 }
+
+// A non-empty -wal that appears beside the copy before the source goes would be
+// replayed onto it at the first open: the move refuses and rolls back.
+func TestNonEmptyWalBesideTheCopyRollsBack(t *testing.T) {
+	e := newEnv(t)
+	l := e.leaf(func(step string) error {
+		if step == "copied" {
+			return os.WriteFile(filepath.Join(e.h.Folder(), paneldb.FileName+"-wal"), []byte("stray"), 0o600)
+		}
+		return nil
+	})
+	if err := l.Move(context.Background(), e.spec("stackr-new"), mvIn()); !errors.Is(err, ErrRolledBack) {
+		t.Fatalf("err = %v", err)
+	}
+	e.assertUnmoved("stackr-old")
+}

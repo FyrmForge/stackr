@@ -152,6 +152,8 @@ func TestObserveMoveToDiskAndBack(t *testing.T) {
 
 	// back: the plain volume again, the folder and its row gone
 	r.steps = nil
+	// the fake's RemoveVolume keeps the seeded entry; a real daemon drops it
+	r.ctlFake.Edit(func() { r.ctlFake.Volumes = nil })
 	if j := r.move(t, true); j.State != job.Done {
 		t.Fatalf("back: %s %s", j.State, j.Error)
 	}
@@ -357,7 +359,8 @@ func TestObserveMoveErroringDiskGate(t *testing.T) {
 	}
 }
 
-// Two presses: the second is refused while the first holds the key.
+// Two presses: the second is refused while the first holds the node's todisk key
+// (the plan's Busy check sees it before the observe-move key can matter).
 func TestObserveMoveSecondPressConflicts(t *testing.T) {
 	ctx := context.Background()
 	r := newObserveRig(t)
@@ -367,7 +370,7 @@ func TestObserveMoveSecondPressConflicts(t *testing.T) {
 	_, err := r.orch.MoveObserve(ctx, adminP(), r.ctl(), false)
 	must(t, err)
 	_, err = r.orch.MoveObserve(ctx, adminP(), r.ctl(), false)
-	if !errors.As(err, new(errs.Conflict)) {
+	if !errors.As(err, new(errs.Conflict)) || !strings.Contains(err.Error(), "Data is already moving to the disk.") {
 		t.Errorf("second press: %v", err)
 	}
 }

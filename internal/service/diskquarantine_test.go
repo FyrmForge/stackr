@@ -1043,6 +1043,17 @@ func TestSecondOutageAfterCheckDiskIsQuarantined(t *testing.T) {
 		t.Fatalf("job = %s %q", j.State, j.Error)
 	}
 	w.check(t)
+	// The record survives Check disk (its tile is not back yet) and the second
+	// outage opens the same problem row, so only the reset Done lets it queue.
+	rec, ok, _ := w.orch.quarLoad(ctx, w.row.ID)
+	if !ok {
+		t.Fatal("the record did not survive Check disk")
+	}
+	since := time.Unix(1e9, 0).UTC()
+	rec.Since = since
+	must(t, w.orch.quarSave(ctx, w.row.ID, rec))
+	pr, _ := json.Marshal(problemRow{Severity: SevWarning, Message: "missing", Since: since})
+	must(t, w.st.Settings.Set(ctx, problemKey(diskMissingKey("w1")), string(pr)))
 	before := len(w.quarJobs(t))
 	n, _ := w.st.Nodes.Get(ctx, "w1")
 	row, _, _ := w.orch.nodeDisk(ctx, "w1")
