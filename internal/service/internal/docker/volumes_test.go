@@ -55,7 +55,7 @@ func TestDeviceOf(t *testing.T) {
 // an rm fails.
 func TestEmptyDir(t *testing.T) {
 	run := func(dir string) error {
-		return exec.Command("sh", "-c", emptyDir(dir)+"true").Run()
+		return exec.Command("sh", "-c", emptyDir(dir)+"true && exit $rc").Run()
 	}
 	dir := t.TempDir()
 	if err := run(dir); err != nil {
@@ -88,7 +88,13 @@ func TestEmptyDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.Chmod(filepath.Join(dir, "locked"), 0o700) }()
+	if err := os.WriteFile(filepath.Join(dir, "zlast"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := run(dir); err == nil {
 		t.Fatal("a failed rm did not fail the script")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "zlast")); err == nil {
+		t.Fatal("the script stopped at the failed rm instead of going on")
 	}
 }

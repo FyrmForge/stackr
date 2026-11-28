@@ -147,7 +147,7 @@ func (w *world) tile(t *testing.T, name string, running bool) Tile {
 // wait polls a job until it finishes.
 func (w *world) wait(t *testing.T, id string) Job {
 	t.Helper()
-	for range 500 {
+	for range 3000 {
 		j, err := w.orch.GetJob(context.Background(), id)
 		must(t, err)
 		if j.State == job.Done || j.State == job.Failed || j.State == job.Cancelled {

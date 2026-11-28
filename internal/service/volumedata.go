@@ -31,6 +31,17 @@ type volumeDataJob struct {
 	DestID      string `json:"dest_id,omitempty"` // "" = local
 }
 
+// deleteBackupFailed starts the error of a delete job whose backup-first step
+// failed: nothing was deleted. The job row keeps only text, so this prefix is
+// the record; DeleteBackupFailed is the one reader.
+const deleteBackupFailed = "backup before the delete failed, nothing was deleted"
+
+// DeleteBackupFailed says whether j is a volume delete that failed in its
+// backup-first step, before anything was deleted.
+func DeleteBackupFailed(j Job) bool {
+	return j.Kind == string(kindVolumeDelete) && j.State == "failed" && strings.HasPrefix(j.Error, deleteBackupFailed)
+}
+
 // destArg is the id runBackup takes for d: "" means the local disk.
 func destArg(d BackupDest) string {
 	if d.Kind == backup.Local {
@@ -202,7 +213,7 @@ func (o *Orchestrator) runVolumeDelete(ctx context.Context, r *jobs.Run, p volum
 		_, _ = fmt.Fprintln(r.Log, "backing up first")
 		if err := o.runBackup(ctx, r, backupJob{VolumeID: v.ID, DestID: p.DestID}); err != nil {
 			_, _ = fmt.Fprintln(r.Log, "the backup failed, nothing was deleted")
-			return fmt.Errorf("backup before the delete failed, nothing was deleted: %w", err)
+			return fmt.Errorf(deleteBackupFailed+": %w", err)
 		}
 	}
 	// again: a tile may have mounted it while the backup ran
@@ -217,23 +228,37 @@ func (o *Orchestrator) runVolumeDelete(ctx context.Context, r *jobs.Run, p volum
 	return nil
 }
 
-// VolumeDataJob is the newest wipe or delete job of the volume: a live one,
-// or one that ended in the last ten minutes. Rows only.
-func (o *Orchestrator) VolumeDataJob(ctx context.Context, volumeID string) (Job, bool, error) {
+// VolumeDataJobs is VolumeDataJob for every volume at once: the newest wipe
+// or delete job of each, live or ended in the last ten minutes, by volume id.
+// Rows only; one read of the job list however many volumes a page shows.
+func (o *Orchestrator) VolumeDataJobs(ctx context.Context) (map[string]Job, error) {
 	js, err := o.Jobs(ctx, 200)
 	if err != nil {
-		return Job{}, false, err
+		return nil, err
 	}
+	out := map[string]Job{}
 	for _, j := range js { // newest first
 		var p volumeDataJob
 		if !slices.Contains([]string{string(kindVolumeWipe), string(kindVolumeDelete)}, j.Kind) ||
-			json.Unmarshal([]byte(j.Payload), &p) != nil || p.VolumeID != volumeID {
+			json.Unmarshal([]byte(j.Payload), &p) != nil {
+			continue
+		}
+		if _, seen := out[p.VolumeID]; seen {
 			continue
 		}
 		if j.FinishedAt != nil && time.Since(*j.FinishedAt) > 10*time.Minute {
-			return Job{}, false, nil
+			out[p.VolumeID] = Job{} // the newest ended long ago: none
+			continue
 		}
-		return j, true, nil
+		out[p.VolumeID] = j
 	}
-	return Job{}, false, nil
+	return out, nil
+}
+
+// VolumeDataJob is the newest wipe or delete job of the volume: a live one,
+// or one that ended in the last ten minutes. Rows only.
+func (o *Orchestrator) VolumeDataJob(ctx context.Context, volumeID string) (Job, bool, error) {
+	m, err := o.VolumeDataJobs(ctx)
+	j, ok := m[volumeID]
+	return j, ok && j.ID != "", err
 }

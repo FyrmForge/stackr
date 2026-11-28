@@ -104,7 +104,7 @@ func TestEnvVolumesRowShowsFailedDelete(t *testing.T) {
 	mk := reflect.ValueOf(s.Store.Jobs.Create)
 	row := reflect.New(mk.Type().In(1)).Elem()
 	for k, x := range map[string]any{"ID": "jd", "Kind": "volume-delete", "State": "failed",
-		"Payload": `{"volume_id":"` + vs.Volumes[0].ID + `"}`, "Error": "dest down", "CreatedAt": now, "FinishedAt": &now} {
+		"Payload": `{"volume_id":"` + vs.Volumes[0].ID + `"}`, "Error": "backup before the delete failed, nothing was deleted: dest down", "CreatedAt": now, "FinishedAt": &now} {
 		row.FieldByName(k).Set(reflect.ValueOf(x))
 	}
 	if out := mk.Call([]reflect.Value{reflect.ValueOf(context.Background()), row}); !out[0].IsNil() {

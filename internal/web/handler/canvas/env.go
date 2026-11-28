@@ -171,6 +171,7 @@ func (h *handler) volumesView(c echo.Context, page string, vs service.EnvVolumes
 	default:
 		v.Why = "Only members and owners can change volumes."
 	}
+	dataJobs, _ := h.orch.VolumeDataJobs(ctx) // one read for every row; a failed read shows no job
 	for _, ev := range vs.Volumes {
 		r := envui.VolumeRow{Name: ev.Slug, Size: "size unknown", MountedBy: strings.Join(ev.MountedBy, ", "), Owner: ev.OwnedBy}
 		if ev.SizeBytes >= 0 {
@@ -183,7 +184,7 @@ func (h *handler) volumesView(c echo.Context, page string, vs service.EnvVolumes
 		}
 		// A delete that backs up first runs as a job: its progress, and why it
 		// failed, show on the row.
-		if j, ok, err := h.orch.VolumeDataJob(ctx, ev.ID); err == nil && ok && j.Kind == "volume-delete" {
+		if j := dataJobs[ev.ID]; j.ID != "" && j.Kind == "volume-delete" {
 			jv := render.DataJobView(ctx, h.orch, page, j)
 			r.Job = &jv
 		}

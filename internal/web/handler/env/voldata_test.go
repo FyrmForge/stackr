@@ -90,6 +90,20 @@ func TestVolumeDeleteFailureShown(t *testing.T) {
 	hasAll(t, "overview", s.As(t, root, "GET", base, nil).Body.String(), "volume.delete", "failed", "dest down", "Nothing was deleted.")
 }
 
+// A delete that failed for another reason does not claim nothing was deleted.
+func TestVolumeDeleteOtherFailureSaysNothingDeleted(t *testing.T) {
+	s, root, base, vid := dataSite(t)
+	now := time.Now()
+	create(t, s.Store.Jobs.Create, map[string]any{"ID": "jd", "Kind": "volume-delete", "State": "failed",
+		"Payload": `{"volume_id":"` + vid + `"}`, "Error": "removing the volume: engine hung up",
+		"CreatedAt": now, "FinishedAt": &now})
+	body := s.As(t, root, "GET", base, nil).Body.String()
+	hasAll(t, "overview", body, "engine hung up")
+	if strings.Contains(body, "Nothing was deleted.") {
+		t.Error("claimed nothing was deleted")
+	}
+}
+
 func TestRemovedVolumeRestores(t *testing.T) {
 	s := webtest.New(t)
 	root := s.Session(t, s.User(t, "root@x.test", true))

@@ -635,7 +635,7 @@ func JobViewNote(ctx context.Context, orch *service.Orchestrator, page string, j
 func DataJobView(ctx context.Context, orch *service.Orchestrator, page string, j service.Job) components.JobStatusView {
 	v := JobViewNote(ctx, orch, page, j)
 	v.Live = false
-	if j.Kind == "volume-delete" && j.State == "failed" {
+	if service.DeleteBackupFailed(j) {
 		v.Note = "Nothing was deleted."
 	}
 	return v

@@ -51,7 +51,7 @@ func (o *Orchestrator) DeleteVolume(ctx context.Context, id string, backupFirst 
 			return Job{}, err
 		}
 		if st.ConfigRepo != "" {
-			return Job{}, errs.Conflictf("Remove it from the stack file.")
+			return Job{}, errs.Conflictf("%s is declared in the stack file. Remove it there.", v.Slug)
 		}
 	}
 	return o.deleteVolume(ctx, v, backupFirst)

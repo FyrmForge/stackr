@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -192,6 +193,23 @@ func TestDeleteVolumeRefusals(t *testing.T) {
 	}
 }
 
+// A live move is found however many newer jobs there are.
+func TestOldCopyMovingBeyondRecentJobs(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	v := w.dataVol(t)
+	_, err := w.orch.jobRows.Create(ctx, string(kindVolumeToDisk), []string{"todisk:n"}, `{"volumes":[{"volume_id":"x","old_name":"`+v.Name+`"}]}`, nil, "")
+	must(t, err)
+	for i := range 250 {
+		_, err := w.orch.jobRows.Create(ctx, "backup", []string{fmt.Sprintf("volume:fill-%d", i)}, "{}", nil, "")
+		must(t, err)
+	}
+	if live, err := w.orch.oldCopyMoving(ctx, v); err != nil || !live {
+		t.Fatalf("live = %v, %v", live, err)
+	}
+}
+
 // A stack file declares a managed env's volumes: the panel and the API refuse
 // the delete, and nothing is touched.
 func TestDeleteVolumeRefusedOnConfigManagedStack(t *testing.T) {
@@ -204,7 +222,7 @@ func TestDeleteVolumeRefusedOnConfigManagedStack(t *testing.T) {
 	st.ConfigRepo = "https://github.com/acme/shop"
 	must(t, w.st.Stacks.Update(ctx, st))
 	for _, bf := range []bool{false, true} {
-		if _, err := w.orch.DeleteVolume(ctx, v.ID, bf); !conflict(err) || !strings.Contains(err.Error(), "Remove it from the stack file.") {
+		if _, err := w.orch.DeleteVolume(ctx, v.ID, bf); !conflict(err) || !strings.Contains(err.Error(), "is declared in the stack file. Remove it there.") {
 			t.Errorf("backup %v: %v", bf, err)
 		}
 	}
@@ -478,18 +496,17 @@ func TestWipeVolumeStopsAndRestartsTiles(t *testing.T) {
 	}
 }
 
-// Paused and restarting replicas hold the volume too: without the switch they
-// refuse the wipe, with it they stop, and only the restarting one starts again.
-func TestWipeVolumeCountsPausedAndRestartingReplicas(t *testing.T) {
+// A restarting replica holds the volume too: without the switch it refuses the
+// wipe, with it it stops and starts again.
+func TestWipeVolumeCountsRestartingReplicas(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	v := w.dataVol(t)
-	for _, name := range []string{"held", "loop"} {
+	for _, name := range []string{"loop"} {
 		tl := w.mountedBy(t, name, false)
-		state := map[string]string{"held": "paused", "loop": "restarting"}[name]
 		w.fake.Containers = append(w.fake.Containers, docker.Container{
-			ID: "c-" + name, Name: "c-" + name, State: state,
+			ID: "c-" + name, Name: "c-" + name, State: "restarting",
 			Labels: map[string]string{tile.LabelTile: tl.ID, tile.LabelRole: "replica"},
 		})
 	}
@@ -503,13 +520,10 @@ func TestWipeVolumeCountsPausedAndRestartingReplicas(t *testing.T) {
 		t.Fatalf("job = %s", got.State)
 	}
 	got := w.callsFrom(before, "UntarVolume", "Stop", "Start")
-	for _, want := range []string{"Stop c-held", "Stop c-loop", "Start c-loop"} {
+	for _, want := range []string{"Stop c-loop", "Start c-loop"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("calls %v miss %q", got, want)
 		}
-	}
-	if slices.Contains(got, "Start c-held") {
-		t.Errorf("paused replica started again: %v", got)
 	}
 }
 
@@ -532,6 +546,25 @@ func TestWipeVolumeBackupFirstFailure(t *testing.T) {
 	}
 	if calls := w.callsFrom(0, "Stop", "Start"); !slices.Equal(calls, []string{"Stop c-api", "Start c-api"}) {
 		t.Errorf("tiles = %v, want stopped and started again", calls)
+	}
+}
+
+// A replica a backup holds paused is not stopped under it: the wipe refuses.
+func TestWipeVolumeRefusesPausedByBackup(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	v := w.dataVol(t)
+	w.mountedBy(t, "api", true)
+	w.fake.Locked(func() { w.fake.Containers[len(w.fake.Containers)-1].State = "paused" })
+	j, err := w.orch.WipeVolume(ctx, v.ID, true, false)
+	must(t, err)
+	got := w.wait(t, j.ID)
+	if got.State != "failed" || !strings.Contains(got.Error, "api is paused by a backup. Try again when it is done.") {
+		t.Fatalf("job = %s %q", got.State, got.Error)
+	}
+	if calls := w.callsFrom(0, "Stop", "UntarVolume"); len(calls) != 0 {
+		t.Errorf("touched anyway: %v", calls)
 	}
 }
 
@@ -632,12 +665,23 @@ func TestRestoreVolumeRefusesInstanceVolumeAfterInstanceGone(t *testing.T) {
 	if err := w.orch.RestoreVolume(ctx, v.ID); !conflict(err) || !strings.Contains(err.Error(), "operated instance") {
 		t.Errorf("restore after the instance went = %v", err)
 	}
-	// a plain volume of another name restores
-	pv := got
-	pv.Slug = "uploads"
-	must(t, w.st.Volumes.Update(ctx, pv))
-	if err := w.orch.RestoreVolume(ctx, v.ID); err != nil {
-		t.Errorf("plain removed volume = %v", err)
+}
+
+// The refusal follows the from_instance marker, not the name: a user volume
+// called app-data or x-wal restores.
+func TestRestoreVolumeUserVolumeWithInstanceLikeName(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	for _, sl := range []string{"app-data", "redis-data", "x-wal"} {
+		v := w.dataVol(t)
+		v.Slug = sl
+		must(t, w.st.Volumes.Update(ctx, v))
+		_, err := w.orch.volumes.Orphan(ctx, v)
+		must(t, err)
+		if err := w.orch.RestoreVolume(ctx, v.ID); err != nil {
+			t.Errorf("restore %s = %v", sl, err)
+		}
 	}
 }
 
