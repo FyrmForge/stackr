@@ -1,10 +1,13 @@
 package paneldb
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func must(t *testing.T, err error) {
@@ -247,5 +250,25 @@ func TestSaveCopyAndRestore(t *testing.T) {
 	}
 	if m, _ := filepath.Glob(cp + "*"); len(m) != 0 {
 		t.Errorf("copy left: %v", m)
+	}
+}
+
+func TestWatchExitsWhenTheProbeNeverAnswers(t *testing.T) {
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	var calls atomic.Int32
+	got := make(chan error, 1)
+	go Watch(context.Background(), 10*time.Millisecond, TickMax, func() error {
+		calls.Add(1)
+		<-block
+		return nil
+	}, func(err error) { got <- err })
+	select {
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("exit was not called for a probe that never answers")
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("%d probes started while the first was in flight", n)
 	}
 }
