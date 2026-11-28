@@ -25,13 +25,15 @@ templ CreateLevel(v CreateLevelView) {
 			@c.FormError(v.Errors["general"])
 			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Error: v.Errors["name"]})
 			if v.Kind == "env" {
-				<fieldset class="space-y-2 text-sm">
-					<legend class="label">Releases come from</legend>
-					<label class="flex items-center gap-2"><input type="radio" name="from" value="branch" checked?={ v.From != "promote" }/> a branch</label>
-					if !v.First {
+				if v.First {
+					<input type="hidden" name="from" value="branch"/>
+				} else {
+					<fieldset class="space-y-2 text-sm">
+						<legend class="label">Releases come from</legend>
+						<label class="flex items-center gap-2"><input type="radio" name="from" value="branch" checked?={ v.From != "promote" }/> a branch</label>
 						<label class="flex items-center gap-2"><input type="radio" name="from" value="promote" checked?={ v.From == "promote" }/> promotion from the rung below</label>
-					}
-				</fieldset>
+					</fieldset>
+				}
 				@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Help: "Pushes to this branch build the environment.", Error: v.Errors["branch"]})
 			}
 			@c.Submit("Create")

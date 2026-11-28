@@ -32,8 +32,9 @@ func TestCreateLevel(t *testing.T) {
 	}
 	b.Reset()
 	_ = CreateLevel(CreateLevelView{Kind: "env", First: true}).Render(context.Background(), &b)
-	if strings.Contains(b.String(), `value="promote"`) || !strings.Contains(b.String(), `value="branch"`) {
-		t.Error("the first env is offered promotion")
+	if strings.Contains(b.String(), `value="promote"`) || strings.Contains(b.String(), "Releases come from") ||
+		!strings.Contains(b.String(), `type="hidden" name="from" value="branch"`) {
+		t.Error("the first env is asked where releases come from")
 	}
 	_ = DeleteOrg("acme", "/a", "#t") // a type-the-name confirm must say what is kept
 }
