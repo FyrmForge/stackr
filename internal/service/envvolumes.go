@@ -125,7 +125,7 @@ func (o *Orchestrator) RemoveEnvVolume(ctx context.Context, envID, volumeID stri
 		}
 	}
 	if by := mountedBy(keep, v.Slug); len(by) > 0 {
-		return errs.Conflictf("%s is mounted by %s; take it out of their Storage first", v.Slug, strings.Join(by, ", "))
+		return errs.Conflictf("%s is mounted by %s; take it out of their Volumes & mounts first", v.Slug, strings.Join(by, ", "))
 	}
 	_, err = o.volumes.Orphan(ctx, v)
 	return err
