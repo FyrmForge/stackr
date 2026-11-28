@@ -19,7 +19,7 @@ func startDBTicker(log *slog.Logger, dataDir string) {
 		return
 	}
 	dir := filepath.Join(dataDir, paneldb.DirName)
-	go paneldb.Watch(context.Background(), paneldb.TickEvery, paneldb.TickMax,
+	go paneldb.Watch(context.Background(), paneldb.TickEvery, paneldb.TickMax, paneldb.TickSilentMax,
 		func() error { return paneldb.ProbeWrite(dir) },
 		func(err error) {
 			log.Error("the database disk stopped answering: exiting so the boot check judges it", "err", err)

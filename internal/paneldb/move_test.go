@@ -154,7 +154,7 @@ func TestWatchExitsAfterConsecutiveFailures(t *testing.T) {
 		done := make(chan struct{}, 1)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		go Watch(ctx, time.Millisecond, 3, func() error {
+		go Watch(ctx, time.Millisecond, 3, 9, func() error {
 			i := int(n.Add(1)) - 1
 			if i < len(seq) {
 				return seq[i]

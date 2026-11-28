@@ -20,6 +20,9 @@ const ProbeName = ".stackr-probe"
 const (
 	TickEvery = 10 * time.Second
 	TickMax   = 3
+	// TickSilentMax is the budget for a probe that gives no answer at all: a
+	// slow disk is not a dead one, so it gets the worker's 9 ticks (90s).
+	TickSilentMax = 9
 )
 
 // ProbeWrite does one tiny write and fsync of the probe file in dir.
@@ -51,14 +54,15 @@ func Countable(err error) bool {
 }
 
 // Watch runs probe every `every` until ctx ends and calls exit once after max
-// consecutive countable failures. Any success or uncountable failure resets
-// the count. The probe runs in its own goroutine: one that has not answered by
+// consecutive countable failures, or silentMax consecutive ticks with no answer.
+// Any success or uncountable failure resets both counts; an answered error
+// resets the silent one. The probe runs in its own goroutine: one that has not answered by
 // the next tick (a write stuck on a dead disk) counts as a failed tick, and no
 // second probe starts while it is in flight.
-func Watch(ctx context.Context, every time.Duration, max int, probe func() error, exit func(error)) {
+func Watch(ctx context.Context, every time.Duration, max, silentMax int, probe func() error, exit func(error)) {
 	tk := time.NewTicker(every)
 	defer tk.Stop()
-	bad := 0
+	bad, silent := 0, 0
 	var res chan error // the in-flight probe's answer, nil when none
 	for {
 		select {
@@ -67,6 +71,7 @@ func Watch(ctx context.Context, every time.Duration, max int, probe func() error
 		case <-tk.C:
 		}
 		var err error
+		noAnswer := false
 		if res == nil {
 			res = make(chan error, 1)
 			go func(c chan<- error) { c <- probe() }(res)
@@ -76,23 +81,27 @@ func Watch(ctx context.Context, every time.Duration, max int, probe func() error
 			case err = <-res:
 				res = nil
 			case <-tk.C: // no answer within a tick
-				err = errors.New("write probe did not answer")
+				err, noAnswer = errors.New("write probe did not answer"), true
 			}
 		} else {
 			select {
 			case err = <-res:
 				res = nil
 			default:
-				err = errors.New("write probe still in flight")
+				err, noAnswer = errors.New("write probe still in flight"), true
 			}
 		}
 		if err == nil || !Countable(err) {
-			bad = 0
+			bad, silent = 0, 0
 			continue
 		}
-		bad++
-		slog.Warn("database disk: write probe failed", "consecutive", bad, "err", err)
-		if bad >= max {
+		if noAnswer {
+			silent++
+		} else {
+			bad, silent = bad+1, 0
+		}
+		slog.Warn("database disk: write probe failed", "consecutive", bad, "silent", silent, "err", err)
+		if bad >= max || silent >= silentMax {
 			exit(err)
 			return
 		}

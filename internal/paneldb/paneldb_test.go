@@ -258,7 +258,7 @@ func TestWatchExitsWhenTheProbeNeverAnswers(t *testing.T) {
 	t.Cleanup(func() { close(block) })
 	var calls atomic.Int32
 	got := make(chan struct{}, 1)
-	go Watch(context.Background(), 10*time.Millisecond, TickMax, func() error {
+	go Watch(context.Background(), 10*time.Millisecond, TickMax, TickSilentMax, func() error {
 		calls.Add(1)
 		<-block
 		return nil
@@ -270,5 +270,40 @@ func TestWatchExitsWhenTheProbeNeverAnswers(t *testing.T) {
 	}
 	if n := calls.Load(); n != 1 {
 		t.Fatalf("%d probes started while the first was in flight", n)
+	}
+}
+
+// A silent probe gets silentMax ticks, not max; a late answer resets the silent count.
+func TestWatchSilentBudgetIsSeparate(t *testing.T) {
+	every := 10 * time.Millisecond
+	// never answers: still alive after max+1 ticks, gone by silentMax+slack
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	got := make(chan struct{}, 1)
+	start := time.Now()
+	go Watch(context.Background(), every, 3, 9, func() error { <-block; return nil }, func(error) { got <- struct{}{} })
+	select {
+	case <-got:
+		if d := time.Since(start); d < 7*every {
+			t.Fatalf("exited after %v, before the silent budget", d)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("never exited")
+	}
+	// a late success resets: slow for 5 ticks, then fine, never exits
+	var n atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	exited := make(chan struct{}, 1)
+	go Watch(ctx, every, 3, 9, func() error {
+		if n.Add(1)%2 == 1 {
+			time.Sleep(5 * every)
+		}
+		return nil
+	}, func(error) { exited <- struct{}{} })
+	select {
+	case <-exited:
+		t.Fatal("a late success must reset the silent count")
+	case <-time.After(400 * time.Millisecond):
 	}
 }
