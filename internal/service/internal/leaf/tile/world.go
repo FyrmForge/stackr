@@ -758,12 +758,13 @@ func (l *Leaf) running(ctx context.Context, ts []store.Tile) ([]string, error) {
 // hold is one container's Freeze bookkeeping. Its own lock is held across
 // that container's Pause/Unpause, so a second Freeze of it waits for the
 // first to finish pausing, while a dead node never blocks another tile's.
-// stuck means an Unpause failed: the container is still paused and ours to
-// thaw, so the next Freeze takes it over and its thaw retries.
+// ours means this package paused it (one something else paused is held but
+// never unpaused here); stuck means an Unpause failed: still paused and ours,
+// so the next Freeze takes it over and its thaw retries.
 type hold struct {
 	sync.Mutex
-	n     int
-	stuck bool
+	n           int
+	ours, stuck bool
 }
 
 // frozen holds one hold per container id. Package level because tile.New runs
@@ -816,40 +817,49 @@ func (l *Leaf) Freeze(ctx context.Context, ts []store.Tile) (thaw func(), err er
 			h.Lock()
 			if h.n--; h.n <= 0 {
 				h.n = 0
-				uctx, cancel := bound()
-				if err := l.docker.Unpause(uctx, id); err != nil {
-					h.stuck = true
-					slog.Error("unpausing after a backup", "container", id, "err", err)
-				} else {
-					h.stuck = false
+				if h.ours {
+					uctx, cancel := bound()
+					if err := l.docker.Unpause(uctx, id); err != nil {
+						h.stuck = true
+						slog.Error("unpausing after a backup", "container", id, "err", err)
+					} else {
+						h.stuck, h.ours = false, false
+					}
+					cancel()
 				}
-				cancel()
 			}
 			h.Unlock()
 		}
 		done = nil
 	}
 	for _, c := range cs {
-		h := holdOf(c.ID)
-		h.Lock()
-		held := h.n > 0 || h.stuck
-		// A replica another Freeze paused (or a failed thaw left paused) is still ours to hold.
-		if !(c.State == "running" || (c.State == "paused" && held)) {
-			h.Unlock()
+		if c.State != "running" && c.State != "paused" {
 			continue
 		}
-		if !held {
+		// decided under the container's lock by the hold count, never by the
+		// state read before it: a thaw mid-Unpause has finished by now
+		h := holdOf(c.ID)
+		h.Lock()
+		switch {
+		case h.n > 0:
+		case h.stuck:
+			h.stuck = false
+		default:
 			pctx, cancel := bound()
 			err := l.docker.Pause(pctx, c.ID)
 			cancel()
-			if err != nil {
+			switch {
+			case err == nil:
+				h.ours = true
+			case strings.Contains(err.Error(), "already paused"):
+				h.ours = false // paused by something else: held, never unpaused here
+			default:
 				h.Unlock()
 				thaw()
 				return nil, fmt.Errorf("pausing %s: %w", c.ID, err)
 			}
 		}
 		h.n++
-		h.stuck = false
 		h.Unlock()
 		done = append(done, c.ID)
 	}

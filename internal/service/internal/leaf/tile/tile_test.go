@@ -964,3 +964,56 @@ func TestFreezeHungUnpauseDoesNotBlockOtherTile(t *testing.T) {
 		t.Fatal("Freeze of tile B blocked behind a hung Unpause of tile A")
 	}
 }
+
+// slowUnpause makes Unpause of one container wait for release, then succeed.
+type slowUnpause struct {
+	*dockerfake.Fake
+	started, release chan struct{}
+}
+
+func (h slowUnpause) Unpause(ctx context.Context, id string) error {
+	select {
+	case <-h.started:
+	default:
+		close(h.started)
+	}
+	<-h.release
+	return h.Fake.Unpause(ctx, id)
+}
+
+// A Freeze that listed the replica as paused while a thaw is mid-Unpause still pauses it.
+func TestFreezeDuringThawStillPauses(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	h := slowUnpause{fake, make(chan struct{}), make(chan struct{})}
+	l := tile.New(st.Tiles, h, &vipStub{set: map[string][]string{}})
+	s, e := seed(t, st)
+	a := svc(store.Tile{StackID: s, EnvironmentID: e}, "a")
+	a.ID = uuid.NewString()
+	fake.Containers = []docker.Container{
+		{ID: "cz", State: "running", Labels: map[string]string{tile.LabelTile: a.ID, tile.LabelRole: "replica"}},
+	}
+	thaw1, err := l.Freeze(ctx, []store.Tile{a})
+	must(t, err)
+	fake.Edit(func() { fake.Containers[0].State = "paused" }) // what the second Freeze lists
+	go thaw1()
+	<-h.started
+	var thaw2 func()
+	var err2 error
+	done := make(chan struct{})
+	go func() { thaw2, err2 = l.Freeze(ctx, []store.Tile{a}); close(done) }()
+	time.Sleep(50 * time.Millisecond)
+	close(h.release)
+	<-done
+	must(t, err2)
+	n := 0
+	for _, c := range fake.Calls() {
+		if c.Method == "Pause" {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Fatalf("Pause calls = %d, want 2 (the second Freeze pauses afresh)", n)
+	}
+	thaw2()
+}
