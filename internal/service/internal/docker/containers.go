@@ -114,7 +114,7 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 
 	resp, err := d.cli.ContainerCreate(ctx, cfg, hostCfg, netCfg, nil, spec.Name)
 	if err != nil {
-		return "", wrap(err)
+		return "", maskErr(wrap(err))
 	}
 	return resp.ID, nil
 }
@@ -231,7 +231,7 @@ func (d *Client) Start(ctx context.Context, id string) error {
 
 // Restart keeps networks and addresses, unlike a recreate.
 func (d *Client) Restart(ctx context.Context, id string) error {
-	return wrap(d.cli.ContainerRestart(ctx, id, container.StopOptions{}))
+	return maskErr(wrap(d.cli.ContainerRestart(ctx, id, container.StopOptions{})))
 }
 
 // UpdateRestart changes a container's restart policy in place (docker update

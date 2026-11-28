@@ -275,7 +275,7 @@ func (d *Client) toolContainer(
 		"stkr-vol-"+hex.EncodeToString(b),
 	) // random: overlapping ops must not collide
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, maskErr(err)
 	}
 	remove := func() {
 		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), created.ID, container.RemoveOptions{Force: true, RemoveVolumes: true})
