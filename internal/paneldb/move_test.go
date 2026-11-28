@@ -193,7 +193,7 @@ func TestWatchExitsAfterConsecutiveFailures(t *testing.T) {
 func TestInstallerSkipsTheMountCheckOfAMoveIn(t *testing.T) {
 	dir := t.TempDir()
 	must(t, EnsureLayout(dir))
-	write(t, Path(dir), "db")
+	write(t, filepath.Join(dir, InstallFile), "{}") // an install, db/ is the empty underlay
 	for _, ph := range []string{PhaseStartingNew, PhaseGating, PhasePassed} {
 		must(t, WriteJournal(dir, Journal{Phase: ph, Direction: DirIn, DiskID: "d1", InstallID: "i1"}))
 		if err := CheckInstaller(dir); err != nil {

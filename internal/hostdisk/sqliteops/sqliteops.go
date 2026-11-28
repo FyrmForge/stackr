@@ -26,7 +26,7 @@ func open(path, query string) (*sql.DB, error) {
 // file alone holds every row. A busy checkpoint (a writer is still there) is
 // an error: the copy would miss rows.
 func Checkpoint(ctx context.Context, path string) error {
-	db, err := open(path, "_pragma=busy_timeout(5000)")
+	db, err := open(path, "mode=rw&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return err
 	}
