@@ -918,3 +918,49 @@ func TestFreezeOverlap(t *testing.T) {
 		t.Fatalf("after failure: pause %d unpause %d", count("Pause"), count("Unpause"))
 	}
 }
+
+// hungUnpause blocks Unpause of one container until its ctx ends.
+type hungUnpause struct {
+	*dockerfake.Fake
+	id string
+}
+
+func (h hungUnpause) Unpause(ctx context.Context, id string) error {
+	if id == h.id {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return h.Fake.Unpause(ctx, id)
+}
+
+// A thaw hung on a dead node's tile does not block a Freeze of another tile.
+func TestFreezeHungUnpauseDoesNotBlockOtherTile(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	l := tile.New(st.Tiles, hungUnpause{fake, "ca"}, &vipStub{set: map[string][]string{}})
+	s, e := seed(t, st)
+	a, b := svc(store.Tile{StackID: s, EnvironmentID: e}, "a"), svc(store.Tile{StackID: s, EnvironmentID: e}, "b")
+	a.ID, b.ID = uuid.NewString(), uuid.NewString()
+	fake.Containers = []docker.Container{
+		{ID: "ca", State: "running", Labels: map[string]string{tile.LabelTile: a.ID, tile.LabelRole: "replica"}},
+		{ID: "cb", State: "running", Labels: map[string]string{tile.LabelTile: b.ID, tile.LabelRole: "replica"}},
+	}
+	thawA, err := l.Freeze(ctx, []store.Tile{a})
+	must(t, err)
+	go thawA() // hangs in Unpause for up to the call timeout
+	time.Sleep(50 * time.Millisecond)
+	got := make(chan error, 1)
+	go func() {
+		thawB, err := l.Freeze(ctx, []store.Tile{b})
+		if err == nil {
+			thawB()
+		}
+		got <- err
+	}()
+	select {
+	case err := <-got:
+		must(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Freeze of tile B blocked behind a hung Unpause of tile A")
+	}
+}

@@ -755,14 +755,39 @@ func (l *Leaf) running(ctx context.Context, ts []store.Tile) ([]string, error) {
 	return ids, nil
 }
 
-// frozen counts the Freezes holding each container paused, by container id.
-// Package level because tile.New runs at several sites: two volumes of one
-// tile back up concurrently and must share it. The lock is held across the
-// pauses, so a second Freeze waits for the first to finish pausing.
+// hold is one container's Freeze bookkeeping. Its own lock is held across
+// that container's Pause/Unpause, so a second Freeze of it waits for the
+// first to finish pausing, while a dead node never blocks another tile's.
+// stuck means an Unpause failed: the container is still paused and ours to
+// thaw, so the next Freeze takes it over and its thaw retries.
+type hold struct {
+	sync.Mutex
+	n     int
+	stuck bool
+}
+
+// frozen holds one hold per container id. Package level because tile.New runs
+// at several sites: two volumes of one tile back up concurrently and must
+// share it.
+// ponytail: entries are never deleted (a few bytes per container id ever frozen).
 var frozen = struct {
 	sync.Mutex
-	n map[string]int
-}{n: map[string]int{}}
+	m map[string]*hold
+}{m: map[string]*hold{}}
+
+func holdOf(id string) *hold {
+	frozen.Lock()
+	defer frozen.Unlock()
+	h := frozen.m[id]
+	if h == nil {
+		h = &hold{}
+		frozen.m[id] = h
+	}
+	return h
+}
+
+// freezeCallTimeout bounds each Docker call Freeze and thaw make.
+const freezeCallTimeout = 30 * time.Second
 
 // Freeze pauses every running replica of ts (a backup's pause mode); thaw
 // releases them and runs even after the caller's context is gone. Overlapping
@@ -771,44 +796,62 @@ func (l *Leaf) Freeze(ctx context.Context, ts []store.Tile) (thaw func(), err er
 	if ctx, err = l.atFirst(ctx, ts); err != nil {
 		return nil, err
 	}
-	frozen.Lock()
-	defer frozen.Unlock()
-	var ids []string
+	bound := func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.WithoutCancel(ctx), freezeCallTimeout)
+	}
+	var cs []docker.Container
 	for _, t := range ts {
-		cs, err := l.Replicas(ctx, t)
+		rctx, cancel := bound()
+		rs, err := l.Replicas(rctx, t)
+		cancel()
 		if err != nil {
 			return nil, err
 		}
-		for _, c := range cs {
-			// A replica another Freeze paused is still ours to hold.
-			if c.State == "running" || (c.State == "paused" && frozen.n[c.ID] > 0) {
-				ids = append(ids, c.ID)
-			}
-		}
+		cs = append(cs, rs...)
 	}
 	var done []string
 	thaw = func() {
-		frozen.Lock()
-		defer frozen.Unlock()
 		for _, id := range done {
-			if frozen.n[id]--; frozen.n[id] <= 0 {
-				delete(frozen.n, id)
-				_ = l.docker.Unpause(context.WithoutCancel(ctx), id)
+			h := holdOf(id)
+			h.Lock()
+			if h.n--; h.n <= 0 {
+				h.n = 0
+				uctx, cancel := bound()
+				if err := l.docker.Unpause(uctx, id); err != nil {
+					h.stuck = true
+					slog.Error("unpausing after a backup", "container", id, "err", err)
+				} else {
+					h.stuck = false
+				}
+				cancel()
 			}
+			h.Unlock()
 		}
 		done = nil
 	}
-	for _, id := range ids {
-		if frozen.n[id] == 0 {
-			if err := l.docker.Pause(ctx, id); err != nil {
-				frozen.Unlock()
+	for _, c := range cs {
+		h := holdOf(c.ID)
+		h.Lock()
+		held := h.n > 0 || h.stuck
+		// A replica another Freeze paused (or a failed thaw left paused) is still ours to hold.
+		if !(c.State == "running" || (c.State == "paused" && held)) {
+			h.Unlock()
+			continue
+		}
+		if !held {
+			pctx, cancel := bound()
+			err := l.docker.Pause(pctx, c.ID)
+			cancel()
+			if err != nil {
+				h.Unlock()
 				thaw()
-				frozen.Lock()
-				return nil, fmt.Errorf("pausing %s: %w", id, err)
+				return nil, fmt.Errorf("pausing %s: %w", c.ID, err)
 			}
 		}
-		frozen.n[id]++
-		done = append(done, id)
+		h.n++
+		h.stuck = false
+		h.Unlock()
+		done = append(done, c.ID)
 	}
 	return thaw, nil
 }
