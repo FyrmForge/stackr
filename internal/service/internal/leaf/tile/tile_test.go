@@ -914,7 +914,8 @@ func TestFreezeOverlap(t *testing.T) {
 	thaw3, err := l.Freeze(ctx, []store.Tile{tl})
 	must(t, err)
 	thaw3()
-	if count("Pause") != 3 || count("Unpause") != 2 {
+	// (the failed Pause is followed by a best-effort Unpause: one extra)
+	if count("Pause") != 3 || count("Unpause") != 3 {
 		t.Fatalf("after failure: pause %d unpause %d", count("Pause"), count("Unpause"))
 	}
 }
@@ -1016,4 +1017,54 @@ func TestFreezeDuringThawStillPauses(t *testing.T) {
 		t.Fatalf("Pause calls = %d, want 2 (the second Freeze pauses afresh)", n)
 	}
 	thaw2()
+}
+
+func freezeFixture(t *testing.T, id string) (*tile.Leaf, *dockerfake.Fake, store.Tile, func(string) int) {
+	l, fake, _, base := setup(t)
+	tl := svc(base, "frz")
+	tl.ID = uuid.NewString()
+	fake.Containers = []docker.Container{{
+		ID: id, State: "running",
+		Labels: map[string]string{tile.LabelTile: tl.ID, tile.LabelRole: "replica"},
+	}}
+	return l, fake, tl, func(m string) (n int) {
+		for _, c := range fake.Calls() {
+			if c.Method == m {
+				n++
+			}
+		}
+		return
+	}
+}
+
+// A failed Unpause leaves the container stuck; if it runs again by the next
+// Freeze, that Freeze pauses it rather than trusting the old pause.
+func TestFreezeStuckThenRunningPausesAgain(t *testing.T) {
+	l, fake, tl, count := freezeFixture(t, "cs")
+	thaw, err := l.Freeze(ctx, []store.Tile{tl})
+	must(t, err)
+	fake.Edit(func() { fake.Err = map[string]error{"Unpause": errors.New("daemon down")} })
+	thaw()
+	fake.Edit(func() { fake.Err = nil; fake.Containers[0].State = "running" })
+	thaw2, err := l.Freeze(ctx, []store.Tile{tl})
+	must(t, err)
+	if count("Pause") != 2 {
+		t.Fatalf("Pause calls = %d, want 2", count("Pause"))
+	}
+	thaw2()
+	if count("Unpause") != 2 {
+		t.Fatalf("Unpause calls = %d, want 2 (the stuck one retried)", count("Unpause"))
+	}
+}
+
+// A container something else paused is held but never unpaused here.
+func TestFreezeForeignPauseIsNotUnpaused(t *testing.T) {
+	l, fake, tl, count := freezeFixture(t, "cf")
+	fake.Edit(func() { fake.Containers[0].State = "paused"; fake.Err = map[string]error{"Pause": errors.New("container cf is already paused")} })
+	thaw, err := l.Freeze(ctx, []store.Tile{tl})
+	must(t, err)
+	thaw()
+	if count("Unpause") != 0 {
+		t.Fatalf("Unpause calls = %d, want 0", count("Unpause"))
+	}
 }

@@ -836,24 +836,32 @@ func (l *Leaf) Freeze(ctx context.Context, ts []store.Tile) (thaw func(), err er
 		if c.State != "running" && c.State != "paused" {
 			continue
 		}
+		if err := ctx.Err(); err != nil {
+			thaw()
+			return nil, err
+		}
 		// decided under the container's lock by the hold count, never by the
 		// state read before it: a thaw mid-Unpause has finished by now
 		h := holdOf(c.ID)
 		h.Lock()
-		switch {
-		case h.n > 0:
-		case h.stuck:
-			h.stuck = false
-		default:
+		if h.n == 0 { // a stuck one may be running again: always pause
 			pctx, cancel := bound()
 			err := l.docker.Pause(pctx, c.ID)
 			cancel()
 			switch {
 			case err == nil:
-				h.ours = true
+				h.ours, h.stuck = true, false
 			case strings.Contains(err.Error(), "already paused"):
-				h.ours = false // paused by something else: held, never unpaused here
+				h.ours, h.stuck = h.stuck, false // ours if our failed unpause left it, else someone else's
 			default:
+				// the daemon may have paused it anyway: undo, or stay stuck
+				uctx, ucancel := bound()
+				if uerr := l.docker.Unpause(uctx, c.ID); uerr != nil {
+					h.ours, h.stuck = true, true
+				} else {
+					h.ours, h.stuck = false, false
+				}
+				ucancel()
 				h.Unlock()
 				thaw()
 				return nil, fmt.Errorf("pausing %s: %w", c.ID, err)
