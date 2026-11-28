@@ -156,9 +156,14 @@ document.addEventListener('click', function (evt) {
     var btn = evt.target.closest('[data-copy]');
     if (!btn) return;
     navigator.clipboard.writeText(btn.dataset.copy).then(function () {
-        var old = btn.textContent;
+        // the original text is kept once: a second click inside the window must not capture "Copied"
+        if (btn.dataset.copyWas === undefined) btn.dataset.copyWas = btn.textContent;
         btn.textContent = 'Copied';
-        setTimeout(function () { btn.textContent = old; }, 1500);
+        clearTimeout(btn._copyTimer);
+        btn._copyTimer = setTimeout(function () {
+            btn.textContent = btn.dataset.copyWas;
+            delete btn.dataset.copyWas;
+        }, 1500);
     });
 });
 

@@ -3,13 +3,15 @@ class SideDrawer extends HTMLElement {
     opener = null;
     dirty = false;
     fullByLink = false;
+    saves = new WeakSet();
     onSwap = (e) => {
         const d = e.detail;
         const target = d?.target;
         const body = this.body();
         if (!body || !target || !body.contains(target))
             return;
-        this.dirty = false;
+        if (target === body)
+            this.dirty = false;
         const was = document.activeElement;
         if (!this.hasAttribute("open") && was && !this.contains(was))
             this.opener = was;
@@ -21,11 +23,15 @@ class SideDrawer extends HTMLElement {
             this.setAttribute("tab", tab);
         else
             this.removeAttribute("tab");
-        this.querySelector("[data-close]")?.focus({ preventScroll: true });
+        if (target === body)
+            this.querySelector("[data-close]")?.focus({ preventScroll: true });
     };
     onBefore = (e) => {
         const body = this.body();
-        if (!body || e.detail?.target !== body || this.hasAttribute("open"))
+        const d = e.detail;
+        if (body && d?.xhr && d.elt && body.contains(d.elt) && (d.requestConfig?.verb ?? "get").toLowerCase() !== "get")
+            this.saves.add(d.xhr);
+        if (!body || d?.target !== body || this.hasAttribute("open"))
             return;
         const was = document.activeElement;
         if (was && !this.contains(was))
@@ -43,7 +49,10 @@ class SideDrawer extends HTMLElement {
             this.close(true);
     };
     onDone = (e) => {
-        if (e.detail?.target === this.body())
+        const d = e.detail;
+        if (d?.xhr && this.saves.delete(d.xhr) && d.successful)
+            this.dirty = false;
+        if (d?.target === this.body())
             this.onLost();
     };
     onClick = (e) => {
@@ -51,7 +60,14 @@ class SideDrawer extends HTMLElement {
         if (el.closest("[data-expand]"))
             return this.expand(!this.hasAttribute("full"), false);
         if (el.closest("[data-close], [data-backdrop]"))
-            this.close();
+            return this.close();
+        const ask = this.querySelector("dialog[data-discard]");
+        if (el.closest("[data-keep]"))
+            ask?.close();
+        else if (el.closest("[data-discard-yes]")) {
+            ask?.close();
+            this.close(true);
+        }
     };
     expand(on, byLink = false) {
         this.fullByLink = byLink;
@@ -137,8 +153,11 @@ class SideDrawer extends HTMLElement {
     close(force = false) {
         if (!this.hasAttribute("open"))
             return;
-        if (this.dirty && !force && !window.confirm("Discard your unsaved changes?"))
-            return;
+        if (this.dirty && !force) {
+            const ask = this.querySelector("dialog[data-discard]");
+            if (ask)
+                return void (ask.open || ask.showModal());
+        }
         this.dirty = false;
         if (this.fullByLink)
             this.expand(false);

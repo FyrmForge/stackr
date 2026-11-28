@@ -23,3 +23,19 @@ func TestDiscardIsTyped(t *testing.T) {
 		}
 	}
 }
+
+func TestApproveDestroysUsesPanelConfirm(t *testing.T) {
+	var b strings.Builder
+	if err := Plan(PlanView{Approve: "/x/approve", Destroys: []string{"a", "b"}}).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	got := b.String()
+	for _, want := range []string{"<confirm-dialog", "This apply destroys: a, b.", `hx-post="/x/approve"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "hx-confirm") {
+		t.Error("native hx-confirm left")
+	}
+}
