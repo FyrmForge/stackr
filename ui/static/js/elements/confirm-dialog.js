@@ -42,7 +42,31 @@ class ConfirmDialog extends HTMLElement {
         e.preventDefault();
         this.querySelector("[data-open]")?.click();
     };
+    onConfig = (e) => {
+        const sel = this.getAttribute("include");
+        if (!sel || e.target !== this.parentElement)
+            return;
+        const params = e.detail.parameters;
+        const fields = new Set();
+        this.querySelectorAll(sel).forEach((m) => {
+            if (m instanceof HTMLElement && "elements" in m)
+                [...m.elements].forEach((f) => fields.add(f));
+            else if (m.hasAttribute("name"))
+                fields.add(m);
+            else
+                m.querySelectorAll("[name]").forEach((f) => fields.add(f));
+        });
+        fields.forEach((f) => {
+            const i = f;
+            if (!i.name || i.disabled || i.type === "file")
+                return;
+            if ((i.type === "checkbox" || i.type === "radio") && !i.checked)
+                return;
+            params.append(i.name, i.value);
+        });
+    };
     connectedCallback() {
+        this.parentElement?.addEventListener("htmx:configRequest", this.onConfig);
         this.form = this.closest("form");
         this.form?.addEventListener("submit", this.onSubmit);
         this.addEventListener("click", this.onClick);
@@ -55,6 +79,7 @@ class ConfirmDialog extends HTMLElement {
         }
     }
     disconnectedCallback() {
+        this.parentElement?.removeEventListener("htmx:configRequest", this.onConfig);
         this.form?.removeEventListener("submit", this.onSubmit);
         this.removeEventListener("click", this.onClick);
         this.removeEventListener("input", this.onInput);

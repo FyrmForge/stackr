@@ -11,7 +11,7 @@ func TestWipeForm(t *testing.T) {
 	out := renderT(t, Settings(dataView, "", nil, Data{Wipe: true, Delete: true, Dest: "the local disk"}))
 	wantAll(t, "wipe", out,
 		"Wipe contents", `word="uploads"`, "/volumes/v1/wipe", `name="stop"`, "Stop tiles using it",
-		`name="backup"`, "Back up first", "Backs up to the local disk first.", `hx-include="find input[type=checkbox]"`,
+		`name="backup"`, "Back up first", "Backs up to the local disk first.", `include="input[type=checkbox]"`,
 		"/volumes/v1/delete", "Deleting this volume removes it and its data at once.")
 	if strings.Count(out, `name="backup"`) != 2 { // one per dialog
 		t.Errorf("want a Back up first tick in the wipe and the delete\n%s", out)
