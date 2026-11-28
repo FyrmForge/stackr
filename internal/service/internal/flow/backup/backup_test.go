@@ -441,6 +441,22 @@ func TestOrphans(t *testing.T) {
 	}
 }
 
+// A Restore during the final backup keeps the volume: the job re-reads the row.
+func TestOrphansSkipsRestored(t *testing.T) {
+	w := setup(t)
+	w.fake.Volumes = []docker.VolumeInfo{{Name: w.vol.Name, SizeBytes: 10}}
+	o, err := w.f.Volumes.Orphan(ctx, w.vol)
+	must(t, err)
+	w.fake.OnTar = func(string) {
+		_, err := w.f.Volumes.Restore(ctx, o)
+		must(t, err)
+	}
+	must(t, w.f.Orphans(ctx, 0, w.dest, io.Discard))
+	if _, err := w.f.Volumes.Get(ctx, w.vol.ID); err != nil {
+		t.Errorf("restored volume was deleted: %v", err)
+	}
+}
+
 func newTestKey(t *testing.T) *age.X25519Identity {
 	t.Helper()
 	id, err := age.GenerateX25519Identity()

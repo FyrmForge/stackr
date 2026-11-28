@@ -80,6 +80,7 @@ type Fake struct {
 	Copied        map[string][]byte         // CopyTo's files by container id + path
 	TarOut        []byte                    // what TarVolume writes
 	Untarred      []byte                    // what UntarVolume last read
+	OnTar         func(name string)         // when set, runs inside TarVolume (a test changes the world mid-backup)
 	OnUntar       func(name string)         // when set, runs after UntarVolume read its source (a test writes the extracted files)
 	ExecHang      bool                      // ExecStream's output stays open until its ctx ends
 	ExecIn        []byte                    // what ExecStream's stdin last carried
@@ -431,6 +432,9 @@ func (f *Fake) EnsureTool(context.Context) error {
 func (f *Fake) TarVolume(_ context.Context, name string, w io.Writer, _ bool) error {
 	if _, err := w.Write(f.TarOut); err != nil {
 		return err
+	}
+	if f.OnTar != nil {
+		f.OnTar(name)
 	}
 	return f.rec("TarVolume", name)
 }

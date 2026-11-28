@@ -639,6 +639,13 @@ func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.
 				continue
 			}
 		}
+		// The backup can take long: a Restore meanwhile makes the volume
+		// live again, and it must not be deleted from the stale snapshot.
+		cur, err := f.Volumes.Get(ctx, v.ID)
+		if err != nil || cur.OrphanedAt == nil || !cur.OrphanedAt.Equal(*v.OrphanedAt) {
+			logf(log, "kept %s: no longer an orphan\n", v.Slug)
+			continue
+		}
 		if err := f.Volumes.Delete(ctx, v, nil); err != nil {
 			failed = append(failed, fmt.Errorf("%s: %w", v.Slug, err))
 			continue
