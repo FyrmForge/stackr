@@ -1590,9 +1590,6 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 	}
 	ctx, s := c.Request().Context(), scope(c)
 	vol, err := h.orch.Volume(ctx, c.Param("volume"))
-	if errors.Is(err, errs.ErrNotFound) && c.Request().Header.Get("HX-Request") != "" {
-		return volumeGone(c) // a delete job finished under an open drawer
-	}
 	if err != nil {
 		return middleware.HTTPError(err)
 	}

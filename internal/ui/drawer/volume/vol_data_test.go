@@ -65,8 +65,3 @@ func TestOverviewBackupAndRemoval(t *testing.T) {
 		t.Error("a removed volume offers backup setup")
 	}
 }
-
-func TestDeletedSaysTheTruth(t *testing.T) {
-	out := renderT(t, Deleted())
-	wantAll(t, "deleted", out, "The volume and its data are deleted. Backups in a destination are kept.")
-}

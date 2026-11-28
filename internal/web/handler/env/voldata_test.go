@@ -65,9 +65,9 @@ func TestVolumeDeleteAtOnceClosesTheDrawer(t *testing.T) {
 	if _, err := s.Orch.Volume(t.Context(), vid); err == nil {
 		t.Error("the volume is still there")
 	}
-	// the drawer left open on it closes too
-	if rec := s.As(t, root, "GET", base, url.Values{}); rec.Code == 200 && !strings.Contains(rec.Header().Get("HX-Redirect"), "/acme/shop/dev") {
-		t.Errorf("a gone volume's drawer stays open\n%s", rec.Body)
+	// a drawer left open on it gets a 404, not a stale body
+	if rec := s.As(t, root, "GET", base, url.Values{}); rec.Code != 404 {
+		t.Errorf("a gone volume's drawer = %d, want 404", rec.Code)
 	}
 }
 

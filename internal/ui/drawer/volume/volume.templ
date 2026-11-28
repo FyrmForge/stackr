@@ -578,11 +578,3 @@ templ restoreBtn(url string) {
 	<button type="button" class="btn btn-primary btn-sm" hx-post={ url } hx-target={ "#" + Root } hx-swap="outerHTML" hx-disabled-elt="this">Restore</button>
 }
 
-// Deleted replaces the drawer once the volume is gone.
-templ Deleted() {
-	@c.Drawer(c.DrawerView{Title: "Volume deleted", Icon: "volume"}, deleted())
-}
-
-templ deleted() {
-	<p class="banner" role="status">The volume and its data are deleted. Backups in a destination are kept.</p>
-}
