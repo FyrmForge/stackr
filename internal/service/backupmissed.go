@@ -92,59 +92,12 @@ func (o *Orchestrator) backupWatch(ctx context.Context) {
 	for id, v := range vols {
 		o.staleAlert(ctx, id, v.interval, v.since, now)
 	}
-	o.unscheduled(ctx, vols)
+	// A volume without a schedule is a choice, not a problem: clear the old
+	// "has no backup" rows.
+	o.sweep(ctx, "backup.none.", func(string) bool { return false })
 	// Rows of a volume with no schedule left go.
 	o.sweep(ctx, "backup.stale.", func(rest string) bool { _, ok := vols[rest]; return ok })
 }
-
-// unscheduled gives a volume that never had a schedule or a backup the
-// default (@daily, keep 7) and opens the backup.none warning on every volume
-// left without a schedule (one the user took off included). scheduled holds
-// the ids that have one.
-func (o *Orchestrator) unscheduled(ctx context.Context, scheduled map[string]*vol) {
-	vs, err := o.store.Volumes.ListLive(ctx)
-	if err != nil {
-		return
-	}
-	keep := map[string]bool{}
-	for _, v := range vs {
-		if IsArchiveVolume(v) {
-			continue // WAL in transit; the data volume's base backup covers it
-		}
-		key := noneKey(v.ID)
-		if scheduled[v.ID] != nil {
-			o.clearProblem(ctx, key)
-			continue
-		}
-		if runs, err := o.store.BackupRuns.ListByVolume(ctx, v.ID); err == nil && len(runs) == 0 {
-			if err := o.addDefaultSchedule(ctx, v.ID); err == nil {
-				o.clearProblem(ctx, key)
-				continue
-			}
-		}
-		keep[v.ID] = true
-		o.openProblem(ctx, key, SevWarning, v.Slug+" has no backup.")
-	}
-	o.sweep(ctx, "backup.none.", func(rest string) bool { return keep[rest] })
-}
-
-// addDefaultSchedule adds the default schedule unless the volume already has
-// one. Several schedules per volume are legal, so no unique index can guard
-// it; the lock plus re-check makes concurrent callers (the sweep and a
-// declare's defaultBackup) add one.
-func (o *Orchestrator) addDefaultSchedule(ctx context.Context, volumeID string) error {
-	o.defSchedMu.Lock()
-	defer o.defSchedMu.Unlock()
-	if ss, err := o.backups.Schedules(ctx, volumeID); err != nil {
-		return err
-	} else if len(ss) > 0 {
-		return nil
-	}
-	_, err := o.AddBackupSchedule(ctx, volumeID, defaultSchedule)
-	return err
-}
-
-func noneKey(volumeID string) string { return "alert.backup.none." + volumeID }
 
 func staleKey(volumeID string) string { return "alert.backup.stale." + volumeID }
 

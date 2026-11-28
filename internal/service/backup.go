@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -118,47 +117,9 @@ func (o *Orchestrator) ownDest(ctx context.Context, orgID, id string) (BackupDes
 	return d, nil
 }
 
-// defaultSchedule is the schedule a new volume gets when its org can see an
-// off-box destination.
-// ponytail: fixed daily, keep 7; the volume's Backups tab changes it.
-var defaultSchedule = ScheduleSpec{Cron: "@daily", Keep: 7}
-
-// defaultBackup gives a new volume a daily backup to the first off-box
-// destination its org can use. With none it does nothing (no warning exists
-// for a volume without a schedule). Best effort, never fails a declare.
-func (o *Orchestrator) defaultBackup(ctx context.Context, v store.Volume) {
-	org, err := o.volumeOrg(ctx, v)
-	if err != nil {
-		return
-	}
-	d, ok := o.visibleOffBox(ctx, org)
-	if !ok {
-		return
-	}
-	ms, err := o.methods(ctx, v)
-	if err != nil {
-		return
-	}
-	s := defaultSchedule
-	s.DestID = &d.ID
-	// the sweep adds the default too (addDefaultSchedule): same lock, same re-check
-	o.defSchedMu.Lock()
-	defer o.defSchedMu.Unlock()
-	if ss, err := o.backups.Schedules(ctx, v.ID); err != nil || len(ss) > 0 {
-		return
-	}
-	if _, err := o.backups.AddSchedule(ctx, v.ID, org, ms, s); err != nil {
-		slog.Warn("backup: default schedule not added", "volume", v.ID, "err", err)
-		return
-	}
-	if o.sched != nil {
-		o.sched.Reload(ctx)
-	}
-}
-
 // visibleOffBox is the first destination org can use that is not this box's
-// disk: the rule that decides a new volume's default backup and a new
-// postgres instance's point-in-time recovery.
+// disk: the rule that decides where a schedule with no
+// destination goes and a new postgres instance's point-in-time recovery.
 func (o *Orchestrator) visibleOffBox(ctx context.Context, org string) (BackupDest, bool) {
 	ds, err := o.backups.Visible(ctx, org)
 	if err != nil {
