@@ -21,7 +21,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/joho/godotenv v1.5.1
-	github.com/labstack/echo/v4 v4.16.2
+	github.com/labstack/echo/v4 v4.16.3
 	github.com/libdns/libdns v1.1.1
 	github.com/mholt/caddy-l4 v0.1.2
 	github.com/prometheus/client_golang v1.24.1

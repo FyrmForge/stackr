@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -198,6 +199,9 @@ func (o *Orchestrator) gateEnv(ctx context.Context, envID string, disk bool) err
 		return err
 	}
 	if disk {
+		if err := o.failedDiskGate(ctx, e); err != nil {
+			return err
+		}
 		_, err = o.diskCheck(ctx, e.NodeID)
 	}
 	return err
@@ -244,9 +248,25 @@ func (o *Orchestrator) controllerDisk(ctx context.Context, nodeID string) (free,
 }
 
 // dataDirDisk is the free and total bytes of the disk under the data dir.
+// When the database is on a node disk, the disk under it counts too: the one
+// with less room is the one the gate and the disk-full alert judge.
 func (o *Orchestrator) dataDirDisk() (free, total uint64) {
 	var st syscall.Statfs_t
 	if syscall.Statfs(o.cfg.DataDir, &st) != nil {
+		return 0, 0
+	}
+	free, total = st.Bavail*uint64(st.Bsize), st.Blocks*uint64(st.Bsize)
+	if f2, t2 := o.dbDisk(); t2 > 0 && f2 < free {
+		return f2, t2
+	}
+	return free, total
+}
+
+// dbDisk is the free and total bytes of the filesystem the database file sits
+// on (0, 0 when unreadable): the node disk once the database has moved there.
+func (o *Orchestrator) dbDisk() (free, total uint64) {
+	var st syscall.Statfs_t
+	if o.cfg.DBPath == "" || syscall.Statfs(filepath.Dir(o.cfg.DBPath), &st) != nil {
 		return 0, 0
 	}
 	return st.Bavail * uint64(st.Bsize), st.Blocks * uint64(st.Bsize)

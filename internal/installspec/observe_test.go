@@ -47,3 +47,16 @@ func TestObserveMemory(t *testing.T) {
 		t.Error("spec stamp ignores memory")
 	}
 }
+
+// The data volume is an option: a disk-backed name changes the mount and the
+// spec stamp, so only the observe container is recreated.
+func TestObserveVolumeOption(t *testing.T) {
+	def := Observe("v0.8.3", "/d", ObserveOpts{Retention: "30d"})
+	on := Observe("v0.8.3", "/d", ObserveOpts{Retention: "30d", Volume: ObserveDiskVolume})
+	if def.Volumes[0] != ObserveVolume+":/data" || on.Volumes[0] != ObserveDiskVolume+":/data" {
+		t.Errorf("volumes %v %v", def.Volumes, on.Volumes)
+	}
+	if def.Labels[LabelSpec] == on.Labels[LabelSpec] {
+		t.Error("spec stamp ignores the volume")
+	}
+}

@@ -152,9 +152,54 @@ stkr node disk move-all vps-fsn1
 
 If a move stops half way, the volume's Stored on card says so and has Finish move.
 
+### Move the panel database onto the disk
+
+The controller's node disk can also hold the panel's own database. On the controller's Node disk card, Move the panel database onto this disk shows the plan first: the size, the free space on the disk and on the system disk, what restarts (the panel, for about a minute), and this warning:
+
+> After this, the whole control plane depends on this one disk. If the disk is missing the panel does not start, and nothing alerts you while it is down. To bring the disk back without a reboot, run `stackr-install disk-check` on the node.
+
+Only a whole disk can hold it, only on the controller, and only while no update or volume move runs. The plan refuses when the data folder path goes through a symbolic link or its filesystem cannot set `chattr +i`.
+
+The helper stops the panel, copies the database (checked by hash and an integrity check), mounts the disk folder on `/var/lib/stackr/db` with a systemd unit, starts the panel and waits for it to be healthy. If anything fails the panel starts again on the old database. The keys, local backups and `install.json` stay on the system disk, so a stolen disk holds the database but not the master key.
+
+When it is done the row says "On this disk", with Move back to the system disk. The old copy on the system disk shows as "Old copy, taken DD-MM". Remove old copy is the only thing that deletes it.
+
+```bash
+stkr node disk move-panel vps-fsn1
+stkr node disk move-panel vps-fsn1 --back
+stkr node disk remove-panel-copy vps-fsn1
+```
+
+While the database is on the disk, Forget and Adopt refuse: move it back first. An Update works as usual; it copies the database through a helper that sees the real mount.
+
+If the disk is missing when the box boots, the panel exits with a clear line and Docker keeps restarting it. It never makes an empty database. Attach the disk, then on the node:
+
+```bash
+stackr-install disk-check
+```
+
+It starts the disk's mount units, and the restart loop brings the panel up without a reboot. If a move stops half way, `stackr-install` reads `/var/lib/stackr/move.journal` and finishes or rolls it back.
+
+### Known limitations
+
+- `stkr node disk move-panel` returns once the move starts. The node disk card shows the outcome.
+- A failing quarantine job retries every 5 minutes while the disk stays down.
+- Scheduled runs on a quarantined node show one failed job per tick until Check disk.
+- A standalone database primary that was relocated onto the failed disk is not stopped. Nothing new starts on that disk.
+- An app that had already exited when the disk failed is not redeployed by Check disk. Redeploy it by hand.
+- The logs and metrics size cap is set when they move. To change it, move them back and onto the disk again.
+- A disk that hangs instead of returning errors hangs the panel rather than stopping it.
+- On a worker, after re-attaching a disk run `stackr-install disk-check` on that node before Check disk.
+- Forgetting a missing controller disk that holds logs and metrics drops them. They start fresh on the system disk.
+- After a rolled-back move onto the disk, a copy named `stackr.db.rolled-back` stays in the disk folder until the next move.
+- After a move back, remove the old copy before the next Update. Otherwise it stays on the disk and has to be deleted by hand.
+- The low-space warning for logs and metrics does not see their size cap on a node disk.
+
 ### A disk that is missing
 
-If the disk is unmounted or the device is gone, the node shows "The disk is missing", and tiles that use it do not start. Reattach or mount it, then press Check disk.
+If the disk is unmounted or the device is gone, the node shows "The disk is missing", and tiles that use it do not start. A pulled or dead disk goes missing in about 90 seconds, and its tiles are stopped. Reattach or mount it, run `stackr-install disk-check` on the node, then press Check disk. disk-check clears the dead mount first, so the disk can mount again. If a running container still holds the old disk, it says so: stop the container and run it again.
+
+`stkr node disk ls` shows the state `failing` while reads of the disk return I/O errors. The space line is then the last good read.
 
 ```bash
 stkr node disk check vps-fsn1

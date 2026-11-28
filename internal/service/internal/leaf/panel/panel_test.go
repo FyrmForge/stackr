@@ -144,7 +144,7 @@ func (s *spy) Start(ctx context.Context, id string) error {
 }
 
 func (s *spy) Run(ctx context.Context, sp docker.ContainerSpec) (string, error) {
-	if fi, err := os.Stat(s.db + ".pre-0.2.0"); err == nil {
+	if fi, err := os.Stat(pre(s.db, "0.2.0")); err == nil {
 		s.atRun = fi.Mode().Perm()
 	}
 	// The new panel migrates the database and leaves its own wal behind.
@@ -185,7 +185,7 @@ func TestSwapFailRestoresDatabase(t *testing.T) {
 	if b, _ := os.ReadFile(db + "-wal"); string(b) != "old wal" {
 		t.Errorf("wal = %q", b)
 	}
-	if m, _ := filepath.Glob(db + ".pre-*"); len(m) != 0 {
+	if m, _ := filepath.Glob(pre(db, "*")); len(m) != 0 {
 		t.Errorf("copy left after a restore: %v", m)
 	}
 }
@@ -199,7 +199,7 @@ func TestSwapPassDropsCopy(t *testing.T) {
 	if sp.atRun != 0o600 {
 		t.Errorf("copy mode = %v", sp.atRun)
 	}
-	if m, _ := filepath.Glob(db + ".pre-*"); len(m) != 0 {
+	if m, _ := filepath.Glob(pre(db, "*")); len(m) != 0 {
 		t.Errorf("copy left after a pass: %v", m)
 	}
 }
@@ -209,8 +209,11 @@ func TestSwapPassDropsCopy(t *testing.T) {
 // old panel.
 func TestSwapRerunStartsOver(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "stackr.db")
-	for suf, body := range map[string]string{"": "migrated by the first try", ".pre-0.2.0": "old db"} {
-		if err := os.WriteFile(db+suf, []byte(body), 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Dir(pre(db, "0.2.0")), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for path, body := range map[string]string{db: "migrated by the first try", pre(db, "0.2.0"): "old db"} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -263,6 +266,18 @@ func TestLaunchHelperRestartsOnFailure(t *testing.T) {
 func TestLaunchMountsDataDir(t *testing.T) {
 	fake := dockerfake.New()
 	err := New(fake).Launch(context.Background(), docker.ContainerSpec{Image: "img:0.2.0", Env: []string{"DATABASE_PATH=/srv/stackr/stackr.db"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(fake.Specs[0].Volumes, "/srv/stackr:/srv/stackr") {
+		t.Errorf("volumes = %v", fake.Specs[0].Volumes)
+	}
+}
+
+// The database is in db/ now: the helper still gets the whole data dir (journal, swap/).
+func TestLaunchMountsDataDirForTheDBFolder(t *testing.T) {
+	fake := dockerfake.New()
+	err := New(fake).Launch(context.Background(), docker.ContainerSpec{Image: "img:0.2.0", Env: []string{"DATABASE_PATH=/srv/stackr/db/stackr.db"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,4 +363,9 @@ type otherErr struct {
 func (o *otherErr) Run(context.Context, docker.ContainerSpec) (string, error) {
 	o.runs++
 	return "", errors.New("conflict: the container name is already in use")
+}
+
+// pre is the per-upgrade copy of db: in swap/, never beside the database.
+func pre(db, v string) string {
+	return filepath.Join(filepath.Dir(db), "swap", filepath.Base(db)+".pre-"+v)
 }

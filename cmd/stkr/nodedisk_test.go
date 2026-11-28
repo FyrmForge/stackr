@@ -1,8 +1,12 @@
 package main
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 const nd = "/api/v1/admin/nodes/n1/disk"
@@ -15,6 +19,11 @@ func TestNodeDiskLsAndAdd(t *testing.T) {
 	fake(t, map[string]string{"/disk": `{"has":true,"id":"d1","path":"/mnt/data","kind":"folder","state":"ready","free":53687091200,"total":107374182400,"volumes":3,"stale":true}`})
 	if code, out, _ := cli(t, "node", "disk", "ls", "n1"); code != 0 || !strings.Contains(out, "/mnt/data") || !strings.Contains(out, "50 GB free of 100 GB") || !strings.Contains(out, "may be old") {
 		t.Errorf("ls = %d %q", code, out)
+	}
+
+	fake(t, map[string]string{"/disk": `{"has":true,"id":"d1","path":"/mnt/data","kind":"xfs","state":"ready","free":53687091200,"total":107374182400,"volumes":3,"erroring":true}`})
+	if code, out, _ := cli(t, "node", "disk", "ls", "n1"); code != 0 || !strings.Contains(out, "failing") || !strings.Contains(out, "(last good read)") {
+		t.Errorf("ls erroring = %d %q", code, out)
 	}
 
 	// a refused probe is the server's message and queues nothing
@@ -258,5 +267,89 @@ func TestNodeDiskGrowAndVolumeCap(t *testing.T) {
 		if code, _, _ := cli(t, "volume", "cap", "v1", bad); code != 2 {
 			t.Errorf("cap %q = %d, want 2", bad, code)
 		}
+	}
+}
+
+func TestNodeDiskMovePanel(t *testing.T) {
+	state := `{"applicable":true,"reason":"","on_disk":false}`
+	plan := `{"size_bytes":52428800,"disk_free":53687091200,"system_free":10737418240,"restarts":"The panel restarts.","warning":"After this, the whole control plane depends on this one disk.","refusal":""}`
+	r := fake(t, map[string]string{"/panel-db": state, "/move-panel-plan": plan, "/move-panel": `{"id":"","kind":""}`})
+	if code, out, _ := cli(t, "node", "disk", "move-panel", "n1"); code != 3 || !strings.Contains(out, "depends on this one disk") || len(writes(r)) != 0 {
+		t.Errorf("unconfirmed = %d %q, wrote %v", code, out, writes(r))
+	}
+	if code, _, errw := cli(t, "-y", "node", "disk", "move-panel", "n1", "--no-wait"); code != 0 || len(writes(r)) != 1 || writes(r)[0] != "POST "+nd+`/move-panel {"back":false}` {
+		t.Errorf("move = %d %q, wrote %v", code, errw, writes(r))
+	}
+	// back: only from the disk
+	if code, _, errw := cli(t, "-y", "node", "disk", "move-panel", "n1", "--back"); code != 1 || !strings.Contains(errw, "system disk") {
+		t.Errorf("back from the system disk = %d %q", code, errw)
+	}
+	r = fake(t, map[string]string{"/panel-db": `{"applicable":true,"on_disk":true}`, "/move-panel-plan": plan, "/move-panel": `{"id":"","kind":""}`})
+	if code, _, errw := cli(t, "-y", "node", "disk", "move-panel", "n1", "--back", "--no-wait"); code != 0 || writes(r)[0] != "POST "+nd+`/move-panel {"back":true}` {
+		t.Errorf("back = %d %q, wrote %v", code, errw, writes(r))
+	}
+	fake(t, map[string]string{"/panel-db": state, "/move-panel-plan": strings.Replace(plan, `"refusal":""`, `"refusal":"An update is running."`, 1)})
+	if code, _, errw := cli(t, "-y", "node", "disk", "move-panel", "n1"); code != 1 || !strings.Contains(errw, "An update is running.") {
+		t.Errorf("refused = %d %q", code, errw)
+	}
+	fake(t, map[string]string{"/panel-db": `{"applicable":false,"reason":"Only the controller holds the panel database."}`})
+	if code, _, errw := cli(t, "-y", "node", "disk", "move-panel", "n1"); code != 1 || !strings.Contains(errw, "controller") {
+		t.Errorf("worker = %d %q", code, errw)
+	}
+}
+
+func TestNodeDiskForgetWarnsWhenObserveIsOnTheDisk(t *testing.T) {
+	plan := `{"disk_id":"d1","node":"old","gone":false,"volumes":[],"refusal":"","observe_on":true}`
+	fake(t, map[string]string{"/forget-plan": plan})
+	if _, out, _ := cli(t, "node", "disk", "forget", "d1"); !strings.Contains(out, "Logs and metrics are on this disk and are lost.") {
+		t.Errorf("no warning: %q", out)
+	}
+}
+
+// The move job is done once the helper launches; the CLI must wait for the
+// real end, so a rollback is an error and not "done".
+func TestNodeDiskMovePanelWaitsForTheRealEnd(t *testing.T) {
+	movePollEvery = time.Millisecond
+	t.Cleanup(func() { movePollEvery = 2 * time.Second })
+	for _, c := range []struct {
+		name, job, db string
+		code          int
+		out, errw     string
+	}{
+		{"rolled back", `{"id":"j1","state":"failed","error":"The move did not go through: boom"}`,
+			`{"applicable":true,"on_disk":false,"moving":false}`, 1, "", "the panel database move failed: The move did not go through: boom"},
+		{"moved", `{"id":"j1","state":"done"}`,
+			`{"applicable":true,"on_disk":true,"moving":false}`, 0, "the panel database is on the node disk", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			first := true
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				p := req.URL.Path
+				switch {
+				case strings.HasSuffix(p, "/events"):
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, "event: end\ndata: {\"job\":{\"id\":\"j1\",\"state\":\"done\"},\"log\":\"\"}\n\n")
+				case req.Method == http.MethodPost:
+					_, _ = io.WriteString(w, `{"id":"j1","kind":"x","state":"queued"}`)
+				case strings.HasSuffix(p, "/move-panel-plan"):
+					_, _ = io.WriteString(w, `{"size_bytes":1,"restarts":"r","refusal":""}`)
+				case strings.HasSuffix(p, "/panel-db"):
+					if first { // the pre-flight read
+						first = false
+						_, _ = io.WriteString(w, `{"applicable":true,"on_disk":false}`)
+						return
+					}
+					_, _ = io.WriteString(w, c.db)
+				case strings.HasSuffix(p, "/jobs/j1"):
+					_, _ = io.WriteString(w, c.job)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			useServer(t, srv.URL)
+			code, out, errw := cli(t, "-y", "node", "disk", "move-panel", "n1")
+			if code != c.code || !strings.Contains(out, c.out) || !strings.Contains(errw, c.errw) || strings.Contains(out, "\nthe panel database move: done") {
+				t.Errorf("= %d %q %q", code, out, errw)
+			}
+		})
 	}
 }

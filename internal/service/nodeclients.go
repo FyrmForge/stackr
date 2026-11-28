@@ -472,7 +472,8 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		addr string
 		ext  *workerclient.Client
 		up   bool
-		ver  string // the version its facts reported
+		sent time.Time // when the facts request started, on this clock
+		ver  string    // the version its facts reported
 		f    worker.Facts
 		skew time.Duration
 		// skewOK: the worker reported its time, so skew is known
@@ -506,6 +507,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 			sent := time.Now()
+			cd.sent = sent
 			f, err := cd.ext.Facts(pctx)
 			cd.up, cd.ver, cd.f = err == nil, f.Version, f
 			if cd.up {
@@ -598,7 +600,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			if err := o.reconcileDisks(ctx, n, cd.f); err != nil {
 				slog.Warn("nodes: disk registry not pushed", "node", n.Name, "err", err)
 			}
-			o.diskWatch(ctx, n, cd.f)
+			o.diskWatch(ctx, n, cd.f, cd.sent)
 			o.diskAlert(ctx, n, cd.f.DiskFree, cd.f.DiskTotal)
 			o.clockAlert(ctx, n, cd.skew, cd.skewOK)
 		}

@@ -57,6 +57,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "uninstall" {
 		return uninstall(ctx, args[1:], out, os.Stdin)
 	}
+	if len(args) > 0 && args[0] == "disk-check" {
+		return diskCheck(ctx, args[1:], out)
+	}
 	if len(args) > 0 && args[0] == "docker-logcap" {
 		return dockerLogCap(ctx, out)
 	}
@@ -64,6 +67,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(fs.Output(), `Usage: stackr-install [flags]
        stackr-install restore | join | uninstall | docker-logcap [flags]
+       stackr-install disk-check
 
 With no subcommand it installs stackr on this host, or converges an install
 on the answers it saved. The subcommands:
@@ -71,6 +75,8 @@ on the answers it saved. The subcommands:
   join           join this host to a stackr server as a node
   uninstall      take stackr off this host
   docker-logcap  cap Docker's container logs (stackrd runs it on the host)
+  disk-check     start the node disk mount units, so a disk attached after boot
+                 comes back without a reboot (the panel's restart loop follows)
 Each takes -h for its own flags.
 
 Flags:
@@ -103,7 +109,7 @@ Flags:
 		return err
 	}
 	if fs.NArg() > 0 {
-		return fmt.Errorf("unknown command %q: run with flags only, or one of restore, join, uninstall, docker-logcap (-h lists them)", fs.Arg(0))
+		return fmt.Errorf("unknown command %q: run with flags only, or one of restore, join, uninstall, docker-logcap, disk-check (-h lists them)", fs.Arg(0))
 	}
 	if in.WGPort != 0 {
 		if err := checkWGPort(in.WGPort); err != nil {
@@ -223,6 +229,12 @@ Flags:
 		!reflect.DeepEqual(withBox(old, in), in) {
 		return fmt.Errorf("already installed with other answers (%s); change them there or reinstall from a clean data dir",
 			filepath.Join(in.DataDir, installspec.File))
+	}
+
+	// The journal first: a move or layout change in progress is seen (and a
+	// layout change undone) before any key or container is touched.
+	if err := r.panelDB(ctx, in); err != nil {
+		return err
 	}
 
 	// Decided before anything is written: a refused downgrade changes nothing.

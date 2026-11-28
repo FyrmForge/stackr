@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ func TestUndoKeepsTheNewPanelsLog(t *testing.T) {
 	r := newRollbackRig(t, 1)
 	ctx := context.Background()
 	db := r.n.orch.cfg.DBPath
+	must(t, os.MkdirAll(filepath.Dir(panel.FailureFile(db)), 0o700))
 	b, _ := json.Marshal(panel.Failure{Tag: "0.9.1", Reason: "the container exited during the health check", ExitCode: 3, Log: "panic: no such column"})
 	must(t, os.WriteFile(panel.FailureFile(db), b, 0o600))
 	t.Cleanup(func() { _ = os.Remove(panel.FailureFile(db)) })
@@ -40,6 +42,7 @@ func TestUndoIgnoresAnotherTrialsFile(t *testing.T) {
 	r := newRollbackRig(t, 1)
 	ctx := context.Background()
 	db := r.n.orch.cfg.DBPath
+	must(t, os.MkdirAll(filepath.Dir(panel.FailureFile(db)), 0o700))
 	b, _ := json.Marshal(panel.Failure{Tag: "0.8.0", Reason: "old", Log: "old log"})
 	must(t, os.WriteFile(panel.FailureFile(db), b, 0o600))
 	t.Cleanup(func() { _ = os.Remove(panel.FailureFile(db)) })

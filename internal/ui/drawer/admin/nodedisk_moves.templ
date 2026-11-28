@@ -1,0 +1,110 @@
+package admin
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// DiskMoves are the controller's two rows on the Node disk card: logs and
+// metrics, and the panel database, each on the system disk or on this disk.
+// nil = the card offers neither (a worker, or a disk that is not ready).
+type DiskMoves struct{ Rows []DiskMoveRow }
+
+// DiskMoveRow is one of them. Plan opens the plan dialog (a POST that
+// measures) into #Dlg. Busy = a move of this row runs: the button is off.
+// Old is "Old copy, taken 26-11" and Remove the POST of its button; "" = no
+// old copy waits.
+type DiskMoveRow struct {
+	Name, State, Button string
+	Plan, Vals, Dlg     string
+	Busy                bool
+	Old, OldHint        string
+	Remove              string
+}
+
+// DiskMoveDialog is what a plan POST answers. Msg is a refusal: the move
+// stays off. Warning is shown in full, never folded away.
+type DiskMoveDialog struct {
+	Title, Sub, Button string
+	Move, Vals, Dlg    string
+	Facts              []MoveFact
+	Restarts, Warning  string
+	Msg                string
+}
+
+// MoveFact is one line of the dialog's facts; Low colours the value.
+type MoveFact struct {
+	Label, Value string
+	Low          bool
+}
+
+templ nodeDiskMoves(d NodeDisk) {
+	if m := d.Moves; m != nil {
+		<ul class="mt-4 divide-y divide-rw-border">
+			for _, r := range m.Rows {
+				<li class="py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+					<span class="text-rw-text">{ r.Name }</span>
+					if r.State != "" {
+						<span class="text-xs text-rw-muted">{ r.State }</span>
+					}
+					<span class="ml-auto">
+						if r.Busy {
+							<button type="button" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>{ r.Button }</button>
+						} else {
+							<button type="button" class="btn btn-ghost btn-sm disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ r.Plan } hx-vals={ r.Vals } hx-target={ "#" + r.Dlg } hx-swap="innerHTML" hx-disabled-elt="this">{ r.Button }</button>
+						}
+					</span>
+				</li>
+				if r.Old != "" {
+					<li class="py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+						<span class="text-xs text-rw-muted">{ r.Old }</span>
+						<span class="ml-auto">
+							@c.DiskConfirm(c.DiskConfirmView{
+								Opener: "Remove old copy", Quiet: true, Title: "Remove the old copy", Sub: r.Old,
+								Button: "Remove old copy", Action: r.Remove, Target: drawerTarget(),
+								Body: moveText(r.OldHint),
+							})
+						</span>
+					</li>
+				}
+			}
+		</ul>
+		for _, r := range m.Rows {
+			<div id={ r.Dlg }></div>
+		}
+	}
+}
+
+templ moveText(s string) {
+	<p class="text-sm text-rw-muted">{ s }</p>
+}
+
+// DiskMoveDialogView is the plan dialog, as an answer into #<Dlg>.
+templ DiskMoveDialogView(m DiskMoveDialog) {
+	@c.Modal(m.Title, m.Sub, diskMoveFoot(m)) {
+		if m.Restarts != "" {
+			<p class="text-sm">{ m.Restarts }</p>
+		}
+		if len(m.Facts) > 0 {
+			<dl class="dl text-sm mt-4">
+				for _, f := range m.Facts {
+					<dt class="text-rw-muted">{ f.Label }</dt>
+					<dd class={ templ.KV("text-rw-text", !f.Low), templ.KV("text-rw-danger", f.Low) }>{ f.Value }</dd>
+				}
+			</dl>
+		}
+		if m.Warning != "" {
+			<p class="mt-4 flex items-start gap-2 text-sm text-rw-warn">
+				@diskIcon("warn")
+				<span>{ m.Warning }</span>
+			</p>
+		}
+		if m.Msg != "" {
+			<div class="mt-4">
+				@c.DlgAlert(m.Msg)
+			</div>
+		}
+	}
+}
+
+templ diskMoveFoot(m DiskMoveDialog) {
+	<button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+	<button type="button" class="btn btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed" hx-post={ m.Move } hx-vals={ m.Vals } hx-target={ drawerTarget() } hx-swap="outerHTML" hx-disabled-elt="this" disabled?={ m.Msg != "" }>{ m.Button }</button>
+}

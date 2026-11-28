@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -61,8 +62,9 @@ func LoadMasterKey(ctx context.Context, dataDir, dbPath, envKey string) (string,
 	if err != nil || next == cur {
 		return drop("the next key is not a new key", err)
 	}
-	if dbPath == "" {
-		dbPath = filepath.Join(dataDir, "stackr.db")
+	dbPath = DBPathOr(dataDir, dbPath)
+	if err := paneldb.Check(dataDir, dbPath); err != nil {
+		return "", err
 	}
 	db, err := openDB(ctx, dbPath)
 	if err != nil {

@@ -8,4 +8,4 @@ type kind interface {
 	run(ctx context.Context, e Env, r Request) Result
 }
 
-var kinds = map[string]kind{"path": pathKind{}, "xfs": xfsKind{}}
+var kinds = map[string]kind{"path": pathKind{}, "xfs": xfsKind{}, "paneldb": dbKind{}}

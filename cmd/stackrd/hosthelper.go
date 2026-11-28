@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
+	"github.com/FyrmForge/stackr/internal/hostdisk/sqliteops"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -270,7 +271,7 @@ func runDisk(arg string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(hostdisk.EncodeResult(hostdisk.Run(context.Background(), hostdisk.Env{Root: "/host"}, req)))
+	fmt.Println(hostdisk.EncodeResult(hostdisk.Run(context.Background(), hostdisk.Env{Root: "/host", Checkpoint: sqliteops.Checkpoint, Integrity: sqliteops.Integrity}, req)))
 	return nil
 }
 

@@ -330,6 +330,9 @@ func (e Env) preparePoint(ctx context.Context, point string) *Error {
 	return nil
 }
 
+// UnitName is the systemd mount unit for a path (the installer starts it).
+func UnitName(point string) string { return unitName(point) }
+
 // unitName is the systemd mount unit for a path (systemd-escape -p --suffix=mount).
 func unitName(point string) string {
 	var b strings.Builder
@@ -359,6 +362,12 @@ func unitText(point, uuid string) string {
 // existing unit is accepted only when it is exactly the one this disk would
 // get (marker, uuid, mount point); a foreign unit is never overwritten.
 func (e Env) writeUnit(point, uuid string) *Error {
+	return e.writeUnitText(unitName(point), unitText(point, uuid))
+}
+
+// writeUnitText is writeUnit for any unit this package owns: name and the
+// exact text it would write (the bind unit of the panel database uses it too).
+func (e Env) writeUnitText(name, text string) *Error {
 	const dir = "/etc/systemd/system"
 	canon, err := resolveUnder(e.Root, dir)
 	if err != nil {
@@ -369,12 +378,11 @@ func (e Env) writeUnit(point, uuid string) *Error {
 		return &Error{CodeIO, err.Error()}
 	}
 	defer func() { _ = root.Close() }()
-	name := unitName(point)
 	foreign := func() *Error {
 		return &Error{CodeBusy, name + " already exists and is not the stackr mount unit of this disk"}
 	}
 	if have, err := root.ReadFile(name); err == nil {
-		if string(have) == unitText(point, uuid) {
+		if string(have) == text {
 			return nil
 		}
 		return foreign()
@@ -388,7 +396,7 @@ func (e Env) writeUnit(point, uuid string) *Error {
 	if err != nil {
 		return &Error{CodeIO, err.Error()}
 	}
-	_, err = f.WriteString(unitText(point, uuid))
+	_, err = f.WriteString(text)
 	if err == nil {
 		err = f.Sync()
 	}

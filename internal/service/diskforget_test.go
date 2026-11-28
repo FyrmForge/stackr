@@ -181,7 +181,7 @@ func TestForgetThenRestoreDeployRestoresFromBackup(t *testing.T) {
 func TestForgetDeletesTheDiskRowLastAndCascadesTheFolderRows(t *testing.T) {
 	w := newForgetWorld(t, true, true)
 	w.lose(t)
-	w.wFake.Err = map[string]error{"CreateVolume("+w.v.Name+")": errors.New("daemon busy")}
+	w.wFake.Err = map[string]error{"CreateVolume(" + w.v.Name + ")": errors.New("daemon busy")}
 	if j := w.forget(t); j.State != job.Failed {
 		t.Fatalf("job = %s, want failed", j.State)
 	}
@@ -527,7 +527,7 @@ func TestForgettingRowRefusesOrdinaryDeploy(t *testing.T) {
 func TestForgetPartialEnqueueFailureKeepsTheRowForgettingAndResumeFinishes(t *testing.T) {
 	w := newForgetWorld(t, true, true)
 	w.lose(t)
-	w.wFake.Err = map[string]error{"CreateVolume("+w.v.Name+")": errors.New("daemon busy")}
+	w.wFake.Err = map[string]error{"CreateVolume(" + w.v.Name + ")": errors.New("daemon busy")}
 	j := w.forget(t)
 	if j.State != job.Failed || !strings.Contains(j.Error, "daemon busy") {
 		t.Fatalf("job = %s %q", j.State, j.Error)
@@ -678,5 +678,27 @@ func TestDiscardBoundObjectNeedsTheTypedConfirm(t *testing.T) {
 	w.plainGhost(t)
 	if err := w.orch.DiscardBoundObject(ctx, adminP(), w.v.ID, w.v.Slug); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("a plain copy by the bound verb: %v", err)
+	}
+}
+
+// A missing controller disk with logs and metrics on it can be forgotten: the
+// data is gone, so the settings go and observe returns to the plain volume.
+func TestForgetMissingControllerDiskWithObserveOn(t *testing.T) {
+	ctx := context.Background()
+	r := newObserveRig(t)
+	must(t, r.st.Settings.Set(ctx, observeDataDiskKey, "1"))
+	must(t, r.st.Settings.Set(ctx, observeDataCapKey, "2147483648"))
+	setState(t, r.diskTest, r.row, disk.StateMissing)
+	j, err := r.orch.ForgetNodeDisk(ctx, adminP(), r.row.ID, r.row.ID)
+	if j = r.run(t, j, err); j.State != job.Done {
+		t.Fatalf("job = %s %q", j.State, j.Error)
+	}
+	for _, k := range []string{observeDataDiskKey, observeDataCapKey} {
+		if _, ok, _ := r.st.Settings.Get(ctx, k); ok {
+			t.Errorf("setting %s stayed", k)
+		}
+	}
+	if err := r.orch.observeDiskRefusal(ctx, r.ctl(), false); err != nil {
+		t.Errorf("refusal after forget: %v", err)
 	}
 }
