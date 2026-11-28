@@ -37,6 +37,9 @@ type VolumeStore interface {
 	ListByNode(ctx context.Context, nodeID string) ([]Volume, error)
 	Update(ctx context.Context, v Volume) error
 	Delete(ctx context.Context, id string) error
+	// DeleteIfOrphaned deletes the row only while it is still orphaned since at;
+	// false when a restore (or a re-orphan) got there first.
+	DeleteIfOrphaned(ctx context.Context, id string, at time.Time) (bool, error)
 	// RepointNode moves every volume pinned to node from onto node to (an
 	// adopt hands a dead node's orphans to the adopting node). Idempotent.
 	RepointNode(ctx context.Context, from, to string) error
@@ -65,4 +68,13 @@ func (s volumes) ListByNode(ctx context.Context, nodeID string) ([]Volume, error
 func (s volumes) RepointNode(ctx context.Context, from, to string) error {
 	_, err := s.q.ExecContext(ctx, `UPDATE volumes SET node_id = ? WHERE node_id = ? AND node_id != ''`, to, from)
 	return mapErr(err)
+}
+
+func (s volumes) DeleteIfOrphaned(ctx context.Context, id string, at time.Time) (bool, error) {
+	res, err := s.q.ExecContext(ctx, `DELETE FROM volumes WHERE id = ? AND orphaned_at = ?`, id, at)
+	if err != nil {
+		return false, mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }

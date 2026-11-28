@@ -457,6 +457,30 @@ func TestOrphansSkipsRestored(t *testing.T) {
 	}
 }
 
+// A Restore landing after the job's snapshot but before the delete keeps the
+// row and the data: the delete is conditional on the orphan still standing.
+func TestDeleteOrphanKeepsRestored(t *testing.T) {
+	w := setup(t)
+	snap, err := w.f.Volumes.Orphan(ctx, w.vol)
+	must(t, err)
+	_, err = w.f.Volumes.Restore(ctx, snap)
+	must(t, err)
+	n := len(w.fake.Calls())
+	ok, err := w.f.Volumes.DeleteOrphan(ctx, snap)
+	must(t, err)
+	if ok {
+		t.Fatal("deleted a restored volume")
+	}
+	if _, err := w.f.Volumes.Get(ctx, w.vol.ID); err != nil {
+		t.Errorf("row gone: %v", err)
+	}
+	for _, c := range w.fake.Calls()[n:] {
+		if c.Method == "RemoveVolume" {
+			t.Errorf("data removed: %+v", c)
+		}
+	}
+}
+
 func newTestKey(t *testing.T) *age.X25519Identity {
 	t.Helper()
 	id, err := age.GenerateX25519Identity()

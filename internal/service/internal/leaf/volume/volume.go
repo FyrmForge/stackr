@@ -282,6 +282,29 @@ func (l *Leaf) Delete(ctx context.Context, v store.Volume, mountedBy []string) e
 	return l.volumes.Delete(ctx, v.ID)
 }
 
+// DeleteOrphan is Delete for the orphan job: the row goes first, and only
+// while it is still orphaned since v.OrphanedAt, so a Restore that lands
+// meanwhile keeps the volume and its data (false). When the data cannot be
+// removed the row is put back so the next run retries.
+func (l *Leaf) DeleteOrphan(ctx context.Context, v store.Volume) (bool, error) {
+	if v.OrphanedAt == nil {
+		return false, nil
+	}
+	ctx, node, err := l.at(ctx, v)
+	if err != nil {
+		return false, err
+	}
+	ok, err := l.volumes.DeleteIfOrphaned(ctx, v.ID, *v.OrphanedAt)
+	if err != nil || !ok {
+		return false, err
+	}
+	if err := l.RemoveNamed(ctx, node, v.Name); err != nil {
+		_ = l.volumes.Create(context.WithoutCancel(ctx), v)
+		return true, err
+	}
+	return true, nil
+}
+
 // DeleteRow is Delete for a volume whose node is gone: the row only. The
 // folder cannot be reached, so it stays on the disk with its folder row.
 func (l *Leaf) DeleteRow(ctx context.Context, v store.Volume, mountedBy []string) error {
