@@ -233,3 +233,15 @@ func TestErroringDiskRefusesMoveInNotMoveBack(t *testing.T) {
 		t.Errorf("move back: %v (want the plan's own refusal)", err)
 	}
 }
+
+func TestPlanMovePanelDBLatchedErroringDiskRefusesInNotBack(t *testing.T) {
+	ctx := context.Background()
+	r := installedRig(t)
+	r.orch.latchErroring(ctx, r.row)
+	if p, err := r.orch.PlanMovePanelDB(ctx, adminP(), r.ctl(), false); err != nil || !strings.Contains(p.Refusal, "failing") {
+		t.Errorf("plan in: %q %v", p.Refusal, err)
+	}
+	if p, _ := r.orch.PlanMovePanelDB(ctx, adminP(), r.ctl(), true); strings.Contains(p.Refusal, "failing") {
+		t.Errorf("plan back: %q", p.Refusal)
+	}
+}

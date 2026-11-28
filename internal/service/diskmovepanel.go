@@ -217,6 +217,15 @@ func (o *Orchestrator) planWith(ctx context.Context, nodeID string, back, own bo
 		p.Refusal = reason
 		return p, nil
 	}
+	// a latched-erroring disk takes no new data, but a move back takes it off
+	if !back {
+		if err := o.erroringDiskGate(ctx, nodeID); errors.Is(err, errs.ErrRefused) {
+			p.Refusal = err.Error()
+			return p, nil
+		} else if err != nil {
+			return p, err
+		}
+	}
 	d, _, err := o.nodeDisk(ctx, nodeID)
 	if err != nil {
 		return p, err
@@ -303,12 +312,6 @@ func panelMoveFits(back bool, need int64, diskFree, sysFree uint64) bool {
 
 // MovePanelDB queues the move (node.manage). A second press is refused.
 func (o *Orchestrator) MovePanelDB(ctx context.Context, by *Principal, nodeID string, back bool) (Job, error) {
-	// a latched-erroring disk takes no new data, but a move back takes it off
-	if !back {
-		if err := o.erroringDiskGate(ctx, nodeID); err != nil {
-			return Job{}, err
-		}
-	}
 	p, err := o.PlanMovePanelDB(ctx, by, nodeID, back)
 	if err != nil {
 		return Job{}, err
