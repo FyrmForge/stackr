@@ -6,10 +6,9 @@
 // bubbling "drawer-closed" fires. While open, Tab cycles inside the drawer
 // and closing hands focus back to what opened it. An edited form asks
 // (in a modal of its own) before a close drops it; a save from inside the
-// drawer's edited form (a non-GET request that ends well, outside the vars
-// grid's staging forms) clears the edits; a pending-changes footer counts as
-// unsaved too; a failed request into the open drawer shows
-// there, with its request id, instead of as a toast.
+// drawer's edited form clears the edits (the vars grid's staging requests do
+// not; its pending footer counts as unsaved); a failed request into the open
+// drawer shows there, with its request id, instead of as a toast.
 // ponytail: a close during an in-flight open reopens on arrival; add a
 // request guard if that shows up.
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -47,10 +46,8 @@ class SideDrawer extends HTMLElement {
   private onBefore = (e: Event): void => {
     const body = this.body();
     const d = (e as CustomEvent<{ elt?: Element; xhr?: object; target?: Element; requestConfig?: { verb?: string } }>).detail;
-    // a save is a non-GET request sent from an edited form (not a staging
-    // [data-hold] request, not another button); onDone clears dirty when it
-    // ends well, even when it swaps nothing or its target is replaced,
-    // which onSwap never sees
+    // a save is a non-GET request from an edited form (not [data-hold]
+    // staging); onDone clears dirty when it ends well, swap or not
     const form = d?.elt?.closest("form");
     if (body && d?.xhr && d.elt && form && this.edited.has(form) && !d.elt.closest("[data-hold]") && body.contains(d.elt) && (d.requestConfig?.verb ?? "get").toLowerCase() !== "get") this.saves.add(d.xhr);
     if (!body || d?.target !== body || this.hasAttribute("open")) return;
