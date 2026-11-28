@@ -4,6 +4,7 @@ class SideDrawer extends HTMLElement {
     dirty = false;
     fullByLink = false;
     saves = new WeakSet();
+    edited = new WeakSet();
     onSwap = (e) => {
         const d = e.detail;
         const target = d?.target;
@@ -29,7 +30,8 @@ class SideDrawer extends HTMLElement {
     onBefore = (e) => {
         const body = this.body();
         const d = e.detail;
-        if (body && d?.xhr && d.elt && body.contains(d.elt) && (d.requestConfig?.verb ?? "get").toLowerCase() !== "get")
+        const form = d?.elt?.closest("form");
+        if (body && d?.xhr && d.elt && form && this.edited.has(form) && !d.elt.closest("[data-hold]") && body.contains(d.elt) && (d.requestConfig?.verb ?? "get").toLowerCase() !== "get")
             this.saves.add(d.xhr);
         if (!body || d?.target !== body || this.hasAttribute("open"))
             return;
@@ -84,8 +86,11 @@ class SideDrawer extends HTMLElement {
     onSettle = () => this.expand(this.hasAttribute("full"), this.fullByLink);
     onEdit = (e) => {
         const el = e.target;
-        if (el.closest("form") && !el.closest("dialog") && this.body()?.contains(el))
+        const form = el.closest("form");
+        if (form && !el.closest("dialog") && !el.closest("[data-hold]") && this.body()?.contains(el)) {
+            this.edited.add(form);
             this.dirty = true;
+        }
     };
     onError = (e) => {
         const d = e.detail;
@@ -153,12 +158,13 @@ class SideDrawer extends HTMLElement {
     close(force = false) {
         if (!this.hasAttribute("open"))
             return;
-        if (this.dirty && !force) {
+        if ((this.dirty || this.querySelector("#drawer-body form[data-hold][id]")) && !force) {
             const ask = this.querySelector("dialog[data-discard]");
             if (ask)
                 return void (ask.open || ask.showModal());
         }
         this.dirty = false;
+        this.querySelector("dialog[data-discard]")?.close();
         if (this.fullByLink)
             this.expand(false);
         this.removeAttribute("open");

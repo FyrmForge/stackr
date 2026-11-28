@@ -19,7 +19,7 @@ test("afterRequest on the drawer body closes a lone loading text", () => {
   let open = true;
   const el = Object.assign(new Ctor(), {
     addEventListener: () => {},
-    querySelector: () => body,
+    querySelector: (s: string) => (s === "#drawer-body" ? body : null),
     hasAttribute: () => open,
     removeAttribute: () => (open = false),
     dispatchEvent: () => {},
@@ -47,14 +47,14 @@ test("expand swaps the full-screen button's label and pressed state", () => {
   assert.deepEqual([attrs["aria-pressed"], attrs["aria-label"], btn.title], ["false", "Full screen", "Full screen"]);
 });
 
-function drawer(opts: { dirty?: boolean; contains?: (n: unknown) => boolean } = {}) {
+function drawer(opts: { dirty?: boolean; contains?: (n: unknown) => boolean; footer?: boolean } = {}) {
   const calls = { show: 0, closed: 0 };
   const dlg = { open: false, showModal: () => { calls.show++; dlg.open = true; }, close: () => { dlg.open = false; } };
   const body = { contains: opts.contains ?? (() => true), querySelector: () => null, replaceChildren: () => {} };
   let open = true;
   const el = Object.assign(new Ctor(), {
     addEventListener: () => {},
-    querySelector: (s: string) => (s === "#drawer-body" ? body : s === "dialog[data-discard]" ? dlg : null),
+    querySelector: (s: string) => (s === "#drawer-body" ? body : s === "dialog[data-discard]" ? dlg : s.includes("form[data-hold][id]") && opts.footer ? {} : null),
     hasAttribute: (a: string) => (a === "open" ? open : false),
     setAttribute: () => {},
     removeAttribute: () => (open = false),
@@ -68,7 +68,8 @@ function drawer(opts: { dirty?: boolean; contains?: (n: unknown) => boolean } = 
 
 test("a successful non-GET request from inside the drawer clears dirty, even with no swap", () => {
   const { el, body } = drawer({ dirty: true });
-  const xhr = {}, elt = {};
+  const xhr = {}, form = {}, elt = { closest: (s: string) => (s === "form" ? form : null) };
+  (el.edited as WeakSet<object>).add(form);
   handlers["htmx:beforeRequest"]({ detail: { elt, xhr, target: elt, requestConfig: { verb: "post" } } });
   handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: body } });
   assert.equal(el.dirty, false);
@@ -77,13 +78,13 @@ test("a successful non-GET request from inside the drawer clears dirty, even wit
 test("a failed (422) save, a GET poll and a request from outside keep dirty", () => {
   const { el } = drawer({ dirty: true });
   const bad = {}, poll = {}, out = {};
-  handlers["htmx:beforeRequest"]({ detail: { elt: {}, xhr: bad, target: {}, requestConfig: { verb: "post" } } });
+  handlers["htmx:beforeRequest"]({ detail: { elt: { closest: () => ({}) }, xhr: bad, target: {}, requestConfig: { verb: "post" } } });
   handlers["htmx:afterRequest"]({ detail: { xhr: bad, successful: false, target: {} } });
-  handlers["htmx:beforeRequest"]({ detail: { elt: {}, xhr: poll, target: {}, requestConfig: { verb: "get" } } });
+  handlers["htmx:beforeRequest"]({ detail: { elt: { closest: () => ({}) }, xhr: poll, target: {}, requestConfig: { verb: "get" } } });
   handlers["htmx:afterRequest"]({ detail: { xhr: poll, successful: true, target: {} } });
   assert.equal(el.dirty, true);
   const o = drawer({ dirty: true, contains: () => false });
-  handlers["htmx:beforeRequest"]({ detail: { elt: {}, xhr: out, target: {}, requestConfig: { verb: "post" } } });
+  handlers["htmx:beforeRequest"]({ detail: { elt: { closest: () => ({}) }, xhr: out, target: {}, requestConfig: { verb: "post" } } });
   handlers["htmx:afterRequest"]({ detail: { xhr: out, successful: true, target: {} } });
   assert.equal(o.el.dirty, true);
 });
@@ -119,4 +120,30 @@ test("a clean or forced close never asks", () => {
   const b = drawer({ dirty: true });
   (b.el.close as (f: boolean) => void).call(b.el, true);
   assert.deepEqual([b.calls.show, b.isOpen()], [0, false]);
+});
+
+test("a staging POST (preview) or an unrelated button keeps dirty; saving the edited form clears it", () => {
+  const { el, body } = drawer({ dirty: true });
+  const form = {}, other = {};
+  (el.edited as WeakSet<object>).add(form);
+  const send = (elt: object, xhr: object) => {
+    handlers["htmx:beforeRequest"]({ detail: { elt, xhr, target: elt, requestConfig: { verb: "post" } } });
+    handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: body } });
+  };
+  send({ closest: (s: string) => (s === "form" ? form : s === "[data-hold]" ? {} : null) }, {}); // preview
+  assert.equal(el.dirty, true);
+  send({ closest: (s: string) => (s === "form" ? other : null) }, {}); // Restart button, unedited form
+  assert.equal(el.dirty, true);
+  send({ closest: () => null }, {}); // button in no form
+  assert.equal(el.dirty, true);
+  send({ closest: (s: string) => (s === "form" ? form : null) }, {}); // the edited form's save
+  assert.equal(el.dirty, false);
+});
+
+test("a pending footer makes a close ask; a forced close shuts an open discard dialog", () => {
+  const a = drawer({ footer: true });
+  (a.el.close as () => void).call(a.el);
+  assert.deepEqual([a.calls.show, a.isOpen()], [1, true]);
+  (a.el.close as (f: boolean) => void).call(a.el, true);
+  assert.deepEqual([a.dlg.open, a.isOpen()], [false, false]);
 });

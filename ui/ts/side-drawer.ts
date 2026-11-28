@@ -6,7 +6,9 @@
 // bubbling "drawer-closed" fires. While open, Tab cycles inside the drawer
 // and closing hands focus back to what opened it. An edited form asks
 // (in a modal of its own) before a close drops it; a save from inside the
-// drawer (any non-GET request that ends well) clears the edits; a failed request into the open drawer shows
+// drawer's edited form (a non-GET request that ends well, outside the vars
+// grid's staging forms) clears the edits; a pending-changes footer counts as
+// unsaved too; a failed request into the open drawer shows
 // there, with its request id, instead of as a toast.
 // ponytail: a close during an in-flight open reopens on arrival; add a
 // request guard if that shows up.
@@ -18,7 +20,8 @@ class SideDrawer extends HTMLElement {
   private opener: HTMLElement | null = null;
   private dirty = false;
   private fullByLink = false; // a data-full link set full: the close undoes it
-  private saves = new WeakSet<object>(); // xhrs of non-GET requests sent from inside the drawer
+  private saves = new WeakSet<object>(); // xhrs of non-GET requests sent from an edited form
+  private edited = new WeakSet<Element>(); // forms the user changed
 
   private onSwap = (e: Event): void => {
     const d = (e as CustomEvent<{ target?: Element; requestConfig?: { elt?: Element } }>).detail;
@@ -44,10 +47,12 @@ class SideDrawer extends HTMLElement {
   private onBefore = (e: Event): void => {
     const body = this.body();
     const d = (e as CustomEvent<{ elt?: Element; xhr?: object; target?: Element; requestConfig?: { verb?: string } }>).detail;
-    // a save is a non-GET request sent from inside the drawer; onDone clears
-    // dirty when it ends well, even when it swaps nothing or its target
-    // is replaced, which onSwap never sees
-    if (body && d?.xhr && d.elt && body.contains(d.elt) && (d.requestConfig?.verb ?? "get").toLowerCase() !== "get") this.saves.add(d.xhr);
+    // a save is a non-GET request sent from an edited form (not a staging
+    // [data-hold] request, not another button); onDone clears dirty when it
+    // ends well, even when it swaps nothing or its target is replaced,
+    // which onSwap never sees
+    const form = d?.elt?.closest("form");
+    if (body && d?.xhr && d.elt && form && this.edited.has(form) && !d.elt.closest("[data-hold]") && body.contains(d.elt) && (d.requestConfig?.verb ?? "get").toLowerCase() !== "get") this.saves.add(d.xhr);
     if (!body || d?.target !== body || this.hasAttribute("open")) return;
     const was = document.activeElement as HTMLElement | null;
     if (was && !this.contains(was)) this.opener = was;
@@ -106,10 +111,15 @@ class SideDrawer extends HTMLElement {
   private onSettle = (): void => this.expand(this.hasAttribute("full"), this.fullByLink);
 
   // Only a form's own fields count: not a confirm's typed word, not the
-  // log pane's filters.
+  // log pane's filters, not the vars grid's staging forms (their pending
+  // footer says so in close()).
   private onEdit = (e: Event): void => {
     const el = e.target as Element;
-    if (el.closest("form") && !el.closest("dialog") && this.body()?.contains(el)) this.dirty = true;
+    const form = el.closest("form");
+    if (form && !el.closest("dialog") && !el.closest("[data-hold]") && this.body()?.contains(el)) {
+      this.edited.add(form);
+      this.dirty = true;
+    }
   };
 
   // An error aimed into the open drawer is the drawer's to show, so the
@@ -181,11 +191,12 @@ class SideDrawer extends HTMLElement {
   // force skips the unsaved-edits question (the body is already gone).
   private close(force = false): void {
     if (!this.hasAttribute("open")) return;
-    if (this.dirty && !force) {
+    if ((this.dirty || this.querySelector("#drawer-body form[data-hold][id]")) && !force) {
       const ask = this.querySelector<HTMLDialogElement>("dialog[data-discard]");
       if (ask) return void (ask.open || ask.showModal());
     }
     this.dirty = false;
+    this.querySelector<HTMLDialogElement>("dialog[data-discard]")?.close();
     if (this.fullByLink) this.expand(false); // the next canvas drawer opens at its own width
     this.removeAttribute("open");
     this.removeAttribute("tab");
