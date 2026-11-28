@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -53,7 +55,7 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 	}
 	if spec.HealthCmd != "" {
 		cfg.Healthcheck = &container.HealthConfig{
-			Test:        []string{"CMD-SHELL", spec.HealthCmd},
+			Test:        healthTest(spec.HealthCmd),
 			Interval:    time.Duration(spec.HealthIntervalS) * time.Second,
 			Timeout:     time.Duration(spec.HealthTimeoutS) * time.Second,
 			Retries:     spec.HealthRetries,
@@ -405,4 +407,32 @@ func pids(n int64) *int64 {
 		n = -1
 	}
 	return &n
+}
+
+var (
+	plainWord = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+	// shellFirst are the words a shell reads itself, so no program of that
+	// name runs when exec'd.
+	shellFirst = []string{":", ".", "true", "false", "echo", "test", "[", "printf", "cd", "exit", "exec", "kill",
+		"wait", "set", "export", "eval", "source", "read", "trap", "ulimit", "umask", "alias", "command", "type",
+		"if", "for", "while", "case", "until", "do", "then"}
+)
+
+// healthTest is the HEALTHCHECK test for cmd: CMD (argv, no shell in the
+// image needed) only when the raw string is single-spaced plain words and the
+// first is a program, anything else CMD-SHELL byte for byte. Any newline, tab
+// or other character, a first word with "=" (an env assignment) or a shell
+// builtin or keyword means shell. A tool that only exists as a busybox applet
+// would fail exec, so exec is opt-in by shape.
+func healthTest(cmd string) []string {
+	words := strings.Split(cmd, " ")
+	for _, w := range words {
+		if !plainWord.MatchString(w) {
+			return []string{"CMD-SHELL", cmd}
+		}
+	}
+	if strings.Contains(words[0], "=") || slices.Contains(shellFirst, words[0]) {
+		return []string{"CMD-SHELL", cmd}
+	}
+	return append([]string{"CMD"}, words...)
 }
