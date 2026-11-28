@@ -2958,6 +2958,9 @@
           "node": {
             "type": "string"
           },
+          "observe_on": {
+            "type": "boolean"
+          },
           "refusal": {
             "type": "string"
           },
@@ -2973,7 +2976,8 @@
           "node",
           "gone",
           "volumes",
-          "refusal"
+          "refusal",
+          "observe_on"
         ],
         "type": "object"
       },

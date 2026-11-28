@@ -264,13 +264,19 @@ type ForgetPlanOut struct {
 	Gone    bool             `json:"gone"`
 	Volumes []AdoptVolumeOut `json:"volumes"`
 	Refusal string           `json:"refusal"`
+	// ObserveOn: logs and metrics are on this disk and a forget loses them.
+	ObserveOn bool `json:"observe_on"`
+}
+
+func forgetPlanOut(p service.ForgetPlan) ForgetPlanOut {
+	return ForgetPlanOut{DiskID: p.DiskID, Node: p.Node, Gone: p.Gone, Volumes: adoptVolumesOut(p.Volumes), Refusal: p.Refusal, ObserveOn: p.ObserveOn}
 }
 
 // PlanDiskForget (server admin) reads what forgetting the disk would do.
 func (h *H) PlanDiskForget() Endpoint {
 	return Get(func(c echo.Context) (ForgetPlanOut, error) {
 		p, err := h.Orch.PlanDiskForget(rc(c), c.Param("disk"))
-		return ForgetPlanOut{DiskID: p.DiskID, Node: p.Node, Gone: p.Gone, Volumes: adoptVolumesOut(p.Volumes), Refusal: p.Refusal}, err
+		return forgetPlanOut(p), err
 	})
 }
 

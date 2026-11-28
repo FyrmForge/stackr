@@ -393,6 +393,9 @@ func (a *app) diskForget() *cobra.Command {
 			if r := cell(p["refusal"]); r != "(none)" {
 				return errors.New(r)
 			}
+			if p["observe_on"] == true {
+				a.say("Logs and metrics are on this disk and are lost.")
+			}
 			word := cell(p["node"])
 			if word == "(none)" {
 				word = cell(p["disk_id"])

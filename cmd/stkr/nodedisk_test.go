@@ -288,3 +288,11 @@ func TestNodeDiskMovePanel(t *testing.T) {
 		t.Errorf("worker = %d %q", code, errw)
 	}
 }
+
+func TestNodeDiskForgetWarnsWhenObserveIsOnTheDisk(t *testing.T) {
+	plan := `{"disk_id":"d1","node":"old","gone":false,"volumes":[],"refusal":"","observe_on":true}`
+	fake(t, map[string]string{"/forget-plan": plan})
+	if _, out, _ := cli(t, "node", "disk", "forget", "d1"); !strings.Contains(out, "Logs and metrics are on this disk and are lost.") {
+		t.Errorf("no warning: %q", out)
+	}
+}
