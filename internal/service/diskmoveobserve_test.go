@@ -345,6 +345,21 @@ func TestObserveCapCoversMinFree(t *testing.T) {
 	}
 }
 
+// VictoriaMetrics reads the cap as the filesystem size: after the move there
+// must still be a gigabyte above its minimum free space.
+func TestObserveCapLeavesFreeAboveMinFreeAfterMove(t *testing.T) {
+	ctx := context.Background()
+	r := newObserveRig(t)
+	must(t, r.orch.SetSettings(ctx, map[string]string{"observe_logs_enabled": "false"}))
+	k, err := r.orch.observeKnobs(ctx)
+	must(t, err)
+	size := int64(2 << 30)
+	want := uint64(size) + 1<<30 + k.minFree
+	if c, err := r.orch.observeCap(ctx, size); err != nil || c < want {
+		t.Errorf("cap = %d, %v; want >= %d", c, err, want)
+	}
+}
+
 // Moving data off a failing disk is allowed; moving onto it is not.
 func TestObserveMoveErroringDiskGate(t *testing.T) {
 	ctx := context.Background()

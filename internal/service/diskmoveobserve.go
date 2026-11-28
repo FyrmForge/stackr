@@ -152,20 +152,22 @@ func (o *Orchestrator) reconcileObserve(ctx context.Context, nodeID string) bool
 }
 
 // observeCap is the xfs cap of the disk folder: twice today's data, and never
-// under what the logs may grow to (their own size cap) plus a gigabyte for
-// metrics plus the free space VictoriaMetrics keeps (observe_min_free), or the
-// cap would stop observe before its own limits do.
+// under today's data plus a gigabyte of growth plus the logs' own size cap plus
+// the free space VictoriaMetrics keeps (observe_min_free). VictoriaMetrics
+// reads the cap as the filesystem size and stops writing below that free
+// space, so the data itself must fit above it.
 // ponytail: the floor is read once at the move; editable later.
 func (o *Orchestrator) observeCap(ctx context.Context, size int64) (uint64, error) {
 	k, err := o.observeKnobs(ctx)
 	if err != nil {
 		return 0, err
 	}
-	floor := uint64(1<<30) + k.minFree
+	sz := uint64(max(size, 0))
+	floor := sz + uint64(1<<30) + k.minFree
 	if k.logs {
 		floor += k.logsMax
 	}
-	return max(uint64(max(size, 0))*2, floor), nil
+	return max(sz*2, floor), nil
 }
 
 // ObserveMovePlan is what the move dialog shows before the confirm.
