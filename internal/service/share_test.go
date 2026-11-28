@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -281,6 +282,37 @@ func TestShareTestReadable(t *testing.T) {
 	}
 	if !sawRemove(r) {
 		t.Fatal("helper not removed")
+	}
+}
+
+// The test volume goes after the run (behind the helper, in-use ignored), and
+// each run names its own helper.
+func TestShareTestCleansUpVolumeAndNamesUniquely(t *testing.T) {
+	ctx := context.Background()
+	r, _, _ := shareTestRig(t, true)
+	r.env.Docker.Err = map[string]error{"RemoveVolume": errors.New("volume is in use")}
+	for range 2 {
+		if res, err := r.env.Orch.TestShare(ctx, &service.Principal{}, r.org, "media"); err != nil || !res.OK {
+			t.Fatalf("got %+v, %v", res, err)
+		}
+	}
+	var order []string
+	for _, c := range r.env.Docker.Calls() {
+		if c.Method == "StopRemove" || c.Method == "RemoveVolume" {
+			order = append(order, c.Method)
+		}
+	}
+	if want := []string{"StopRemove", "RemoveVolume", "StopRemove", "RemoveVolume"}; !slices.Equal(order, want) {
+		t.Fatalf("order = %v", order)
+	}
+	var names []string
+	for _, sp := range r.env.Docker.Specs {
+		if strings.HasPrefix(sp.Name, "stackr-share-test-") {
+			names = append(names, sp.Name)
+		}
+	}
+	if len(names) != 2 || names[0] == names[1] {
+		t.Fatalf("helper names = %v", names)
 	}
 }
 

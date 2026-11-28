@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -35,8 +37,8 @@ const (
 // TestShare mounts the share once, read-only, on the node a deploy would use
 // and says whether it can be read. The host mounts a LAN export, so it runs
 // only for a server admin or when a stack of the org holds an admin grant
-// for this share at its pinned address. Nothing is saved; the share volume
-// is left for the reconcile job.
+// for this share at its pinned address. Nothing is saved; the test volume
+// is removed again.
 func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref string) (ShareTest, error) {
 	ctx, cancel := context.WithTimeout(ctx, shareTestTotal)
 	defer cancel()
@@ -124,11 +126,20 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 	if err != nil {
 		return fail(err.Error()), nil
 	}
+	// The volume holds the login it was made with: remove it when the test is
+	// done, or a fixed password would never take effect. Runs after the helper
+	// is gone (defers run last in, first out); a volume a tile still holds
+	// stays, which is fine.
+	defer func() {
+		c, stop := context.WithTimeout(context.WithoutCancel(nctx), shareTestClean)
+		defer stop()
+		_ = o.docker.RemoveVolume(c, name)
+	}()
 	if err := o.docker.EnsureTool(nctx); err != nil {
 		return fail(err.Error()), nil
 	}
 	id, err := o.docker.Run(nctx, docker.ContainerSpec{
-		Name:       "stackr-share-test-" + name[len(name)-12:],
+		Name:       "stackr-share-test-" + uuid.NewString()[:8],
 		Image:      docker.ToolImage,
 		Entrypoint: []string{"ls"},
 		Cmd:        []string{"/data"},
