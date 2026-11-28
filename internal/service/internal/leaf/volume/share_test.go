@@ -19,6 +19,7 @@ func TestCheckShare(t *testing.T) {
 	ok := func(sp volume.ShareSpec) volume.ShareSpec { return sp }
 	good := []volume.ShareSpec{
 		ok(volume.ShareSpec{Slug: "media", Kind: "nfs", Source: "nas:/export", Options: "nfsvers=4"}),
+		ok(volume.ShareSpec{Slug: "tuned", Kind: "nfs", Source: "nas:/export", Options: "noac,sync"}),
 		ok(volume.ShareSpec{Slug: "docs", Kind: "smb", Source: "//nas/docs/x", User: "bob",
 			PasswordRef: "${{ org.params.nas.pw }}"}),
 		ok(volume.ShareSpec{Slug: "pub", Kind: "smb", Source: "//nas/pub"}),
@@ -42,6 +43,8 @@ func TestCheckShare(t *testing.T) {
 		"options device":  {Slug: "a", Kind: "nfs", Source: "nas:/e", Options: "device=/x"},
 		"options secrets": {Slug: "a", Kind: "smb", Source: "//nas/e", Options: "password=x"},
 		"options unknown": {Slug: "a", Kind: "nfs", Source: "nas:/e", Options: "ro,bind"},
+		"smb noac":        {Slug: "a", Kind: "smb", Source: "//nas/e", Options: "noac"},
+		"smb sync":        {Slug: "a", Kind: "smb", Source: "//nas/e", Options: "sync"},
 		"options foreign": {Slug: "a", Kind: "nfs", Source: "nas:/e", Options: "cache=none"},
 		"options value":   {Slug: "a", Kind: "smb", Source: "//nas/e", Options: "vers=3.0/../x"},
 	} {
