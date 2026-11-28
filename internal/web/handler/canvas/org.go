@@ -464,14 +464,11 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	shr := a.Require("share.write")
 	site.POST(o+"/shares", h.orgAction("storage/shares", func(c echo.Context, og *service.Org) (string, error) {
 		f := c.FormValue
-		s, err := h.orch.CreateShare(c.Request().Context(), og.ID, service.ShareSpec{
-			Slug:        f("slug"),
-			Kind:        f("kind"),
-			Source:      f("source"),
-			Options:     f("options"),
-			User:        f("user"),
-			PasswordRef: f("password"),
-		})
+		spec := service.ShareSpec{Slug: f("slug"), Kind: f("kind"), Source: f("source"), Options: f("options")}
+		if spec.Kind == "smb" { // the form hides these for nfs; a leftover must not refuse the share
+			spec.User, spec.PasswordRef = f("user"), f("password")
+		}
+		s, err := h.orch.CreateShare(c.Request().Context(), og.ID, spec)
 		return "Share " + s.Slug + " added.", err
 	}), shr)
 	site.POST(o+"/shares/:share/delete", h.orgAction("storage/shares", func(c echo.Context, og *service.Org) (string, error) {

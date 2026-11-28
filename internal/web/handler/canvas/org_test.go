@@ -61,3 +61,15 @@ func TestOrgShareLiteralPasswordErrorsOnce(t *testing.T) {
 		t.Errorf("flagged fields = %d:\n%s", n, body)
 	}
 }
+
+// An nfs share saves though the hidden SMB fields were posted with leftovers.
+func TestOrgShareNFSDropsSMBFields(t *testing.T) {
+	b := newBrowser(t, "owner")
+	body := b.do(t, "POST", "/acme/-/drawer/shares", url.Values{
+		"slug": {"media"}, "kind": {"nfs"}, "source": {"nas.lan:/export"},
+		"user": {"stale"}, "password": {"literal"},
+	}, true).Body.String()
+	if !strings.Contains(body, "Share media added.") {
+		t.Errorf("nfs share refused:\n%s", body)
+	}
+}
