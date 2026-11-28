@@ -30,6 +30,7 @@ const (
 	ProxyName   = "stackr-proxy" // service.ProxyContainer
 	ProxyVolume = "stackr-caddy"
 	Repo        = "ghcr.io/fyrmforge/stackr"
+	LabelMove   = "stackr.move" // on a panel database move helper; the value is the move id
 	LabelRole   = "stackr.role" // panel | proxy; the upgrade finds the panel by it
 	PanelPort   = "8080"
 	// LabelSpec stamps a container with the Hash of the spec it was made

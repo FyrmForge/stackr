@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
@@ -33,7 +34,7 @@ const MoveEnv = "STACKR_PANEL_MOVE"
 
 // MoveLabel is on a move's helper container: its value is the move's id, so a
 // boot can tell a move helper from an Update's and find the move job.
-const MoveLabel = "stackr.move"
+const MoveLabel = installspec.LabelMove
 
 // Move is what the helper is told to do.
 type Move struct {

@@ -185,7 +185,7 @@ func (r runner) resumeMove(ctx context.Context, in installspec.Input, j paneldb.
 			return err
 		}
 	}
-	if err := r.docker(ctx, "run", "--name", upgraderName, "--network", "host", "--label", installspec.LabelRole+"=upgrader",
+	if err := r.docker(ctx, "run", "--name", upgraderName, "--network", "host", "--label", installspec.LabelRole+"=upgrader", "--label", installspec.LabelMove+"="+j.MoveID,
 		"-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", in.DataDir+":"+in.DataDir,
 		"-e", installspec.SwapSpecEnv+"="+spec, "-e", "STACKR_PANEL_MOVE="+string(mv),
 		j.Image, "upgrade-swap"); err != nil {

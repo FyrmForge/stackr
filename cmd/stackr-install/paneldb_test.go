@@ -174,3 +174,25 @@ func TestInstallerDryRunLeavesLayoutJournal(t *testing.T) {
 		t.Error("a dry run moved the database")
 	}
 }
+
+// A resumed move's helper carries the move label, so the panel's boot settles
+// it as a move helper and not as a failed Update.
+func TestResumeMoveLabelsTheHelper(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "log")
+	script := "#!/bin/sh\necho \"$*\" >> " + log + "\ncase \"$1\" in inspect) exit 1;; esac\nexit 0\n"
+	put(t, filepath.Join(dir, "docker"), script)
+	if err := os.Chmod(filepath.Join(dir, "docker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	in := installspec.Input{Root: "x.io", PanelHost: "p.x.io", HTTPPort: "80", DataDir: dir, Bind: "172.17.0.1"}
+	j := paneldb.Journal{Phase: "copied", Direction: "in", MoveID: "m42", Image: installspec.Repo + ":0.8.2", Container: "stackr-0.8.2"}
+	if err := (runner{out: &bytes.Buffer{}}).resumeMove(context.Background(), in, j); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(log)
+	if !strings.Contains(string(b), "--label "+installspec.LabelMove+"=m42") {
+		t.Fatalf("helper run lacks the move label:\n%s", b)
+	}
+}
