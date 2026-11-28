@@ -78,9 +78,13 @@ func (a *app) diskLs() *cobra.Command {
 				a.say("%s has no disk. Add one: stkr node disk add %s <path>", args[0], args[0])
 				return nil
 			}
+			state, space := cell(m["state"]), fmt.Sprintf("%s free of %s", gb(m["free"]), gb(m["total"]))
+			if m["erroring"] == true {
+				state, space = "failing", space+" (last good read)"
+			}
 			rows := [][]string{
-				{"id", cell(m["id"])}, {"path", cell(m["path"])}, {"kind", cell(m["kind"])}, {"state", cell(m["state"])},
-				{"space", fmt.Sprintf("%s free of %s", gb(m["free"]), gb(m["total"]))},
+				{"id", cell(m["id"])}, {"path", cell(m["path"])}, {"kind", cell(m["kind"])}, {"state", state},
+				{"space", space},
 				{"volumes", cell(m["volumes"])},
 			}
 			if m["stale"] == true {

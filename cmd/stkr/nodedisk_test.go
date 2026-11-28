@@ -17,6 +17,11 @@ func TestNodeDiskLsAndAdd(t *testing.T) {
 		t.Errorf("ls = %d %q", code, out)
 	}
 
+	fake(t, map[string]string{"/disk": `{"has":true,"id":"d1","path":"/mnt/data","kind":"xfs","state":"ready","free":53687091200,"total":107374182400,"volumes":3,"erroring":true}`})
+	if code, out, _ := cli(t, "node", "disk", "ls", "n1"); code != 0 || !strings.Contains(out, "failing") || !strings.Contains(out, "(last good read)") {
+		t.Errorf("ls erroring = %d %q", code, out)
+	}
+
 	// a refused probe is the server's message and queues nothing
 	r := fake(t, map[string]string{"/probe": `{"path":"/mnt/data","code":"not_mount_point","message":"That folder is not a mount point."}`})
 	if code, _, errw := cli(t, "node", "disk", "add", "n1", "/mnt/data"); code != 1 || !strings.Contains(errw, "not a mount point") || len(writes(r)) != 1 {

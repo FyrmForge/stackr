@@ -2635,6 +2635,9 @@
           "device_bytes": {
             "type": "integer"
           },
+          "device_gone": {
+            "type": "boolean"
+          },
           "empty": {
             "type": "boolean"
           },
@@ -4522,6 +4525,9 @@
           "device_bytes": {
             "type": "integer"
           },
+          "erroring": {
+            "type": "boolean"
+          },
           "formatted": {
             "type": "boolean"
           },
@@ -4583,7 +4589,8 @@
           "new_space",
           "damaged",
           "was_bytes",
-          "formatted"
+          "formatted",
+          "erroring"
         ],
         "type": "object"
       },

@@ -66,6 +66,9 @@ type NodeDiskView struct {
 	// only mounts it).
 	WasBytes  uint64
 	Formatted bool
+	// Erroring: reads failed with I/O errors and the panel latched it; Free
+	// and Total are then the last good read.
+	Erroring bool
 }
 
 // FolderProbe is what a path on a node looks like before it is added. A
@@ -224,6 +227,9 @@ func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskVie
 			v.Free, v.Total, v.Network, v.Stale, v.ReadAt = x.Free, x.Total, x.Network, f.DisksStale, x.ReadAt
 			v.DeviceBytes, v.NewSpace, v.Damaged = deviceFacts(d, x, o.diskLeaf.GrownAt(d.ID))
 		}
+	}
+	if d.State == disk.StateReady {
+		v.Erroring, _ = o.diskErroring(ctx, nodeID)
 	}
 	// A controller with no worker has no facts. When the panel sees the mount
 	// itself (not an installed panel) and it is still a mount, one statfs is

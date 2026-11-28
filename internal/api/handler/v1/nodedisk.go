@@ -41,6 +41,7 @@ type NodeDiskOut struct {
 	Damaged     string `json:"damaged"`
 	WasBytes    uint64 `json:"was_bytes"`
 	Formatted   bool   `json:"formatted"`
+	Erroring    bool   `json:"erroring"`
 }
 
 // NodeDisk (server admin) is the node's disk from the worker's last facts.
