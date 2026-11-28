@@ -109,6 +109,7 @@ var fields = []field{
 	{"image", str(func(t *store.Tile) string { return t.ImageRef })},
 	{"update_policy", func(t *store.Tile) bool { return t.UpdatePolicy == "auto" }},
 	{"tag_policy", str(func(t *store.Tile) string { return t.TagPolicy })},
+	{"entrypoint", str(func(t *store.Tile) string { return t.Entrypoint })},
 	{"command", str(func(t *store.Tile) string { return t.Command })},
 	{"port", func(t *store.Tile) bool { return t.ContainerPort != 0 }},
 	{"published_ports", str(func(t *store.Tile) string { return t.PublishedPorts })},
@@ -155,6 +156,7 @@ var refusals = map[string]string{
 	"schedule":       "schedule applies to cron tiles only",
 	"trigger":        "run_on_deploy applies to function tiles only",
 	"paused":         "only cron tiles have a schedule to pause",
+	"entrypoint":     "entrypoint does not apply to %s tiles",
 	"command":        "command does not apply to %s tiles",
 	"port":           "%s tiles have no endpoint; port does not apply",
 	"user":           "user applies to service tiles only",
@@ -202,6 +204,7 @@ var (
 	buildKeys = []string{"git_url", "branch", "dockerfile", "build_context", "build_args", "watch_paths"}
 	watchKeys = []string{"image", "update_policy", "tag_policy"}
 	runKeys   = []string{
+		"entrypoint",
 		"command",
 		"port",
 		"published_ports",
@@ -226,6 +229,7 @@ var (
 	// health gate, one container; the source is a git build or an image.
 	oneShotKeys = []string{
 		"image",
+		"entrypoint",
 		"command",
 		"timeout_minutes",
 		"files",

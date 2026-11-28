@@ -416,3 +416,17 @@ func TestMetricsRunKinds(t *testing.T) {
 		}
 	}
 }
+
+// Entrypoint sits in the run row of every kind that shows Command.
+func TestEntrypointFieldRenders(t *testing.T) {
+	for _, kind := range []string{"image", "service", "cron", "function"} {
+		s := SettingsView{Kind: kind, Vals: map[string]string{"image": "alpine:3", "entrypoint": "sh -c", "command": "echo"}}
+		var b strings.Builder
+		for _, r := range settingsRows(View{}, s) {
+			_ = r.Body.Render(context.Background(), &b)
+		}
+		if !strings.Contains(b.String(), `data-find-key="entrypoint"`) {
+			t.Errorf("%s: no entrypoint field", kind)
+		}
+	}
+}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/graph"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
@@ -209,6 +210,12 @@ func refuseServerRefs(t Tile) error {
 	}
 	if err := params.RefuseServerRefs(params.InCommand, t.Command); err != nil {
 		return errs.Invalidf("command", "%s", err.Error())
+	}
+	if strings.Contains(t.Entrypoint, "${{") {
+		return errs.Invalidf("entrypoint", "Entrypoint takes no ${{ }} refs. Put them in Command or env.")
+	}
+	if _, err := deploy.SplitCommand(t.Entrypoint); err != nil {
+		return errs.Invalidf("entrypoint", "%s", err.Error())
 	}
 	return nil
 }

@@ -830,6 +830,13 @@ func (f *Flow) resolve(
 		}
 	}
 
+	// The entrypoint is literal: no param refs (refused at save).
+	if strings.TrimSpace(t.Entrypoint) != "" {
+		if r.entrypoint, err = splitCommand(t.Entrypoint); err != nil {
+			return r, err
+		}
+	}
+
 	var warn []string
 	if !r.hostNet {
 		r.ports, warn = publishedPorts(t.PublishedPorts)

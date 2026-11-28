@@ -7,6 +7,33 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
+func TestSpecEntrypoint(t *testing.T) {
+	ep, _ := splitCommand("sh -c")
+	cmd, _ := splitCommand("'echo hi'")
+	got := spec(store.Tile{}, resolved{entrypoint: ep, cmd: cmd})
+	if !slices.Equal(got.Entrypoint, []string{"sh", "-c"}) || !slices.Equal(got.Cmd, []string{"echo hi"}) {
+		t.Errorf("entrypoint %q cmd %q", got.Entrypoint, got.Cmd)
+	}
+	if got := spec(store.Tile{}, resolved{}); got.Entrypoint != nil {
+		t.Errorf("empty entrypoint = %q, want nil", got.Entrypoint)
+	}
+}
+
+// A grant is bound to this fingerprint: an unset entrypoint must keep the
+// value from before the field existed, or every host grant drops at upgrade.
+func TestTileSourceEntrypoint(t *testing.T) {
+	base := store.Tile{ImageRef: "nginx:1", Command: "run"}
+	// sha256("nginx:1\x00run")[:6], computed before the entrypoint existed.
+	if got, want := tileSource(base), "ecfd58186ed5"; got != want {
+		t.Errorf("fingerprint with no entrypoint = %s, want %s", got, want)
+	}
+	with := base
+	with.Entrypoint = "sh -c"
+	if tileSource(with) == tileSource(base) {
+		t.Error("a set entrypoint does not change the fingerprint")
+	}
+}
+
 func TestSplitCommandAndPorts(t *testing.T) {
 	for in, want := range map[string][]string{
 		`--config.file=/etc/p.yml --web.listen-address=":9090"`: {"--config.file=/etc/p.yml", "--web.listen-address=:9090"},

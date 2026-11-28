@@ -23,6 +23,7 @@ type resolved struct {
 	env, binds  []string
 	mounts      []docker.Mount // the files: volume, by subpath
 	cmd         []string
+	entrypoint  []string
 	ports       map[string]string
 	devices     []docker.Device
 	privileged  bool // t.Privileged and the stack's grant says so
@@ -42,6 +43,7 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		Name:               r.name,
 		Image:              r.image,
 		Cmd:                r.cmd,
+		Entrypoint:         r.entrypoint,
 		Env:                r.env,
 		Volumes:            r.binds,
 		Mounts:             r.mounts,

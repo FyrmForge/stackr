@@ -802,6 +802,7 @@ templ scheduleRow(v View, s SettingsView) {
 
 templ runRow(v View, s SettingsView) {
 	@rowForm(v, s, "run", runKeys) {
+		@text(s, "entrypoint", "Entrypoint", "", "Overrides the image's entrypoint.", true)
 		@text(s, "command", "Command", "", "Overrides the image's command.", true)
 		if s.Any("user", "restart_policy") {
 			<div class="grid grid-cols-2 gap-4">
