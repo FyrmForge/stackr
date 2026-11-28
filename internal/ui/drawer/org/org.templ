@@ -670,7 +670,7 @@ templ Shares(v SharesView) {
 			<p class="text-sm text-rw-faint mb-5">No shares yet.</p>
 		}
 		if v.Add != "" {
-			<form novalidate hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+			<form novalidate hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4 has-[option[value=nfs]:checked]:[&_[data-smb]]:hidden">
 				@c.Field(c.FieldView{Name: "slug", Label: "Name", Placeholder: "media", Required: true})
 				<div>
 					<label for="share-kind" class="label">Kind</label>
@@ -681,8 +681,10 @@ templ Shares(v SharesView) {
 				</div>
 				@c.Field(c.FieldView{Name: "source", Label: "Source", Placeholder: "nas.lan:/export", Help: "nfs: host:/path. smb: //host/share.", Required: true})
 				@c.Field(c.FieldView{Name: "options", Label: "Options", Placeholder: "nfsvers=4", Help: "Use nfsvers=4 if the server only speaks NFS v4."})
-				@c.Field(c.FieldView{Name: "user", Label: "SMB user", Placeholder: "bob"})
-				@c.Field(c.FieldView{Name: "password", Label: "SMB password ref", Placeholder: "${{ org.params.nas.password }}", Help: "A param ref, never the password."})
+				<div data-smb class="space-y-4">
+					@c.Field(c.FieldView{Name: "user", Label: "SMB user", Placeholder: "bob"})
+					@c.Field(c.FieldView{Name: "password", Label: "SMB password ref", Placeholder: "${{ org.params.nas.password }}", Help: "A param ref, never the password."})
+				</div>
 				<button type="submit" class="btn btn-primary btn-sm">Add share</button>
 			</form>
 		} else {

@@ -152,6 +152,11 @@ templ Canvas(v View) {
 				if v.EmptyNote != "" {
 					<p class="text-rw-muted">{ v.EmptyNote }</p>
 				}
+				if len(v.Create) > 0 {
+					<div class="pointer-events-auto mt-2">
+						@Actions(v.Create)
+					</div>
+				}
 			</div>
 		}
 		if v.Releases != nil {

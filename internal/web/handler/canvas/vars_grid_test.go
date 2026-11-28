@@ -131,7 +131,7 @@ func TestStackGrid(t *testing.T) {
 	}
 	rec := s.Do(t, "POST", "/acme/shop/-/vars", url.Values{
 		"add_group": {"app"}, "add_name": {"key"}, "add_kind": {"secret"},
-		"add_secret.env:" + s.Tile.Env: {"s3cret"}, "add_secret.stack_pr": {"sandbox"},
+		"add_value.env:" + s.Tile.Env: {"s3cret"}, "add_value.stack_pr": {"sandbox"},
 	})
 	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "s3cret") {
 		t.Fatalf("add = %d %s", rec.Code, rec.Body)
@@ -146,7 +146,7 @@ func TestStackGrid(t *testing.T) {
 		t.Error("secret reached the page, or the group is missing")
 	}
 	// a name plain in one column and secret in another keeps each cell's kind
-	s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_group": {"app"}, "add_name": {"mix"}, "add_kind": {"secret"}, "add_secret.env:" + s.Tile.Env: {"s3cret"}})
+	s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_group": {"app"}, "add_name": {"mix"}, "add_kind": {"secret"}, "add_value.env:" + s.Tile.Env: {"s3cret"}})
 	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_group": {"app"}, "add_name": {"mix"}, "add_kind": {"param"}, "add_value.stack_pr": {"plainval"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("mixed add = %d %s", rec.Code, rec.Body)

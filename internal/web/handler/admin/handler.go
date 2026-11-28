@@ -33,11 +33,11 @@ func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orc
 func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	b := ui.Base
 	g.GET(b+"/find", h.Find, a.Require("admin.read"))
-	g.GET(b+"/:section", h.Section, a.Require("admin.read"))
+	g.GET(b+"/:section", h.Section, a.LoginFirst(), a.Require("admin.read"))
 	// the page's own root is its first section
 	overview := func(c echo.Context) error { return c.Redirect(http.StatusSeeOther, ui.Href("overview")) }
-	g.GET(b, overview, a.Require("admin.read"))
-	g.GET(b+"/", overview, a.Require("admin.read"))
+	g.GET(b, overview, a.LoginFirst(), a.Require("admin.read"))
+	g.GET(b+"/", overview, a.LoginFirst(), a.Require("admin.read"))
 	g.GET(
 		"/-/jobs/:job/events",
 		func(c echo.Context) error { return render.JobStream(c, h.orch, "") },
@@ -45,8 +45,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	)
 	g.GET(b+"/job-live", render.JobLive(h.orch), a.Require("admin.read"))
 	jobLog := func(c echo.Context) error { return render.JobLogPage(c, h.orch, "") }
-	g.GET("/-/jobs/:job", jobLog, a.Require("admin.read"))
-	g.GET("/-/jobs/:job/log", jobLog, a.Require("admin.read"))
+	g.GET("/-/jobs/:job", jobLog, a.LoginFirst(), a.Require("admin.read"))
+	g.GET("/-/jobs/:job/log", jobLog, a.LoginFirst(), a.Require("admin.read"))
 	g.POST(b+"/settings/:form", h.SaveSettings, a.Require("serverdefaults.set"))
 	h.mountParams(g, a)
 	h.mountAccess(g, a)
