@@ -3,7 +3,6 @@ package volume
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/a-h/templ"
 
@@ -84,10 +83,16 @@ func TestGhostBannersAndOldCopy(t *testing.T) {
 	out = draw(t, Overview(o))
 	want(t, "13d", out, "This volume points at the wrong folder.", ">Remove link</button>", "Mismatch", "Remove the wrong link", "Points at", "/srv/stackr/dk_2b19/c", "Should be", "/srv/stackr/dk_7f3a/c")
 	o.Ghost = nil
-	o.Orphaned, o.OldCopy = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), true
+	o.OldCopy = true
 	out = draw(t, Overview(o))
-	want(t, "old copy", out, "Old copy, kept until the move finishes.")
-	if strings.Contains(out, "Orphaned since") {
+	want(t, "old copy", out, "Old copy from a move, kept until the move finishes.")
+	if strings.Contains(out, "Removed on") {
 		t.Error("a held old copy shows a date")
+	}
+	o.OldGoes = "01-08"
+	out = draw(t, Overview(o))
+	want(t, "released old copy", out, "Old copy from a move. Its data is deleted on 01-08.")
+	if strings.Contains(out, "Removed on") || strings.Contains(out, "Restore") {
+		t.Error("a released old copy reads as a removal")
 	}
 }

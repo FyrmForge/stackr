@@ -26,6 +26,7 @@ type Tile struct {
 	BuildArgs              string          `db:"build_args" json:"build_args"`
 	Volumes                string          `db:"volumes" json:"volumes"`
 	Command                string          `db:"command" json:"command"`
+	Entrypoint             string          `db:"entrypoint" json:"entrypoint"`
 	ContainerPort          int             `db:"container_port" json:"container_port"`
 	PublishedPorts         string          `db:"published_ports" json:"published_ports"`
 	EndpointProtocol       string          `db:"endpoint_protocol" json:"endpoint_protocol"`

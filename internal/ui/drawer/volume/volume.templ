@@ -71,9 +71,12 @@ func Drawer(v View, body templ.Component) templ.Component {
 }
 
 type OverviewView struct {
-	Docker            string
-	Created, Orphaned time.Time // Orphaned: since when; zero = in use
-	OldCopy           bool      // the orphan is a move's old copy: no date, it goes when the move ends
+	Docker  string
+	Created time.Time
+	OldCopy bool // the orphan is a move's old copy, never a removal
+	OldGoes string // DD-MM its data is deleted, once released; "" = still held until the move ends
+	Removal *Removal // a volume a stack file dropped; nil = in use
+	Backup  *BackupFact // nil = not shown (a removed volume)
 	Mounts            []Mount
 	Storage           *Storage // nil = where it lives is not known
 	Cap               *CapFact // nil = no cap fact (a read that failed)
@@ -82,6 +85,17 @@ type OverviewView struct {
 	Job   *c.JobStatusView // the newest volume-to-disk job of the volume
 	Move  *MoveView
 	Ghost *GhostView
+}
+
+// Removal is a volume a stack file dropped. On and Goes are DD-MM. Restore is
+// the POST that takes it back; Hint is the managed-stack line ("" = none).
+type Removal struct{ On, Goes, Restore, Hint string }
+
+// BackupFact is the Backup stat. None = no schedule: Words is "No backup" and
+// Setup the GET that opens the schedule UI. Otherwise Words is the schedule.
+type BackupFact struct {
+	None         bool
+	Words, Setup, Node string
 }
 
 // Storage is where the volume lives. Disk and Docker both = two copies.
@@ -178,6 +192,14 @@ templ Overview(o OverviewView) {
 			@stat("Created") {
 				<p class="text-sm text-rw-text">@c.When(o.Created)</p>
 			}
+			if b := o.Backup; b != nil {
+				@stat("Backup") {
+					<p class={ "text-sm", templ.KV("text-rw-muted", b.None), templ.KV("text-rw-text", !b.None) }>{ b.Words }</p>
+					if b.None && b.Setup != "" {
+						<button type="button" class="btn btn-ghost btn-sm mt-2" hx-get={ b.Setup } hx-push-url={ templ.SafeURL("?drawer=" + b.Node + "&tab=backups") } hx-target={ "#" + Root } hx-swap="outerHTML" hx-disabled-elt="this">Set up backup</button>
+					}
+				}
+			}
 			if o.Cap != nil {
 				@capFact(o.Cap)
 			}
@@ -188,15 +210,20 @@ templ Overview(o OverviewView) {
 		</div>
 		<div class="space-y-1">
 			<p class="text-xs text-rw-muted">Data persists across redeploys and tile deletion.</p>
-			if o.OldCopy {
-				<p class="text-xs text-rw-warn">Old copy, kept until the move finishes.</p>
-			} else if !o.Orphaned.IsZero() {
-				<p class="text-xs text-rw-warn">
-					{ "Orphaned since " }
-					@c.When(o.Orphaned) {
-						{ ": no tile mounts it." }
-					}
-				</p>
+			if o.OldCopy && o.OldGoes != "" {
+				<p class="text-xs text-rw-warn">{ "Old copy from a move. Its data is deleted on " + o.OldGoes + "." }</p>
+			} else if o.OldCopy {
+				<p class="text-xs text-rw-warn">Old copy from a move, kept until the move finishes.</p>
+			} else if r := o.Removal; r != nil {
+				<p class="text-xs text-rw-warn">{ "Removed on " + r.On + ". Its data is deleted on " + r.Goes + "." }</p>
+				if r.Hint != "" {
+					<p class="text-xs text-rw-muted" data-hint>{ r.Hint }</p>
+				}
+				if r.Restore != "" {
+					<div class="pt-2">
+						@restoreBtn(r.Restore)
+					</div>
+				}
 			}
 		</div>
 	</div>
@@ -502,9 +529,19 @@ func restore(b BackupsView, r Run) c.ConfirmView {
 	}
 }
 
-// Settings is the size cap (cap nil = none to show) and the delete. blocked
-// says why it cannot go ("" = it can): v0's "Detach before deleting".
-templ Settings(v View, blocked string, cap *CapCard) {
+// Data is what the Settings tab offers on the volume's data. Wipe and Delete
+// need Dest, the words naming where Back up first writes ("" = no switch).
+// Restore is a removed volume's POST: it replaces both.
+type Data struct {
+	Wipe, Delete bool
+	Dest         string
+	Restore      string
+	Hint         string // "" = none
+}
+
+// Settings is the size cap (cap nil = none to show), the wipe and the delete.
+// blocked says why it cannot go ("" = it can): v0's "Detach before deleting".
+templ Settings(v View, blocked string, cap *CapCard, d Data) {
 	<div id="tab-settings" class="flex flex-col gap-4">
 		if cap != nil && cap.Mode == "read" && v.Base != "" {
 			// "Cap not applied yet." comes and goes by itself; an edit or a staged change is not polled
@@ -513,29 +550,31 @@ templ Settings(v View, blocked string, cap *CapCard) {
 		if cap != nil {
 			@capCard(*cap)
 		}
+		if d.Restore != "" {
+			<div class="space-y-2">
+				if d.Hint != "" {
+					<p class="text-sm text-rw-muted" data-hint>{ d.Hint }</p>
+				}
+				@restoreBtn(d.Restore)
+			</div>
+		}
+		if d.Wipe {
+			@c.DangerZone("Wiping empties the volume. The volume, its mounts and its size cap stay.", v.Name, "Backup schedules and backups already taken are kept.") {
+				@c.Confirm(WipeConfirm(v, d))
+			}
+		}
 		if blocked != "" {
 			<p class="text-sm text-rw-muted">{ blocked }</p>
-		} else {
-			@c.DangerZone("Deleting this volume keeps its data for the retention window, then backs it up once and removes it.", v.Name, "Backups already in a destination are kept.") {
-				@c.Confirm(c.ConfirmView{
-					Button:  "Delete volume",
-					Title:   "Delete " + v.Name + "?",
-					Warning: "Its data is kept for the retention window, then backed up once and removed.",
-					Kept:    []string{"backups already in a destination"},
-					Word:    v.Name,
-					Action:  v.Base + "/delete",
-					Target:  "#" + Root,
-				})
+		} else if d.Delete {
+			@c.DangerZone("Deleting this volume removes it and its data at once.", v.Name, "Backups already in a destination are kept.") {
+				@c.Confirm(DeleteConfirm(v.Name, v.Base+"/delete", "#"+Root, d.Dest))
 			}
 		}
 	</div>
 }
 
-// Deleted replaces the drawer once the volume is gone.
-templ Deleted() {
-	@c.Drawer(c.DrawerView{Title: "Volume deleted", Icon: "volume"}, deleted())
+// restoreBtn takes a removed volume back.
+templ restoreBtn(url string) {
+	<button type="button" class="btn btn-primary btn-sm" hx-post={ url } hx-target={ "#" + Root } hx-swap="outerHTML" hx-disabled-elt="this">Restore</button>
 }
 
-templ deleted() {
-	<p class="banner" role="status">The volume and its data are gone. Backups in a destination are kept.</p>
-}

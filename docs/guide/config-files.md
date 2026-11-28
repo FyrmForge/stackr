@@ -105,7 +105,17 @@ A plan never deletes anything on its own. A removal row applies only when you ti
 
 ## stackr-compose.yml
 
-Written by hand or with `stkr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stkr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `health`, `limits`, `depends_on`, and so on). A tile's `build` takes `context` (a repo folder) and `dockerfile`. With no `dockerfile:`, stackr uses `Dockerfile` in the context folder, then `Dockerfile` at the repo root; if neither exists the build error names both paths. An explicit `dockerfile:` is always relative to the repo root. `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel. `volumes.<name>.max_size_mb` is the volume's size cap in MB: absent leaves the cap as it is, `0` removes it. See [Size caps](nodes.md#size-caps).
+Written by hand or with `stkr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stkr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `health`, `limits`, `depends_on`, and so on). A tile's `build` takes `context` (a repo folder) and `dockerfile`. With no `dockerfile:`, stackr uses `Dockerfile` in the context folder, then `Dockerfile` at the repo root; if neither exists the build error names both paths. An explicit `dockerfile:` is always relative to the repo root. `volumes.<name>.backup` sets the volume's backup schedule. Absent leaves the volume's schedules as they are. `none` removes them. A map with `schedule` (a cron expression) and `keep` (how many backups to keep, 0 or absent keeps everything) makes it exactly that one schedule. With the key set, the file owns the volume's schedules, except a point-in-time base schedule, which stays. Backups go to the org's off-box destination when it has one, else to the node. An export writes `backup:` only for a volume with exactly one schedule; with several it leaves the key out and warns. A tile's `entrypoint` overrides the image's entrypoint: a string (split like `command`) or a list (used as is, the compose list form, for example `entrypoint: [/bin/app, --serve]`). It takes no `${{ }}` refs. `volumes.<name>.max_size_mb` is the volume's size cap in MB: absent leaves the cap as it is, `0` removes it. See [Size caps](nodes.md#size-caps).
+
+```yaml
+volumes:
+  data:
+    backup:
+      schedule: "0 3 * * *"
+      keep: 7
+  scratch:
+    backup: none
+```
 
 ### Health checks
 
@@ -219,7 +229,7 @@ base:
 
 ### Slice tile
 
-A database or bucket cut from an operated tile. It runs nothing, so it takes no `image`, `build`, `port`, `env`, `domains`, `volumes`, `command`, `schedule` or `trigger`.
+A database or bucket cut from an operated tile. It runs nothing, so it takes no `image`, `build`, `port`, `env`, `domains`, `volumes`, `entrypoint`, `command`, `schedule` or `trigger`.
 
 | Key | Holds |
 |---|---|

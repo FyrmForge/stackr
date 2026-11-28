@@ -558,13 +558,24 @@ func EnvURL(c echo.Context) string {
 // jobKindLabel is a job kind as the status line says it: disk.add,
 // disk.check, disk.forget, disk.adopt, disk.add_device, disk.grow, volume.to_disk.
 func jobKindLabel(k string) string {
-	if k == "volume-to-disk" {
+	switch k {
+	case "volume-to-disk":
 		return "volume.to_disk"
+	case "volume-wipe", "volume-delete":
+		return strings.Replace(k, "-", ".", 1)
 	}
 	if rest, ok := strings.CutPrefix(k, "disk-"); ok {
 		return "disk." + strings.ReplaceAll(rest, "-", "_")
 	}
 	return k
+}
+
+// DestName is a backup destination as a sentence names it.
+func DestName(d service.BackupDest) string {
+	if d.Kind == "local" {
+		return "the local disk"
+	}
+	return d.Name
 }
 
 // JobView is a job's status line; page is the path its job stream hangs
@@ -614,6 +625,18 @@ func JobViewNote(ctx context.Context, orch *service.Orchestrator, page string, j
 		if ts := orch.MoveJobTiles(ctx, j); len(ts) > 0 {
 			v.Note = TilesStopped(ts) + " while it copies."
 		}
+	}
+	return v
+}
+
+// DataJobView is a volume's wipe or delete job as a static status line (the
+// tab polls). A failed delete says nothing was deleted: the volume is still
+// there, and its backup-first step is what fails.
+func DataJobView(ctx context.Context, orch *service.Orchestrator, page string, j service.Job) components.JobStatusView {
+	v := JobViewNote(ctx, orch, page, j)
+	v.Live = false
+	if service.DeleteBackupFailed(j) {
+		v.Note = "Nothing was deleted."
 	}
 	return v
 }

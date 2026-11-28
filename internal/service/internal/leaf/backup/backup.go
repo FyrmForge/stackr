@@ -406,6 +406,14 @@ type Schedule struct {
 // ponytail: shape only; the scheduler's parser is the real check.
 var cronRe = regexp.MustCompile(`^(@(yearly|annually|monthly|weekly|daily|midnight|hourly)|([0-9*/,-]+\s+){4}[0-9A-Za-z*/,-]+)$`)
 
+// NormCron is a cron line with its whitespace collapsed, and whether it has
+// the shape AddSchedule accepts. The stack file checks with it too, so plan
+// and apply agree.
+func NormCron(s string) (string, bool) {
+	c := strings.Join(strings.Fields(s), " ")
+	return c, cronRe.MatchString(c)
+}
+
 // AddSchedule hangs a schedule off a volume. methods is what the volume's
 // engine offers (a fact from the flow); orgID is the volume's org, which the
 // destination has to be visible to.
@@ -476,8 +484,8 @@ func (l *Leaf) fillSchedule(
 	if mode != Pause && mode != Stop && mode != Live {
 		return errs.Invalidf("mode", "mode is pause, stop or live")
 	}
-	cron := strings.Join(strings.Fields(s.Cron), " ")
-	if !cronRe.MatchString(cron) {
+	cron, ok := NormCron(s.Cron)
+	if !ok {
 		return errs.Invalidf("schedule", "%q is not a cron line", s.Cron)
 	}
 	tz := strings.TrimSpace(s.Timezone)

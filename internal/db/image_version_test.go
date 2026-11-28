@@ -36,3 +36,15 @@ func TestImageVersionMigrationKeepsOldRows(t *testing.T) {
 		t.Errorf("old rows after 021 = %q, %q", tile, img)
 	}
 }
+
+// 024 adds tiles.entrypoint, empty on every existing row.
+func TestTileEntrypointMigration(t *testing.T) {
+	db := sliceWorld(t)
+	var n int
+	if err := db.Get(&n, `SELECT COUNT(*) FROM tiles WHERE entrypoint != ''`); err != nil || n != 0 {
+		t.Errorf("non-empty entrypoints = %d, %v", n, err)
+	}
+	if _, err := db.Exec(`UPDATE tiles SET entrypoint = 'sh -c'`); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -1,8 +1,11 @@
 package volume_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -111,4 +115,58 @@ func isInvalid(err error) bool {
 func isConflict(err error) bool {
 	_, ok := errs.IsConflict(err)
 	return ok
+}
+
+// Wipe sends an empty tar through the restore container and keeps the row;
+// Restore un-orphans.
+func TestWipeAndRestore(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	l := volume.New(st.Volumes, fake)
+	v, _, _ := l.Declare(ctx, env, "data", nil)
+	if err := l.Wipe(ctx, v); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(fake.Untarred))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(zr)
+	if len(b) != 1024 || len(bytes.Trim(b, "\x00")) != 0 {
+		t.Errorf("wipe archive = %d bytes, want 1024 zero bytes", len(b))
+	}
+	if _, err := l.Get(ctx, v.ID); err != nil {
+		t.Errorf("row after wipe = %v", err)
+	}
+
+	o, _ := l.Orphan(ctx, v)
+	back, err := l.Restore(ctx, o)
+	if err != nil || back.OrphanedAt != nil {
+		t.Fatalf("restore = %+v, %v", back, err)
+	}
+	if got, _ := l.Get(ctx, v.ID); got.OrphanedAt != nil {
+		t.Error("restore did not reach the row")
+	}
+	if err := volume.CheckDetached([]string{"api"}); err == nil {
+		t.Error("a mounted volume passed CheckDetached")
+	}
+}
+
+func TestOldCopy(t *testing.T) {
+	past, hold := time.Now().Add(-time.Hour), time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+	id := "abcd1234-0000-0000-0000-000000000000"
+	for name, c := range map[string]struct {
+		v    store.Volume
+		want bool
+	}{
+		"not orphaned":  {store.Volume{ID: id, Slug: "data-abcd1234"}, false},
+		"held":          {store.Volume{ID: id, Slug: "data", OrphanedAt: &hold}, true},
+		"released":      {store.Volume{ID: id, Slug: "data-abcd1234", OrphanedAt: &past}, true},
+		"stack removal": {store.Volume{ID: id, Slug: "data", OrphanedAt: &past}, false},
+		"short id":      {store.Volume{ID: "x", Slug: "data-x", OrphanedAt: &past}, false},
+	} {
+		if got := volume.OldCopy(c.v); got != c.want {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
 }

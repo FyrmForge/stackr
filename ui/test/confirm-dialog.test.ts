@@ -20,3 +20,20 @@ test("connecting enables the opener", () => {
   (el.connectedCallback as () => void).call(el);
   assert.equal(opener.disabled, false);
 });
+
+test("include posts every match, ticks only when checked", () => {
+  const box = (name: string, checked: boolean) => ({  name, value: "on", type: "checkbox", checked, disabled: false, hasAttribute: () => true });
+  const wrapper = {};
+  const el = Object.assign(new Ctor(), {
+    parentElement: wrapper,
+    getAttribute: (a: string) => (a === "include" ? "input[type=checkbox]" : null),
+    querySelectorAll: () => [box("stop", true), box("backup", true), box("other", false)],
+  });
+  const sent: string[][] = [];
+  const params = { append: (k: string, v: string) => sent.push([k, v]) };
+  const fire = (target: unknown) => (el.onConfig as (e: unknown) => void)({ target, detail: { parameters: params } });
+  fire({}); // not the wrapper's own request
+  assert.deepEqual(sent, []);
+  fire(wrapper);
+  assert.deepEqual(sent, [["stop", "on"], ["backup", "on"]]);
+});

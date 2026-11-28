@@ -53,7 +53,7 @@ templ gallery() {
 				@c.TileCard(c.TileCardView{Name: "api", Href: "/dev/components", Kind: "image", State: "running", Source: "nginx:1",
 					Volumes: []c.VolumeCardView{{Name: "uploads", Href: "/dev/components", Size: "1.2 GB"}}})
 				@c.TileCard(c.TileCardView{Name: "db", Href: "/dev/components", Kind: "operated", State: "stopped", Source: "postgres 16"})
-				@c.VolumeCard(c.VolumeCardView{Name: "old-cache", Href: "/dev/components", Size: "80 MB", Orphaned: true})
+				@c.VolumeCard(c.VolumeCardView{Name: "old-cache", Href: "/dev/components", Size: "80 MB", RemovedOn: "02-01"})
 			</div>
 		}
 		@section("Graph canvas") {

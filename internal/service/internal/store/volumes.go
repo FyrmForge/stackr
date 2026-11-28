@@ -21,6 +21,9 @@ type Volume struct {
 	NodeID string `db:"node_id" json:"node_id"`
 	// MaxSizeMB is the volume's size cap in MB; nil = uncapped.
 	MaxSizeMB *int64 `db:"max_size_mb" json:"max_size_mb"`
+	// FromInstance is set when an operated instance owned the volume (stamped
+	// at orphaning, while InstanceID is still set; the FK clears it later).
+	FromInstance bool `db:"from_instance" json:"from_instance"`
 }
 
 type VolumeStore interface {
@@ -34,6 +37,9 @@ type VolumeStore interface {
 	ListByNode(ctx context.Context, nodeID string) ([]Volume, error)
 	Update(ctx context.Context, v Volume) error
 	Delete(ctx context.Context, id string) error
+	// DeleteIfOrphaned deletes the row only while it is still orphaned since at;
+	// false when a restore (or a re-orphan) got there first.
+	DeleteIfOrphaned(ctx context.Context, id string, at time.Time) (bool, error)
 	// RepointNode moves every volume pinned to node from onto node to (an
 	// adopt hands a dead node's orphans to the adopting node). Idempotent.
 	RepointNode(ctx context.Context, from, to string) error
@@ -62,4 +68,14 @@ func (s volumes) ListByNode(ctx context.Context, nodeID string) ([]Volume, error
 func (s volumes) RepointNode(ctx context.Context, from, to string) error {
 	_, err := s.q.ExecContext(ctx, `UPDATE volumes SET node_id = ? WHERE node_id = ? AND node_id != ''`, to, from)
 	return mapErr(err)
+}
+
+func (s volumes) DeleteIfOrphaned(ctx context.Context, id string, at time.Time) (bool, error) {
+	// Compared in UTC seconds (all writers stamp UTC): a trigger stamps CURRENT_TIMESTAMP, a Go write keeps more.
+	res, err := s.q.ExecContext(ctx, `DELETE FROM volumes WHERE id = ? AND replace(substr(orphaned_at, 1, 19), 'T', ' ') = ?`, id, at.UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return false, mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }

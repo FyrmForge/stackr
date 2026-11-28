@@ -56,6 +56,12 @@ func IsBaseKey(key string) bool { return backup.IsPITRKey(key) }
 // holds WAL in transit, not data: no backup of its own, no panel.
 func IsArchiveVolume(v Volume) bool { return mflow.IsArchiveVolume(v) }
 
+// wasInstanceVolume: v belonged to an operated instance, which may be gone.
+func wasInstanceVolume(v Volume) bool { return v.InstanceID != nil || v.FromInstance }
+
+// WasInstanceVolume is the exported form, for the drawer.
+func WasInstanceVolume(v Volume) bool { return wasInstanceVolume(v) }
+
 // pitrState is one instance's shipper state, the settings row pitr.<id>.
 type pitrState struct {
 	Since time.Time `json:"since"` // first tick that saw the instance
@@ -240,14 +246,13 @@ func (o *Orchestrator) dataVolume(ctx context.Context, it store.Tile) (store.Vol
 	return o.volumes.BySlug(ctx, volume.Scope{Kind: "env", ID: it.EnvironmentID}, it.Slug+"-data")
 }
 
-// volumeCreated is what a new volume gets: the default daily backup, and for
-// an instance's data volume with PITR on, the weekly base backup. The archive
-// volume gets neither.
+// volumeCreated is what a new volume gets: for an instance's data volume
+// with PITR on, the weekly base backup. Nothing else gets a schedule; the
+// archive volume gets none.
 func (o *Orchestrator) volumeCreated(ctx context.Context, v store.Volume) {
 	if mflow.IsArchiveVolume(v) || o.restoredVolume(ctx, v) {
 		return
 	}
-	o.defaultBackup(ctx, v)
 	o.baseSchedule(ctx, v)
 }
 

@@ -29,11 +29,11 @@ func TestStackFileRefusesServerRefInBuildArgs(t *testing.T) {
 	}
 }
 
-// volumes.<x>.backup is refused with a reason: nothing applies it.
+// volumes.<x>.backup takes none or schedule and keep; a destination is refused.
 func TestStackFileRefusesVolumeBackup(t *testing.T) {
 	file := strings.Replace(sliceShopFile, "\nbase:", "\nvolumes:\n  data:\n    backup: {dest: '${{ org.backups.main }}', schedule: '0 3 * * *'}\nbase:", 1)
 	_, err := Load([]byte(file), nil, "testorg")
-	if err == nil || !strings.Contains(err.Error(), "not applied from the file") {
+	if err == nil || !strings.Contains(err.Error(), "backup is none, or a map with schedule and keep") {
 		t.Fatalf("load = %v", err)
 	}
 }

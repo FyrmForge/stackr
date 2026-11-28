@@ -20,6 +20,9 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
+// startCleanup bounds Run's removal of a container that failed to start.
+const startCleanup = 30 * time.Second
+
 // Run creates and starts a container from a resolved spec and returns its id.
 func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 	id, err := d.Create(ctx, spec)
@@ -29,8 +32,11 @@ func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 	// A container that cannot start is not left lying around under a name the
 	// retry will collide with.
 	if err := d.cli.ContainerStart(ctx, id, container.StartOptions{}); err != nil {
-		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), id, container.RemoveOptions{Force: true, RemoveVolumes: true})
-		return "", err
+		// Bounded: a hung mount must not hold the caller past its budget.
+		c, stop := context.WithTimeout(context.WithoutCancel(ctx), startCleanup)
+		defer stop()
+		_ = d.cli.ContainerRemove(c, id, container.RemoveOptions{Force: true, RemoveVolumes: true})
+		return "", mountDenied(err, specVolumes(spec))
 	}
 	return id, nil
 }
@@ -52,6 +58,9 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 		Env:    spec.Env,
 		User:   spec.User,
 		Labels: labels,
+	}
+	if len(spec.Entrypoint) > 0 {
+		cfg.Entrypoint = spec.Entrypoint
 	}
 	if spec.HealthCmd != "" {
 		cfg.Healthcheck = &container.HealthConfig{
@@ -111,7 +120,7 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 
 	resp, err := d.cli.ContainerCreate(ctx, cfg, hostCfg, netCfg, nil, spec.Name)
 	if err != nil {
-		return "", wrap(err)
+		return "", maskErr(wrap(err))
 	}
 	return resp.ID, nil
 }
@@ -213,12 +222,22 @@ func (d *Client) Stop(ctx context.Context, id string) error {
 }
 
 func (d *Client) Start(ctx context.Context, id string) error {
-	return wrap(d.cli.ContainerStart(ctx, id, container.StartOptions{}))
+	err := wrap(d.cli.ContainerStart(ctx, id, container.StartOptions{}))
+	// Start has no spec: any stackr-share volume the text names is the one.
+	if err != nil {
+		if i := strings.Index(err.Error(), "stackr-share-"); i >= 0 {
+			name, _, _ := strings.Cut(strings.FieldsFunc(err.Error()[i:], func(r rune) bool {
+				return r == ' ' || r == '/' || r == ':' || r == '"' || r == '\'' || r == ',' || r == '(' || r == ')'
+			})[0], ":")
+			return mountDenied(err, []string{name})
+		}
+	}
+	return maskErr(err)
 }
 
 // Restart keeps networks and addresses, unlike a recreate.
 func (d *Client) Restart(ctx context.Context, id string) error {
-	return wrap(d.cli.ContainerRestart(ctx, id, container.StopOptions{}))
+	return maskErr(wrap(d.cli.ContainerRestart(ctx, id, container.StopOptions{})))
 }
 
 // UpdateRestart changes a container's restart policy in place (docker update

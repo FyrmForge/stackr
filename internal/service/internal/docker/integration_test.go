@@ -4,6 +4,8 @@
 package docker
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -464,5 +466,44 @@ func TestEnsureBuilderReplacesUnisolated(t *testing.T) {
 	out, err := exec.CommandContext(ctx, "docker", "buildx", "inspect", name).Output()
 	if err != nil || !strings.Contains(string(out), `network="`+BuilderNetwork+`"`) {
 		t.Fatalf("builder not replaced: %v\n%s", err, out)
+	}
+}
+
+// The wipe is UntarVolume of an empty archive (two zero blocks, gzipped): the
+// tool's busybox tar must accept it, the volume must end up empty, and the
+// volume object plus the owner and mode of its root must survive.
+func TestWipeVolumeEmptyArchive(t *testing.T) {
+	d, ctx := newClient(t)
+	vol := uniq("stkr-it-wipe")
+	if err := d.CreateVolume(ctx, vol, "", nil, map[string]string{"stkr.test": vol}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.RemoveVolume(context.Background(), vol) })
+	sh := func(ro bool, script string) string {
+		t.Helper()
+		out, wait, err := d.volumeTool(ctx, vol, ro, []string{"sh", "-c", script}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(out)
+		if err := wait(); err != nil {
+			t.Fatalf("%s: %v %s", script, err, b)
+		}
+		return string(b)
+	}
+	sh(false, "mkdir -p /data/sub/deep && echo a > /data/a && echo b > /data/.hidden && echo c > /data/sub/deep/c && chown 1000:1000 /data && chmod 750 /data")
+
+	var b bytes.Buffer
+	zw := gzip.NewWriter(&b)
+	_, _ = zw.Write(make([]byte, 1024))
+	_ = zw.Close()
+	if err := d.UntarVolume(ctx, vol, &b); err != nil {
+		t.Fatal(err)
+	}
+	if got := sh(true, "ls -A /data | wc -l; stat -c '%u:%g %a' /data"); got != "0\n1000:1000 750\n" {
+		t.Fatalf("after wipe: %q", got)
+	}
+	if _, err := d.InspectVolume(ctx, vol); err != nil {
+		t.Fatalf("volume object gone: %v", err)
 	}
 }

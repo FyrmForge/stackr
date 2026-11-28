@@ -639,8 +639,16 @@ func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.
 				continue
 			}
 		}
-		if err := f.Volumes.Delete(ctx, v, nil); err != nil {
+		// The backup can take long: a Restore meanwhile makes the volume
+		// live again, so the row delete is conditional on it still being
+		// the orphan this loop saw.
+		ok, err := f.Volumes.DeleteOrphan(ctx, v)
+		if err != nil {
 			failed = append(failed, fmt.Errorf("%s: %w", v.Slug, err))
+			continue
+		}
+		if !ok {
+			logf(log, "kept %s: no longer an orphan\n", v.Slug)
 			continue
 		}
 		logf(log, "deleted orphan %s\n", v.Slug)

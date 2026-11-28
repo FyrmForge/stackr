@@ -19,8 +19,9 @@ import (
 var (
 	buildForm   = []string{"git_url", "branch", "dockerfile", "build_context", "build_args", "watch_paths"}
 	watchForm   = []string{"image", "update_policy", "tag_policy"}
-	oneShotForm = []string{"image", "command", "timeout_minutes", "files", "volumes", "depends_on", "cpu_limit", "mem_limit_mb", "shm_size_mb"}
+	oneShotForm = []string{"image", "entrypoint", "command", "timeout_minutes", "files", "volumes", "depends_on", "cpu_limit", "mem_limit_mb", "shm_size_mb"}
 	runForm     = []string{
+		"entrypoint",
 		"command",
 		"port",
 		"published_ports",
@@ -79,6 +80,8 @@ func field(t *service.Tile, key string) any {
 		return &t.UpdatePolicy
 	case "tag_policy":
 		return &t.TagPolicy
+	case "entrypoint":
+		return &t.Entrypoint
 	case "command":
 		return &t.Command
 	case "port":

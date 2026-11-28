@@ -94,6 +94,8 @@ type JobStore interface {
 	Delete(ctx context.Context, id string) error
 	// ListFinishedBefore is the jobs that finished before t, oldest first, at most limit.
 	ListFinishedBefore(ctx context.Context, t time.Time, limit int) ([]Job, error)
+	// ListFinishedAfter is the jobs that finished after t, newest first.
+	ListFinishedAfter(ctx context.Context, t time.Time) ([]Job, error)
 }
 
 var jobsT = newTable[Job]("jobs", nil)
@@ -122,6 +124,10 @@ func (s jobs) ListRecent(ctx context.Context, limit int, states ...string) ([]Jo
 
 func (s jobs) ListFinishedBefore(ctx context.Context, t time.Time, limit int) ([]Job, error) {
 	return s.many(ctx, "finished_at IS NOT NULL AND finished_at < ? ORDER BY finished_at LIMIT ?", t, limit)
+}
+
+func (s jobs) ListFinishedAfter(ctx context.Context, t time.Time) ([]Job, error) {
+	return s.many(ctx, "finished_at IS NOT NULL AND finished_at > ? ORDER BY created_at DESC", t)
 }
 
 func (s jobs) RequeueIfWaiting(ctx context.Context, id string) error {

@@ -89,6 +89,8 @@ The pre-update and pre-move archives are taken before the panel restarts. While 
 
 ## Volumes
 
+A new volume has no backup schedule. The volume shows No backup until you set one: in the volume's Backups tab, or with `backup` on the volume in the stack file. A volume with no schedule is not a problem and raises no warning.
+
 Back up one volume now, list its runs, and restore one:
 
 ```bash
@@ -101,7 +103,7 @@ stkr backup restore <volume-id> --run <run-id>
 
 ## Point-in-time recovery
 
-A postgres instance can keep its write-ahead log (WAL) and a weekly base backup, so the archive covers every moment of the last N days, not only the nightly dump. It is on (7 days) for a new instance when the org can use a destination that is not this server's disk, the rule the daily backup follows; otherwise it is off and opt-in. With only the local disk the archive shares the box with the data: it covers a bad migration, not a lost server.
+A postgres instance can keep its write-ahead log (WAL) and a weekly base backup, so the archive covers every moment of the last N days, not only the nightly dump. It is on (7 days) for a new instance when the org can use a destination that is not this server's disk, the rule that picks a schedule's destination; otherwise it is off and opt-in. With only the local disk the archive shares the box with the data: it covers a bad migration, not a lost server.
 
 Postgres writes each finished WAL segment (at least one a minute while the database is busy) to a second volume, `<instance>-wal`. The panel ships what is there every minute, encrypted with the destination's key, to the destination of the instance's weekly base backup, and then deletes it from the box.
 
@@ -111,7 +113,7 @@ stkr operated pitr set pg --days off   # off; archived objects stay on the desti
 stkr operated pitr status pg           # restorable range, last base backup, archive size
 ```
 
-In the panel, the instance's Backups tab shows the same and has the switch. Turning it on adds a weekly `base` schedule next to the daily dump (edit its time like any schedule) and takes the first base backup as soon as the instance is up. Base backups and WAL sit under `stackr/<org>/<data volume id>/pitr/` on the destination. After each good base backup, bases older than the window are removed, keeping the newest one outside it, with the WAL only they needed. You cannot restore to before PITR was turned on.
+In the panel, the instance's Backups tab shows the same and has the switch. Turning it on adds a weekly `base` schedule (edit its time like any schedule) and takes the first base backup as soon as the instance is up. Base backups and WAL sit under `stackr/<org>/<data volume id>/pitr/` on the destination. After each good base backup, bases older than the window are removed, keeping the newest one outside it, with the WAL only they needed. You cannot restore to before PITR was turned on.
 
 In a stack file the window is `pitr_days` on the operated tile (`0` is off; leave it out and the file does not touch it), and `stkr stack export` writes it. Changing it restarts the instance once.
 

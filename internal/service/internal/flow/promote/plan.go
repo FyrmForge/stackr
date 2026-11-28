@@ -532,6 +532,9 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 		if vc, ok := re.Volumes[slug]; ok && vc.MaxSizeMB != nil && *vc.MaxSizeMB > 0 {
 			out += ", " + capWord(int64(*vc.MaxSizeMB))
 		}
+		if vc, ok := re.Volumes[slug]; ok && vc.Backup != nil {
+			out += ", backup " + backupWord(vc.Backup.None, vc.Backup.Schedule, vc.Backup.Keep, 1)
+		}
 		return out
 	}
 	for _, name := range slices.Sorted(maps.Keys(re.Tiles)) {
@@ -1809,7 +1812,7 @@ func capWord(mb int64) string {
 }
 
 // applyVolumes declares the volumes the plan names and sets the caps the
-// file gives. A cap that already matches is not touched.
+// file gives, and their backup schedule. A cap that already matches is not touched.
 func (f *Flow) applyVolumes(ctx context.Context, w *work) error {
 	scope := volume.Scope{Kind: "env", ID: w.e.ID}
 	for _, n := range slices.Sorted(maps.Keys(w.declare)) {
@@ -1817,20 +1820,41 @@ func (f *Flow) applyVolumes(ctx context.Context, w *work) error {
 		if err != nil {
 			return err
 		}
-		mb := w.declare[n].MaxSizeMB
-		if mb == nil || f.SetVolumeCap == nil || int64(*mb) == capOf(v.MaxSizeMB) {
-			continue
+		if mb := w.declare[n].MaxSizeMB; mb != nil && f.SetVolumeCap != nil && int64(*mb) != capOf(v.MaxSizeMB) {
+			var set *int64
+			if *mb > 0 {
+				set = new(int64)
+				*set = int64(*mb)
+			}
+			if err := f.SetVolumeCap(ctx, v.ID, set); err != nil {
+				return fmt.Errorf("volume %s: %w", n, err)
+			}
 		}
-		var set *int64
-		if *mb > 0 {
-			set = new(int64)
-			*set = int64(*mb)
-		}
-		if err := f.SetVolumeCap(ctx, v.ID, set); err != nil {
-			return fmt.Errorf("volume %s: %w", n, err)
+		if b := w.declare[n].Backup; b != nil && f.SetVolumeBackup != nil {
+			cron := b.Schedule
+			if b.None {
+				cron = ""
+			}
+			if err := f.SetVolumeBackup(ctx, v.ID, cron, b.Keep); err != nil {
+				return fmt.Errorf("volume %s: %w", n, err)
+			}
 		}
 	}
 	return nil
+}
+
+// backupWord names a volume's backup in a plan row: none, "<cron>, keep N"
+// (keep 0 = everything), or the count when there are several schedules.
+func backupWord(none bool, cron string, keep, n int) string {
+	switch {
+	case none:
+		return "none"
+	case n > 1:
+		return fmt.Sprintf("%d schedules", n)
+	case keep == 0:
+		return cron + ", keep all"
+	}
+	return fmt.Sprintf("%s, keep %d", cron, keep)
 }
 
 func (f *Flow) planVolumes(ctx context.Context, p *Plan, w *work) error {
@@ -1848,14 +1872,31 @@ func (f *Flow) planVolumes(ctx context.Context, p *Plan, w *work) error {
 	for _, n := range slices.Sorted(maps.Keys(w.re.Volumes)) {
 		vc := w.re.Volumes[n]
 		v, ok := byslug[n]
+		changed := false
 		switch {
 		case !ok:
 			p.add(Change{Kind: "volume", New: n})
+			changed = true
 		case v.OrphanedAt != nil:
 			p.add(Change{Kind: "volume", New: n, Note: "re-adopts the orphaned volume and its data"})
-		case vc.MaxSizeMB != nil && int64(*vc.MaxSizeMB) != capOf(v.MaxSizeMB):
-			p.add(Change{Kind: "volume cap", Tile: n, Old: capWord(capOf(v.MaxSizeMB)), New: capWord(int64(*vc.MaxSizeMB))})
+			changed = true
 		default:
+			if vc.MaxSizeMB != nil && int64(*vc.MaxSizeMB) != capOf(v.MaxSizeMB) {
+				p.add(Change{Kind: "volume cap", Tile: n, Old: capWord(capOf(v.MaxSizeMB)), New: capWord(int64(*vc.MaxSizeMB))})
+				changed = true
+			}
+			if vc.Backup != nil && f.VolumeBackup != nil {
+				cron, keep, cnt, err := f.VolumeBackup(ctx, v.ID)
+				if err != nil {
+					return err
+				}
+				if old, want := backupWord(cnt == 0, cron, keep, cnt), backupWord(vc.Backup.None, vc.Backup.Schedule, vc.Backup.Keep, 1); old != want {
+					p.add(Change{Kind: "volume backup", Tile: n, Old: old, New: want})
+					changed = true
+				}
+			}
+		}
+		if !changed {
 			continue
 		}
 		w.declare[n] = vc
@@ -2039,6 +2080,7 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 		Slug:             name,
 		Kind:             tc.Type,
 		ImageRef:         tc.Image,
+		Entrypoint:       string(tc.Entrypoint),
 		Command:          tc.Command,
 		ContainerPort:    tc.Port,
 		PublishedPorts:   lines(tc.PublishedPorts),

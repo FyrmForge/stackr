@@ -266,10 +266,9 @@ type Orchestrator struct {
 	pgFns *pgRecipeFns
 	// recMu guards the recovery key's public half and generation, which a
 	// rotation changes while backups read them (backup.go).
-	recMu      sync.Mutex
-	defSchedMu sync.Mutex // serialises default-schedule creation (see defaultSchedule)
-	recPub     string
-	recGen     int
+	recMu  sync.Mutex
+	recPub string
+	recGen int
 	// recoverSeen are the nonces of recent recovery calls (RecoverNode).
 	recoverSeen recoverNonces
 	// restartPending are the tiles a redeploy-later param save reaches (paramview.go).
@@ -797,31 +796,33 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			b = o.build
 		}
 		return &promote.Flow{
-			D:              orch.deploy,
-			Tx:             orch.store.Tx,
-			Members:        orch.members,
-			Resources:      orch.domainres,
-			Config:         orch.stackFile,
-			RepoWarning:    orch.repoWarningFor,
-			FileID:         orch.fileID,
-			Build:          b,
-			DNS01:          orch.dns01,
-			RouteHeld:      orch.routes.Covers,
-			CheckDNS:       orch.CheckFileRecords,
-			WriteParams:    orch.writeParams,
-			Placements:     orch.stackPlacements,
-			NodeOf:         orch.nodeAndDisk,
-			Forget:         orch.forgetTileClone,
-			SetVolumeCap:   orch.SetVolumeCap,
-			DumpBeforeDrop: orch.dumpBeforeDrop,
-			PITRChanged:    orch.pitrApplied,
-			PGSettings:     orch.settingsFromFile,
-			PGExt:          orch.pgExtFromFile,
-			PGExtPlan:      orch.pgExtPlanFromFile,
-			PGExtApply:     orch.pgExtApplyFromFile,
-			StandbyPlan:    orch.standbyPlan,
-			SetStandbys:    orch.setStandbys,
-			StandbyNames:   orch.standbyExport,
+			D:               orch.deploy,
+			Tx:              orch.store.Tx,
+			Members:         orch.members,
+			Resources:       orch.domainres,
+			Config:          orch.stackFile,
+			RepoWarning:     orch.repoWarningFor,
+			FileID:          orch.fileID,
+			Build:           b,
+			DNS01:           orch.dns01,
+			RouteHeld:       orch.routes.Covers,
+			CheckDNS:        orch.CheckFileRecords,
+			WriteParams:     orch.writeParams,
+			Placements:      orch.stackPlacements,
+			NodeOf:          orch.nodeAndDisk,
+			Forget:          orch.forgetTileClone,
+			SetVolumeCap:    orch.SetVolumeCap,
+			VolumeBackup:    orch.volumeBackup,
+			SetVolumeBackup: orch.setVolumeBackup,
+			DumpBeforeDrop:  orch.dumpBeforeDrop,
+			PITRChanged:     orch.pitrApplied,
+			PGSettings:      orch.settingsFromFile,
+			PGExt:           orch.pgExtFromFile,
+			PGExtPlan:       orch.pgExtPlanFromFile,
+			PGExtApply:      orch.pgExtApplyFromFile,
+			StandbyPlan:     orch.standbyPlan,
+			SetStandbys:     orch.setStandbys,
+			StandbyNames:    orch.standbyExport,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
@@ -922,6 +923,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Releases:       orch.releases,
 			Jobs:           orch.jobRows,
 			Runs:           orch.runs,
+			NoBackup:       orch.noBackup,
 			Canvas:         orch.canvas,
 			Images:         orch.images,
 			Target:         orch.deploy.Target,

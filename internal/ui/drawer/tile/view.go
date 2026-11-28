@@ -361,7 +361,7 @@ var (
 	sourceKeys   = []string{"git_url", "branch", "image", "update_policy", "tag_policy"}
 	buildKeys    = []string{"dockerfile", "build_context", "watch_paths", "build_args"}
 	scheduleKeys = []string{"schedule", "trigger", "timeout_minutes"}
-	runKeys      = []string{"command", "user", "restart_policy", "replicas", "shm_size_mb", "depends_on"}
+	runKeys      = []string{"entrypoint", "command", "user", "restart_policy", "replicas", "shm_size_mb", "depends_on"}
 	networkKeys  = []string{"port", "endpoint_protocol"}
 	storageKeys  = []string{"volumes", "files"}
 	healthKeys   = []string{"health_http_path", "health_http_status", "health_http_interval_s", "health_http_timeout_s", "health_http_retries", "health_exec_cmd", "health_exec_interval_s", "health_exec_timeout_s", "health_exec_retries", "health_exec_start_period_s"}
@@ -469,6 +469,12 @@ func runSummary(s SettingsView) string {
 	cmdWord := "image command"
 	if s.Vals["command"] != "" {
 		cmdWord = "own command"
+	}
+	if s.Vals["entrypoint"] != "" {
+		cmdWord = "own entrypoint"
+		if s.Vals["command"] != "" {
+			cmdWord = "own entrypoint and command"
+		}
 	}
 	restart, reps := "", ""
 	if s.Has("restart_policy") {

@@ -47,15 +47,15 @@ func TestEveryTabRenders(t *testing.T) {
 		want []string
 	}{
 		"overview": {
-			Overview(OverviewView{Docker: "stackr-vol-v1", Mounts: []Mount{{Tile: "web", Path: "/data"}}, Orphaned: time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)}),
-			[]string{"stackr-vol-v1", "/data", "Orphaned since <local-time fmt=\"Jan 2, 15:04\"><time datetime=\"2026-07-02T10:00:00Z\" title=\"2026-07-02T10:00:00Z\">Jul 2, 10:00</time></local-time>: no tile mounts it."},
+			Overview(OverviewView{Docker: "stackr-vol-v1", Mounts: []Mount{{Tile: "web", Path: "/data"}}}),
+			[]string{"stackr-vol-v1", "/data"},
 		},
 		"backups": {
 			Backups(b),
 			[]string{"Every day at 02:00", "Volume archive", "/backup\"", "/restore?run=r1", "local disk", "/schedules\"", "/schedules/s1/delete", `hx-trigger="every 2s"`, `hx-select="#backup-history-v1"`},
 		},
 		"settings": {
-			Settings(v, "", nil),
+			Settings(v, "", nil, Data{Delete: true}),
 			[]string{"Delete volume", `word="uploads"`, "/-/volumes/v1/delete"},
 		},
 	} {
@@ -88,7 +88,7 @@ func TestHistoryPollCountsDown(t *testing.T) {
 // A mounted volume offers no delete.
 func TestMountedHasNoDelete(t *testing.T) {
 	var sb strings.Builder
-	if err := Settings(View{Name: "uploads"}, "Detach before deleting.", nil).Render(context.Background(), &sb); err != nil {
+	if err := Settings(View{Name: "uploads"}, "Detach before deleting.", nil, Data{Delete: true}).Render(context.Background(), &sb); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(sb.String(), "Delete volume") || !strings.Contains(sb.String(), "Detach before deleting") {

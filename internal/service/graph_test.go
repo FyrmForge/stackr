@@ -391,6 +391,15 @@ func TestCanvasEnv(t *testing.T) {
 	if wk.Y >= old.Y {
 		t.Errorf("worker (y %d) parked with the loners (old at y %d), though api uses it", wk.Y, old.Y)
 	}
+	// no schedule yet: the detached card and the mounted sub-tile both say so
+	if !old.NoBackup || old.Orphan {
+		t.Errorf("old: NoBackup %v Orphan %v, want a live volume with no backup", old.NoBackup, old.Orphan)
+	}
+	for _, sub := range ns[w.api].Subs {
+		if sub.Kind == "volume" && !sub.NoBackup {
+			t.Errorf("api's volume %s lacks NoBackup", sub.Name)
+		}
+	}
 
 	// The query params: no system column, no startup edges.
 	v2, err := w.e.Orch.Canvas(ctx, s, service.GraphShow{Refs: true, Traffic: true})

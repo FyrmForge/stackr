@@ -194,13 +194,16 @@ func isTarChanged(err error) bool {
 // UntarVolume wipes the volume and extracts src into it, in one container and
 // one command so a crash cannot leave it emptied with no archive in it.
 // There is no way back from the wipe: the caller verifies the archive first.
-// The three globs catch dotfiles; ";" so an empty volume still extracts.
+// The three globs catch dotfiles; a glob that matches nothing stays literal
+// and is skipped, so an empty volume still extracts. A failed rm does not stop
+// the extract, but the command exits non-zero: a wipe that left data behind
+// must not read as done.
 func (d *Client) UntarVolume(ctx context.Context, vol string, src io.Reader) error {
 	out, wait, err := d.volumeTool(
 		ctx,
 		vol,
 		false,
-		[]string{"sh", "-c", "rm -rf /data/..?* /data/.[!.]* /data/* 2>/dev/null; tar -xzf - -C /data"},
+		[]string{"sh", "-c", emptyDir("/data") + "tar -xzf - -C /data && exit $rc"},
 		src,
 	)
 	if err != nil {
@@ -211,6 +214,13 @@ func (d *Client) UntarVolume(ctx context.Context, vol string, src io.Reader) err
 		return fmt.Errorf("restore into %s: %w", vol, err)
 	}
 	return nil
+}
+
+// emptyDir is a shell prelude that removes everything under dir, dotfiles
+// included, and goes on past a failed rm, leaving rc=1 for the script to end
+// with: a restore still lands what it can, and a wipe still fails.
+func emptyDir(dir string) string {
+	return `rc=0; for f in ` + dir + `/..?* ` + dir + `/.[!.]* ` + dir + `/*; do [ -e "$f" ] || [ -L "$f" ] || continue; rm -rf "$f" || rc=1; done; `
 }
 
 // volumeTool mounts vol at /data (ro for reads) in a throwaway container.
@@ -265,7 +275,7 @@ func (d *Client) toolContainer(
 		"stkr-vol-"+hex.EncodeToString(b),
 	) // random: overlapping ops must not collide
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, maskErr(err)
 	}
 	remove := func() {
 		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), created.ID, container.RemoveOptions{Force: true, RemoveVolumes: true})
@@ -286,7 +296,7 @@ func (d *Client) toolContainer(
 	if err := d.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
 		att.Close()
 		remove()
-		return nil, nil, err
+		return nil, nil, maskErr(err)
 	}
 	if stdin != nil {
 		go func() {

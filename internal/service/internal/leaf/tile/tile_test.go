@@ -440,6 +440,15 @@ func TestRunKinds(t *testing.T) {
 			"operated tiles do not take replicas. For postgres copies, list nodes under standbys:",
 			func(t *store.Tile) { t.Kind, t.GitURL, t.Replicas = tile.Operated, "", 2 },
 		},
+		{"service with an entrypoint", "", func(t *store.Tile) { t.Entrypoint = "sh -c" }},
+		{"image with an entrypoint", "", func(t *store.Tile) { t.Kind, t.GitURL, t.ImageRef, t.Entrypoint = tile.Image, "", "alpine:3", "sh" }},
+		{"cron with an entrypoint", "", then(cronRow, func(t *store.Tile) { t.Entrypoint = "sh" })},
+		{"function with an entrypoint", "", then(fnRow, func(t *store.Tile) { t.Entrypoint = "sh" })},
+		{
+			"operated with an entrypoint",
+			"entrypoint does not apply to operated tiles",
+			func(t *store.Tile) { t.Kind, t.GitURL, t.Entrypoint = tile.Operated, "", "x" },
+		},
 		{
 			"operated with a command",
 			"command does not apply to operated tiles",
@@ -1066,5 +1075,17 @@ func TestFreezeForeignPauseIsNotUnpaused(t *testing.T) {
 	thaw()
 	if count("Unpause") != 0 {
 		t.Fatalf("Unpause calls = %d, want 0", count("Unpause"))
+	}
+}
+
+func TestDiffMarksEntrypoint(t *testing.T) {
+	old := store.Tile{Kind: tile.Service}
+	cur := old
+	cur.Entrypoint = "sh -c"
+	if !tile.Diff(old, cur)["entrypoint"] {
+		t.Error("a changed entrypoint is not marked")
+	}
+	if tile.Diff(old, old)["entrypoint"] {
+		t.Error("an unchanged entrypoint is marked")
 	}
 }

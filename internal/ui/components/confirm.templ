@@ -15,7 +15,7 @@ type ConfirmView struct {
 	Target  string
 	Quiet   bool   // the opener is a ghost button (a header Stop / Restart)
 	Vals    string // hx-vals JSON posted with the action; "" = none
-	Include string // hx-include selector, searched inside the dialog (the plan's ticks)
+	Include string // every field inside the dialog matching it is posted too (the plan's ticks)
 	Yes     string // the yes button's words; "" = Button
 	Cancel  string // the no button's words; "" = Cancel
 	Label   string // aria-label of the opener when its text is not enough
@@ -32,15 +32,6 @@ func Confirm(v ConfirmView) templ.Component {
 		panic("components.Confirm: a type-the-name confirm must say what is kept")
 	}
 	return confirm(v, swapOf(v.Target))
-}
-
-// disinherit is what the wrapper keeps from Body: its Include. hx-vals
-// ignores hx-disinherit; a form in Body sets hx-vals="unset" instead.
-func disinherit(v ConfirmView) string {
-	if v.Include != "" {
-		return "hx-include"
-	}
-	return ""
 }
 
 func or(a, b string) string {
@@ -65,8 +56,7 @@ templ CopyWord(word string) {
 
 // confirm is v0's typed Modal look (.modal-panel/head/body/foot) on a
 // native <dialog>; the opener renders disabled and confirm-dialog enables it
-// when it upgrades, so a click before the element is defined is never lost; the X in the head is a second [data-cancel]. Vals and
-// Include stay on the wrapper; a form in Body (the plan's scope) posts its
+// when it upgrades, so a click before the element is defined is never lost; the X in the head is a second [data-cancel]. Vals stays on the wrapper, Include on the element (it adds every match on the wrapper's request); a form in Body (the plan's scope) posts its
 // own fields and sets hx-vals="unset".
 templ confirm(v ConfirmView, swap string) {
 	<div
@@ -79,14 +69,8 @@ templ confirm(v ConfirmView, swap string) {
 		if v.Vals != "" {
 			hx-vals={ v.Vals }
 		}
-		if v.Include != "" {
-			hx-include={ "find " + v.Include }
-		}
-		if d := disinherit(v); d != "" {
-			hx-disinherit={ d }
-		}
 	>
-		<confirm-dialog word={ v.Word } open?={ v.Open }>
+		<confirm-dialog word={ v.Word } open?={ v.Open } if v.Include != "" { include={ v.Include } }>
 			if !v.Open {
 				<button type="button" class={ "btn btn-sm", templ.KV("btn-ghost", v.Quiet), templ.KV("btn-primary", !v.Quiet && v.Primary), templ.KV("btn-danger", !v.Quiet && !v.Primary) } data-open disabled if v.Label != "" { aria-label={ v.Label } }>{ v.Button }</button>
 			}
@@ -112,9 +96,9 @@ templ confirm(v ConfirmView, swap string) {
 					if len(v.Kept) > 0 {
 						<div>
 							<p class="mb-1.5 text-xs font-medium text-rw-muted">Kept:</p>
-							<ul class="modal-list">
+							<ul class="space-y-1 text-xs text-rw-text">
 								for _, k := range v.Kept {
-									<li class="modal-list-row text-rw-text">{ k }</li>
+									<li>{ k }</li>
 								}
 							</ul>
 						</div>

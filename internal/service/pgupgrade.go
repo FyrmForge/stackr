@@ -821,7 +821,7 @@ func (o *Orchestrator) pgChangeSafe(ctx context.Context, t Tile, m OperatedInsta
 func (o *Orchestrator) swapMajor(ctx context.Context, sv, cv store.Volume, tileID, instanceID, image string, major int, extra func(store.Tx) error) error {
 	sv.Name, cv.Name = cv.Name, sv.Name
 	now := time.Now().UTC()
-	cv.OrphanedAt = &now
+	cv.OrphanedAt, cv.FromInstance = &now, true
 	return o.store.Tx(ctx, func(tx store.Tx) error {
 		t, err := tx.Tiles.Get(ctx, tileID)
 		if err != nil {

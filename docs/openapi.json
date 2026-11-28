@@ -5235,6 +5235,16 @@
           "engine": {
             "type": "string"
           },
+          "entrypoint": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "env_json": {
             "oneOf": [
               {},
@@ -8513,6 +8523,29 @@
         ],
         "type": "object"
       },
+      "ShareTest": {
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "raw": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "node",
+          "message",
+          "raw"
+        ],
+        "type": "object"
+      },
       "SliceAccess": {
         "properties": {
           "access": {
@@ -9510,6 +9543,16 @@
               }
             ]
           },
+          "entrypoint": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "env_json": {
             "oneOf": [
               {},
@@ -10014,6 +10057,16 @@
               }
             ]
           },
+          "entrypoint": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "env_json": {
             "oneOf": [
               {},
@@ -10422,6 +10475,9 @@
           "endpoint_protocol": {
             "type": "string"
           },
+          "entrypoint": {
+            "type": "string"
+          },
           "env_json": {
             "additionalProperties": {
               "type": "string"
@@ -10649,6 +10705,7 @@
           "watch_paths",
           "build_args",
           "command",
+          "entrypoint",
           "container_port",
           "endpoint_protocol",
           "health_http_path",
@@ -10884,6 +10941,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "from_instance": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -10941,7 +11001,8 @@
           "slug",
           "name",
           "created_at",
-          "node_id"
+          "node_id",
+          "from_instance"
         ],
         "type": "object"
       },
@@ -11031,6 +11092,21 @@
           "free",
           "fits",
           "finish"
+        ],
+        "type": "object"
+      },
+      "WipeIn": {
+        "properties": {
+          "backup_first": {
+            "type": "boolean"
+          },
+          "stop_tiles": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stop_tiles",
+          "backup_first"
         ],
         "type": "object"
       }
@@ -20977,6 +21053,52 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "share.write"
+      }
+    },
+    "/api/v1/orgs/{org}/shares/{share}/test": {
+      "post": {
+        "operationId": "share.test",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "share",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareTest"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {
@@ -31070,6 +31192,61 @@
         "x-verb": "tile.write"
       }
     },
+    "/api/v1/orgs/{org}/volumes/{volume}/delete": {
+      "post": {
+        "operationId": "volume.delete-backed",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "volume",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
     "/api/v1/orgs/{org}/volumes/{volume}/discard-bound": {
       "post": {
         "operationId": "volume.discard-bound",
@@ -31383,6 +31560,45 @@
         "x-verb": "backup.write"
       }
     },
+    "/api/v1/orgs/{org}/volumes/{volume}/restore-orphan": {
+      "post": {
+        "operationId": "volume.restore",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "volume",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
     "/api/v1/orgs/{org}/volumes/{volume}/runs": {
       "get": {
         "operationId": "backup.list",
@@ -31533,6 +31749,71 @@
           }
         },
         "x-verb": "backup.write"
+      }
+    },
+    "/api/v1/orgs/{org}/volumes/{volume}/wipe": {
+      "post": {
+        "operationId": "volume.wipe",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "volume",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WipeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
       }
     },
     "/api/v1/registry/login": {

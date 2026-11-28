@@ -19,6 +19,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	envui "github.com/FyrmForge/stackr/internal/ui/drawer/env"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/vars"
+	"github.com/FyrmForge/stackr/internal/ui/drawer/volume"
 	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -115,7 +116,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 		Below:     below(es, e.ID),
 		Color:     e.Color,
 		Cascade:   cascade,
-		Volumes:   volumesView(vols, f.Base, write),
+		Volumes:   h.volumesView(c, urlOf(cd.s), vols, f.Base, write),
 		Vars:      varsLoad(cd.s),
 		Placement: placementui.Load(urlOf(cd.s) + "/-/placement"),
 		Open:      c.FormValue("open"),
@@ -144,9 +145,22 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 	return envui.Settings(v), nil
 }
 
+// backupDests is where each volume's Back up first writes, by volume id. A
+// volume whose destination cannot be told has none: its confirm lacks the tick.
+func (h *handler) backupDests(c echo.Context, vs service.EnvVolumes) map[string]string {
+	out := map[string]string{}
+	for _, ev := range vs.Volumes {
+		if d, err := h.orch.BackupFirstDest(c.Request().Context(), ev.ID); err == nil {
+			out[ev.ID] = render.DestName(d)
+		}
+	}
+	return out
+}
+
 // volumesView is the Volumes row: Add and each Remove only for a writer on
 // an env the panel may change (a stack file declares a managed one's).
-func volumesView(vs service.EnvVolumes, base string, write bool) envui.VolumesView {
+func (h *handler) volumesView(c echo.Context, page string, vs service.EnvVolumes, base string, write bool) envui.VolumesView {
+	ctx, dests := c.Request().Context(), h.backupDests(c, vs)
 	edit := write && !vs.Managed
 	v := envui.VolumesView{Live: base + "?tab=settings"}
 	switch {
@@ -157,13 +171,22 @@ func volumesView(vs service.EnvVolumes, base string, write bool) envui.VolumesVi
 	default:
 		v.Why = "Only members and owners can change volumes."
 	}
+	dataJobs, _ := h.orch.VolumeDataJobs(ctx) // one read for every row; a failed read shows no job
 	for _, ev := range vs.Volumes {
 		r := envui.VolumeRow{Name: ev.Slug, Size: "size unknown", MountedBy: strings.Join(ev.MountedBy, ", "), Owner: ev.OwnedBy}
 		if ev.SizeBytes >= 0 {
 			r.Size = render.Size(ev.SizeBytes)
 		}
 		if edit && ev.OwnedBy == "" {
-			r.Remove = base + "/volumes/" + ev.ID + "/remove"
+			r.Remove = volume.DeleteConfirm(ev.Slug, base+"/volumes/"+ev.ID+"/remove", "#"+comp.DrawerRoot, dests[ev.ID])
+			r.Remove.Quiet, r.Remove.Label = true, "Remove volume "+ev.Slug
+			r.Remove.Vals = `{"open":"volumes"}`
+		}
+		// A delete that backs up first runs as a job: its progress, and why it
+		// failed, show on the row.
+		if j := dataJobs[ev.ID]; j.ID != "" && j.Kind == "volume-delete" {
+			jv := render.DataJobView(ctx, h.orch, page, j)
+			r.Job = &jv
 		}
 		v.Rows = append(v.Rows, r)
 	}
@@ -355,7 +378,11 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		return "Added " + v.Slug + ".", err
 	}), write)
 	site.POST(e+"/volumes/:volume/remove", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
-		return "Volume removed. Its data is kept for the retention window.", h.orch.RemoveEnvVolume(c.Request().Context(), cd.s.Env.ID, c.Param("volume"))
+		j, err := h.orch.RemoveEnvVolume(c.Request().Context(), cd.s.Env.ID, c.Param("volume"), c.FormValue("backup") == "on")
+		if j.ID != "" {
+			return "Backing up, then deleting the volume.", err
+		}
+		return "Volume deleted.", err
 	}), write)
 	site.POST(e+"/settings", h.saveRung(
 		"env",

@@ -196,7 +196,35 @@ func (h *H) DeclareVolume(at At) Endpoint {
 }
 
 func (h *H) DeleteVolume() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteVolume(rc(c), c.Param("volume")) })
+	return Done(func(c echo.Context, _ None) error {
+		_, err := h.Orch.DeleteVolume(rc(c), c.Param("volume"), false)
+		return err
+	})
+}
+
+// DeleteVolumeBacked backs the volume up first, then deletes it; a failed
+// backup leaves everything in place.
+func (h *H) DeleteVolumeBacked() Endpoint {
+	return Job(func(c echo.Context, _ None) (service.Job, error) {
+		return h.Orch.DeleteVolume(rc(c), c.Param("volume"), true)
+	})
+}
+
+type WipeIn struct {
+	StopTiles   bool `json:"stop_tiles"`
+	BackupFirst bool `json:"backup_first"`
+}
+
+// WipeVolume empties a volume's contents; the volume, cap and schedules stay.
+func (h *H) WipeVolume() Endpoint {
+	return Job(func(c echo.Context, in WipeIn) (service.Job, error) {
+		return h.Orch.WipeVolume(rc(c), c.Param("volume"), in.StopTiles, in.BackupFirst)
+	})
+}
+
+// RestoreOrphanVolume takes an orphaned volume back.
+func (h *H) RestoreOrphanVolume() Endpoint {
+	return Done(func(c echo.Context, _ None) error { return h.Orch.RestoreVolume(rc(c), c.Param("volume")) })
 }
 
 func (h *H) BackupMethods() Endpoint {

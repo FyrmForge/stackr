@@ -7,6 +7,50 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
+func TestSpecEntrypoint(t *testing.T) {
+	ep, _ := splitCommand("sh -c")
+	cmd, _ := splitCommand("'echo hi'")
+	got := spec(store.Tile{}, resolved{entrypoint: ep, cmd: cmd})
+	if !slices.Equal(got.Entrypoint, []string{"sh", "-c"}) || !slices.Equal(got.Cmd, []string{"echo hi"}) {
+		t.Errorf("entrypoint %q cmd %q", got.Entrypoint, got.Cmd)
+	}
+	if got := spec(store.Tile{}, resolved{}); got.Entrypoint != nil {
+		t.Errorf("empty entrypoint = %q, want nil", got.Entrypoint)
+	}
+}
+
+// A grant is bound to this fingerprint: an unset entrypoint must keep the
+// value from before the field existed, or every host grant drops at upgrade.
+func TestTileSourceEntrypoint(t *testing.T) {
+	base := store.Tile{ImageRef: "nginx:1", Command: "run"}
+	// sha256("nginx:1\x00run")[:6], computed before the entrypoint existed.
+	if got, want := tileSource(base), "ecfd58186ed5"; got != want {
+		t.Errorf("fingerprint with no entrypoint = %s, want %s", got, want)
+	}
+	with := base
+	with.Entrypoint = "sh -c"
+	if tileSource(with) == tileSource(base) {
+		t.Error("a set entrypoint does not change the fingerprint")
+	}
+}
+
+func TestTileSourceEntrypointCanonical(t *testing.T) {
+	base := store.Tile{ImageRef: "nginx:1", Command: "run"}
+	fp := func(ep string) string { x := base; x.Entrypoint = ep; return tileSource(x) }
+	list := JoinCommand([]string{"sh", "-c", "echo hi"}) // what a stack-file list is stored as
+	for _, same := range []string{"sh  -c   'echo hi'", " sh -c \"echo hi\" ", "sh\t-c 'echo hi'"} {
+		if fp(same) != fp(list) {
+			t.Errorf("%q fingerprints differently from %q", same, list)
+		}
+	}
+	if fp("sh -c 'echo ho'") == fp(list) {
+		t.Error("different entrypoint, same fingerprint")
+	}
+	if fp("   ") != tileSource(base) {
+		t.Error("blank entrypoint changed the fingerprint")
+	}
+}
+
 func TestSplitCommandAndPorts(t *testing.T) {
 	for in, want := range map[string][]string{
 		`--config.file=/etc/p.yml --web.listen-address=":9090"`: {"--config.file=/etc/p.yml", "--web.listen-address=:9090"},
@@ -67,5 +111,20 @@ func TestSpecRestart(t *testing.T) {
 	}
 	if got := spec(row, resolved{restart: "no"}).Restart; got != "no" {
 		t.Errorf("an engine's restart = %q, want no", got)
+	}
+}
+
+func TestJoinCommandRoundTrip(t *testing.T) {
+	for _, want := range [][]string{
+		{"sh", "-c"},
+		{"echo", "a b", "c"},
+		{"it's", `say "hi"`},
+		{`a\b`, ``, `both ' and "`},
+		{"tab\there"},
+	} {
+		got, err := SplitCommand(JoinCommand(want))
+		if err != nil || !slices.Equal(got, want) {
+			t.Errorf("round trip of %q = %q (%q), %v", want, got, JoinCommand(want), err)
+		}
 	}
 }

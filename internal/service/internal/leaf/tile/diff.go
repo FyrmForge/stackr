@@ -124,6 +124,7 @@ func Diff(old, cur store.Tile) Changed {
 	mark("tag_policy", old.TagPolicy == cur.TagPolicy)
 	mark("env", old.EnvJSON == cur.EnvJSON)
 	mark("volumes", old.Volumes == cur.Volumes)
+	mark("entrypoint", old.Entrypoint == cur.Entrypoint)
 	mark("command", old.Command == cur.Command)
 	mark("port", old.ContainerPort == cur.ContainerPort)
 	mark("published_ports", old.PublishedPorts == cur.PublishedPorts)

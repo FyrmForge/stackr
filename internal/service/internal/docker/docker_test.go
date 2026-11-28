@@ -1,10 +1,14 @@
 package docker
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 )
 
@@ -144,5 +148,81 @@ func TestMounts(t *testing.T) {
 	}
 	if len(mounts(nil)) != 0 {
 		t.Error("no mounts must map to none")
+	}
+}
+
+func TestMountDenied(t *testing.T) {
+	spec := ContainerSpec{Volumes: []string{"stackr-share-a1-abc:/data:ro", "/host:/h"}, Mounts: []Mount{{Volume: "stackr-vol-x"}}}
+	nfs := errors.New(`Error response from daemon: failed to mount local volume: mount :/srv:/var/lib/docker/volumes/stackr-share-a1-abc/_data: permission denied`)
+	var md MountDeniedError
+	if err := mountDenied(nfs, specVolumes(spec)); !errors.As(err, &md) || md.Volume != "stackr-share-a1-abc" || md.Raw != nfs.Error() {
+		t.Errorf("nfs = %v", err)
+	}
+	other := errors.New("no such image")
+	if err := mountDenied(other, specVolumes(spec)); err != other {
+		t.Errorf("unrelated wrapped: %v", err)
+	}
+	if err := mountDenied(errors.New("permission denied on /etc/foo"), specVolumes(spec)); errors.As(err, &md) && md.Volume != "stackr-share-a1-abc" {
+		t.Errorf("unnamed volume wrapped: %v", err)
+	}
+}
+
+// The daemon names the share volume with its path and "/_data" on the end;
+// Start must still find the volume name in it.
+func TestStartMountDeniedFullWording(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"error while mounting volume '/var/lib/docker/volumes/stackr-share-x/_data': failed to mount local volume: mount :/export:/var/lib/docker/volumes/stackr-share-x/_data: permission denied"}`))
+	}))
+	defer srv.Close()
+	cli, err := client.NewClientWithOpts(client.WithHost("tcp://"+srv.Listener.Addr().String()), client.WithHTTPClient(srv.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = (&Client{cli: cli}).Start(context.Background(), "c1")
+	var md MountDeniedError
+	if !errors.As(err, &md) || md.Volume != "stackr-share-x" {
+		t.Fatalf("got %#v", err)
+	}
+}
+
+// Credentials the daemon echoes on a failed start never reach the caller.
+func TestStartMasksCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"mount //nas/x: addr=1.2.3.4,username=bob,password=hunter2: i/o error"}`))
+	}))
+	defer srv.Close()
+	cli, err := client.NewClientWithOpts(client.WithHost("tcp://"+srv.Listener.Addr().String()), client.WithHTTPClient(srv.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = (&Client{cli: cli}).Start(context.Background(), "c1")
+	if err == nil || strings.Contains(err.Error(), "hunter2") || strings.Contains(err.Error(), "bob") {
+		t.Fatalf("not masked: %v", err)
+	}
+}
+
+// Restart and Create mask echoed credentials too, and keep the cause.
+func TestRestartCreateMaskCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"mount //nas/x: addr=1.2.3.4,username=bob,password=hunter2: i/o error"}`))
+	}))
+	defer srv.Close()
+	cli, err := client.NewClientWithOpts(client.WithHost("tcp://"+srv.Listener.Addr().String()), client.WithHTTPClient(srv.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Client{cli: cli}
+	_, cerr := c.Create(context.Background(), ContainerSpec{Name: "x", Image: "i"})
+	for name, err := range map[string]error{"restart": c.Restart(context.Background(), "c1"), "create": cerr} {
+		if err == nil || strings.Contains(err.Error(), "hunter2") || strings.Contains(err.Error(), "bob") {
+			t.Fatalf("%s not masked: %v", name, err)
+		}
+		var me maskedErr
+		if !errors.As(err, &me) {
+			t.Fatalf("%s lost the wrapper: %v", name, err)
+		}
 	}
 }

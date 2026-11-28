@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,12 +25,14 @@ const LabelManaged = "stackr.managed"
 // ContainerSpec is a resolved container: every value is final, nothing here
 // is looked up, defaulted from a row, or validated against a domain rule.
 type ContainerSpec struct {
-	Name    string
-	Image   string            // by digest when the caller pins one
-	Cmd     []string          // override image CMD (nil = image default)
-	Env     []string          // KEY=VALUE
-	Labels  map[string]string //
-	Volumes []string          // "name-or-hostpath:/container/path[:ro]"
+	Name  string
+	Image string   // by digest when the caller pins one
+	Cmd   []string // override image CMD (nil = image default)
+	// Entrypoint overrides the image ENTRYPOINT (nil = image default).
+	Entrypoint []string
+	Env        []string          // KEY=VALUE
+	Labels     map[string]string //
+	Volumes    []string          // "name-or-hostpath:/container/path[:ro]"
 	// Mounts are named-volume mounts, the only way to mount one file or
 	// folder of a volume (Subpath; needs Docker 26).
 	Mounts []Mount
@@ -193,6 +196,94 @@ func (e ExitError) Error() string {
 		return fmt.Sprintf("exit status %d", e.Code)
 	}
 	return fmt.Sprintf("exit status %d: %s", e.Code, e.Stderr)
+}
+
+// MountDeniedError: the daemon refused a volume mount at container start
+// ("permission denied", an NFS export that maps root to nobody). Volume is the
+// volume name the text names; Raw is the daemon's text.
+type MountDeniedError struct{ Volume, Raw string }
+
+func (e MountDeniedError) Error() string { return e.Raw }
+
+var (
+	maskData  = regexp.MustCompile(`(?i)\bdata:\s*\S*`)
+	maskOpts  = regexp.MustCompile(`(?im)(\s-o\b).*$`)
+	maskCreds = regexp.MustCompile(`(?i)\b(username|user|password|pass|credentials|cred)\s*=\s*("[^"]*"|'[^']*'|\S*)`)
+)
+
+// MaskMount strips the credentials out of a mount error before anybody sees
+// it. It fails closed: the driver's option text ("data: ...", "-o ...") goes
+// whole, any user, pass or credentials value goes whatever its quoting, and
+// each known password goes wherever it still appears, plain or escaped. Pass
+// passwords only: a short user name would also eat host paths, and it is
+// masked in its key=value position anyway.
+func MaskMount(raw string, secrets ...string) string {
+	for _, sec := range secrets {
+		if sec == "" {
+			continue
+		}
+		raw = strings.ReplaceAll(raw, sec, "***")
+		if q := strings.Trim(fmt.Sprintf("%q", sec), `"`); q != sec {
+			raw = strings.ReplaceAll(raw, q, "***")
+		}
+	}
+	raw = maskCreds.ReplaceAllString(raw, "$1=***")
+	raw = maskData.ReplaceAllString(raw, "data: ***")
+	return maskOpts.ReplaceAllString(raw, "$1 ***")
+}
+
+// maskedErr carries the masked text and keeps the original for errors.As.
+type maskedErr struct {
+	msg string
+	err error
+}
+
+func (e maskedErr) Error() string { return e.msg }
+func (e maskedErr) Unwrap() error { return e.err }
+
+// maskErr hides mount credentials the daemon echoed into err.
+func maskErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if m := MaskMount(err.Error()); m != err.Error() {
+		return maskedErr{msg: m, err: err}
+	}
+	return err
+}
+
+// mountDenied wraps err as a MountDeniedError when its text is a permission
+// refusal that names one of vols; any other error passes. The wording match
+// lives here only.
+func mountDenied(err error, vols []string) error {
+	if err == nil {
+		return nil
+	}
+	m := err.Error()
+	if !strings.Contains(strings.ToLower(m), "permission denied") {
+		return maskErr(err)
+	}
+	for _, v := range vols {
+		if v != "" && strings.Contains(m, v) {
+			return MountDeniedError{Volume: v, Raw: MaskMount(m)}
+		}
+	}
+	return maskErr(err)
+}
+
+// specVolumes is the named volumes a spec mounts (bind sources that are
+// paths are not names).
+func specVolumes(spec ContainerSpec) []string {
+	var out []string
+	for _, b := range spec.Volumes {
+		if n, _, _ := strings.Cut(b, ":"); n != "" && !strings.HasPrefix(n, "/") {
+			out = append(out, n)
+		}
+	}
+	for _, m := range spec.Mounts {
+		out = append(out, m.Volume)
+	}
+	return out
 }
 
 // wrap turns the SDK's not-found into ErrNotFound; everything else passes.

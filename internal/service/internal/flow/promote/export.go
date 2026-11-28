@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/robfig/cron/v3"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -61,7 +62,7 @@ func (m omap) MarshalYAML() (any, error) {
 //
 // ponytail: the file has one params: block for the whole stack, so a param
 // that differs between envs (or is missing in some) keeps its name and loses
-// its value, with a warning. Backup schedules, literal domain hosts that came
+// its value, with a warning. One backup schedule per volume is carried (several are warned); literal domain hosts that came
 // from a params ref, a literal basic-auth password and a literal protect
 // password are not carried. A promote env exported alone has no rung below it
 // in the file, so its from: is left out.
@@ -259,6 +260,19 @@ func (f *Flow) exportEnv(ctx context.Context, st store.Stack, e store.Environmen
 		if v.MaxSizeMB != nil {
 			body.put("max_size_mb", *v.MaxSizeMB)
 		}
+		// one schedule is written back; none or several are left out, so a
+		// re-apply never removes a schedule the file did not ask about
+		if f.VolumeBackup != nil {
+			cr, keep, n, err := f.VolumeBackup(ctx, v.ID)
+			if err != nil {
+				return nil, err
+			}
+			if _, perr := cron.ParseStandard(cr); n == 1 && perr == nil {
+				body.put("backup", omap{{"schedule", cr}, {"keep", keep}})
+			} else if n > 1 {
+				*warns = append(*warns, "volume "+v.Slug+" has several backup schedules; backup: is left out")
+			}
+		}
 		vm.put(v.Slug, body)
 	}
 	if len(vm) > 0 {
@@ -429,6 +443,7 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		b.put("update_policy", "auto")
 	}
 	str("tag_policy", t.TagPolicy)
+	str("entrypoint", t.Entrypoint)
 	str("command", t.Command)
 	num("port", t.ContainerPort)
 	list("published_ports", t.PublishedPorts)

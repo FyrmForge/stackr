@@ -113,6 +113,7 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/shares", "share.list", "share.read", h.Shares()},
 		{POST, org + "/shares", "share.create", "share.write", h.CreateShare()},
 		{DELETE, org + "/shares/:share", "share.delete", "share.write", h.DeleteShare()},
+		{POST, org + "/shares/:share/test", "share.test", "share.write", h.TestShare()},
 		{GET, org + "/jobs", "job.list", "deployment.read", h.ScopeJobs(false, false)},
 		{GET, stack + "/jobs", "stack.jobs", "deployment.read", h.ScopeJobs(true, false)},
 		{GET, env + "/jobs", "env.jobs", "deployment.read", h.ScopeJobs(true, true)},
@@ -134,6 +135,9 @@ func routes(h *v1.H) []Route {
 
 		// volumes and backups, by id under the org
 		{DELETE, org + "/volumes/:volume", "volume.delete", "tile.write", h.DeleteVolume()},
+		{POST, org + "/volumes/:volume/delete", "volume.delete-backed", "tile.write", h.DeleteVolumeBacked()},
+		{POST, org + "/volumes/:volume/wipe", "volume.wipe", "tile.write", h.WipeVolume()},
+		{POST, org + "/volumes/:volume/restore-orphan", "volume.restore", "tile.write", h.RestoreOrphanVolume()},
 		{GET, org + "/volumes/:volume/move-plan", "volume.move-plan", "tile.write", h.PlanVolumeMove()},
 		{PUT, org + "/volumes/:volume/cap", "volume.cap", "tile.write", h.SetVolumeCap()},
 		{POST, org + "/volumes/:volume/move-to-disk", "volume.move-to-disk", "tile.write", h.MoveVolumeToDisk()},

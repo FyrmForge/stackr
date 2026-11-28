@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -30,36 +33,163 @@ func (o *Orchestrator) DeclareVolume(ctx context.Context, s VolumeScope, slug st
 	return v, err
 }
 
-// DeleteVolume refuses while a tile mounts it (leaf/volume). Otherwise the
-// volume is orphaned like a removed env volume: its data stays for the
-// retention window, then the orphan job backs it up and removes it, so its
-// backups keep their volume and stay restorable. Its schedules go now. On a
-// forgotten node only the row goes: there is no Docker volume left to reach.
-func (o *Orchestrator) DeleteVolume(ctx context.Context, id string) error {
+// DeleteVolume removes a volume at once: its data, its row and its schedules.
+// Its backup runs and the archives stay in their destinations (the run rows
+// lose their volume). Refused while a tile mounts it, while an operated
+// instance owns it and while a job holds it. backupFirst backs it up first as
+// a job (the returned Job); a failed backup deletes nothing. Without it the
+// delete is done when the call returns (zero Job). On a forgotten node only
+// the row goes: there is no Docker volume left to reach.
+func (o *Orchestrator) DeleteVolume(ctx context.Context, id string, backupFirst bool) (Job, error) {
+	v, err := o.volumes.Get(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	// A stack file declares a managed env's volumes: the next apply would
+	// make a deleted one again, empty.
+	if v.ScopeKind == "env" && v.OrphanedAt == nil {
+		st, err := o.envStack(ctx, v.ScopeID)
+		if err != nil {
+			return Job{}, err
+		}
+		if st.ConfigRepo != "" {
+			return Job{}, errs.Conflictf("%s is declared in the stack file. Remove it there.", v.Slug)
+		}
+	}
+	return o.deleteVolume(ctx, v, backupFirst)
+}
+
+func (o *Orchestrator) deleteVolume(ctx context.Context, v Volume, backupFirst bool) (Job, error) {
+	by, gone, err := o.deleteChecks(ctx, v)
+	if err != nil {
+		return Job{}, err
+	}
+	if backupFirst && gone {
+		return Job{}, errs.Refusedf("The node of %s is forgotten, so there is nothing to back up. Delete it without Back up first.", v.Slug)
+	}
+	if err := o.volumeBusy(ctx, v); err != nil {
+		return Job{}, err
+	}
+	if !backupFirst {
+		return Job{}, o.deleteVolumeNow(ctx, v, by, gone)
+	}
+	if err := o.volumeNodeUp(ctx, v.ID); err != nil {
+		return Job{}, err
+	}
+	d, err := o.BackupFirstDest(ctx, v.ID)
+	if err != nil {
+		return Job{}, err
+	}
+	return o.enqueueExclusive(ctx, kindVolumeDelete,
+		volumeDataJob{VolumeID: v.ID, BackupFirst: true, DestID: destArg(d)},
+		[]string{"volume:" + v.ID}, errs.Conflictf("%s is already being deleted.", v.Slug), "volume:"+v.ID)
+}
+
+// deleteChecks are the refusals of an immediate delete, all before anything
+// changes: the slugs of the tiles that still mount it, and whether its node
+// is forgotten (then only the row goes).
+func (o *Orchestrator) deleteChecks(ctx context.Context, v Volume) (by []string, gone bool, err error) {
+	if v.InstanceID != nil {
+		return nil, false, errs.Conflictf("%s belongs to an operated instance; it goes when the instance does", v.Slug)
+	}
+	if v.OrphanedAt != nil && OldCopyHeld(*v.OrphanedAt) {
+		// held until the move deploys: delete it only once the move is not
+		// running any more (a move that never finishes holds it forever)
+		live, err := o.oldCopyMoving(ctx, v)
+		if err != nil {
+			return nil, false, err
+		}
+		if live {
+			return nil, false, errs.Conflictf("%s is the old copy of a move to a disk; it goes when the move is done", v.Slug)
+		}
+	}
+	ts, err := o.mounters(ctx, v)
+	if err != nil {
+		return nil, false, err
+	}
+	// a tile whose delete is queued or running lets go: right after a
+	// tile delete, its row is still there for a few seconds
+	for _, t := range ts {
+		j, ok, err := o.jobRows.Last(ctx, t.ID)
+		if err != nil {
+			return nil, false, err
+		}
+		if !ok || j.Kind != string(kindDelete) || !job.Live(j.State) {
+			by = append(by, t.Slug)
+		}
+	}
+	if err := volume.CheckDetached(by); err != nil {
+		return by, false, err
+	}
+	gone, err = o.pmForgotten(ctx, o.volumeNode(ctx, v.ID))
+	return by, gone, err
+}
+
+// volumeBusy refuses while a queued or running job holds the volume (a
+// backup, restore, wipe, delete or move).
+func (o *Orchestrator) volumeBusy(ctx context.Context, v Volume) error {
+	if err := o.moveLive(ctx, []Volume{v}); err != nil {
+		return err
+	}
+	live, err := o.jobRows.List(ctx, job.Queued, job.Waiting, job.Running)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(live, func(j store.Job) bool { return slices.Contains(j.LockSet, "volume:"+v.ID) }) {
+		return errs.Conflictf("%s is busy with a job. Wait for it to finish.", v.Slug)
+	}
+	return nil
+}
+
+// deleteVolumeNow removes the Docker volume (or disk folder) and the row,
+// then the schedules' cron entries and alerts: the foreign key drops the
+// schedule rows without telling the scheduler. rowOnly is the forgotten node.
+func (o *Orchestrator) deleteVolumeNow(ctx context.Context, v Volume, by []string, rowOnly bool) error {
+	ss, err := o.backups.Schedules(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+	del := o.volumes.Delete
+	if rowOnly {
+		del = o.volumes.DeleteRow
+	}
+	if err := del(ctx, v, by); err != nil {
+		return err
+	}
+	if o.sched != nil {
+		o.sched.Reload(ctx)
+	}
+	keys := []string{staleKey(v.ID)}
+	for _, s := range ss {
+		keys = append(keys, "alert.backup.schedule."+s.ID)
+	}
+	for _, k := range keys {
+		_ = o.store.Settings.Delete(ctx, k)
+		o.clearProblem(ctx, k)
+	}
+	return nil
+}
+
+// RestoreVolume takes a removed volume back: the one a stack file dropped
+// (its data is kept for the retention window). Declaring the name again does
+// the same.
+func (o *Orchestrator) RestoreVolume(ctx context.Context, id string) error {
 	v, err := o.volumes.Get(ctx, id)
 	if err != nil {
 		return err
 	}
-	ts, err := o.mounters(ctx, v)
-	if err != nil {
-		return err
+	switch {
+	case v.OrphanedAt == nil:
+		return errs.Conflictf("%s is not removed.", v.Slug)
+	case OldCopy(v):
+		return errs.Conflictf("%s is the old copy of a move to a disk and cannot be restored", v.Slug)
+	case wasInstanceVolume(v):
+		return errs.Conflictf("%s belonged to an operated instance and cannot be restored", v.Slug)
 	}
-	var by []string
-	for _, t := range ts {
-		by = append(by, t.Slug)
+	if _, err := o.scopeOrg(ctx, v.ScopeKind, v.ScopeID); err != nil {
+		return err // its environment or stack is gone too
 	}
-	if gone, err := o.pmForgotten(ctx, o.volumeNode(ctx, v.ID)); err != nil {
-		return err
-	} else if gone {
-		return o.volumes.DeleteRow(ctx, v, by)
-	}
-	if err := o.volumes.Retire(ctx, v, by); err != nil {
-		return err
-	}
-	ss, err := o.backups.Schedules(ctx, v.ID)
-	for _, s := range ss {
-		err = errors.Join(err, o.deleteBackupSchedule(ctx, s.ID))
-	}
+	_, err = o.volumes.Restore(ctx, v)
 	return err
 }
 
@@ -229,4 +359,19 @@ func (o *Orchestrator) TileVolumes(ctx context.Context, tileID string) ([]Volume
 		}
 	}
 	return out, nil
+}
+
+// OrphanGoesOn is the day a removed volume's data is deleted: its removal
+// plus orphan_retention_days. Zero for a volume that is not removed, and for
+// a move's old copy still held (it goes when the move ends). A released old
+// copy has a day too.
+func (o *Orchestrator) OrphanGoesOn(ctx context.Context, v Volume) (time.Time, error) {
+	if v.OrphanedAt == nil || OldCopyHeld(*v.OrphanedAt) {
+		return time.Time{}, nil
+	}
+	days, err := o.settings.Int(ctx, "orphan_retention_days")
+	if err != nil {
+		return time.Time{}, err
+	}
+	return v.OrphanedAt.AddDate(0, 0, days), nil
 }

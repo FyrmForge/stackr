@@ -952,7 +952,7 @@ func (o *Orchestrator) pitrReset(ctx context.Context, m store.OperatedInstance) 
 func (o *Orchestrator) swapData(ctx context.Context, sv, cv store.Volume) error {
 	sv.Name, cv.Name = cv.Name, sv.Name
 	now := time.Now().UTC()
-	cv.OrphanedAt = &now
+	cv.OrphanedAt, cv.FromInstance = &now, true
 	return o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.Volumes.Update(ctx, sv); err != nil {
 			return err

@@ -4,8 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
@@ -71,7 +73,7 @@ func TestEnvVolumesRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec = s.Do(t, "POST", remove, url.Values{"open": {"volumes"}})
-	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "data is kept") || !strings.Contains(b, "None</span>") {
+	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "Volume deleted.") || !strings.Contains(b, "None</span>") {
 		t.Errorf("remove = %d\n%s", rec.Code, b)
 	}
 }
@@ -82,5 +84,36 @@ func TestVarsDrawerOpensEmpty(t *testing.T) {
 	s := webtest.New(t)
 	if page := s.DoNoCSRF(t, "GET", "/acme/shop/dev?drawer=vars").Body.String(); !strings.Contains(page, "Environment variables") {
 		t.Errorf("?drawer=vars did not open the grid:\n%s", page)
+	}
+}
+
+// A failed backup-first delete shows on the volume's row in env Settings.
+func TestEnvVolumesRowShowsFailedDelete(t *testing.T) {
+	s := webtest.New(t)
+	base := "/acme/shop/dev/-/drawer"
+	rec := s.Do(t, "POST", base+"/volumes", url.Values{"volume": {"uploads"}, "open": {"volumes"}})
+	if rec.Code != http.StatusOK {
+		t.Fatal(rec.Code)
+	}
+	vs, err := s.Orch.ListEnvVolumes(context.Background(), s.Tile.Env)
+	if err != nil || len(vs.Volumes) != 1 {
+		t.Fatalf("volumes = %+v %v", vs, err)
+	}
+	now := time.Now()
+	// the store's types are internal: fill the row by field name
+	mk := reflect.ValueOf(s.Store.Jobs.Create)
+	row := reflect.New(mk.Type().In(1)).Elem()
+	for k, x := range map[string]any{"ID": "jd", "Kind": "volume-delete", "State": "failed",
+		"Payload": `{"volume_id":"` + vs.Volumes[0].ID + `"}`, "Error": "backup before the delete failed, nothing was deleted: dest down", "CreatedAt": now, "FinishedAt": &now} {
+		row.FieldByName(k).Set(reflect.ValueOf(x))
+	}
+	if out := mk.Call([]reflect.Value{reflect.ValueOf(context.Background()), row}); !out[0].IsNil() {
+		t.Fatal(out[0].Interface())
+	}
+	body := get(t, s, base+"?tab=settings&open=volumes")
+	for _, w := range []string{"volume.delete", "failed", "dest down", "Nothing was deleted."} {
+		if !strings.Contains(body, w) {
+			t.Errorf("no %q in\n%.3000s", w, body)
+		}
 	}
 }

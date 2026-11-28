@@ -50,6 +50,7 @@ func tileFlags(c *cobra.Command) map[string]string {
 		{"build-args", "build args, a JSON object of strings: '{\"ARG\":\"value\"}'"},
 		{"volumes", "mounts, one per line: volume:/path[:ro], host:/host/path:/path[:ro] (needs admin approval) or share:name/sub:/path[:ro]"},
 		{"command", "the command, split like a shell would (quotes work, nothing expands)"},
+		{"entrypoint", "the entrypoint, split like a shell would (quotes work, nothing expands)"},
 		{"published-ports", "ports published on the host, one per line: host:container[/udp]"},
 		{"protocol", "endpoint protocol"},
 		{"health-http-path", "HTTP health check path"},
@@ -99,6 +100,7 @@ func tileFlags(c *cobra.Command) map[string]string {
 		"build-args":               "build_args",
 		"volumes":                  "volumes",
 		"command":                  "command",
+		"entrypoint":               "entrypoint",
 		"published-ports":          "published_ports",
 		"protocol":                 "endpoint_protocol",
 		"health-http-path":         "health_http_path",
@@ -1909,7 +1911,7 @@ func (a *app) operated() *cobra.Command {
 	create := waits(leaf("create <name>", "operated.create,operated.from-dump", "Make an operated tile (postgres, s3) in --env", exact(1), nil))
 	keys := tileFlags(create)
 	// ponytail: the flags stay accepted (changed() reads them); they are only hidden from help.
-	for _, n := range []string{"git", "branch", "dockerfile", "context", "watch-paths", "build-args", "schedule", "trigger", "timeout", "command", "files", "protocol", "health-http-path", "health-http-status", "health-http-interval", "health-http-timeout", "health-http-retries", "health-exec-cmd", "health-exec-interval", "health-exec-timeout", "health-exec-retries", "health-exec-start-period", "published-ports", "depends-on", "update-policy", "tag-policy"} {
+	for _, n := range []string{"git", "branch", "dockerfile", "context", "watch-paths", "build-args", "schedule", "trigger", "timeout", "command", "entrypoint", "files", "protocol", "health-http-path", "health-http-status", "health-http-interval", "health-http-timeout", "health-http-retries", "health-exec-cmd", "health-exec-interval", "health-exec-timeout", "health-exec-retries", "health-exec-start-period", "published-ports", "depends-on", "update-policy", "tag-policy"} {
 		_ = create.Flags().MarkHidden(n)
 	}
 	create.Flags().StringVar(&engine, "engine", "", "postgres or s3")
@@ -2342,19 +2344,64 @@ func (a *app) volumes() *cobra.Command {
 		a.volumeMoveToDisk(),
 		a.volumeCap(),
 		a.volumeDiscard(),
-		leaf("rm <volume>", "org.volumes,stack.volumes,env.volumes,volume.delete", "Delete a volume (its data is kept for the retention window, then backed up and removed)", exact(1),
-			a.at(atOrg, func(c *cobra.Command, p string, args []string) error {
-				id, name, err := a.volume(c, args[0])
-				if err != nil {
-					return err
-				}
-				if err := a.confirm("Delete volume " + name + " and the data in it? Backups already taken are kept."); err != nil {
-					return err
-				}
-				_, err = a.call(DELETE, p+"/volumes/"+id, nil)
-				return err
-			})),
+		a.volumeRm(),
+		a.volumeWipe(),
+		a.volumeRestore(),
 	), false)
+}
+
+func (a *app) volumeRm() *cobra.Command {
+	var backupFirst bool
+	c := waits(leaf("rm <volume>", "org.volumes,stack.volumes,env.volumes,volume.delete,volume.delete-backed",
+		"Delete a volume and its data now; --backup-first backs it up before it goes", exact(1),
+		a.at(atOrg, func(c *cobra.Command, p string, args []string) error {
+			id, name, err := a.volume(c, args[0])
+			if err != nil {
+				return err
+			}
+			if err := a.confirm("Delete volume " + name + " and its data now? Backups already taken are kept."); err != nil {
+				return err
+			}
+			if backupFirst {
+				return a.job(c, p, POST, p+"/volumes/"+id+"/delete", nil, "volume delete")
+			}
+			_, err = a.call(DELETE, p+"/volumes/"+id, nil)
+			return err
+		})))
+	c.Flags().BoolVar(&backupFirst, "backup-first", false, "back the volume up first; nothing is deleted if the backup fails")
+	return c
+}
+
+func (a *app) volumeWipe() *cobra.Command {
+	var stop, backupFirst bool
+	c := waits(leaf("wipe <volume>", "volume.wipe",
+		"Empty a volume's contents; the volume, its cap and its schedules stay", exact(1),
+		a.at(atOrg, func(c *cobra.Command, p string, args []string) error {
+			id, name, err := a.volume(c, args[0])
+			if err != nil {
+				return err
+			}
+			if err := a.confirm("Wipe all data in volume " + name + "? The volume itself stays."); err != nil {
+				return err
+			}
+			return a.job(c, p, POST, p+"/volumes/"+id+"/wipe",
+				map[string]bool{"stop_tiles": stop, "backup_first": backupFirst}, "volume wipe")
+		})))
+	c.Flags().BoolVar(&stop, "stop-tiles", false, "stop the tiles that mount it for the wipe, then start them again")
+	c.Flags().BoolVar(&backupFirst, "backup-first", false, "back the volume up first; nothing is wiped if the backup fails")
+	return c
+}
+
+func (a *app) volumeRestore() *cobra.Command {
+	return leaf("restore <volume>", "volume.restore", "Take an orphaned volume (one a stack file dropped) back", exact(1),
+		a.at(atOrg, func(c *cobra.Command, p string, args []string) error {
+			id, _, err := a.volume(c, args[0])
+			if err != nil {
+				return err
+			}
+			_, err = a.call(POST, p+"/volumes/"+id+"/restore-orphan", nil)
+			return err
+		}))
 }
 
 // volume finds a volume by id or slug at the linked env, stack and org, in

@@ -12,7 +12,7 @@ import (
 // opens it on click and pushes ?drawer=&tab=.
 templ Card(v CardView) {
 	<div
-		class={ Class(v.Kind), templ.KV("border-dashed opacity-70", v.Ghost) }
+		class={ Class(v.Kind), templ.KV("border-dashed opacity-70", v.Ghost), templ.KV("opacity-70", v.Faded) }
 		data-kind={ v.Kind }
 		if v.Drawer != "" {
 			hx-get={ v.Drawer }
@@ -27,8 +27,13 @@ templ Card(v CardView) {
 				<span class="shrink-0">
 					@Icon(v.Kind)
 				</span>
-				<span class="text-xs font-medium text-rw-text truncate">{ v.Name }</span>
-				<span class="text-[10px] text-rw-faint font-mono truncate ml-auto">{ v.Detail }</span>
+				<span class="text-xs font-medium text-rw-text truncate shrink-0 max-w-[65%]">{ v.Name }</span>
+				if v.NoBackup {
+					<span class="text-[10px] text-rw-faint truncate ml-auto">No backup</span>
+					<span class="text-[10px] text-rw-faint font-mono truncate">{ v.Detail }</span>
+				} else {
+					<span class="text-[10px] text-rw-faint font-mono truncate ml-auto">{ v.Detail }</span>
+				}
 			</div>
 		} else {
 			<div class="flex h-full flex-col p-3.5">
@@ -287,8 +292,13 @@ templ Subs(v CardView) {
 							@glyph(s.Kind)
 						</svg>
 					}
-					<span class="text-xs font-medium text-rw-text truncate">{ s.Label }</span>
-					<span class="text-[10px] text-rw-faint font-mono truncate ml-auto">{ s.Detail }</span>
+					<span class="text-xs font-medium text-rw-text truncate shrink-0 max-w-[65%]">{ s.Label }</span>
+					if s.NoBackup {
+						<span class="text-[10px] text-rw-faint truncate ml-auto">No backup</span>
+						<span class="text-[10px] text-rw-faint font-mono truncate">{ s.Detail }</span>
+					} else {
+						<span class="text-[10px] text-rw-faint font-mono truncate ml-auto">{ s.Detail }</span>
+					}
 				</div>
 			</div>
 		</graph-node>

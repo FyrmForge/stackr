@@ -71,7 +71,20 @@ func tileSource(t store.Tile) string {
 	if src == "" {
 		src = "git:" + t.GitURL
 	}
-	h := sha256.Sum256([]byte(src + "\x00" + t.Command))
+	// The entrypoint joins only when set, so grants made before it existed
+	// keep their fingerprint.
+	in := src + "\x00" + t.Command
+	// It is hashed in its canonical form, so a list and the same words as a
+	// string, or extra spaces, are one fingerprint.
+	if ep := t.Entrypoint; ep != "" {
+		if argv, err := splitCommand(ep); err == nil {
+			ep = JoinCommand(argv)
+		}
+		if ep != "" {
+			in += "\x00" + ep
+		}
+	}
+	h := sha256.Sum256([]byte(in))
 	return hex.EncodeToString(h[:6])
 }
 

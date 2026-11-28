@@ -22,51 +22,58 @@ import (
 // object), read as the tile's env reads them (its tier's block, or an unlocked [x] one), expanded here, so a
 // secret reaches Docker's volume opts and nothing else.
 func (f *Flow) shareBind(ctx context.Context, o store.Org, e store.Environment, st store.Stack, t store.Tile, m tile.Mount) (string, error) {
+	src, _, err := f.shareBindOf(ctx, o, e, st, t, m)
+	return src, err
+}
+
+// shareBindOf is shareBind that also returns the share, for the deploy to
+// name it when the daemon refuses the mount.
+func (f *Flow) shareBindOf(ctx context.Context, o store.Org, e store.Environment, st store.Stack, t store.Tile, m tile.Mount) (string, store.Share, error) {
 	if t.Kind == tile.Operated {
-		return "", errs.Conflictf("%s: a database on a share corrupts; give it a volume", t.Slug)
+		return "", store.Share{}, errs.Conflictf("%s: a database on a share corrupts; give it a volume", t.Slug)
 	}
 	s, err := f.Volumes.ShareBySlug(ctx, o.ID, m.Share)
 	if errors.Is(err, errs.ErrNotFound) {
-		return "", errs.Conflictf("%s mounts share %q, which this organization does not have", t.Slug, m.Share)
+		return "", store.Share{}, errs.Conflictf("%s mounts share %q, which this organization does not have", t.Slug, m.Share)
 	}
 	if err != nil {
-		return "", err
+		return "", store.Share{}, err
 	}
 	// The host mounts the share from its own network: an admin grant first,
 	// checked on the expanded line too (a param may have written it).
 	if f.HostGrants == nil {
-		return "", errs.Conflictf("%s: share mounts need the grant leaf", t.Slug)
+		return "", store.Share{}, errs.Conflictf("%s: share mounts need the grant leaf", t.Slug)
 	}
 	addr, err := f.shareAddr(ctx, s)
 	if err != nil {
-		return "", err
+		return "", store.Share{}, err
 	}
 	if err := f.HostGrants.Check(ctx, st.ID, hostgrant.Set{Lines: []string{hostgrant.Line(t.Slug, ShareGrant(s.Slug, addr))}}); err != nil {
-		return "", err
+		return "", store.Share{}, err
 	}
 	snap, err := f.ParamSnapshot(ctx, e, st, true)
 	if err != nil {
-		return "", err
+		return "", store.Share{}, err
 	}
 	for _, v := range []string{s.User, s.PasswordRef} {
 		for _, b := range params.Refs(v) {
 			if r, err := params.Parse(b); err == nil && r.Kind == params.KindParam {
-				return "", errs.Conflictf("share %s: a share login reads org.params only", s.Slug)
+				return "", store.Share{}, errs.Conflictf("share %s: a share login reads org.params only", s.Slug)
 			}
 		}
 	}
 	rr := params.NewResolver(snap)
 	user, err := rr.Expand(params.InEnv, s.User)
 	if err != nil {
-		return "", err
+		return "", store.Share{}, err
 	}
 	pass, err := rr.Expand(params.InEnv, s.PasswordRef)
 	if err != nil {
-		return "", err
+		return "", store.Share{}, err
 	}
 	name, err := f.Volumes.EnsureShare(ctx, s, m.Sub, addr, user, pass)
 	if err != nil {
-		return "", err
+		return "", store.Share{}, err
 	}
 	// nocopy: the first mount of an empty volume must not copy the image's
 	// files at the path into the share.
@@ -74,11 +81,16 @@ func (f *Flow) shareBind(ctx context.Context, o store.Org, e store.Environment, 
 	if m.RO {
 		opts = ":ro,nocopy"
 	}
-	return name + ":" + m.Path + opts, nil
+	return name + ":" + m.Path + opts, s, nil
 }
 
 // ShareGrant is the perm an approval of mounting share slug at addr holds.
 func ShareGrant(slug, addr string) string { return hostgrant.Share + slug + "@" + addr }
+
+// ShareAddr is shareAddr for callers outside the package.
+func (f *Flow) ShareAddr(ctx context.Context, s store.Share) (string, error) {
+	return f.shareAddr(ctx, s)
+}
 
 // shareAddr is the IP the node mounts for s: its source when that is an IP,
 // else the first IPv4 its name resolves to in sorted order (an IPv6 only when

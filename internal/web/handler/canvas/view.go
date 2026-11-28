@@ -202,6 +202,9 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 		Name:   n.Name,
 		Detail: n.Detail,
 		Host:   n.Host,
+
+		NoBackup: n.NoBackup,
+		Faded:    n.Orphan,
 	}
 	if p, ok := access.Strongest(g.Lines, n.Slug); ok {
 		cv.Access.Chip, cv.Access.Title = p.Chip, p.Hint()
@@ -260,6 +263,8 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 			Label:  s.Name,
 			Detail: s.Detail,
 			Status: s.Status,
+
+			NoBackup: s.NoBackup,
 		}
 		var url, tab string
 		switch s.Kind {

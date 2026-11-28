@@ -755,6 +755,39 @@ func (l *Leaf) running(ctx context.Context, ts []store.Tile) ([]string, error) {
 	return ids, nil
 }
 
+// active is every replica of ts that still holds its volumes: running,
+// paused or restarting.
+func (l *Leaf) active(ctx context.Context, ts []store.Tile) ([]docker.Container, error) {
+	var out []docker.Container
+	for _, t := range ts {
+		cs, err := l.Replicas(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range cs {
+			switch c.State {
+			case "running", "paused", "restarting":
+				out = append(out, c)
+			}
+		}
+	}
+	return out, nil
+}
+
+// AnyRunning says whether any replica of ts is running, paused or restarting:
+// all of them hold the volume.
+func (l *Leaf) AnyRunning(ctx context.Context, ts []store.Tile) (bool, error) {
+	if len(ts) == 0 {
+		return false, nil
+	}
+	ctx, err := l.atFirst(ctx, ts)
+	if err != nil {
+		return false, err
+	}
+	cs, err := l.active(ctx, ts)
+	return len(cs) > 0, err
+}
+
 // hold is one container's Freeze bookkeeping. Its own lock is held across
 // that container's Pause/Unpause, so a second Freeze of it waits for the
 // first to finish pausing, while a dead node never blocks another tile's.
@@ -877,25 +910,68 @@ func (l *Leaf) Freeze(ctx context.Context, ts []store.Tile) (thaw func(), err er
 // Quiesce stops every running replica of ts and waits for each to exit (a
 // stop that returns early gives a torn tar); resume starts them again.
 func (l *Leaf) Quiesce(ctx context.Context, ts []store.Tile) (resume func(), err error) {
-	if ctx, err = l.atFirst(ctx, ts); err != nil {
-		return nil, err
-	}
-	ids, err := l.running(ctx, ts)
+	r, err := l.quiesce(ctx, ts, false)
 	if err != nil {
 		return nil, err
 	}
-	var done []string
-	resume = func() {
-		for _, id := range done {
-			_ = l.docker.Start(context.WithoutCancel(ctx), id)
+	return func() { _ = r() }, nil
+}
+
+// QuiesceChecked is Quiesce whose resume reports the replicas that did not
+// start again, so a caller can tell the user. It also stops restarting
+// replicas (they hold the volume too); a paused one is a backup's, so it
+// refuses.
+func (l *Leaf) QuiesceChecked(ctx context.Context, ts []store.Tile) (resume func() error, err error) {
+	return l.quiesce(ctx, ts, true)
+}
+
+func (l *Leaf) quiesce(ctx context.Context, ts []store.Tile, all bool) (resume func() error, err error) {
+	if ctx, err = l.atFirst(ctx, ts); err != nil {
+		return nil, err
+	}
+	var cs []docker.Container
+	if all {
+		cs, err = l.active(ctx, ts)
+	} else {
+		var ids []string
+		if ids, err = l.running(ctx, ts); err == nil {
+			for _, id := range ids {
+				cs = append(cs, docker.Container{ID: id, State: "running"})
+			}
 		}
 	}
-	for _, id := range ids {
-		if err := l.docker.Stop(ctx, id); err != nil {
-			resume()
-			return nil, fmt.Errorf("stopping %s: %w", id, err)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range cs {
+		// A backup holds its replica paused while it reads the volume:
+		// stopping it now would tear the backup.
+		if c.State == "paused" {
+			name := c.Name
+			for _, t := range ts {
+				if t.ID == c.Labels[LabelTile] {
+					name = t.Slug
+				}
+			}
+			return nil, errs.Conflictf("%s is paused by a backup. Try again when it is done.", name)
 		}
-		done = append(done, id)
+	}
+	var done []string
+	resume = func() error {
+		var failed []error
+		for _, id := range done {
+			if err := l.docker.Start(context.WithoutCancel(ctx), id); err != nil {
+				failed = append(failed, fmt.Errorf("starting %s: %w", id, err))
+			}
+		}
+		return errors.Join(failed...)
+	}
+	for _, c := range cs {
+		if err := l.docker.Stop(ctx, c.ID); err != nil {
+			rerr := resume()
+			return nil, errors.Join(fmt.Errorf("stopping %s: %w", c.ID, err), rerr)
+		}
+		done = append(done, c.ID)
 	}
 	return resume, nil
 }

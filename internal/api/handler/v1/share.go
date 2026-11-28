@@ -5,6 +5,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 )
 
@@ -67,6 +68,14 @@ func (h *H) CreateShare() Endpoint {
 			PasswordRef: in.PasswordRef,
 		})
 		return shareOut(s), err
+	})
+}
+
+// TestShare mounts the share once, read-only, and answers whether it can be
+// read: 200 with ok false for an unreadable one, refusals are errors.
+func (h *H) TestShare() Endpoint {
+	return Get(func(c echo.Context) (service.ShareTest, error) {
+		return h.Orch.TestShare(rc(c), middleware.Principal(c), orgID(c), c.Param("share"))
 	})
 }
 

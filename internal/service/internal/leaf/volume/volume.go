@@ -2,11 +2,14 @@
 // scoped (env, or the scope of the operated instance that owns it) and is
 // never removed by a deploy, rollback, promote or tile delete. It is orphaned
 // (row and data stay) when its entry leaves the stack file or its instance
-// goes; declaring the same slug again re-adopts it. Only an explicit Delete
-// removes data.
+// goes; declaring the same slug again, or Restore, takes it back. A delete
+// from the panel, API or CLI removes row and data at once; an orphan's data
+// goes with the orphan job after the retention window.
 package volume
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -171,7 +174,7 @@ func (l *Leaf) Declare(
 		return v, false, err
 	}
 	adopted = v.OrphanedAt != nil
-	v.OrphanedAt, v.InstanceID = nil, instanceID
+	v.OrphanedAt, v.InstanceID, v.FromInstance = nil, instanceID, false
 	return v, adopted, l.volumes.Update(ctx, v)
 }
 
@@ -185,6 +188,18 @@ func (l *Leaf) Ensure(ctx context.Context, v store.Volume) (string, error) {
 	return v.Name, l.EnsureNamed(ctx, node, v.Name, map[string]string{"stackr.volume": v.ID})
 }
 
+// OldCopy is whether an orphaned volume is a disk move's old copy, held until
+// the deploy proves the new one, or released to the orphan job after it. A
+// move names the row after the moved volume plus its own id's first 8
+// characters (and holds it at year 9999), a mark no stack-file removal
+// carries. No column: the name rule is the record.
+func OldCopy(v store.Volume) bool {
+	if v.OrphanedAt == nil {
+		return false
+	}
+	return v.OrphanedAt.Year() >= 9999 || (len(v.ID) >= 8 && strings.HasSuffix(v.Slug, "-"+v.ID[:8]))
+}
+
 // Orphan flags the volume; row and data stay. Idempotent: the first
 // timestamp is the one retention counts from.
 func (l *Leaf) Orphan(ctx context.Context, v store.Volume) (store.Volume, error) {
@@ -193,6 +208,7 @@ func (l *Leaf) Orphan(ctx context.Context, v store.Volume) (store.Volume, error)
 	}
 	now := time.Now().UTC()
 	v.OrphanedAt = &now
+	v.FromInstance = v.FromInstance || v.InstanceID != nil
 	return v, l.volumes.Update(ctx, v)
 }
 
@@ -266,16 +282,27 @@ func (l *Leaf) Delete(ctx context.Context, v store.Volume, mountedBy []string) e
 	return l.volumes.Delete(ctx, v.ID)
 }
 
-// Retire is the user's delete: the volume leaves its scope as an orphan, its
-// data kept for the retention window and backed up once before the orphan job
-// removes it (flow/backup Orphans), so its runs stay restorable. mountedBy
-// are the tiles whose volumes lines still name it.
-func (l *Leaf) Retire(ctx context.Context, v store.Volume, mountedBy []string) error {
-	if err := detached(mountedBy); err != nil {
-		return err
+// DeleteOrphan is Delete for the orphan job: the row goes first, and only
+// while it is still orphaned since v.OrphanedAt, so a Restore that lands
+// meanwhile keeps the volume and its data (false). When the data cannot be
+// removed the row is put back so the next run retries.
+func (l *Leaf) DeleteOrphan(ctx context.Context, v store.Volume) (bool, error) {
+	if v.OrphanedAt == nil {
+		return false, nil
 	}
-	_, err := l.Orphan(ctx, v)
-	return err
+	ctx, node, err := l.at(ctx, v)
+	if err != nil {
+		return false, err
+	}
+	ok, err := l.volumes.DeleteIfOrphaned(ctx, v.ID, *v.OrphanedAt)
+	if err != nil || !ok {
+		return false, err
+	}
+	if err := l.RemoveNamed(ctx, node, v.Name); err != nil {
+		_ = l.volumes.Create(context.WithoutCancel(ctx), v)
+		return true, err
+	}
+	return true, nil
 }
 
 // DeleteRow is Delete for a volume whose node is gone: the row only. The
@@ -286,6 +313,10 @@ func (l *Leaf) DeleteRow(ctx context.Context, v store.Volume, mountedBy []string
 	}
 	return l.volumes.Delete(ctx, v.ID)
 }
+
+// CheckDetached is the refusal a delete gets while tiles still mount the
+// volume; the service asks it before it queues anything.
+func CheckDetached(mountedBy []string) error { return detached(mountedBy) }
 
 func detached(mountedBy []string) error {
 	if len(mountedBy) > 0 {
@@ -457,6 +488,26 @@ func (l *Leaf) Untar(ctx context.Context, v store.Volume, src io.Reader) error {
 		return err
 	}
 	return l.docker.UntarVolume(ctx, v.Name, src)
+}
+
+// Wipe empties the volume and keeps it: its row, mounts, cap and Docker
+// object stay. Same container, node and disk folder as Untar.
+// ponytail: an empty archive through the restore container; a WipeVolume on the Docker interface if busybox tar ever refuses it
+func (l *Leaf) Wipe(ctx context.Context, v store.Volume) error {
+	var b bytes.Buffer
+	zw := gzip.NewWriter(&b)
+	_, _ = zw.Write(make([]byte, 1024)) // the two zero blocks that end a tar
+	if err := zw.Close(); err != nil {
+		return err
+	}
+	return l.Untar(ctx, v, &b)
+}
+
+// Restore takes an orphan back: it is live again with its data. Re-declaring
+// the same slug does the same.
+func (l *Leaf) Restore(ctx context.Context, v store.Volume) (store.Volume, error) {
+	v.OrphanedAt = nil
+	return v, l.volumes.Update(ctx, v)
 }
 
 // ensureOnDisk is at, plus EnsureNamed when the node has a disk row (or the

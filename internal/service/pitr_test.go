@@ -15,7 +15,7 @@ import (
 )
 
 // bases is ss's base schedules: a dump schedule can land beside them at any
-// moment (the backup watch adds one to an unscheduled volume).
+// moment.
 func bases(ss []BackupSchedule) []BackupSchedule {
 	var out []BackupSchedule
 	for _, s := range ss {
@@ -38,7 +38,7 @@ func methodsOf(ss []BackupSchedule) []string {
 // A new postgres instance archives (7 days) when its org can see an off-box
 // destination, the daily dump's own rule; with only the local disk it does
 // not. Deploying it declares the archive volume, which gets no backup of its
-// own; the data volume gets the weekly base next to the daily dump.
+// own; the data volume gets the weekly base and no dump.
 func TestNewInstanceDefaultsToPITRWithAnOffBoxDestination(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -64,7 +64,7 @@ func TestNewInstanceDefaultsToPITRWithAnOffBoxDestination(t *testing.T) {
 	}
 	data, err := w.orch.dataVolume(ctx, pg)
 	must(t, err)
-	if ss, _ := w.orch.BackupSchedules(ctx, data.ID); !slices.Equal(methodsOf(ss), []string{"base", "dump"}) {
+	if ss, _ := w.orch.BackupSchedules(ctx, data.ID); !slices.Equal(methodsOf(ss), []string{"base"}) {
 		t.Errorf("data volume schedules = %v", methodsOf(ss))
 	}
 	vs, _ := w.orch.Volumes(ctx, volume.Scope{Kind: "env", ID: w.env})

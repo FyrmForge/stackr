@@ -559,6 +559,7 @@ func (f *Flow) rollout(
 		logf(log, "starting %s\n", s.Name)
 		id, err := f.Tiles.Start(ctx, t, s, log)
 		if err != nil {
+			err = r.shareDenied(err, log)
 			// Whatever ran before keeps running (overlap), and no half set of
 			// new replicas is left behind.
 			for _, id := range started {
@@ -629,6 +630,7 @@ func (f *Flow) stopFirst(
 	}
 	logf(log, "starting %s\n", s.Name)
 	if err := f.Tiles.Launch(ctx, t, id, log); err != nil {
+		err = r.shareDenied(err, log)
 		f.revive(ctx, t, e, stopped, "", log)
 		return err
 	}
@@ -812,7 +814,14 @@ func (f *Flow) resolve(
 		var src string
 		switch m.Kind {
 		case tile.MountShare:
-			src, err = f.shareBind(ctx, o, e, st, t, m)
+			var sh store.Share
+			src, sh, err = f.shareBindOf(ctx, o, e, st, t, m)
+			if err == nil {
+				if r.shareVols == nil {
+					r.shareVols = map[string]store.Share{}
+				}
+				r.shareVols[strings.SplitN(src, ":", 2)[0]] = sh
+			}
 		case tile.MountHost:
 			src, err = f.hostBind(ctx, st, t, m)
 		default:
@@ -836,6 +845,13 @@ func (f *Flow) resolve(
 			return r, err
 		}
 		if r.cmd, err = splitCommand(c); err != nil {
+			return r, err
+		}
+	}
+
+	// The entrypoint is literal: no param refs (refused at save).
+	if strings.TrimSpace(t.Entrypoint) != "" {
+		if r.entrypoint, err = splitCommand(t.Entrypoint); err != nil {
 			return r, err
 		}
 	}

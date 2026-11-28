@@ -1,0 +1,55 @@
+package volume
+
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// WipeConfirm is the typed confirm of Wipe contents: the volume's name, the
+// two switches (they post as stop and backup when ticked).
+func WipeConfirm(v View, d Data) c.ConfirmView {
+	return c.ConfirmView{
+		Button:  "Wipe contents",
+		Title:   "Wipe " + v.Name + "?",
+		Warning: "Its data is deleted. The volume stays.",
+		Kept:    []string{"the volume, its mounts and its size cap", "its backup schedules and backups"},
+		Word:    v.Name,
+		Action:  v.Base + "/wipe",
+		Target:  "#" + Root,
+		Body:    dataSwitches(d, true, "vol-wipe-"+v.Name),
+		Include: "input[type=checkbox]",
+	}
+}
+
+// DeleteConfirm is the typed confirm of Delete volume: only Back up first.
+// dest names where it backs up ("" = no switch). An opener elsewhere (the env
+// Settings row) sets Button, Quiet, Label and Vals itself.
+func DeleteConfirm(name, action, target, dest string) c.ConfirmView {
+	return c.ConfirmView{
+		Button:  "Delete volume",
+		Title:   "Delete volume?",
+		Warning: "Its data is deleted at once.",
+		Kept:    []string{"backups already in a destination"},
+		Word:    name,
+		Action:  action,
+		Target:  target,
+		Body:    dataSwitches(Data{Dest: dest}, false, "vol-delete-"+name),
+		Include: "input[type=checkbox]",
+	}
+}
+
+// dataSwitches are the dialog's ticks. Each hint is wired to its box.
+// id makes the hint ids unique: the drawer and the env row hold several of them.
+templ dataSwitches(d Data, stop bool, id string) {
+	if stop {
+		<div class="space-y-1">
+			<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="stop" value="on" class="accent-rw-accent" aria-describedby={ id + "-stop-hint" }/> Stop tiles using it</label>
+			<p id={ id + "-stop-hint" } class="text-xs text-rw-muted">They start again afterwards.</p>
+		</div>
+	}
+	if d.Dest != "" {
+		<div class="space-y-1">
+			<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="backup" value="on" class="accent-rw-accent" aria-describedby={ id + "-backup-hint" }/> Back up first</label>
+			<p id={ id + "-backup-hint" } class="text-xs text-rw-muted">{ "Backs up to " + d.Dest + " first." }</p>
+		</div>
+	}
+}

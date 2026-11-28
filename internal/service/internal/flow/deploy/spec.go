@@ -21,8 +21,10 @@ type resolved struct {
 	ref         string // the reference asked for, before any import or pin
 	pinRef      string // repo@digest of image when known; "" = image itself
 	env, binds  []string
-	mounts      []docker.Mount // the files: volume, by subpath
+	mounts      []docker.Mount         // the files: volume, by subpath
+	shareVols   map[string]store.Share // docker volume name to its share, for the mount-denied text
 	cmd         []string
+	entrypoint  []string
 	ports       map[string]string
 	devices     []docker.Device
 	privileged  bool // t.Privileged and the stack's grant says so
@@ -42,6 +44,7 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		Name:               r.name,
 		Image:              r.image,
 		Cmd:                r.cmd,
+		Entrypoint:         r.entrypoint,
 		Env:                r.env,
 		Volumes:            r.binds,
 		Mounts:             r.mounts,
@@ -119,6 +122,26 @@ func publishedPorts(s string) (map[string]string, []string) {
 		out[host] = cont
 	}
 	return out, warn
+}
+
+// SplitCommand is splitCommand for callers outside the package.
+func SplitCommand(s string) ([]string, error) { return splitCommand(s) }
+
+// JoinCommand is the inverse of SplitCommand: an element is quoted only when
+// it is empty or holds whitespace, a quote or a backslash.
+func JoinCommand(argv []string) string {
+	parts := make([]string, len(argv))
+	for i, a := range argv {
+		switch {
+		case a != "" && !strings.ContainsAny(a, " \t\n'\"\\"):
+			parts[i] = a
+		case !strings.Contains(a, "'"):
+			parts[i] = "'" + a + "'"
+		default:
+			parts[i] = `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(a) + `"`
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // splitCommand tokenizes a command into argv like a shell word-splits, with

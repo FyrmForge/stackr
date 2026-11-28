@@ -40,7 +40,7 @@ func tileWithDomains(now time.Time) []stmt {
 		{`INSERT INTO domain_resources VALUES ('dr0','instance',NULL,NULL,'example.com',0,'',0,?)`, []any{now}},
 		{`INSERT INTO domain_resources VALUES ('dr1','org','o1',NULL,'acme.example.com',0,'',1,?)`, []any{now}},
 		{`INSERT INTO domain_resources VALUES ('dr2','stack',NULL,'s1','shop.io',0,'',1,?)`, []any{now}},
-		{`INSERT INTO tiles VALUES ('t1','s1','e1','api','api','image','','','nginx:1','','','','{}','','','',80,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,NULL,NULL,NULL,'[]',?,?,'',0,NULL,NULL,NULL,NULL,'[]',NULL,'[]',0,0,0,0)`, []any{now, now}},
+		{`INSERT INTO tiles VALUES ('t1','s1','e1','api','api','image','','','nginx:1','','','','{}','','','',80,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,NULL,NULL,NULL,'[]',?,?,'',0,NULL,NULL,NULL,NULL,'[]',NULL,'[]',0,0,0,0,'')`, []any{now, now}},
 		{`INSERT INTO domains VALUES ('dm1','t1','api.shop.io','/',80,1,0,'',1,'dr2',0,'{}','',?,'[]')`, []any{now}},
 		{`INSERT INTO domains VALUES ('dm2','t1','api.shop.acme.example.com','/',80,1,0,'',1,'dr1',1,'{}','',?,'[]')`, []any{now}},
 	}
@@ -66,7 +66,7 @@ func TestOrgDeleteCascades(t *testing.T) {
 		{`INSERT INTO params VALUES ('p4','tier','ti1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
 		{`INSERT INTO params VALUES ('p5','org_pr','o1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
 		{`INSERT INTO params VALUES ('p6','stack_pr','s1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
-		{`INSERT INTO volumes VALUES ('v1','env','e1',NULL,'pgdata','vol',NULL,?,'',NULL)`, []any{now}},
+		{`INSERT INTO volumes VALUES ('v1','env','e1',NULL,'pgdata','vol',NULL,?,'',NULL,0)`, []any{now}},
 		{`INSERT INTO positions VALUES ('org','o1','stack:s1',0,0), ('stack','s1','env:e1',0,0), ('env','e1','tile:api',0,0)`, nil},
 		{`INSERT INTO annotations VALUES ('a1','org','o1','note',0,0,160,60,'hi',?), ('a2','env','e1','box',0,0,90,90,'',?)`, []any{now, now}},
 		{`INSERT INTO credentials VALUES ('c1','o1','hub','https://r','u','enc1:x',?)`, []any{now}},
@@ -183,7 +183,7 @@ func TestDomainResourceGuards(t *testing.T) {
 // slice columns (nil = NULL); on_remove is NULL.
 func tileRow(id, kind string, from, access any, now time.Time) stmt {
 	return stmt{
-		`INSERT INTO tiles VALUES (?,'s1','e1',?,?,?,'','','','','','','{}','','','',0,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,?,?,NULL,'[]',?,?,'',0,NULL,NULL,NULL,NULL,'[]',NULL,'[]',0,0,0,0)`,
+		`INSERT INTO tiles VALUES (?,'s1','e1',?,?,?,'','','','','','','{}','','','',0,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,?,?,NULL,'[]',?,?,'',0,NULL,NULL,NULL,NULL,'[]',NULL,'[]',0,0,0,0,'')`,
 		[]any{id, id, id, kind, from, access, now, now},
 	}
 }
