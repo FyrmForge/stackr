@@ -50,6 +50,9 @@ func TestHealthTest(t *testing.T) {
 		{"do x", shell("do x")},
 		{"command -v x", shell("command -v x")},
 		{"printf x", shell("printf x")},
+		{"pwd", shell("pwd")},
+		{"/app/check.sh", shell("/app/check.sh")},
+		{"check.sh -v", shell("check.sh -v")},
 		{"/usr/bin/test -f /x", []string{"CMD", "/usr/bin/test", "-f", "/x"}},
 	} {
 		if got := healthTest(tc.cmd); !slices.Equal(got, tc.want) {

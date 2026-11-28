@@ -415,7 +415,7 @@ var (
 	// name runs when exec'd.
 	shellFirst = []string{":", ".", "true", "false", "echo", "test", "[", "printf", "cd", "exit", "exec", "kill",
 		"wait", "set", "export", "eval", "source", "read", "trap", "ulimit", "umask", "alias", "command", "type",
-		"if", "for", "while", "case", "until", "do", "then"}
+		"if", "for", "while", "case", "until", "do", "then", "pwd", "unset", "hash", "times", "shift", "return", "time"}
 )
 
 // healthTest is the HEALTHCHECK test for cmd: CMD (argv, no shell in the
@@ -431,7 +431,8 @@ func healthTest(cmd string) []string {
 			return []string{"CMD-SHELL", cmd}
 		}
 	}
-	if strings.Contains(words[0], "=") || slices.Contains(shellFirst, words[0]) {
+	// a script with no shebang fails exec, a shell runs it
+	if strings.Contains(words[0], "=") || slices.Contains(shellFirst, words[0]) || strings.HasSuffix(words[0], ".sh") {
 		return []string{"CMD-SHELL", cmd}
 	}
 	return append([]string{"CMD"}, words...)
