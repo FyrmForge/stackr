@@ -558,13 +558,24 @@ func EnvURL(c echo.Context) string {
 // jobKindLabel is a job kind as the status line says it: disk.add,
 // disk.check, disk.forget, disk.adopt, disk.add_device, disk.grow, volume.to_disk.
 func jobKindLabel(k string) string {
-	if k == "volume-to-disk" {
+	switch k {
+	case "volume-to-disk":
 		return "volume.to_disk"
+	case "volume-wipe", "volume-delete":
+		return strings.Replace(k, "-", ".", 1)
 	}
 	if rest, ok := strings.CutPrefix(k, "disk-"); ok {
 		return "disk." + strings.ReplaceAll(rest, "-", "_")
 	}
 	return k
+}
+
+// DestName is a backup destination as a sentence names it.
+func DestName(d service.BackupDest) string {
+	if d.Kind == "local" {
+		return "the local disk"
+	}
+	return d.Name
 }
 
 // JobView is a job's status line; page is the path its job stream hangs

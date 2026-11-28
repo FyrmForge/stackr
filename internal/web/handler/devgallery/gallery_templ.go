@@ -231,7 +231,7 @@ func gallery() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.VolumeCard(c.VolumeCardView{Name: "old-cache", Href: "/dev/components", Size: "80 MB", Orphaned: true}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.VolumeCard(c.VolumeCardView{Name: "old-cache", Href: "/dev/components", Size: "80 MB", RemovedOn: "02-01"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -38,6 +38,9 @@ type CardView struct {
 	Sync  string // env sync review: new | edited | removed; "" = none
 	Ghost bool   // a tile the sync would add: dashed, no drawer, nothing running
 
+	NoBackup bool // a volume with no schedule: the strip says so
+	Faded    bool // a removed volume: drawn faded
+
 	Footer FooterView
 	Subs   []SubView // attached volumes, replicas 2 to 4
 }
@@ -96,6 +99,8 @@ type SubView struct {
 	Status string // replica state: the dot
 	Drawer string
 	Tab    string
+
+	NoBackup bool // a volume with no schedule
 }
 
 // Lane is one traffic direction at the last sample (the Traffic verb's

@@ -297,8 +297,12 @@ func volumeRows(env string, vs []service.Volume) []ui.VolumeRow {
 	var out []ui.VolumeRow
 	for _, x := range vs {
 		state := "in use"
-		if x.OrphanedAt != nil {
+		switch {
+		case x.OrphanedAt == nil:
+		case service.OldCopyHeld(*x.OrphanedAt):
 			state = "orphaned"
+		default:
+			state = "removed on " + x.OrphanedAt.Format("02-01")
 		}
 		out = append(out, ui.VolumeRow{
 			ID:     x.ID,

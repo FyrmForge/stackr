@@ -71,7 +71,7 @@ func TestEnvVolumesRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec = s.Do(t, "POST", remove, url.Values{"open": {"volumes"}})
-	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "data is kept") || !strings.Contains(b, "None</span>") {
+	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "Volume deleted.") || !strings.Contains(b, "None</span>") {
 		t.Errorf("remove = %d\n%s", rec.Code, b)
 	}
 }

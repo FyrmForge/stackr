@@ -110,6 +110,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/volumes/:volume/schedules/:schedule/delete", h.DeleteSchedule, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/restore", h.Restore, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/delete", h.DeleteVolume, a.Require("tile.write"))
+	g.POST(e+"/volumes/:volume/wipe", h.WipeVolume, a.Require("tile.write"))
+	g.POST(e+"/volumes/:volume/restore-volume", h.RestoreVolume, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/cap/stage", h.CapStage, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/cap", h.SetCap, a.Require("tile.write"))
 	g.POST(e+"/volumes/:volume/move/plan", h.MoveToDiskPlan, a.Require("tile.write"))
@@ -1580,14 +1582,6 @@ func (h *handler) DeleteSchedule(c echo.Context) error {
 	return h.volume(c, "backups", "schedule deleted", h.orch.DeleteBackupSchedule(ctx, c.Param("schedule")))
 }
 
-func (h *handler) DeleteVolume(c echo.Context) error {
-	_, err := h.orch.DeleteVolume(c.Request().Context(), c.Param("volume"), false)
-	if err == nil {
-		return respond.HTML(c, http.StatusOK, volume.Deleted())
-	}
-	return h.volume(c, "settings", "", err)
-}
-
 // volume is the volume drawer on tab.
 func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 	msg, status, fail := refused(actErr)
@@ -1596,6 +1590,9 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 	}
 	ctx, s := c.Request().Context(), scope(c)
 	vol, err := h.orch.Volume(ctx, c.Param("volume"))
+	if errors.Is(err, errs.ErrNotFound) && c.Request().Header.Get("HX-Request") != "" {
+		return volumeGone(c) // a delete job finished under an open drawer
+	}
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
@@ -1634,13 +1631,28 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		body = volume.Settings(v, blocked(vol, ms), h.capCard(c, vol, h.storage(c, vol.ID), enforced))
+		d, err := h.volumeData(c, vol, b.Base)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		body = volume.Settings(v, blocked(vol, ms), h.capCard(c, vol, h.storage(c, vol.ID), enforced), d)
 	default:
 		o := volume.OverviewView{
-			Docker:   vol.Name,
-			Created:  vol.CreatedAt,
-			Orphaned: when(vol.OrphanedAt),
-			OldCopy:  vol.OrphanedAt != nil && service.OldCopyHeld(*vol.OrphanedAt),
+			Docker:  vol.Name,
+			Created: vol.CreatedAt,
+			OldCopy: vol.OrphanedAt != nil && service.OldCopyHeld(*vol.OrphanedAt),
+		}
+		if o.Removal, err = h.removal(c, vol, b.Base); err != nil {
+			return middleware.HTTPError(err)
+		}
+		if vol.OrphanedAt == nil && !service.IsArchiveVolume(vol) {
+			o.Backup = &volume.BackupFact{Words: "No backup", None: true, Setup: b.Base + "?tab=backups"}
+			if n := len(b.Schedules); n > 0 {
+				o.Backup = &volume.BackupFact{Words: volume.Runs(b.Schedules[0].Cron)}
+				if n > 1 {
+					o.Backup.Words += " and " + strconv.Itoa(n-1) + " more"
+				}
+			}
 		}
 		o.Mounts, err = h.mounts(c, vol.Slug)
 		if err != nil {
@@ -1653,6 +1665,9 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 		}
 		o.Cap = h.capFact(c, vol, o.Storage, enforced)
 		if err := h.diskScreens(c, vol, &o); err != nil {
+			return middleware.HTTPError(err)
+		}
+		if err := h.dataJob(c, vol.ID, &o); err != nil {
 			return middleware.HTTPError(err)
 		}
 		body = volume.Overview(o)
@@ -1699,7 +1714,7 @@ func polls(c echo.Context, note, msg string) int {
 // blocked is why a volume cannot be deleted now; "" = it can.
 func blocked(vol service.Volume, ms []volume.Mount) string {
 	if vol.InstanceID != nil {
-		return "Its operated instance owns it. Deleting the instance orphans it; then it can go."
+		return "Its operated instance owns it. It goes when the instance does."
 	}
 	if len(ms) > 0 {
 		return "Detach before deleting: " + ms[0].Tile + " mounts it. The mount lives in that tile's settings."

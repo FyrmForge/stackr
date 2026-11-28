@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/disk"
@@ -332,4 +333,18 @@ func (o *Orchestrator) TileVolumes(ctx context.Context, tileID string) ([]Volume
 		}
 	}
 	return out, nil
+}
+
+// OrphanGoesOn is the day a removed volume's data is deleted: its removal
+// plus orphan_retention_days. Zero for a volume that is not removed or is a
+// move's old copy (it goes when the move ends).
+func (o *Orchestrator) OrphanGoesOn(ctx context.Context, v Volume) (time.Time, error) {
+	if v.OrphanedAt == nil || OldCopyHeld(*v.OrphanedAt) {
+		return time.Time{}, nil
+	}
+	days, err := o.settings.Int(ctx, "orphan_retention_days")
+	if err != nil {
+		return time.Time{}, err
+	}
+	return v.OrphanedAt.AddDate(0, 0, days), nil
 }

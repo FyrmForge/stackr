@@ -214,3 +214,22 @@ func TestPausedWord(t *testing.T) {
 		t.Fatalf("%q %q", tone, text)
 	}
 }
+
+// A volume with no schedule says so, on its card and on its sub-tile; a
+// removed one is drawn faded.
+func TestVolumeNoBackupAndFaded(t *testing.T) {
+	out := render(t, Card(CardView{ID: "v1", Kind: "volume", Name: "uploads", Detail: "Removed on 02-01", NoBackup: true, Faded: true}))
+	for _, w := range []string{"No backup", "Removed on 02-01", "opacity-70"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("card lacks %q\n%s", w, out)
+		}
+	}
+	plain := render(t, Card(CardView{ID: "v1", Kind: "volume", Name: "uploads", Detail: "detached"}))
+	if strings.Contains(plain, "No backup") || strings.Contains(plain, "opacity-70") {
+		t.Errorf("a scheduled volume reads no backup or faded\n%s", plain)
+	}
+	sub := render(t, Subs(CardView{Subs: []SubView{{ID: "v1", Kind: "volume", Label: "uploads", Detail: "/data", NoBackup: true}}}))
+	if !strings.Contains(sub, "No backup") || !strings.Contains(sub, "/data") {
+		t.Errorf("sub-tile\n%s", sub)
+	}
+}

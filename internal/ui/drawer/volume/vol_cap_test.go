@@ -87,7 +87,7 @@ func TestCapCardStates(t *testing.T) {
 
 // The Settings tab shows the cap above the delete.
 func TestSettingsCarriesTheCap(t *testing.T) {
-	out := renderT(t, Settings(View{Name: "uploads", Base: "/v"}, "", &CapCard{Mode: "read", Value: "20 GB", Can: true, Base: "/v"}))
+	out := renderT(t, Settings(View{Name: "uploads", Base: "/v"}, "", &CapCard{Mode: "read", Value: "20 GB", Can: true, Base: "/v"}, Data{Delete: true}))
 	i, j := strings.Index(out, "Size cap"), strings.Index(out, "Delete volume")
 	if i < 0 || j < 0 || i > j {
 		t.Errorf("the cap is not above the delete\n%s", out)
@@ -97,10 +97,10 @@ func TestSettingsCarriesTheCap(t *testing.T) {
 // "Cap not applied yet." is a note of the read card: it must leave by itself, so the read
 // card polls; an edit or a staged change is never swapped away under the person.
 func TestSettingsPollsOnlyInReadMode(t *testing.T) {
-	read := renderT(t, Settings(View{Name: "uploads", Base: "/v"}, "", &CapCard{Mode: "read", Value: "20 GB", Can: true, Base: "/v", Note: "Cap not applied yet."}))
+	read := renderT(t, Settings(View{Name: "uploads", Base: "/v"}, "", &CapCard{Mode: "read", Value: "20 GB", Can: true, Base: "/v", Note: "Cap not applied yet."}, Data{Delete: true}))
 	wantAll(t, "poll", read, "data-live-tab", `hx-get="/v?tab=settings"`, "Cap not applied yet.")
 	for _, mode := range []string{"edit", "pending"} {
-		out := renderT(t, Settings(View{Name: "uploads", Base: "/v"}, "", &CapCard{Mode: mode, Value: "20 GB", Can: true, Base: "/v"}))
+		out := renderT(t, Settings(View{Name: "uploads", Base: "/v"}, "", &CapCard{Mode: mode, Value: "20 GB", Can: true, Base: "/v"}, Data{Delete: true}))
 		if strings.Contains(out, "data-live-tab") {
 			t.Errorf("%s mode polls:\n%s", mode, out)
 		}

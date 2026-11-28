@@ -38,8 +38,7 @@ import (
 )
 
 type Flow struct {
-	// NoBackup marks live, non-archive volumes with no schedule; nil = none
-	// asked. ponytail: declared in wave 0, wired later.
+	// NoBackup marks live, non-archive volumes with no schedule; nil = none asked.
 	NoBackup func(ctx context.Context, vs []store.Volume) map[string]bool
 	Orgs     *org.Leaf
 	Stacks   *stack.Leaf
@@ -180,6 +179,10 @@ type Node struct {
 	// Vars card counts; never a value.
 	Params, Secrets int
 	Consumers       int // slice: the tiles that ref it, name it in slice_access or hold a cred on it
+
+	// Volume card facts.
+	NoBackup bool // live volume with no schedule
+	Orphan   bool // removed by a stack file or a move: drawn faded
 }
 
 // note puts the stack's build in flight, or else the value a parked job
@@ -208,7 +211,10 @@ func (f *Flow) note(ctx context.Context, n *Node, stackID string) {
 
 // Sub is a sub-tile (an attached volume, a replica); Detail is the strip's
 // right-hand word.
-type Sub struct{ ID, Kind, Name, Status, Detail string }
+type Sub struct {
+	ID, Kind, Name, Status, Detail string
+	NoBackup                       bool // a volume with no schedule
+}
 
 type Edge struct{ Kind, From, To string }
 
@@ -1035,6 +1041,10 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	for _, vol := range vs {
 		vols[vol.Slug] = vol.ID
 	}
+	var noBackup map[string]bool // nil = unknown, reads as "has one"
+	if f.NoBackup != nil {
+		noBackup = f.NoBackup(ctx, vs)
+	}
 
 	mounted := map[string]bool{}
 	proxied := false
@@ -1138,15 +1148,29 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		}
 		n := card(vol.ID, KindVolume, vol.Slug)
 		n.Slug, n.H, n.Detail = vol.Slug, ShortH, "detached"
-		if vol.OrphanedAt != nil {
-			n.Detail = "orphaned"
+		n.NoBackup = noBackup[vol.ID]
+		switch {
+		case vol.OrphanedAt == nil:
+		case vol.OrphanedAt.Year() >= 9999: // a move's old copy (service moveHold): no date
+			n.Detail, n.Orphan = "orphaned", true
+		default:
+			n.Detail, n.Orphan = "Removed on "+vol.OrphanedAt.Format("02-01"), true
 		}
-		if f.Volumes.OnDisk(ctx, vol) {
-			n.Detail += " · node disk"
-		} else {
-			n.Detail += " · Docker storage"
+		if !n.Orphan {
+			if f.Volumes.OnDisk(ctx, vol) {
+				n.Detail += " · node disk"
+			} else {
+				n.Detail += " · Docker storage"
+			}
 		}
 		v.Nodes = append(v.Nodes, n)
+	}
+	for i := range v.Nodes {
+		for j, s := range v.Nodes[i].Subs {
+			if s.Kind == KindVolume {
+				v.Nodes[i].Subs[j].NoBackup = noBackup[s.ID]
+			}
+		}
 	}
 
 	// The system column: the proxy when anything is proxied, the internet
