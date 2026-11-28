@@ -240,8 +240,17 @@ func (s *Server) refreshDisk(ctx context.Context, e *diskEntry) {
 }
 
 // devGone reports whether the block device major:minor left the host's sysfs.
+// With no readable sys/dev/block (the panel container has no host sysfs bind)
+// it answers false: erroring, never missing.
 func devGone(root, dev string) bool {
-	_, err := os.Stat(filepath.Join(root, "sys/dev/block", dev))
+	if root == "" {
+		root = "/"
+	}
+	dir := filepath.Join(root, "sys/dev/block")
+	if _, err := os.Lstat(dir); err != nil {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(dir, dev))
 	return errors.Is(err, fs.ErrNotExist)
 }
 
@@ -299,8 +308,12 @@ func (s *Server) diskFacts(f *Facts) {
 		}
 		// A read stuck in the kernel for 3 intervals is a dead disk, not a stale
 		// cache: report it erroring so the controller's latch can fire.
-		if e.running && now.Sub(e.started) > 3*s.diskEvery {
-			d.IOErr, d.ReadAt = true, now
+		// Only a disk with a device: a path or network disk (a hard-mounted NFS
+		// outage hangs reads) stays stale. ReadAt advances once per interval so
+		// the controller's distinct-reads debounce still counts.
+		if e.running && r.Device != "" && !d.Network && now.Sub(e.started) > 3*s.diskEvery {
+			d.IOErr = true
+			d.ReadAt = e.started.Add(now.Sub(e.started).Truncate(s.diskEvery))
 			d.DeviceGone = r.Device != "" && s.mountGone(r.Path)
 			f.Disks = append(f.Disks, d)
 			continue

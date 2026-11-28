@@ -261,7 +261,7 @@ func TestDisksRefreshIsSingleFlightAndABlockedOneLeaksOneGoroutine(t *testing.T)
 		return hostdisk.Stamp{}, 0, 0, nil
 	})
 	s.diskEvery, s.diskTimeout = 5*time.Millisecond, 5*time.Millisecond
-	if err := s.PutDisks([]DiskReg{regA}); err != nil {
+	if err := s.PutDisks([]DiskReg{{ID: "d1", Path: "/mnt/data", Owner: "n1", Device: "dev-1"}}); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "first read", func() bool { return calls.Load() == 1 })
@@ -365,7 +365,7 @@ func TestDisksFactsCarryTheReadTime(t *testing.T) {
 		return hostdisk.Stamp{ID: "d1"}, 1, 2, nil
 	})
 	before := time.Now()
-	if err := s.PutDisks([]DiskReg{regA}); err != nil {
+	if err := s.PutDisks([]DiskReg{{ID: "d1", Path: "/mnt/data", Owner: "n1", Device: "dev-1"}}); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "first read", func() bool { return !facts(s).Disks[0].ReadAt.IsZero() })
@@ -405,7 +405,7 @@ func TestDisksFactsHungReadReportsIOErrNotStale(t *testing.T) {
 		return hostdisk.Stamp{}, 0, 0, nil
 	})
 	s.diskEvery, s.diskTimeout = 10*time.Millisecond, 10*time.Millisecond
-	if err := s.PutDisks([]DiskReg{regA}); err != nil {
+	if err := s.PutDisks([]DiskReg{{ID: "d1", Path: "/mnt/data", Owner: "n1", Device: "dev-1"}}); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "hung read reported as an I/O error", func() bool { return facts(s).Disks[0].IOErr })
