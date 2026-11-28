@@ -391,3 +391,30 @@ func TestObserveDiskRefusal(t *testing.T) {
 		t.Errorf("another node: %v", err)
 	}
 }
+
+// Back, the switch is done: a failed removal of the old disk copy is logged and
+// the move still ends done.
+func TestObserveMoveBackSurvivesAFailedOldCopyRemoval(t *testing.T) {
+	ctx := context.Background()
+	r := newObserveRig(t)
+	if j := r.move(t, false); j.State != job.Done {
+		t.Fatalf("to disk: %s %s", j.State, j.Error)
+	}
+	r.ctlFake.Edit(func() {
+		r.ctlFake.Volumes = nil
+		r.ctlFake.Err = map[string]error{"RemoveVolume(" + installspec.ObserveDiskVolume + ")": errors.New("disk gone")}
+	})
+	if j := r.move(t, true); j.State != job.Done {
+		t.Fatalf("back: %s %s", j.State, j.Error)
+	}
+	if r.onDisk() {
+		t.Error("the setting stayed on")
+	}
+	if v, _, _ := r.st.Settings.Get(ctx, observeDataCapKey); v != "" {
+		t.Errorf("cap key stayed: %q", v)
+	}
+	evs, err := r.st.SecurityEvents.Find(ctx, store.SecurityFilter{Action: auditObserveFromDisk})
+	if err != nil || len(evs) != 1 {
+		t.Errorf("audit: %v %v", evs, err)
+	}
+}

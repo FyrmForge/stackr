@@ -482,7 +482,12 @@ func (m *observeMove) run(ctx context.Context) error {
 
 	// Only now the old volume goes (the disk folder and its row, on the way back).
 	if err := o.volumes.RemoveNamed(nctx, p.NodeID, srcName); err != nil {
-		return fmt.Errorf("moved, but the old copy was not removed: %w", err)
+		if !p.Back {
+			return fmt.Errorf("moved, but the old copy was not removed: %w", err)
+		}
+		// Back: the switch is done and the disk may be dead or gone, so a
+		// leftover copy there must not fail the move.
+		m.logf("the old copy on the disk was not removed: %v", err)
 	}
 	if p.Back {
 		_ = o.store.Settings.Delete(ctx, observeDataCapKey)
