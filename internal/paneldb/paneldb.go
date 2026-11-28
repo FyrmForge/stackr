@@ -310,7 +310,11 @@ func check(dataDir, dbPath string, m mode) error {
 	// (the placeholder is there). Only the explicit fresh phase, written by the
 	// installer of a new install, may create one. An old-layout file still at
 	// the old path is the swap's to move.
-	if j.Phase != PhaseFresh {
+	// A move-in's installer finds db/ empty: the real file is in swap/, the
+	// helper's to restore or finish.
+	inSwap := m == modeInstaller && j.Direction == DirIn && !j.Moved &&
+		(j.Phase == PhaseStartingNew || j.Phase == PhaseGating || j.Phase == PhasePassed)
+	if j.Phase != PhaseFresh && !inSwap {
 		if _, err := os.Stat(dbPath); errors.Is(err, os.ErrNotExist) {
 			lfi, lerr := os.Lstat(Legacy(dataDir))
 			_, ierr := os.Stat(filepath.Join(dataDir, InstallFile))
