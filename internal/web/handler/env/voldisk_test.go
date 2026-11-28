@@ -297,10 +297,10 @@ func TestVolumeOldCopyShowsNoDate(t *testing.T) {
 	mk("v-orph", "orph", time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC))
 	old := s.Do(t, "GET", "/acme/shop/dev/-/volumes/v-old", nil).Body.String()
 	hasAll(t, "old copy", old, "Old copy, kept until the move finishes.")
-	if strings.Contains(old, "Orphaned since") || strings.Contains(old, "9999") {
+	if strings.Contains(old, "Removed on") || strings.Contains(old, "9999") || strings.Contains(old, "Restore") {
 		t.Errorf("the hold shows as a date\n%.2000s", old)
 	}
-	hasAll(t, "orphan", s.Do(t, "GET", "/acme/shop/dev/-/volumes/v-orph", nil).Body.String(), "Orphaned since", "Jul 2")
+	hasAll(t, "orphan", s.Do(t, "GET", "/acme/shop/dev/-/volumes/v-orph", nil).Body.String(), "Removed on 02-07. Its data is deleted on 01-08.", "Restore", "/volumes/v-orph/restore-volume")
 }
 
 // The drawer polls: none of these states asks Docker about the volume.

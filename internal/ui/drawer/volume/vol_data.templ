@@ -1,0 +1,54 @@
+package volume
+
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// WipeConfirm is the typed confirm of Wipe contents: the volume's name, the
+// two switches (they post as stop and backup when ticked).
+func WipeConfirm(v View, d Data) c.ConfirmView {
+	return c.ConfirmView{
+		Button:  "Wipe contents",
+		Title:   "Wipe " + v.Name + "?",
+		Warning: "Its data is deleted. The volume stays.",
+		Kept:    []string{"the volume, its mounts and its size cap", "its backup schedules and backups"},
+		Word:    v.Name,
+		Action:  v.Base + "/wipe",
+		Target:  "#" + Root,
+		Body:    dataSwitches(d, true),
+		Include: "input[type=checkbox]",
+	}
+}
+
+// DeleteConfirm is the typed confirm of Delete volume: only Back up first.
+// dest names where it backs up ("" = no switch). An opener elsewhere (the env
+// Settings row) sets Button, Quiet, Label and Vals itself.
+func DeleteConfirm(name, action, target, dest string) c.ConfirmView {
+	return c.ConfirmView{
+		Button:  "Delete volume",
+		Title:   "Delete " + name + "?",
+		Warning: "Its data is deleted at once.",
+		Kept:    []string{"backups already in a destination"},
+		Word:    name,
+		Action:  action,
+		Target:  target,
+		Body:    dataSwitches(Data{Dest: dest}, false),
+		Include: "input[type=checkbox]",
+	}
+}
+
+// dataSwitches are the dialog's ticks. Each hint is wired to its box.
+templ dataSwitches(d Data, stop bool) {
+	if stop {
+		<div class="space-y-1">
+			<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="stop" value="on" class="accent-rw-accent" aria-describedby="vol-stop-hint"/> Stop tiles using it</label>
+			<p id="vol-stop-hint" class="text-xs text-rw-muted">They start again afterwards.</p>
+		</div>
+	}
+	if d.Dest != "" {
+		<div class="space-y-1">
+			<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="backup" value="on" class="accent-rw-accent" aria-describedby="vol-backup-hint"/> Back up first</label>
+			<p id="vol-backup-hint" class="text-xs text-rw-muted">{ "Backs up to " + d.Dest + " first." }</p>
+		</div>
+	}
+}
