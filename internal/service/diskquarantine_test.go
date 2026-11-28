@@ -140,7 +140,7 @@ func TestQuarantineIsQueuedByTheWatchAndAgainAfterARestart(t *testing.T) {
 	w.lose(t)
 	n, _ := w.st.Nodes.Get(ctx, "w1")
 	row, _, _ := w.orch.nodeDisk(ctx, "w1")
-	f := readOf(row, 0, 0)
+	f := goneOf(row)
 	f.Disks[0].ReadAt = time.Unix(1e9, 0)
 	w.orch.diskWatch(ctx, n, f, time.Now())
 	w.orch.diskWatch(ctx, n, f, time.Now())
@@ -1059,7 +1059,7 @@ func TestSecondOutageAfterCheckDiskIsQuarantined(t *testing.T) {
 	row, _, _ := w.orch.nodeDisk(ctx, "w1")
 	_, err := w.orch.diskLeaf.MarkMissing(ctx, row)
 	must(t, err)
-	f := readOf(row, 0, 0)
+	f := goneOf(row)
 	f.Disks[0].ReadAt = time.Unix(2e9, 0)
 	w.orch.diskWatch(ctx, n, f, time.Now())
 	if got := len(w.quarJobs(t)); got != before+1 {
@@ -1099,5 +1099,86 @@ func TestFailedDiskGateRefusesOnAVolumeDeviceError(t *testing.T) {
 	d.wFake.Err = map[string]error{"VolumeDevice": errors.New("docker is down")}
 	if err := d.orch.gateEnv(ctx, d.edge.ID, true); err == nil {
 		t.Error("deploy passed the gate on a failed lookup")
+	}
+}
+
+// A row latched missing by the older release, with fresh facts that show the
+// disk back: the watch queues nothing, and a job that runs anyway stops nothing.
+func TestQuarantineSkippedWhenTheDiskAnswers(t *testing.T) {
+	ctx := context.Background()
+	w := newForgetWorld(t, true, false)
+	w.wFake.StopExits = map[string]bool{w.cid: true}
+	w.lose(t)
+	n, _ := w.st.Nodes.Get(ctx, "w1")
+	f := readOf(w.row, 50*gig, 100*gig)
+	f.Disks[0].ReadAt = time.Unix(1e9, 0)
+	w.orch.diskWatch(ctx, n, f, time.Now())
+	if len(w.quarJobs(t)) != 0 {
+		t.Fatalf("a job was queued for a disk that answers")
+	}
+	w.orch.mesh.Report(ctx, "w1", f)
+	j := w.quarantine(t, w.row) // queued by hand, as a job from before the read would be
+	if j.State != job.Done || sawCall(w.wFake, "Stop("+w.cid) {
+		t.Errorf("job = %s %q, stopped = %v", j.State, j.Error, sawCall(w.wFake, "Stop("+w.cid))
+	}
+}
+
+// A quarantine job whose disk row went (Forget, node remove) is done, not failed.
+func TestQuarantineJobForADeletedRowIsDone(t *testing.T) {
+	ctx := context.Background()
+	w := newForgetWorld(t, false, false)
+	must(t, w.st.NodeDisks.Delete(ctx, w.row.ID))
+	err := w.orch.runDiskQuarantine(ctx, &jobs.Run{Log: &strings.Builder{}}, diskQuarJob{DiskID: w.row.ID, NodeID: "w1"})
+	if err != nil {
+		t.Errorf("err = %v, want nil", err)
+	}
+}
+
+// An NFS error is a flaky link: it latches nothing. The same reads on a local
+// disk latch erroring.
+func TestNetworkIOErrDoesNotLatchErroring(t *testing.T) {
+	d := newDiskTest(t)
+	row := d.addDisk(t)
+	f := ioRead(row)
+	f.Disks[0].Network = true
+	for i := 0; i < diskMissingReads+2; i++ {
+		d.watch(t, f)
+	}
+	if erroringNow(d) {
+		t.Fatal("a network I/O error latched erroring")
+	}
+	f.Disks[0].Network = false
+	for i := 0; i < diskMissingReads; i++ {
+		d.watch(t, f)
+	}
+	if !erroringNow(d) {
+		t.Error("local I/O errors did not latch erroring")
+	}
+}
+
+// One bad read stamped in the future (a worker clock that ran ahead and was
+// corrected) must not block the real reads that follow it.
+func TestFutureStampDoesNotBlockLaterReads(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		read  func(store.NodeDisk) worker.Facts
+		latch func(*diskTest, store.NodeDisk) bool
+	}{
+		{"erroring", ioRead, func(d *diskTest, _ store.NodeDisk) bool { return erroringNow(d) }},
+		{"missing", goneOf, func(d *diskTest, r store.NodeDisk) bool { return d.stateOf(t, r) == disk.StateMissing }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDiskTest(t)
+			row := d.addDisk(t)
+			now := time.Now()
+			for _, at := range []time.Time{now.Add(time.Hour), now.Add(time.Minute), now.Add(2 * time.Minute), now.Add(3 * time.Minute)} {
+				f := tc.read(row)
+				f.Disks[0].ReadAt = at
+				d.watch(t, f)
+			}
+			if !tc.latch(d, row) {
+				t.Error("later bad reads were blocked by a future stamp")
+			}
+		})
 	}
 }

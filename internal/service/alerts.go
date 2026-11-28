@@ -482,12 +482,19 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 			case (ioBad || gone) && g.superseded(polled, x.ReadAt):
 				// read before the last Check disk finished: it says nothing about the disk now
 				o.ioRun(n.ID, false, x.ReadAt)
+			case x.IOErr && x.Network:
+				// an NFS/SMB error is a flaky link, not a failing disk: it latches nothing
+				o.ioRun(n.ID, false, x.ReadAt)
 			case ioBad:
 				// a read that failed on the device, or a mount gone read-only. ENOSPC
 				// and quota errors never get here: the worker leaves them stale.
 				if o.ioRun(n.ID, true, x.ReadAt) >= diskMissingReads {
-					o.latchErroring(ctx, d) // held until Check disk, whatever the reads say after
-					o.resyncObserve(ctx, d.NodeID)
+					g.mu.Lock() // not while a Check disk is verifying, and not on a read it superseded
+					if !g.superseded(polled, x.ReadAt) {
+						o.latchErroring(ctx, d) // held until Check disk, whatever the reads say after
+						o.resyncObserve(ctx, d.NodeID)
+					}
+					g.mu.Unlock()
 				}
 			case gone:
 				freshBad = true // the same read seen twice neither counts nor breaks the run
@@ -532,7 +539,7 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 	}
 	o.raise(ctx, diskMissingKey(n.ID), missing || erroring, Alert{
 		Event: AlertDiskMissing, Severity: SevCritical, Node: n.Name, Subject: n.Name, Message: msg})
-	if missing {
+	if missing && !diskAnswers(f, d) {
 		o.quarantineEnqueue(ctx, n, d)
 	}
 }
@@ -549,10 +556,9 @@ func (o *Orchestrator) ioRun(nodeID string, bad bool, at time.Time) int {
 		delete(w.diskBad, k)
 		return 0
 	}
-	if at.IsZero() || !at.After(w.diskAt[k]) {
+	if !w.freshRead(k, at) {
 		return w.diskBad[k]
 	}
-	w.diskAt[k] = at
 	w.diskBad[k]++
 	return w.diskBad[k]
 }
@@ -567,11 +573,38 @@ func (o *Orchestrator) newRead(nodeID string, at time.Time) bool {
 	w := o.alertWatch()
 	w.diskMu.Lock()
 	defer w.diskMu.Unlock()
-	if !at.After(w.diskAt[nodeID]) {
+	return w.freshRead(nodeID, at)
+}
+
+// freshRead (diskMu held) says whether a read stamped at counts, and moves the
+// watermark to it. It must differ from the watermark and be newer, or the
+// watermark must sit more than maxSkew ahead of the controller's clock (a
+// worker clock that ran ahead and was corrected would otherwise block every
+// real read behind one future stamp).
+func (w *alertState) freshRead(key string, at time.Time) bool {
+	if at.IsZero() || at.Equal(w.diskAt[key]) {
 		return false
 	}
-	w.diskAt[nodeID] = at
+	if !at.After(w.diskAt[key]) && w.diskAt[key].Sub(time.Now()) <= maxSkew {
+		return false
+	}
+	w.diskAt[key] = at
 	return true
+}
+
+// diskAnswers: a fresh read shows the disk mounted, stamped with its id and
+// without an I/O error or a pulled device. A latched missing row beside it is
+// old news (the release that latched it left apps alone): nothing is stopped.
+func diskAnswers(f worker.Facts, d store.NodeDisk) bool {
+	if !f.DisksRead || f.DisksStale {
+		return false
+	}
+	i := slices.IndexFunc(f.Disks, func(x hostdisk.Fact) bool { return x.Path == d.MountPath })
+	if i < 0 {
+		return false
+	}
+	x := f.Disks[i]
+	return x.Mounted && x.StampID == d.ID && !x.IOErr && !x.DeviceGone
 }
 
 // maxSkew is how far a worker's clock may be from the controller's before
