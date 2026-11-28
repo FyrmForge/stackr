@@ -18,6 +18,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/hostdisk/hostdisktest"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
@@ -25,12 +26,13 @@ import (
 // moveDocker is a small stateful daemon: Run adds a container, Stop and
 // StopRemove change it, List shows what is there.
 type moveDocker struct {
-	mu      sync.Mutex
-	cs      []docker.Container
-	health  map[string]string // container name -> Health the gate sees
-	n       int
-	runFail bool
-	calls   []string
+	mu         sync.Mutex
+	cs         []docker.Container
+	health     map[string]string // container name -> Health the gate sees
+	n          int
+	runFail    bool
+	refuseBind bool // the next Run carrying the disks bind is refused once
+	calls      []string
 }
 
 func (d *moveDocker) add(name string, running bool) string {
@@ -50,6 +52,10 @@ func (d *moveDocker) Run(_ context.Context, s docker.ContainerSpec) (string, err
 	d.calls = append(d.calls, "Run "+s.Name)
 	if d.runFail {
 		return "", errors.New("docker: cannot start")
+	}
+	if d.refuseBind && slices.Contains(s.Volumes, installspec.DisksBindVolume) {
+		d.refuseBind = false
+		return "", errors.New("path /x is mounted on /x but it is not a shared or slave mount")
 	}
 	return d.add(s.Name, true), nil
 }
@@ -933,4 +939,78 @@ func TestNonEmptyWalBesideTheCopyRollsBack(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	e.assertUnmoved("stackr-old")
+}
+
+// folderHashDisk fails the folder copy's hash once armed: the disk is dying.
+type folderHashDisk struct {
+	inner DiskRunner
+	armed bool
+}
+
+func (f *folderHashDisk) Disk(ctx context.Context, r hostdisk.Request) (hostdisk.Result, error) {
+	if f.armed && r.Op == "hash" && r.DB != nil && r.DB.From.Area == hostdisk.AreaFolder {
+		return hostdisk.Result{Error: &hostdisk.Error{Code: hostdisk.CodeIO, Message: "input/output error"}}, nil
+	}
+	return f.inner.Disk(ctx, r)
+}
+
+// A move-back whose gate fails while the disk copy cannot be verified keeps the
+// new panel running and the journal off rolling-back: a rerun re-gates.
+func TestMoveBackRollbackWithUnverifiableDiskCopyKeepsTheNewPanel(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn()); err != nil {
+		t.Fatal(err)
+	}
+	fd := &folderHashDisk{inner: e.dd}
+	l := e.leaf(func(s string) error {
+		if s == "gating" {
+			fd.armed = true
+		}
+		return nil
+	})
+	l.Disk = fd
+	e.d.health["stackr-back"] = "unhealthy"
+	err := l.Move(ctx, e.spec("stackr-back"), mvBack())
+	if err == nil || errors.Is(err, ErrRolledBack) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := e.journal().Phase; got == paneldb.PhaseRollingBack {
+		t.Errorf("phase = %s", got)
+	}
+	if !e.running("stackr-back") {
+		t.Error("the new panel was removed")
+	}
+}
+
+// A docker restart or reboot during the gate leaves the recorded container
+// stopped: the resume starts it and gates, never rolls back.
+func TestRegateStartsAStoppedContainer(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if err := e.leaf(crashAtStep("gating", nil)).Move(ctx, e.spec("stackr-new"), mvIn()); !errors.Is(err, errCrash) {
+		t.Fatalf("first run: %v", err)
+	}
+	for _, c := range e.d.cs {
+		if c.Name == "stackr-new" {
+			e.d.set(c.ID, "exited")
+		}
+	}
+	if err := e.leaf(nil).Move(ctx, e.spec("stackr-new"), mvIn()); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	e.assertMoved("stackr-new")
+}
+
+// Docker refusing the disks bind on private mounts is retried without it,
+// as Swap does.
+func TestMoveRetriesWithoutTheDisksBind(t *testing.T) {
+	e := newEnv(t)
+	e.d.refuseBind = true
+	spec := e.spec("stackr-new")
+	spec.Volumes = []string{installspec.DisksBindVolume}
+	if err := e.leaf(nil).Move(context.Background(), spec, mvIn()); err != nil {
+		t.Fatal(err)
+	}
+	e.assertMoved("stackr-new")
 }
