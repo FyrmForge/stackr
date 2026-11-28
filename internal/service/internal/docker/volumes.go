@@ -296,7 +296,7 @@ func (d *Client) toolContainer(
 	if err := d.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
 		att.Close()
 		remove()
-		return nil, nil, err
+		return nil, nil, maskErr(err)
 	}
 	if stdin != nil {
 		go func() {

@@ -185,3 +185,20 @@ func TestStartMountDeniedFullWording(t *testing.T) {
 		t.Fatalf("got %#v", err)
 	}
 }
+
+// Credentials the daemon echoes on a failed start never reach the caller.
+func TestStartMasksCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"mount //nas/x: addr=1.2.3.4,username=bob,password=hunter2: i/o error"}`))
+	}))
+	defer srv.Close()
+	cli, err := client.NewClientWithOpts(client.WithHost("tcp://"+srv.Listener.Addr().String()), client.WithHTTPClient(srv.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = (&Client{cli: cli}).Start(context.Background(), "c1")
+	if err == nil || strings.Contains(err.Error(), "hunter2") || strings.Contains(err.Error(), "bob") {
+		t.Fatalf("not masked: %v", err)
+	}
+}

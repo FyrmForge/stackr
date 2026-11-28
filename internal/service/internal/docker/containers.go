@@ -226,7 +226,7 @@ func (d *Client) Start(ctx context.Context, id string) error {
 			return mountDenied(err, []string{name})
 		}
 	}
-	return err
+	return maskErr(err)
 }
 
 // Restart keeps networks and addresses, unlike a recreate.

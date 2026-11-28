@@ -429,29 +429,6 @@ func ShareDenied(s store.Share) string {
 	return fmt.Sprintf("The NAS refused access to share %s (%s). It likely maps root to nobody: give Other read and execute on the export's top folder, or set maproot.", s.Slug, s.Source)
 }
 
-var (
-	maskData  = regexp.MustCompile(`(?i)\bdata:\s*\S*`)
-	maskOpts  = regexp.MustCompile(`(?im)(\s-o\b).*$`)
-	maskCreds = regexp.MustCompile(`(?i)\b(username|user|password|pass|credentials|cred)\s*=\s*("[^"]*"|'[^']*'|\S*)`)
-)
-
-// MaskMount strips the credentials out of a mount error before anybody sees
-// it. It fails closed: the driver's option text ("data: ...", "-o ...") goes
-// whole, any user, pass or credentials value goes whatever its quoting, and
-// each known password goes wherever it still appears, plain or escaped. Pass
-// passwords only: a short user name would also eat host paths, and it is
-// masked in its key=value position anyway.
-func MaskMount(raw string, secrets ...string) string {
-	for _, sec := range secrets {
-		if sec == "" {
-			continue
-		}
-		raw = strings.ReplaceAll(raw, sec, "***")
-		if q := strings.Trim(fmt.Sprintf("%q", sec), `"`); q != sec {
-			raw = strings.ReplaceAll(raw, q, "***")
-		}
-	}
-	raw = maskCreds.ReplaceAllString(raw, "$1=***")
-	raw = maskData.ReplaceAllString(raw, "data: ***")
-	return maskOpts.ReplaceAllString(raw, "$1 ***")
-}
+// MaskMount strips credentials out of a mount error; the one copy lives in
+// docker, which masks at the daemon boundary (Run, Start).
+func MaskMount(raw string, secrets ...string) string { return docker.MaskMount(raw, secrets...) }
