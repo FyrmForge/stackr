@@ -918,9 +918,9 @@ func (l *Leaf) Quiesce(ctx context.Context, ts []store.Tile) (resume func(), err
 }
 
 // QuiesceChecked is Quiesce whose resume reports the replicas that did not
-// start again, so a caller can tell the user. It also stops paused and
-// restarting replicas (they hold the volume too); resume starts only the
-// ones that were running or restarting.
+// start again, so a caller can tell the user. It also stops restarting
+// replicas (they hold the volume too); a paused one is a backup's, so it
+// refuses.
 func (l *Leaf) QuiesceChecked(ctx context.Context, ts []store.Tile) (resume func() error, err error) {
 	return l.quiesce(ctx, ts, true)
 }
@@ -943,6 +943,19 @@ func (l *Leaf) quiesce(ctx context.Context, ts []store.Tile, all bool) (resume f
 	if err != nil {
 		return nil, err
 	}
+	for _, c := range cs {
+		// A backup holds its replica paused while it reads the volume:
+		// stopping it now would tear the backup.
+		if c.State == "paused" {
+			name := c.Name
+			for _, t := range ts {
+				if t.ID == c.Labels[LabelTile] {
+					name = t.Slug
+				}
+			}
+			return nil, errs.Conflictf("%s is paused by a backup. Try again when it is done.", name)
+		}
+	}
 	var done []string
 	resume = func() error {
 		var failed []error
@@ -958,10 +971,7 @@ func (l *Leaf) quiesce(ctx context.Context, ts []store.Tile, all bool) (resume f
 			rerr := resume()
 			return nil, errors.Join(fmt.Errorf("stopping %s: %w", c.ID, err), rerr)
 		}
-		// A paused replica was held on purpose: it stays stopped.
-		if c.State != "paused" {
-			done = append(done, c.ID)
-		}
+		done = append(done, c.ID)
 	}
 	return resume, nil
 }
