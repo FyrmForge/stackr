@@ -189,6 +189,11 @@ func (r runner) resumeMove(ctx context.Context, in installspec.Input, j paneldb.
 		"-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", in.DataDir+":"+in.DataDir,
 		"-e", installspec.SwapSpecEnv+"="+spec, "-e", "STACKR_PANEL_MOVE="+string(mv),
 		j.Image, "upgrade-swap"); err != nil {
+		// a correct rollback exits the helper 1 and clears the journal
+		if after, jerr := paneldb.ReadJournal(in.DataDir); jerr == nil && (after.Phase == paneldb.PhaseNone || after.Phase == paneldb.PhaseMoved) {
+			r.say("  the move was rolled back; the panel runs on its old database. Start the move again from the panel.")
+			return nil
+		}
 		return fmt.Errorf("%w; see docker logs %s and move.journal", err, upgraderName)
 	}
 	_ = r.docker(ctx, "rm", "-f", upgraderName)

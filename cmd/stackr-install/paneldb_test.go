@@ -196,3 +196,26 @@ func TestResumeMoveLabelsTheHelper(t *testing.T) {
 		t.Fatalf("helper run lacks the move label:\n%s", b)
 	}
 }
+
+// A helper that rolled the move back exits 1 and leaves no journal: that is
+// an answer, not a failure of the installer. A journal still mid-move is.
+func TestResumeMoveRolledBackIsNotAnError(t *testing.T) {
+	dir := t.TempDir()
+	put(t, filepath.Join(dir, "docker"), "#!/bin/sh\ncase \"$1\" in inspect) exit 1;; run) exit 1;; esac\nexit 0\n")
+	if err := os.Chmod(filepath.Join(dir, "docker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	in := installspec.Input{Root: "x.io", PanelHost: "p.x.io", HTTPPort: "80", DataDir: dir, Bind: "172.17.0.1"}
+	j := paneldb.Journal{Phase: "copied", Direction: "in", MoveID: "m42", Image: installspec.Repo + ":0.8.2", Container: "stackr-0.8.2"}
+	var out bytes.Buffer
+	if err := (runner{out: &out}).resumeMove(context.Background(), in, j); err != nil || !strings.Contains(out.String(), "the move was rolled back") {
+		t.Errorf("rolled back = %v, %q", err, out.String())
+	}
+	if err := paneldb.WriteJournal(dir, j); err != nil {
+		t.Fatal(err)
+	}
+	if err := (runner{out: &bytes.Buffer{}}).resumeMove(context.Background(), in, j); err == nil {
+		t.Error("a move left mid-phase passed")
+	}
+}
