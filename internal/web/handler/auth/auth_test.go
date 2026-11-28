@@ -37,6 +37,7 @@ func TestLoginFirst(t *testing.T) {
 	for path, want := range map[string]string{
 		"/acme/shop?drawer=x": "/login?next=%2Facme%2Fshop%3Fdrawer%3Dx",
 		"/account":            "/login?next=%2Faccount",
+		"/-/admin/update":     "/login?next=%2F-%2Fadmin%2Fupdate",
 		"/":                   "/login",
 	} {
 		rec := httptest.NewRecorder()
