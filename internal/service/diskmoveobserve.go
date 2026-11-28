@@ -84,6 +84,7 @@ func (o *Orchestrator) forgetObserve(ctx context.Context, nodeID string) error {
 			return err
 		}
 	}
+	_ = o.upgrade.RemoveObserve(ctx)
 	_ = o.docker.RemoveVolume(docker.WithNode(ctx, nodeID), installspec.ObserveDiskVolume)
 	o.resyncObserve(ctx, nodeID)
 	return nil
