@@ -54,7 +54,7 @@ function drawer(opts: { dirty?: boolean; contains?: (n: unknown) => boolean; foo
   let open = true;
   const el = Object.assign(new Ctor(), {
     addEventListener: () => {},
-    querySelector: (s: string) => (s === "#drawer-body" ? body : s === "dialog[data-discard]" ? dlg : s.includes("form[data-hold][id]") && opts.footer ? {} : null),
+    querySelector: (s: string) => (s === "#drawer-body" ? body : s === "dialog[data-discard]" ? dlg : s.includes("form[data-hold]") && opts.footer ? {} : null),
     hasAttribute: (a: string) => (a === "open" ? open : false),
     setAttribute: () => {},
     removeAttribute: () => (open = false),
@@ -140,10 +140,19 @@ test("a staging POST (preview) or an unrelated button keeps dirty; saving the ed
   assert.equal(el.dirty, false);
 });
 
-test("a pending footer makes a close ask; a forced close shuts an open discard dialog", () => {
+test("an open staging form or a pending footer makes close ask; a forced close shuts an open discard dialog", () => {
   const a = drawer({ footer: true });
   (a.el.close as () => void).call(a.el);
   assert.deepEqual([a.calls.show, a.isOpen()], [1, true]);
   (a.el.close as (f: boolean) => void).call(a.el, true);
   assert.deepEqual([a.dlg.open, a.isOpen()], [false, false]);
+});
+
+test("a pending footer's Apply clears dirty", () => {
+  const { el, body } = drawer({ dirty: true });
+  const xhr = {};
+  const elt = { closest: (s: string) => (s.includes("-held") ? {} : null) };
+  handlers["htmx:beforeRequest"]({ detail: { elt, xhr, target: elt, requestConfig: { verb: "post" } } });
+  handlers["htmx:afterRequest"]({ detail: { xhr, successful: true, target: body } });
+  assert.equal(el.dirty, false);
 });

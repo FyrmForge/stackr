@@ -553,14 +553,14 @@ func capCard(k CapCard) templ.Component {
 		}
 		switch k.Mode {
 		case "edit":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "<form id=\"cap-form\" class=\"min-w-0\" hx-post=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "<form data-hold id=\"cap-form\" class=\"min-w-0\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templruntime.NewAttributeExpression(k.Base + "/cap/stage").Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/volume/vol_cap.templ`, Line: 134, Col: 72}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/volume/vol_cap.templ`, Line: 134, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var26)
 			if templ_7745c5c3_Err != nil {
@@ -573,7 +573,7 @@ func capCard(k CapCard) templ.Component {
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/volume/vol_cap.templ`, Line: 134, Col: 125}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/volume/vol_cap.templ`, Line: 134, Col: 135}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
 			if templ_7745c5c3_Err != nil {
@@ -842,7 +842,7 @@ func capPending(k CapCard) templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "<div class=\"-mx-4 -mb-4 mt-4 border-t border-rw-border bg-rw-inset px-4 py-3\"><p class=\"text-xs font-medium text-rw-muted\">1 change not saved</p><ul class=\"mt-1.5 space-y-1\"><li class=\"flex flex-wrap items-baseline gap-x-2 text-sm\"><span class=\"text-rw-muted\">Size cap</span> <span class=\"text-xs text-rw-faint line-through\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "<form data-hold id=\"cap-held\" class=\"-mx-4 -mb-4 mt-4 border-t border-rw-border bg-rw-inset px-4 py-3\"><p class=\"text-xs font-medium text-rw-muted\">1 change not saved</p><ul class=\"mt-1.5 space-y-1\"><li class=\"flex flex-wrap items-baseline gap-x-2 text-sm\"><span class=\"text-rw-muted\">Size cap</span> <span class=\"text-xs text-rw-faint line-through\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -970,7 +970,7 @@ func capPending(k CapCard) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "\" hx-swap=\"outerHTML\">Cancel</button></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "\" hx-swap=\"outerHTML\">Cancel</button></div></form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

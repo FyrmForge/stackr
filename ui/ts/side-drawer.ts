@@ -47,9 +47,10 @@ class SideDrawer extends HTMLElement {
     const body = this.body();
     const d = (e as CustomEvent<{ elt?: Element; xhr?: object; target?: Element; requestConfig?: { verb?: string } }>).detail;
     // a save is a non-GET request from an edited form (not [data-hold]
-    // staging); onDone clears dirty when it ends well, swap or not
+    // staging, or a footer's Apply); onDone clears dirty when it ends well, swap or not
     const form = d?.elt?.closest("form");
-    if (body && d?.xhr && d.elt && form && this.edited.has(form) && !d.elt.closest("[data-hold]") && body.contains(d.elt) && (d.requestConfig?.verb ?? "get").toLowerCase() !== "get") this.saves.add(d.xhr);
+    const save = (form && this.edited.has(form) && !d?.elt?.closest("[data-hold]")) || d?.elt?.closest('form[id$="-held"]'); // or a pending footer's Apply
+    if (body && d?.xhr && d.elt && save && body.contains(d.elt) && (d.requestConfig?.verb ?? "get").toLowerCase() !== "get") this.saves.add(d.xhr);
     if (!body || d?.target !== body || this.hasAttribute("open")) return;
     const was = document.activeElement as HTMLElement | null;
     if (was && !this.contains(was)) this.opener = was;
@@ -188,7 +189,7 @@ class SideDrawer extends HTMLElement {
   // force skips the unsaved-edits question (the body is already gone).
   private close(force = false): void {
     if (!this.hasAttribute("open")) return;
-    if ((this.dirty || this.querySelector("#drawer-body form[data-hold][id]")) && !force) {
+    if ((this.dirty || this.querySelector("#drawer-body form[data-hold]")) && !force) {
       const ask = this.querySelector<HTMLDialogElement>("dialog[data-discard]");
       if (ask) return void (ask.open || ask.showModal());
     }
