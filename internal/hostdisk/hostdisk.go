@@ -107,6 +107,7 @@ type Fact struct {
 	ReadAt       time.Time `json:"read_at"`                // set by the worker: when this read happened
 	ReadOnly     bool      `json:"read_only,omitempty"`    // the mount table says read-only
 	IOErr        bool      `json:"io_err,omitempty"`       // the last read failed with an I/O error (never ENOSPC or a quota)
+	DeviceGone   bool      `json:"device_gone,omitempty"`  // xfs: the mount is still listed but its block device left sysfs (pulled disk)
 }
 
 // Error codes are typed; callers never match on the message.

@@ -53,6 +53,7 @@ type diskEntry struct {
 	total   uint64
 	devSize int64 // xfs: the device size and filesystem uuid, read with the rest
 	fsuuid  string
+	devGone bool // the last read failed and the mounted device is gone from sysfs
 	ioErr   bool // the last read ended in an I/O error; stamp keeps the last good read
 }
 
@@ -219,10 +220,11 @@ func (s *Server) refreshDisk(ctx context.Context, e *diskEntry) {
 			// leaves the entry to go stale and latches nothing.
 			if hostdisk.IOFailure(err) {
 				e.ioErr, e.at = true, time.Now()
+				e.devGone = dev != "" && s.mountGone(path)
 			}
 			return
 		}
-		e.ioErr = false
+		e.ioErr, e.devGone = false, false
 		e.stamp, e.free, e.total, e.at = st, free, total, time.Now()
 		if dev != "" { // sysfs reads, only here and never on a request
 			// The device is the one the mount stands on, not the recorded name: with
@@ -235,6 +237,18 @@ func (s *Server) refreshDisk(ctx context.Context, e *diskEntry) {
 			}
 		}
 	}()
+}
+
+// devGone reports whether the block device major:minor left the host's sysfs.
+func devGone(root, dev string) bool {
+	_, err := os.Stat(filepath.Join(root, "sys/dev/block", dev))
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+// mountGone: path is still in the mount table but its device is not in sysfs.
+func (s *Server) mountGone(path string) bool {
+	md := mountDev(s.cfg.HostRoot, path)
+	return md != "" && devGone(s.cfg.HostRoot, md)
 }
 
 // mountDev is the major:minor of the device the host has mounted at path ("" when nothing is).
@@ -276,7 +290,7 @@ func (s *Server) diskFacts(f *Facts) {
 		e := ents[r.Path]
 		d := hostdisk.Fact{Path: r.Path, StampID: e.stamp.ID, StampOwner: e.stamp.Owner,
 			StampInstall: e.stamp.Install, Free: e.free, Total: e.total, ReadAt: e.at,
-			Device: r.Device, DeviceBytes: e.devSize, FSUUID: e.fsuuid, IOErr: e.ioErr}
+			Device: r.Device, DeviceBytes: e.devSize, FSUUID: e.fsuuid, IOErr: e.ioErr, DeviceGone: e.devGone}
 		for _, m := range ms { // the last entry for the point wins
 			if m.Point == r.Path {
 				d.Mounted, d.FSType, d.RootFS, d.ReadOnly = true, m.FSType, m.Dev == rootDev, m.RO
@@ -287,6 +301,7 @@ func (s *Server) diskFacts(f *Facts) {
 		// cache: report it erroring so the controller's latch can fire.
 		if e.running && now.Sub(e.started) > 3*s.diskEvery {
 			d.IOErr, d.ReadAt = true, now
+			d.DeviceGone = r.Device != "" && s.mountGone(r.Path)
 			f.Disks = append(f.Disks, d)
 			continue
 		}

@@ -476,8 +476,8 @@ func (o *Orchestrator) diskWatch(ctx context.Context, n store.Node, f worker.Fac
 		if f.DisksRead && !f.DisksStale && i >= 0 {
 			x := f.Disks[i]
 			g := o.diskGuard(n.ID)
-			ioBad := x.IOErr || (x.Mounted && x.StampID == d.ID && x.ReadOnly)
-			gone := !x.Mounted || x.StampID != d.ID
+			ioBad := (x.IOErr && !x.DeviceGone) || (x.Mounted && x.StampID == d.ID && x.ReadOnly)
+			gone := !x.Mounted || x.DeviceGone || x.StampID != d.ID
 			switch {
 			case (ioBad || gone) && g.superseded(polled, x.ReadAt):
 				// read before the last Check disk finished: it says nothing about the disk now
