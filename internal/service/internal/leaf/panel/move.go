@@ -590,6 +590,12 @@ func (m *mover) startNew(ctx context.Context) error {
 		return err
 	}
 	id, err := m.l.docker.Run(ctx, m.spec)
+	if installspec.DisksBindRefused(err) && slices.Contains(m.spec.Volumes, installspec.DisksBindVolume) {
+		// same retry as Swap: private host mounts refuse the bind; the failed container is already removed
+		slog.Warn("panel started without the disks mount: this host's mounts do not allow it", "err", err)
+		m.spec.Volumes = installspec.WithoutDisksBind(m.spec.Volumes)
+		id, err = m.l.docker.Run(ctx, m.spec)
+	}
 	if err != nil {
 		return fmt.Errorf("run the new panel: %w", err)
 	}
@@ -630,7 +636,14 @@ func (m *mover) regate(ctx context.Context) error {
 		if c.Name != m.j.Container {
 			continue
 		}
-		if d, err := m.l.docker.Inspect(ctx, c.ID); err == nil && d.Running && m.l.gate(ctx, c.ID, m.spec) == nil {
+		d, err := m.l.docker.Inspect(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+		if !d.Running && m.l.docker.Start(ctx, c.ID) != nil {
+			continue // a restart or reboot stopped it: start it, then gate
+		}
+		if m.l.gate(ctx, c.ID, m.spec) == nil {
 			return m.passed(ctx)
 		}
 	}
@@ -695,6 +708,12 @@ func (m *mover) rollback(ctx context.Context, cause error) error {
 	}
 	slog.Warn("panel database move: rolling back", "direction", m.j.Direction, "from_phase", m.j.Phase, "err", cause)
 	if m.j.Phase != paneldb.PhaseRollingBack {
+		if m.j.Direction == paneldb.DirBack && m.j.Started && m.j.SHA256 != "" {
+			// the disk copy is the way back: if it is bad, leave the new panel running on its db
+			if err := m.verifyDisk(ctx, file(hostdisk.AreaFolder, paneldb.FileName), "", m.j.SHA256); err != nil {
+				return errors.Join(cause, fmt.Errorf("the disk copy cannot be verified, not rolling back: %w", err))
+			}
+		}
 		if err := m.set(paneldb.PhaseRollingBack); err != nil {
 			return errors.Join(cause, err)
 		}
