@@ -34,6 +34,23 @@ func TestTileSourceEntrypoint(t *testing.T) {
 	}
 }
 
+func TestTileSourceEntrypointCanonical(t *testing.T) {
+	base := store.Tile{ImageRef: "nginx:1", Command: "run"}
+	fp := func(ep string) string { x := base; x.Entrypoint = ep; return tileSource(x) }
+	list := JoinCommand([]string{"sh", "-c", "echo hi"}) // what a stack-file list is stored as
+	for _, same := range []string{"sh  -c   'echo hi'", " sh -c \"echo hi\" ", "sh\t-c 'echo hi'"} {
+		if fp(same) != fp(list) {
+			t.Errorf("%q fingerprints differently from %q", same, list)
+		}
+	}
+	if fp("sh -c 'echo ho'") == fp(list) {
+		t.Error("different entrypoint, same fingerprint")
+	}
+	if fp("   ") != tileSource(base) {
+		t.Error("blank entrypoint changed the fingerprint")
+	}
+}
+
 func TestSplitCommandAndPorts(t *testing.T) {
 	for in, want := range map[string][]string{
 		`--config.file=/etc/p.yml --web.listen-address=":9090"`: {"--config.file=/etc/p.yml", "--web.listen-address=:9090"},
