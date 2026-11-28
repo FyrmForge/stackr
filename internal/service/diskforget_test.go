@@ -181,7 +181,7 @@ func TestForgetThenRestoreDeployRestoresFromBackup(t *testing.T) {
 func TestForgetDeletesTheDiskRowLastAndCascadesTheFolderRows(t *testing.T) {
 	w := newForgetWorld(t, true, true)
 	w.lose(t)
-	w.wFake.Err = map[string]error{"CreateVolume("+w.v.Name+")": errors.New("daemon busy")}
+	w.wFake.Err = map[string]error{"CreateVolume(" + w.v.Name + ")": errors.New("daemon busy")}
 	if j := w.forget(t); j.State != job.Failed {
 		t.Fatalf("job = %s, want failed", j.State)
 	}
@@ -527,7 +527,7 @@ func TestForgettingRowRefusesOrdinaryDeploy(t *testing.T) {
 func TestForgetPartialEnqueueFailureKeepsTheRowForgettingAndResumeFinishes(t *testing.T) {
 	w := newForgetWorld(t, true, true)
 	w.lose(t)
-	w.wFake.Err = map[string]error{"CreateVolume("+w.v.Name+")": errors.New("daemon busy")}
+	w.wFake.Err = map[string]error{"CreateVolume(" + w.v.Name + ")": errors.New("daemon busy")}
 	j := w.forget(t)
 	if j.State != job.Failed || !strings.Contains(j.Error, "daemon busy") {
 		t.Fatalf("job = %s %q", j.State, j.Error)

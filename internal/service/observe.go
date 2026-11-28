@@ -148,7 +148,7 @@ func (o *Orchestrator) ensureObserveKnobs(ctx context.Context, k observeKnobs) e
 			if err := o.upgrade.RemoveObserve(ctx); err != nil {
 				return err
 			}
-			return errors.New(upgrade.ObserveDiskMissing)
+			return errors.New(upgrade.ObserveDiskMissing) //nolint:staticcheck // banner text, shown as is
 		}
 		opts.Volume = installspec.ObserveDiskVolume
 	}

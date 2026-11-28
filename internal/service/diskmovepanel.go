@@ -390,7 +390,7 @@ func (o *Orchestrator) RemovePanelDBOldCopy(ctx context.Context, by *Principal, 
 	if err != nil {
 		return err
 	}
-	if j.OldCopy == "" || (j.Phase != paneldb.PhaseMoved && !(j.Phase == paneldb.PhaseNone && j.Direction == paneldb.DirBack)) {
+	if j.OldCopy == "" || (j.Phase != paneldb.PhaseMoved && (j.Phase != paneldb.PhaseNone || j.Direction != paneldb.DirBack)) {
 		return errs.Refusedf("There is no old copy to remove.")
 	}
 	name := j.OldCopy
