@@ -4,15 +4,23 @@ class SideDrawer extends HTMLElement {
     dirty = false;
     fullByLink = false;
     saves = new WeakSet();
-    edited = new WeakSet();
+    edited = new Set();
     onSwap = (e) => {
         const d = e.detail;
         const target = d?.target;
         const body = this.body();
         if (!body || !target || !body.contains(target))
             return;
-        if (target === body)
+        if (target === body) {
             this.dirty = false;
+            this.edited.clear();
+        }
+        else {
+            for (const f of this.edited)
+                if (!body.contains(f))
+                    this.edited.delete(f);
+            this.dirty = this.edited.size > 0;
+        }
         const was = document.activeElement;
         if (!this.hasAttribute("open") && was && !this.contains(was))
             this.opener = was;
@@ -53,8 +61,10 @@ class SideDrawer extends HTMLElement {
     };
     onDone = (e) => {
         const d = e.detail;
-        if (d?.xhr && this.saves.delete(d.xhr) && d.successful)
+        if (d?.xhr && this.saves.delete(d.xhr) && d.successful) {
             this.dirty = false;
+            this.edited.clear();
+        }
         if (d?.target === this.body())
             this.onLost();
     };
@@ -88,7 +98,7 @@ class SideDrawer extends HTMLElement {
     onEdit = (e) => {
         const el = e.target;
         const form = el.closest("form");
-        if (form && !el.closest("dialog") && !el.closest("[data-hold]") && this.body()?.contains(el)) {
+        if (form && !el.closest('dialog, [data-hold], form[hx-get], [hx-trigger*="change"]') && this.body()?.contains(el)) {
             this.edited.add(form);
             this.dirty = true;
         }
@@ -165,6 +175,7 @@ class SideDrawer extends HTMLElement {
                 return void (ask.open || ask.showModal());
         }
         this.dirty = false;
+        this.edited.clear();
         this.querySelector("dialog[data-discard]")?.close();
         if (this.fullByLink)
             this.expand(false);
