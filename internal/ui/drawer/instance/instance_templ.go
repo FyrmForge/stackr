@@ -4788,9 +4788,9 @@ func majorChange(v View, ver VersionView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var170 string
-			templ_7745c5c3_Var170, templ_7745c5c3_Err = templruntime.NewAttributeExpression("Type " + v.Name + " to roll back").Resolve(ctx)
+			templ_7745c5c3_Var170, templ_7745c5c3_Err = templruntime.NewAttributeExpression("Type " + v.Name + " to roll back and lose what was written since").Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1439, Col: 139}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1439, Col: 171}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var170)
 			if templ_7745c5c3_Err != nil {
@@ -5215,9 +5215,9 @@ func failover(v View, f FailoverView) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var190 string
-					templ_7745c5c3_Var190, templ_7745c5c3_Err = templruntime.NewAttributeExpression("Type " + f.Primary + " to confirm").Resolve(ctx)
+					templ_7745c5c3_Var190, templ_7745c5c3_Err = templruntime.NewAttributeExpression("Type " + f.Primary + " to confirm it is gone").Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1525, Col: 141}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1525, Col: 152}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var190)
 					if templ_7745c5c3_Err != nil {

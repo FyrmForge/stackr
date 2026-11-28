@@ -486,7 +486,7 @@ templ addForm(g Grid, group string) {
 			for _, col := range g.Cols {
 				<div class="peer-checked:[&_input]:[-webkit-text-security:disc]">
 					<label class="label">{ valueLabel(g, col.Label) }</label>
-					<input class="input font-mono" name={ "add_value." + col.Token } value={ typed(r, "add_value."+col.Token) } autocomplete="off" data-1p-ignore data-lpignore="true" placeholder="unset" { c.Invalid(errID(group, "add_value"), fieldErr(r, "add_value"))... }/>
+					<input class="input font-mono" name={ "add_value." + col.Token } type={ addValueType(r) } spellcheck="false" autocapitalize="off" value={ typed(r, "add_value."+col.Token) } autocomplete="off" data-1p-ignore data-lpignore="true" placeholder="unset" { c.Invalid(errID(group, "add_value"), fieldErr(r, "add_value"))... }/>
 					<span class="settings-help">Leave empty to set it later.</span>
 				</div>
 			}
@@ -613,6 +613,15 @@ func typed(r *c.Refused, k string) string {
 		return "" // the Add row's value is a secret when its toggle is on
 	}
 	return r.Vals.Get(k)
+}
+
+// addValueType is the Add row's value input type: a password while the Secret
+// toggle is on (main.js flips it on change).
+func addValueType(r *c.Refused) string {
+	if r != nil && r.Vals.Get("add_kind") == "secret" {
+		return "password"
+	}
+	return "text"
 }
 
 // keptCell is a plain cell's value: what was typed when its save was

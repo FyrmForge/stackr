@@ -1436,7 +1436,7 @@ templ majorChange(v View, ver VersionView) {
 						@c.CopyWord(v.Name)
 						{ " to roll back and lose what was written since" }
 					</p>
-					<input id="rollback-confirm" name="confirm" autocomplete="off" class="input font-mono" aria-label={ "Type " + v.Name + " to roll back" }/>
+					<input id="rollback-confirm" name="confirm" autocomplete="off" class="input font-mono" aria-label={ "Type " + v.Name + " to roll back and lose what was written since" }/>
 				</div>
 				<button type="submit" class="btn btn-danger btn-sm">Roll back</button>
 			</div>
@@ -1522,7 +1522,7 @@ templ failover(v View, f FailoverView) {
 								@c.CopyWord(f.Primary)
 								{ " to confirm it is gone" }
 							</p>
-							<input id="promote-confirm" name="confirm" autocomplete="off" class="input font-mono" aria-label={ "Type " + f.Primary + " to confirm" }/>
+							<input id="promote-confirm" name="confirm" autocomplete="off" class="input font-mono" aria-label={ "Type " + f.Primary + " to confirm it is gone" }/>
 						</div>
 					}
 					@c.Confirm(c.ConfirmView{

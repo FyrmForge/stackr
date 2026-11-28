@@ -601,7 +601,8 @@ side-drawer[full][open] [data-backdrop] { opacity: 0; }
 }
 
 /* Confirm dialog: v0's modal wash behind the native <dialog>. */
-confirm-dialog dialog::backdrop {
+confirm-dialog dialog::backdrop,
+dialog.modal-panel::backdrop {
   background: rgb(var(--rw-bg) / 0.7);
   backdrop-filter: blur(4px);
 }
