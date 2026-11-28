@@ -50,12 +50,13 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 	if err != nil {
 		return ShareTest{}, err
 	}
-	// A non-admin may use only the stacks that hold the grant: the node and
-	// env come from a tile in one of them.
-	var approved map[string]bool
+	// A non-admin may use only a tile whose own line for this share is
+	// approved: the node and env come from that tile.
+	var approved map[string]hostgrant.Set
+	perm := deploy.ShareGrant(s.Slug, addr)
 	nonAdmin := by == nil || authz.Can(by.Access, "hostgrant.approve", authz.Resource{}) != nil
 	if nonAdmin {
-		if approved, err = o.approvedStacks(ctx, orgID, deploy.ShareGrant(s.Slug, addr)); err != nil {
+		if approved, err = o.approvedStacks(ctx, orgID, perm); err != nil {
 			return ShareTest{}, err
 		}
 		if len(approved) == 0 {
@@ -67,7 +68,7 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 	var stack store.Stack
 	found := false
 	if err := o.eachShareLine(ctx, orgID, func(t store.Tile, m tile.Mount) {
-		if found || m.Share != s.Slug || t.EnvironmentID == "" || (nonAdmin && !approved[t.StackID]) {
+		if found || m.Share != s.Slug || t.EnvironmentID == "" || (nonAdmin && !approved[t.StackID].Has(hostgrant.Line(t.Slug, perm))) {
 			return
 		}
 		e, err := o.envs.Get(ctx, t.EnvironmentID)
@@ -185,13 +186,13 @@ func (o *Orchestrator) TestShare(ctx context.Context, by *Principal, orgID, ref 
 	return fail(out), nil
 }
 
-// approvedStacks are the stacks of the org whose grant holds perm.
-func (o *Orchestrator) approvedStacks(ctx context.Context, orgID, perm string) (map[string]bool, error) {
+// approvedStacks are the grants of the stacks of the org that hold perm.
+func (o *Orchestrator) approvedStacks(ctx context.Context, orgID, perm string) (map[string]hostgrant.Set, error) {
 	sts, err := o.stacks.List(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]bool{}
+	out := map[string]hostgrant.Set{}
 	for _, st := range sts {
 		have, err := o.hostgrant.Of(ctx, st.ID)
 		if err != nil {
@@ -199,7 +200,7 @@ func (o *Orchestrator) approvedStacks(ctx context.Context, orgID, perm string) (
 		}
 		for _, l := range have.Lines {
 			if _, p := hostgrant.Split(l); p == perm {
-				out[st.ID] = true
+				out[st.ID] = have
 			}
 		}
 	}

@@ -451,3 +451,23 @@ func TestShareTestNonAdminNeedsTileInApprovedStack(t *testing.T) {
 		t.Fatalf("admin: %+v %v", res, err)
 	}
 }
+
+// The grant is per tile: an approved line of another tile in the stack does
+// not let the unapproved tile that mounts the share be used.
+func TestShareTestNonAdminNeedsOwnTileApproved(t *testing.T) {
+	ctx := context.Background()
+	r, _, tl := shareTestRig(t, false)
+	now := time.Now()
+	if err := r.env.Store.Users.Create(ctx, store.User{ID: "adm", Email: "a@b.c", Name: "A", Role: "admin", Active: true, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	g := store.HostGrant{ID: "g3", StackID: tl.StackID, Lines: "other-tile share:media@10.0.0.5", ApprovedBy: "adm", CreatedAt: now}
+	if err := r.env.Store.HostGrants.Create(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	_, err := r.env.Orch.TestShare(ctx, &service.Principal{}, r.org, "media")
+	var c errs.Conflict
+	if !errors.As(err, &c) || sawRun(r) {
+		t.Fatalf("unapproved tile used: err=%v ran=%v", err, sawRun(r))
+	}
+}
