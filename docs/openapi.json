@@ -10783,6 +10783,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "from_instance": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -10840,7 +10843,8 @@
           "slug",
           "name",
           "created_at",
-          "node_id"
+          "node_id",
+          "from_instance"
         ],
         "type": "object"
       },
