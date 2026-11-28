@@ -121,6 +121,10 @@ func (o *Orchestrator) quarantineEnqueue(ctx context.Context, n store.Node, d st
 // of a member (only the sync pass moves its sync_in flag).
 func (o *Orchestrator) runDiskQuarantine(ctx context.Context, r *jobs.Run, p diskQuarJob) error {
 	d, err := o.store.NodeDisks.Get(ctx, p.DiskID)
+	if errors.Is(err, errs.ErrNotFound) { // Forget or a node remove ran first
+		_, _ = fmt.Fprintln(r.Log, "the disk is gone: nothing to stop")
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -128,8 +132,13 @@ func (o *Orchestrator) runDiskQuarantine(ctx context.Context, r *jobs.Run, p dis
 		_, _ = fmt.Fprintln(r.Log, "the disk is not missing: nothing to stop")
 		return nil
 	}
-	if _, err := o.diskNodeUp(ctx, d.NodeID); err != nil {
+	n, err := o.diskNodeUp(ctx, d.NodeID)
+	if err != nil {
 		return err
+	}
+	if f := o.diskFacts(ctx, n); f != nil && diskAnswers(*f, d) {
+		_, _ = fmt.Fprintln(r.Log, "the disk answers again: press Check disk")
+		return nil
 	}
 	s, err := o.forgetSet(ctx, d)
 	if err != nil {
