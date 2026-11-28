@@ -60,10 +60,26 @@ func unitWhere(unit string) string {
 	return ""
 }
 
+// sysBlockUp reports whether sysfs is readable here; without it nothing can be
+// told gone, so nothing is unmounted.
+func sysBlockUp() bool {
+	_, err := os.Stat(sysBlock)
+	return err == nil
+}
+
+// devGone: the device left sysfs (false when sysfs itself is not there).
+func devGone(dev string) bool {
+	if !sysBlockUp() {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(sysBlock, dev))
+	return errors.Is(err, os.ErrNotExist)
+}
+
 // clearDeadMount lazily unmounts every mount of the device behind where when
 // that device left sysfs (a pulled disk): the mount point and Docker's volume
-// binds, last first. It reports whether it did.
-func clearDeadMount(ctx context.Context, where string) bool {
+// binds, last first. It returns the points it unmounted (nil when none).
+func clearDeadMount(ctx context.Context, where string) []string {
 	ms := mountTable()
 	dev := ""
 	for _, m := range ms {
@@ -71,24 +87,25 @@ func clearDeadMount(ctx context.Context, where string) bool {
 			dev = m.Dev
 		}
 	}
-	if dev == "" {
-		return false
+	if dev == "" || !devGone(dev) {
+		return nil
 	}
-	if _, err := os.Stat(filepath.Join(sysBlock, dev)); !errors.Is(err, os.ErrNotExist) {
-		return false
-	}
+	var gone []string
 	for i := len(ms) - 1; i >= 0; i-- {
 		if ms[i].Dev == dev {
 			_ = abandonUnmount(ctx, ms[i].Point)
+			gone = append(gone, ms[i].Point)
 		}
 	}
-	return true
+	return gone
 }
 
+// pointMounted: where is mounted and its device is still in sysfs, so a dead
+// mount that survived is not "started".
 func pointMounted(where string) bool {
 	for _, m := range mountTable() {
 		if m.Point == where {
-			return true
+			return !devGone(m.Dev)
 		}
 	}
 	return false
@@ -145,19 +162,26 @@ func startDiskUnits(ctx context.Context, dataDir string, out io.Writer) error {
 		return nil
 	}
 	var errs []error
+	cleared := map[string]bool{} // mount points unmounted in this run
 	for _, u := range units {
 		where := unitWhere(u)
 		start := startUnit
-		if where != "" && clearDeadMount(ctx, where) {
-			start = restartUnit
+		if where != "" {
+			for _, p := range clearDeadMount(ctx, where) {
+				cleared[p] = true
+			}
+			if cleared[where] { // a bind unit sits on a point the xfs pass already cleared
+				start = restartUnit
+			}
 		}
 		err := start(ctx, u)
+		held := false
 		if err == nil && where != "" && !pointMounted(where) {
-			err = fmt.Errorf("%s is not mounted after starting %s", where, u)
+			err, held = fmt.Errorf("%s is not mounted after starting %s", where, u), true
 		}
 		if err != nil {
 			errs = append(errs, err)
-			if where != "" {
+			if held || cleared[where] {
 				_, _ = fmt.Fprintln(out, heldHint)
 			}
 			continue

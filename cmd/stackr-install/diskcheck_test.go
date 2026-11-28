@@ -198,7 +198,11 @@ func TestDiskCheckClearsADeadMount(t *testing.T) {
 		return []hostdisk.Mount{{Dev: "8:16", Point: where}, {Dev: "0:50", Point: "/other"}, {Dev: "8:16", Point: "/var/lib/docker/vol"}}
 	}
 	abandonUnmount = func(_ context.Context, dir string) error { order = append(order, "umount "+dir); return nil }
-	restartUnit = func(_ context.Context, u string) error { order = append(order, "restart"); mounted = true; return nil }
+	restartUnit = func(_ context.Context, u string) error {
+		order = append(order, "restart")
+		mounted = true
+		return os.MkdirAll(filepath.Join(sys, "8:16"), 0o755)
+	}
 	t.Setenv("STACKR_DATA_DIR", t.TempDir())
 
 	// device gone: unmounts in reverse, then restart
@@ -227,5 +231,97 @@ func TestDiskCheckClearsADeadMount(t *testing.T) {
 	var out bytes.Buffer
 	if err := diskCheck(context.Background(), nil, &out); err == nil || !strings.Contains(out.String(), "still holds the old disk") {
 		t.Errorf("nothing mounted: err %v, out %q", err, out.String())
+	}
+}
+
+func diskCheckRig(t *testing.T, xfsWhere, bindWhere string) (sys string, started *[]string) {
+	t.Helper()
+	xfs := hostdisk.UnitName(hostdisk.MountPoint("d1"))
+	dataDir := t.TempDir()
+	bind := hostdisk.BindUnitName(dataDir)
+	started = withUnits(t, xfs, bind)
+	for u, w := range map[string]string{xfs: xfsWhere, bind: bindWhere} {
+		if err := os.WriteFile(filepath.Join(systemdDir, u), []byte("[Mount]\nWhere="+w+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := paneldb.WriteJournal(dataDir, paneldb.Journal{Phase: paneldb.PhaseMoved, Direction: paneldb.DirIn, DiskID: "d1"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STACKR_DATA_DIR", dataDir)
+	sys = t.TempDir()
+	oldTab, oldSys, oldUm, oldRe := mountTable, sysBlock, abandonUnmount, restartUnit
+	t.Cleanup(func() { mountTable, sysBlock, abandonUnmount, restartUnit = oldTab, oldSys, oldUm, oldRe })
+	sysBlock = sys
+	return sys, started
+}
+
+// A plain start failure (disk not attached yet) prints no held-container hint;
+// a dead mount that survives the start is not "started".
+func TestDiskCheckHintAndSurvivingDeadMount(t *testing.T) {
+	where := hostdisk.MountPoint("d1")
+	_, _ = diskCheckRig(t, where, "/data/db")
+	mountTable = func() []hostdisk.Mount { return nil }
+	startUnit = func(context.Context, string) error { return errors.New("no such device") }
+	var out bytes.Buffer
+	if err := diskCheck(context.Background(), nil, &out); err == nil || strings.Contains(out.String(), "still holds") {
+		t.Errorf("plain failure: err %v out %q", err, out.String())
+	}
+	// the mount is listed but its device is not in sysfs and clearing found nothing to do (unmount was a no-op)
+	startUnit = func(context.Context, string) error { return nil }
+	mountTable = func() []hostdisk.Mount {
+		return []hostdisk.Mount{{Dev: "8:16", Point: where}, {Dev: "8:16", Point: "/data/db"}}
+	}
+	abandonUnmount = func(context.Context, string) error { return nil }
+	restartUnit = func(context.Context, string) error { return nil }
+	out.Reset()
+	err := diskCheck(context.Background(), nil, &out)
+	if err == nil || strings.Contains(out.String(), "started") || !strings.Contains(out.String(), "still holds") {
+		t.Errorf("surviving dead mount: err %v out %q", err, out.String())
+	}
+}
+
+// The bind unit after the xfs pass is restarted too: its point was unmounted
+// with the disk's, so it no longer shows in the table.
+func TestDiskCheckRestartsTheBindUnitAfterAClearedMount(t *testing.T) {
+	where := hostdisk.MountPoint("d1")
+	_, started := diskCheckRig(t, where, "/data/db")
+	unmounted := map[string]bool{}
+	mountTable = func() []hostdisk.Mount {
+		var ms []hostdisk.Mount
+		for _, p := range []string{where, "/data/db"} {
+			if !unmounted[p] {
+				ms = append(ms, hostdisk.Mount{Dev: "8:16", Point: p})
+			}
+		}
+		return ms
+	}
+	abandonUnmount = func(_ context.Context, p string) error { unmounted[p] = true; return nil }
+	var restarted []string
+	restartUnit = func(_ context.Context, u string) error {
+		restarted = append(restarted, u)
+		// the unit remounts on a live device
+		unmounted = map[string]bool{}
+		if err := os.MkdirAll(filepath.Join(sysBlock, "8:16"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return nil
+	}
+	if err := diskCheck(context.Background(), nil, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(restarted) != 2 || len(*started) != 0 {
+		t.Errorf("restarted %v started %v", restarted, *started)
+	}
+}
+
+// With no sysfs here nothing is told gone and nothing is unmounted.
+func TestClearDeadMountNeedsSysfs(t *testing.T) {
+	_, _ = diskCheckRig(t, "/mnt/x", "")
+	sysBlock = filepath.Join(sysBlock, "absent")
+	mountTable = func() []hostdisk.Mount { return []hostdisk.Mount{{Dev: "8:16", Point: "/mnt/x"}} }
+	abandonUnmount = func(context.Context, string) error { t.Error("unmounted without sysfs"); return nil }
+	if got := clearDeadMount(context.Background(), "/mnt/x"); got != nil {
+		t.Errorf("cleared %v", got)
 	}
 }
