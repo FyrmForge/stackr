@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/hostdisk"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 	ProxyName   = "stackr-proxy" // service.ProxyContainer
 	ProxyVolume = "stackr-caddy"
 	Repo        = "ghcr.io/fyrmforge/stackr"
+	LabelMove   = "stackr.move" // on a panel database move helper; the value is the move id
 	LabelRole   = "stackr.role" // panel | proxy; the upgrade finds the panel by it
 	PanelPort   = "8080"
 	// LabelSpec stamps a container with the Hash of the spec it was made
@@ -418,7 +420,7 @@ func Panel(image string, in Input) Container {
 		// The docker CLI's buildx builder registry lives here, so a panel
 		// upgrade (a new container) still knows its builders.
 		"DOCKER_CONFIG=" + in.DataDir + "/docker",
-		"DATABASE_PATH=" + in.DataDir + "/stackr.db",
+		"DATABASE_PATH=" + paneldb.Path(in.DataDir),
 		"HOST=" + in.Bind,
 		"PORT=" + PanelPort,
 		"TRUSTED_PROXIES=" + cmp.Or(in.BridgeSubnet, DockerRanges),
@@ -440,6 +442,7 @@ func Panel(image string, in Input) Container {
 		in.DataDir + ":" + in.DataDir,
 		// Read-only host views for container and host metrics: the
 		// panel's own cgroup namespace and pid namespace hide them.
+		"/sys:" + HostRoot + "/sys:ro", // the disk watch reads /sys/dev/block to tell a pulled disk
 		"/sys/fs/cgroup:" + HostRoot + "/sys/fs/cgroup:ro",
 		"/proc:" + HostRoot + "/proc:ro",
 	}

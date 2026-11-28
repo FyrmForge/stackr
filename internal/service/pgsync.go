@@ -272,7 +272,7 @@ func (o *Orchestrator) syncLocked(ctx context.Context, t Tile, inst OperatedInst
 	}
 	var sbs []InstanceMember
 	for _, m := range ms {
-		if m.Role == opmember.Replica && m.State != opmember.Removing && !m.Fenced && m.Phase != opmember.Rebuild && m.Phase != opmember.Rewind {
+		if m.Role == opmember.Replica && m.State != opmember.Removing && !m.Fenced && m.Phase != opmember.Rebuild && m.Phase != opmember.Rewind && !o.memberDiskDown(ctx, m) {
 			sbs = append(sbs, m)
 		}
 	}

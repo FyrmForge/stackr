@@ -137,6 +137,7 @@ func (o *Orchestrator) runRemoveNode(ctx context.Context, r *jobs.Run, p nodeJob
 		return err
 	}
 	if has {
+		o.quarForget(ctx, d.ID)
 		if err := o.diskLeaf.Delete(ctx, d); err != nil {
 			return err
 		}

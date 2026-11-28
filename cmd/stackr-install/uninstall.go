@@ -19,6 +19,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/mesh"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -122,6 +123,11 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 			return fmt.Errorf("read the install: %w", err)
 		}
 		meshDir, gone, host = filepath.Join(e.installDir, "keys"), e.installDir, in.PanelHost
+		// rm -rf of the data dir would walk into the mounted database folder and
+		// delete the database from the node disk.
+		if j, err := paneldb.ReadJournal(e.installDir); err != nil || isMounted(e.installDir) || (j.Phase != paneldb.PhaseNone && j.Phase != paneldb.PhaseFresh) {
+			return errors.New("the panel database is on a node disk, or a move of it is unfinished (move.journal). Move it back first (stkr node disk move-panel <node> --back, or stackr-install to finish the move), then uninstall")
+		}
 	}
 	if purge {
 		if err := checkStateDir(gone); err != nil {
@@ -245,7 +251,7 @@ func stackrVolumes(names, managed []string, all bool) []string {
 	for _, n := range names {
 		switch {
 		case n == installspec.ProxyVolume,
-			all && (slices.Contains(managed, n) || n == installspec.ObserveVolume ||
+			all && (slices.Contains(managed, n) || n == installspec.ObserveVolume || n == installspec.ObserveDiskVolume ||
 				n == installspec.RegistryVolume || strings.HasPrefix(n, builderPrefix)):
 			vs = append(vs, n)
 		}

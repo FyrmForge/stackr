@@ -180,12 +180,12 @@ func TestNodeDiskMissingOffersCheckDisk(t *testing.T) {
 	must(t, s.Store.NodeDisks.Update(t.Context(), d))
 	rec = s.As(t, root, "GET", "/-/admin/nodes/"+id, nil)
 	body := rec.Body.String()
-	has(t, "missing", body, "Disk missing", "The disk is missing.", "Reattach it, then press Check disk.", `role="status"`,
+	has(t, "missing", body, "Disk missing", "The disk is missing.", "run stackr-install disk-check on the node, then press Check disk.", `role="status"`,
 		"Check disk", "Disk gone for good? Forget it.", `hx-post="/-/admin/nodes/`+id+`/disk/check"`)
 	if !strings.Contains(section(t, body), "Disk missing") {
 		t.Error("the section does not carry the state")
 	}
-	has(t, "nodes list", s.As(t, root, "GET", "/-/admin/nodes", nil).Body.String(), "Disk missing")
+	has(t, "nodes list", s.As(t, root, "GET", "/-/admin/nodes", nil).Body.String(), "Disk failed")
 
 	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/disk/check", url.Values{})
 	has(t, "check", rec.Body.String(), "Disk check queued.")
@@ -335,7 +335,7 @@ func TestNodeDiskCheckFailsStillMissing(t *testing.T) {
 		must(t, err)
 		for _, j := range js {
 			if j.Kind == "disk-check" {
-				if j.Error != "Still missing. Reattach it, then check again." {
+				if j.Error != "Still missing. Reattach it, run stackr-install disk-check on the node, then check again." {
 					t.Fatalf("error = %q", j.Error)
 				}
 				return
@@ -351,4 +351,17 @@ func must(t *testing.T, err error) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// A ready disk latched erroring offers Check disk.
+func TestNodeDiskErroringOffersCheckDisk(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	id := diskNode(t, s)
+	addedDisk(t, s, root, id, "/data")
+	d, err := s.Store.NodeDisks.GetByNode(t.Context(), id)
+	must(t, err)
+	must(t, s.Store.Settings.Set(t.Context(), "diskerroring."+d.ID, "1"))
+	body := s.As(t, root, "GET", "/-/admin/nodes/"+id, nil).Body.String()
+	has(t, "erroring", body, "The disk is failing.", `hx-post="/-/admin/nodes/`+id+`/disk/check"`)
 }

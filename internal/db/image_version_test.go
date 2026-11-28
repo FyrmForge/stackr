@@ -7,7 +7,7 @@ import (
 )
 
 // 021 adds a version column to release_tiles and images: rows that exist keep
-// every value and read '', and the down migration takes the columns away.
+// every value and read ”, and the down migration takes the columns away.
 func TestImageVersionMigrationKeepsOldRows(t *testing.T) {
 	db := sliceWorld(t)
 	read := func(name string) string {

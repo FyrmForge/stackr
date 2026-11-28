@@ -66,6 +66,9 @@ type NodeDiskView struct {
 	// only mounts it).
 	WasBytes  uint64
 	Formatted bool
+	// Erroring: reads failed with I/O errors and the panel latched it; Free
+	// and Total are then the last good read.
+	Erroring bool
 }
 
 // FolderProbe is what a path on a node looks like before it is added. A
@@ -224,6 +227,9 @@ func (o *Orchestrator) NodeDisk(ctx context.Context, nodeID string) (NodeDiskVie
 			v.Free, v.Total, v.Network, v.Stale, v.ReadAt = x.Free, x.Total, x.Network, f.DisksStale, x.ReadAt
 			v.DeviceBytes, v.NewSpace, v.Damaged = deviceFacts(d, x, o.diskLeaf.GrownAt(d.ID))
 		}
+	}
+	if d.State == disk.StateReady {
+		v.Erroring, _ = o.diskErroring(ctx, nodeID)
 	}
 	// A controller with no worker has no facts. When the panel sees the mount
 	// itself (not an installed panel) and it is still a mount, one statfs is
@@ -418,7 +424,8 @@ func (o *Orchestrator) CheckNodeDisk(ctx context.Context, by *Principal, nodeID 
 	if err != nil {
 		return Job{}, err
 	}
-	if _, has, err := o.nodeDisk(ctx, n.ID); err != nil {
+	d, has, err := o.nodeDisk(ctx, n.ID)
+	if err != nil {
 		return Job{}, err
 	} else if !has {
 		return Job{}, errs.ErrNotFound
@@ -427,6 +434,7 @@ func (o *Orchestrator) CheckNodeDisk(ctx context.Context, by *Principal, nodeID 
 	if err != nil {
 		return Job{}, err
 	}
+	lock = append(lock, "disk:"+d.ID) // the lock a disk-quarantine job holds: the two never overlap
 	j, err := o.enqueue(ctx, kindDiskCheck, diskJob{NodeID: n.ID, By: by.User.ID, KeyID: by.KeyID}, lock...)
 	if err == nil {
 		o.auditDiskLog(ctx, by, auditDiskCheck, n.ID, "")
@@ -621,23 +629,41 @@ func (o *Orchestrator) runDiskCheck(ctx context.Context, r *jobs.Run, p diskJob)
 	if !has {
 		return errs.ErrNotFound
 	}
+	// Check disk holds the disk lock a quarantine job holds, so it starts only
+	// after a quarantine queued before it has finished.
+	g := o.diskGuard(d.NodeID)
+	g.mu.Lock() // the watch cannot latch the row missing from an old read while this verifies
 	d, err = o.diskLeaf.Verify(ctx, d)
+	g.epoch.Store(time.Now().UnixNano())
+	g.hw.Store(o.diskReadHW(ctx, d).UnixNano())
+	g.mu.Unlock()
+	var he *hostdisk.Error
+	if errors.As(err, &he) && he.Code == hostdisk.CodeIO {
+		_, _ = fmt.Fprintf(r.Log, "%v\n", err)
+		return errs.Refusedf("The disk still gives I/O errors. Fix it, then check again.")
+	}
 	if err != nil {
 		return err
 	}
 	if d.State != disk.StateReady {
-		return errs.Refusedf("Still missing. Reattach it, then check again.")
+		return errs.Refusedf("Still missing. Reattach it, run stackr-install disk-check on the node, then check again.")
 	}
 	_, _ = fmt.Fprintf(r.Log, "disk ready: %s\n", d.MountPath)
-	return o.deployDiskTiles(ctx, r, d)
+	if err := o.clearErroring(ctx, d); err != nil { // a passed check ends an erroring spell too
+		return err
+	}
+	o.ioRun(d.NodeID, false, time.Time{}) // bad reads count again from zero
+	o.resyncObserve(ctx, d.NodeID)
+	return o.resumeQuarantined(ctx, r, d)
 }
 
 // deployDiskTiles deploys the tiles on the disk's node that have volumes on
-// the disk and are not running. A healthy tile is left alone.
-func (o *Orchestrator) deployDiskTiles(ctx context.Context, r *jobs.Run, d store.NodeDisk) error {
+// the disk and are not running. A healthy tile is left alone. only, when set,
+// is the tile ids a quarantine stopped: no other tile is touched.
+func (o *Orchestrator) deployDiskTiles(ctx context.Context, r *jobs.Run, d store.NodeDisk, only map[string]bool) (map[string]string, error) {
 	fs, err := o.diskLeaf.Folders(ctx, d)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	on := map[string]bool{}
 	for _, f := range fs {
@@ -645,16 +671,17 @@ func (o *Orchestrator) deployDiskTiles(ctx context.Context, r *jobs.Run, d store
 	}
 	es, err := o.store.Environments.ListByNode(ctx, d.NodeID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var failed []error
+	ids := map[string]string{} // tile id -> the deploy job queued for it
 	for _, e := range es {
 		ts, err := o.diskTiles(ctx, e, on)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, t := range ts {
-			if o.tileRunning(ctx, t) || t.Paused {
+			if o.tileRunning(ctx, t) || t.Paused || (only != nil && !only[t.ID]) {
 				continue
 			}
 			// stackr keeps no desired state: a stop is the tile's last own job.
@@ -671,14 +698,16 @@ func (o *Orchestrator) deployDiskTiles(ctx context.Context, r *jobs.Run, d store
 				}
 				continue
 			}
-			if _, err := o.Deploy(ctx, t.ID); err != nil {
+			j, err := o.Deploy(ctx, t.ID)
+			if err != nil {
 				failed = append(failed, fmt.Errorf("%s: %w", t.Slug, err))
 				continue
 			}
+			ids[t.ID] = j.ID
 			_, _ = fmt.Fprintf(r.Log, "deploying %s\n", t.Slug)
 		}
 	}
-	return errors.Join(failed...)
+	return ids, errors.Join(failed...)
 }
 
 // diskTiles are the env's tiles that mount, or own, a volume with a folder

@@ -86,7 +86,8 @@ func (h *handler) nodeDisk(c echo.Context, d service.NodeDetail, base string, li
 	if !p.MissingSince.IsZero() {
 		dk.Since = ago(p.MissingSince)
 	}
-	if (p.State != "ready" || p.Damaged != "") && online {
+	dk.Erroring = p.Erroring
+	if (p.State != "ready" || p.Damaged != "" || p.Erroring) && online {
 		dk.Check = base + "/disk/check"
 		if dk.Whole && p.State == "adding" && !p.Formatted {
 			dk.Check = "" // nothing was formatted yet: there is nothing to check
@@ -338,6 +339,11 @@ func (h *handler) diskActions(c echo.Context, dk *ui.NodeDisk, p service.NodeDis
 		if dk.MoveJobs, err = h.moveJobs(c, d.ID); err != nil {
 			return err
 		}
+		if d.Controller {
+			if err := h.movesCard(c, dk, d, base); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -356,7 +362,7 @@ func (h *handler) forgetDialog(c echo.Context, diskID, node string) (ui.DiskForg
 	if err != nil {
 		return ui.DiskForget{}, err
 	}
-	f := ui.DiskForget{Node: fp.Node, Disk: diskID, Gone: fp.Gone, Refusal: fp.Refusal, Word: cmp.Or(node, diskID)}
+	f := ui.DiskForget{Node: fp.Node, Disk: diskID, Gone: fp.Gone, Refusal: fp.Refusal, ObserveOn: fp.ObserveOn, Word: cmp.Or(node, diskID)}
 	if fp.Gone {
 		f.Word = diskID
 	}

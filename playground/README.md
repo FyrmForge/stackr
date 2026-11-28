@@ -116,6 +116,11 @@ Images are `/var/lib/playground/disks/<node>-<name>.img`, mounted on the VM at
 the same path without `.img`; the unit `playground-disks` mounts them again at
 boot. Inside the node it is a separate filesystem (`stat -c %d / /mnt/d1`).
 
+Whole-disk tests (xfs devices) in an Incus container need two workarounds, both
+lost when the container restarts: the inContainer check is defeated by binding
+`/dev/null` over `/proc/1/environ` and removing `/run/systemd/container`, and
+`/dev/disk/by-uuid/<uuid>` must be a hand-made symlink to the device.
+
 ## Toggles
 
 Edit `playground/playground.nix` (mocks, ext latency), then:

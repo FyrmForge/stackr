@@ -640,6 +640,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 	if o.UpgradeUnderway(ctx) {
 		return Job{}, errs.Conflictf("An update is already underway.")
 	}
+	if o.movePanelLive(ctx) {
+		return Job{}, errs.Conflictf("The panel database is moving. Update when it is done.")
+	}
 	// The new panel rolls the workers onto its build once it has published
 	// its image (rolloutAfterBoot); a stop from an earlier rollout is over.
 	if err := errors.Join(o.store.Settings.Delete(ctx, keyRolloutStopped), o.store.Settings.Delete(ctx, keyUpgradeFailure)); err != nil {
@@ -725,6 +728,7 @@ func (o *Orchestrator) watchUpgrader(ctx context.Context) {
 			id, err = o.runningUpgrader(cctx)
 		}
 		if err == nil && id == "" {
+			o.settleMoveHelpers(cctx) // one that failed before the swap is never seen by the boot path otherwise
 			return
 		}
 		if err == nil {

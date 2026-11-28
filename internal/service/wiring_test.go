@@ -8,9 +8,11 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
@@ -80,7 +82,7 @@ func TestNeedsVIP(t *testing.T) {
 func TestControllerLogCapQuietDuringSwap(t *testing.T) {
 	// not parallel: it swaps the global slog default
 	n := newTwoNodes(t)
-	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
+	cp := swapCopy(t, n.orch.cfg.DBPath)
 	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +101,7 @@ func TestControllerLogCapQuietDuringSwap(t *testing.T) {
 func TestControllerLogCapWarnsPastDeadHelper(t *testing.T) {
 	// not parallel: it swaps the global slog default
 	n := newTwoNodes(t)
-	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
+	cp := swapCopy(t, n.orch.cfg.DBPath)
 	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +120,7 @@ func TestControllerLogCapWarnsPastDeadHelper(t *testing.T) {
 func TestControllerLogCapWarnsOnSwapCopy(t *testing.T) {
 	// not parallel: it swaps the global slog default
 	n := newTwoNodes(t)
-	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
+	cp := swapCopy(t, n.orch.cfg.DBPath)
 	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -133,4 +135,14 @@ func TestControllerLogCapWarnsOnSwapCopy(t *testing.T) {
 	if _, err := os.Stat(cp); err != nil {
 		t.Errorf("copy removed at boot: %v", err)
 	}
+}
+
+// swapCopy is a per-upgrade copy name in swap/, which it makes.
+func swapCopy(t *testing.T, db string) string {
+	t.Helper()
+	dir := paneldb.SwapDirOf(db)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, filepath.Base(db)+".pre-9.9.9")
 }

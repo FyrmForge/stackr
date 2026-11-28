@@ -2635,6 +2635,9 @@
           "device_bytes": {
             "type": "integer"
           },
+          "device_gone": {
+            "type": "boolean"
+          },
           "empty": {
             "type": "boolean"
           },
@@ -2646,6 +2649,9 @@
           },
           "fs_uuid": {
             "type": "string"
+          },
+          "io_err": {
+            "type": "boolean"
           },
           "mounted": {
             "type": "boolean"
@@ -2659,6 +2665,9 @@
           "read_at": {
             "format": "date-time",
             "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
           },
           "root_fs": {
             "type": "boolean"
@@ -2952,6 +2961,9 @@
           "node": {
             "type": "string"
           },
+          "observe_on": {
+            "type": "boolean"
+          },
           "refusal": {
             "type": "string"
           },
@@ -2967,7 +2979,8 @@
           "node",
           "gone",
           "volumes",
-          "refusal"
+          "refusal",
+          "observe_on"
         ],
         "type": "object"
       },
@@ -4307,6 +4320,68 @@
         ],
         "type": "object"
       },
+      "MovePanelIn": {
+        "properties": {
+          "back": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "back"
+        ],
+        "type": "object"
+      },
+      "MovePanelPlanOut": {
+        "properties": {
+          "back": {
+            "type": "boolean"
+          },
+          "disk_free": {
+            "type": "integer"
+          },
+          "disk_id": {
+            "type": "string"
+          },
+          "fits": {
+            "type": "boolean"
+          },
+          "need": {
+            "type": "integer"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "refusal": {
+            "type": "string"
+          },
+          "restarts": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer"
+          },
+          "system_free": {
+            "type": "integer"
+          },
+          "warning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "disk_id",
+          "back",
+          "size_bytes",
+          "disk_free",
+          "system_free",
+          "need",
+          "fits",
+          "restarts",
+          "warning",
+          "refusal"
+        ],
+        "type": "object"
+      },
       "MovePlanOut": {
         "properties": {
           "checks": {
@@ -4450,6 +4525,9 @@
           "device_bytes": {
             "type": "integer"
           },
+          "erroring": {
+            "type": "boolean"
+          },
           "formatted": {
             "type": "boolean"
           },
@@ -4511,7 +4589,8 @@
           "new_space",
           "damaged",
           "was_bytes",
-          "formatted"
+          "formatted",
+          "erroring"
         ],
         "type": "object"
       },
@@ -4877,6 +4956,45 @@
           "severity",
           "label",
           "detail"
+        ],
+        "type": "object"
+      },
+      "ObserveMovePlanOut": {
+        "properties": {
+          "back": {
+            "type": "boolean"
+          },
+          "busy": {
+            "type": "boolean"
+          },
+          "cap": {
+            "type": "integer"
+          },
+          "fits": {
+            "type": "boolean"
+          },
+          "free": {
+            "type": "integer"
+          },
+          "need": {
+            "type": "integer"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_id",
+          "back",
+          "size_bytes",
+          "cap",
+          "need",
+          "free",
+          "fits",
+          "busy"
         ],
         "type": "object"
       },
@@ -6660,6 +6778,46 @@
         },
         "required": [
           "dest"
+        ],
+        "type": "object"
+      },
+      "PanelDBOut": {
+        "properties": {
+          "applicable": {
+            "type": "boolean"
+          },
+          "disk_id": {
+            "type": "string"
+          },
+          "moving": {
+            "type": "boolean"
+          },
+          "old_copy": {
+            "type": "boolean"
+          },
+          "old_copy_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "old_copy_on_disk": {
+            "type": "boolean"
+          },
+          "on_disk": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "applicable",
+          "reason",
+          "on_disk",
+          "moving",
+          "disk_id",
+          "old_copy",
+          "old_copy_on_disk",
+          "old_copy_at"
         ],
         "type": "object"
       },
@@ -14336,6 +14494,224 @@
         "x-verb": "node.manage"
       }
     },
+    "/api/v1/admin/nodes/{node}/disk/move-observe": {
+      "post": {
+        "operationId": "admin.node-disk-move-observe",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/disk/move-observe-plan": {
+      "get": {
+        "operationId": "admin.node-disk-move-observe-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObserveMovePlanOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/disk/move-panel": {
+      "post": {
+        "operationId": "admin.node-disk-move-panel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MovePanelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/disk/move-panel-plan": {
+      "get": {
+        "operationId": "admin.node-disk-move-panel-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovePanelPlanOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/disk/panel-db": {
+      "get": {
+        "operationId": "admin.node-disk-panel-db",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PanelDBOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
     "/api/v1/admin/nodes/{node}/disk/probe": {
       "post": {
         "operationId": "admin.node-disk-probe",
@@ -14369,6 +14745,37 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/disk/remove-panel-copy": {
+      "post": {
+        "operationId": "admin.node-disk-remove-panel-copy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           },
           "default": {
             "content": {

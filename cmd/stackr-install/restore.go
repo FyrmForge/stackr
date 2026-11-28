@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -25,6 +26,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 )
 
 // restore puts the install back to a panel archive (a pre-upgrade one, or
@@ -38,12 +40,13 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("stackr-install restore", flag.ContinueOnError)
 	keyStdin := fs.Bool("key-stdin", false, "read the recovery key from the first line of stdin (or set "+recoveryKeyEnv+", or type it at the prompt)")
 	image := fs.String("image", "", "panel image to run (default: the build the archive names)")
+	abandon := fs.Bool("abandon-disk", false, "the panel database is on a node disk that is gone or failing: give the disk up and restore onto the system disk")
 	rotate := fs.Bool("rotate-key", true, "when the archive carries an older master key than this box, rotate to a new one on the first boot")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: stackr-install restore [--key-stdin] [--rotate-key=false] [--image REF] <archive | s3://bucket/prefix/>")
+		return errors.New("usage: stackr-install restore [--key-stdin] [--rotate-key=false] [--abandon-disk] [--image REF] <archive | s3://bucket/prefix/>")
 	}
 	secret, err := recoveryKey(os.Getenv(recoveryKeyEnv), *keyStdin, os.Stdin)
 	if err == nil && secret == "" {
@@ -66,6 +69,9 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	in, err := installspec.Load(dataDir)
 	if err != nil {
 		return fmt.Errorf("no install answers in %s (install first): %w", dataDir, err)
+	}
+	if err := restorePanelDBFor(dataDir, *abandon); err != nil {
+		return err
 	}
 	src := fs.Arg(0)
 	archiveName := src
@@ -112,7 +118,19 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 
-	// Verified and staged; only now touch the running install.
+	// Verified and staged; only now touch the running install. The journal
+	// goes first and stays until the restored database is in place: a restore
+	// that dies halfway is refused at every boot, never read as a fresh start.
+	stamp := filepath.Base(stage)[len("restore-"):]
+	if *abandon {
+		// the archive is verified and staged: now the dead disk is given up
+		if err := abandonDisk(ctx, dataDir, out); err != nil {
+			return fmt.Errorf("give up the node disk (the restore has not started; run it again): %w", err)
+		}
+	}
+	if err := beginRestore(dataDir, stamp); err != nil {
+		return err
+	}
 	for _, role := range []string{"upgrader", "panel"} {
 		ids, _ := read(ctx, "docker", "ps", "-aq", "--filter", "label="+installspec.LabelRole+"="+role)
 		for _, id := range strings.Fields(ids) {
@@ -121,19 +139,11 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 			}
 		}
 	}
-	db := filepath.Join(dataDir, "stackr.db")
-	replaced := filepath.Join(dataDir, "stackr.db.before-restore-"+filepath.Base(stage)[len("restore-"):])
-	if err := os.Rename(db, replaced); err != nil &&
-		!errors.Is(err, os.ErrNotExist) {
+	if err := installRestoredDB(dataDir, stage); err != nil {
 		return err
 	}
-	// The -wal holds commits the .db file lacks: it moves with its copy.
-	if err := os.Rename(db+"-wal", replaced+"-wal"); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	_ = os.Remove(db + "-shm")
 	for _, m := range installspec.PanelState {
-		if !m.OnDisk {
+		if !m.OnDisk || m.Name == installspec.DBFile { // the database is installRestoredDB's
 			continue
 		}
 		src := filepath.Join(stage, m.Name)
@@ -150,10 +160,11 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(dataDir, m.Name)), 0o700); err != nil {
+		dst := filepath.Join(dataDir, m.Name)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 			return err
 		}
-		if err := os.Rename(src, filepath.Join(dataDir, m.Name)); err != nil {
+		if err := os.Rename(src, dst); err != nil {
 			return err
 		}
 	}
@@ -202,6 +213,9 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	if err := os.WriteFile(filepath.Join(dataDir, installspec.RestoredMarker), []byte(markerBody(info.size, archiveName)), 0o600); err != nil {
 		return err
 	}
+	if err := finishRestore(dataDir); err != nil {
+		return err
+	}
 	in.DisksBind = installspec.HostDisksBind("")
 	if err := r.runPanel(ctx, *image, in); err != nil {
 		return err
@@ -214,7 +228,7 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	if err := r.relogCLI(ctx, in, *image); err != nil {
 		r.say("  cli login:", err.Error(), "- log in by hand:", docsCLILogin)
 	}
-	r.say("Restored", fs.Arg(0), "on", *image+". The replaced database is", replaced)
+	r.say("Restored", fs.Arg(0), "on", *image+". The replaced database is kept in", paneldb.Swap(dataDir)+" as stackr.db.before-restore-"+filepath.Base(stage)[len("restore-"):])
 	return nil
 }
 
@@ -566,4 +580,202 @@ func markerBody(size int64, name string) string {
 		key = name[i:]
 	}
 	return strconv.FormatInt(size, 10) + "\n" + key + "\n"
+}
+
+// restoreCrash lets a test stop the restore between two steps. Nil outside tests.
+var restoreCrash func(step string) error
+
+func crashAt(step string) error {
+	if restoreCrash != nil {
+		return restoreCrash(step)
+	}
+	return nil
+}
+
+// beginRestore records the restore in move.journal before anything is stopped
+// or moved, with the name the replaced database is kept under. A restore run
+// again after a crash keeps the first run's name, so the old database's files
+// stay one set.
+func beginRestore(dataDir, stamp string) error {
+	if err := os.MkdirAll(paneldb.Swap(dataDir), 0o700); err != nil {
+		return err
+	}
+	j, err := paneldb.ReadJournal(dataDir)
+	if err != nil {
+		return err
+	}
+	if j.Phase == paneldb.PhaseRestoring && j.Aside != "" {
+		return nil
+	}
+	return paneldb.WriteJournal(dataDir, paneldb.Journal{Phase: paneldb.PhaseRestoring, Direction: paneldb.DirRestore,
+		Dst: paneldb.Path(dataDir), Aside: "stackr.db.before-restore-" + stamp})
+}
+
+// installRestoredDB sets the live database aside, one file at a time and
+// resumably (a file already moved is skipped), verifies that no file of it is
+// left at db/stackr.db (a leftover -wal would be replayed onto the restored
+// main), publishes the restored main and puts the placeholder in place. The
+// journal stays at restoring: finishRestore clears it, after the rest of the
+// archived state is in. Run again after a crash it recognises a restored
+// database that is already published (same bytes as the archive's, no wal) and
+// leaves it, so repeated crashes never pile up.
+func installRestoredDB(dataDir, stage string) error {
+	j, err := paneldb.ReadJournal(dataDir)
+	if err != nil {
+		return err
+	}
+	if j.Phase != paneldb.PhaseRestoring || j.Aside == "" {
+		return errors.New("move.journal does not record this restore")
+	}
+	db := paneldb.Path(dataDir)
+	staged := filepath.Join(stage, installspec.DBFile)
+	if err := os.MkdirAll(paneldb.Swap(dataDir), 0o700); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(db), 0o700); err != nil {
+		return err
+	}
+	want, err := fileSum(staged)
+	if err != nil {
+		return err
+	}
+	if got, _ := fileSum(db); got == want && !exists(db+"-wal") && !exists(db+"-shm") && !exists(paneldb.Legacy(dataDir)+"-wal") {
+		// published by an earlier run of this restore
+		if err := crashAt("installed"); err != nil {
+			return err
+		}
+		return ensureRestoredLayout(dataDir, db)
+	}
+	tag := ".resumed-" + time.Now().UTC().Format(paneldb.Stamp)
+	for i, old := range []string{db, paneldb.Legacy(dataDir)} {
+		if fi, err := os.Lstat(old); err == nil && fi.IsDir() {
+			continue // the placeholder
+		}
+		dst := filepath.Join(paneldb.Swap(dataDir), j.Aside)
+		if i > 0 {
+			dst += ".old-layout"
+		}
+		// The -wal first: a main file is never published beside a stray one.
+		for _, suf := range []string{"-shm", "-wal", ""} {
+			if _, err := os.Lstat(old + suf); err != nil {
+				continue
+			}
+			if suf == "-shm" {
+				if err := os.Remove(old + suf); err != nil {
+					return err
+				}
+				continue
+			}
+			target := dst + suf
+			if exists(target) {
+				// a first run already kept one: this is another file (a restored copy)
+				if target = dst + tag + suf; exists(target) {
+					return fmt.Errorf("%s exists already: not overwriting a kept database", target)
+				}
+			}
+			if err := os.Rename(old+suf, target); err != nil {
+				return err
+			}
+			if err := crashAt("aside" + suf); err != nil {
+				return err
+			}
+		}
+	}
+	for _, suf := range []string{"", "-wal", "-shm"} {
+		if exists(db + suf) {
+			return fmt.Errorf("%s is still there after setting the old database aside", db+suf)
+		}
+	}
+	if err := errors.Join(paneldb.SyncDir(filepath.Dir(db)), paneldb.SyncDir(paneldb.Swap(dataDir))); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, db); err != nil {
+		return err
+	}
+	if err := crashAt("installed"); err != nil {
+		return err
+	}
+	return ensureRestoredLayout(dataDir, db)
+}
+
+func ensureRestoredLayout(dataDir, db string) error {
+	if err := paneldb.EnsureLayout(dataDir); err != nil {
+		return err
+	}
+	if err := errors.Join(paneldb.SyncDir(filepath.Dir(db)), paneldb.SyncDir(dataDir)); err != nil {
+		return err
+	}
+	return crashAt("layout")
+}
+
+// finishRestore ends the restore's journal. It runs once every archived file is
+// installed and synced, right before the restored panel starts: until then a
+// boot is refused, so a half-restored box never runs.
+func finishRestore(dataDir string) error {
+	for _, d := range []string{dataDir, filepath.Join(dataDir, "keys")} {
+		if err := paneldb.SyncDir(d); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return paneldb.ClearJournal(dataDir)
+}
+
+func fileSum(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func exists(path string) bool { _, err := os.Lstat(path); return err == nil }
+
+// restorePanelDB refuses a restore the journal says is unsafe, before anything
+// is fetched or stopped: a database on a node disk (the restore into a moved
+// database is not built yet), an unfinished layout change or move (stackr-install
+// finishes it first). An interrupted restore, a missing database and a fresh
+// install are what a restore is for.
+func restorePanelDB(dataDir string) error { return restorePanelDBFor(dataDir, false) }
+
+const abandonHint = "If the node disk is gone or failing, run: stackr-install restore --abandon-disk <archive>. If it is healthy, move the database back first: stkr node disk move-panel <node> --back"
+
+func restorePanelDBFor(dataDir string, abandon bool) error {
+	j, err := paneldb.ReadJournal(dataDir)
+	if err != nil {
+		return err
+	}
+	if abandon {
+		if err := abandonPrecheck(dataDir); err == nil || !errors.Is(err, errNotMoved) {
+			return err // allowed (the abandon runs once the archive is staged), or refused
+		}
+		// already given up (or never moved): the rest is a normal restore
+	}
+	if j.Moved || j.Phase == paneldb.PhaseMoved {
+		return errors.New("the panel database is on a node disk (move.journal). " + abandonHint)
+	}
+	if err := paneldb.CheckRestore(dataDir); err != nil {
+		return err
+	}
+	if j.Moved { // an Update interrupted on a moved install: the database is still on the disk
+		return errors.New("the panel database is on a node disk (move.journal). " + abandonHint)
+	}
+	switch j.Phase {
+	case paneldb.PhaseNone, paneldb.PhaseFresh:
+		return nil
+	case paneldb.PhaseRestoring:
+		if j.Direction == paneldb.DirRestore {
+			return nil
+		}
+	case paneldb.PhaseMoved:
+		return errors.New("the panel database is on a node disk (move.journal). " + abandonHint)
+	}
+	if j.Direction == paneldb.DirLayout || j.Direction == paneldb.DirUpdate {
+		return nil // a backup supersedes an unfinished swap (beginRestore replaces its journal)
+	}
+	return fmt.Errorf("move.journal is in phase %q: run stackr-install (no arguments) on this node first, it finishes or undoes it", j.Phase)
 }

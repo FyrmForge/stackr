@@ -3,11 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"slices"
 
 	"github.com/FyrmForge/hamr/pkg/auth"
 
+	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
@@ -157,14 +157,18 @@ func withStore(ctx context.Context, cfg Config, do func(*store.Store) error) err
 	if err != nil {
 		return err
 	}
-	if cfg.DBPath == "" {
-		cfg.DBPath = filepath.Join(cfg.DataDir, "stackr.db")
+	cfg.DBPath = DBPathOr(cfg.DataDir, cfg.DBPath)
+	if err := paneldb.Check(cfg.DataDir, cfg.DBPath); err != nil {
+		return err
 	}
 	db, err := openDB(ctx, cfg.DBPath)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = db.Close() }()
+	if err := paneldb.Seeded(cfg.DataDir); err != nil {
+		return err
+	}
 	st := store.New(db, box)
 	if err := st.Sweep(ctx); err != nil {
 		return fmt.Errorf("sealing values to their place: %w", err)

@@ -12,6 +12,7 @@ type DiskForget struct {
 	Word       string // what is typed to confirm
 	Gone       bool
 	Refusal    string
+	ObserveOn  bool // logs and metrics are on this disk
 	Volumes    []ForgetVolume
 }
 
@@ -66,6 +67,9 @@ templ forgetBody(f DiskForget) {
 		<p>The record of this disk is removed. Nothing else changes.</p>
 	} else {
 		<p>Its volumes come back from their newest backup. Tiles that use them restart.</p>
+		if f.ObserveOn {
+			<p>Logs and metrics on this disk are lost.</p>
+		}
 		if forgetEmpty(f) {
 			<p>Volumes without a backup start empty.</p>
 		}

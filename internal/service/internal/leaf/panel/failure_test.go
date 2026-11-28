@@ -56,6 +56,9 @@ func TestSwapRemovesOldFailureFile(t *testing.T) {
 	if err := os.WriteFile(db, []byte("old db"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Dir(FailureFile(db)), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(FailureFile(db), []byte(`{"tag":"0.1.0","reason":"stale"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -162,3 +162,23 @@ func TestInterruptedStripOffersResume(t *testing.T) {
 	d.Resume.Text = "Adopting did not finish."
 	wants(t, "14l", renderC(t, diskStrip(d)), "Adopting did not finish.", ">Resume</button>")
 }
+
+// A disk latched erroring has a strip with Check disk.
+func TestErroringStripOffersCheck(t *testing.T) {
+	out := renderC(t, diskStrip(NodeDisk{Has: true, State: "ready", Erroring: true, Check: "/c"}))
+	wants(t, "erroring", out, "The disk is failing.", "Work that uses it is refused. Fix it, then press Check disk.", `hx-post="/c"`, `role="status"`)
+	out = renderC(t, diskStrip(NodeDisk{Has: true, State: "ready", Erroring: true}))
+	wants(t, "erroring offline", out, "The node is offline. Check it once it is back.")
+	if strings.Contains(out, "press Check disk") {
+		t.Errorf("offline strip points at a button that is not there")
+	}
+}
+
+// A disk latched erroring is not "Ready" in the state chip.
+func TestErroringCardStateChip(t *testing.T) {
+	card := render3(t, NodeDisk{State: "ready", Erroring: true, Used: "1 GB of 2 GB", Pct: "50"})
+	wants(t, "erroring", card, "Failing")
+	if strings.Contains(card, "Ready") {
+		t.Errorf("an erroring disk shows Ready\n%s", card)
+	}
+}

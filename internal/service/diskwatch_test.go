@@ -43,7 +43,7 @@ func (d *diskTest) watch(t *testing.T, f worker.Facts) {
 			f.Disks[i].ReadAt = time.Unix(1e9, 0).Add(time.Duration(d.reads) * time.Second)
 		}
 	}
-	d.orch.diskWatch(context.Background(), n, f)
+	d.orch.diskWatch(context.Background(), n, f, time.Now())
 }
 
 func (d *diskTest) stateOf(t *testing.T, row store.NodeDisk) string {
@@ -349,7 +349,7 @@ func TestAFactWithoutAReadTimeNeverLatchesMissing(t *testing.T) {
 	n, err := d.st.Nodes.Get(context.Background(), "w1")
 	must(t, err)
 	for i := 0; i < 2*diskMissingReads; i++ {
-		d.orch.diskWatch(context.Background(), n, goneOf(row)) // zero ReadAt
+		d.orch.diskWatch(context.Background(), n, goneOf(row), time.Now()) // zero ReadAt
 	}
 	if st := d.stateOf(t, row); st != disk.StateReady {
 		t.Fatalf("state = %q, want ready", st)

@@ -4,12 +4,14 @@ import (
 	"context"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/paneldb"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -143,5 +145,86 @@ func TestUndoFailedUpgradeKeepsRunningVersion(t *testing.T) {
 	must(t, err)
 	if len(js) != 1 || js[0].ID != r.job.ID {
 		t.Errorf("failed jobs: %v", js)
+	}
+}
+
+// A move helper that exited with the journal not showing the move fails the
+// move job with the helper's log, is removed, and never touches the Update job.
+func TestUndoFailedUpgradeSettlesAMoveHelper(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	newImg := installspec.Image("v0.9.1")
+	n.ctlFake.Containers = []docker.Container{
+		{ID: "mv", Name: "stackr-upgrader", State: "exited", Labels: map[string]string{installspec.LabelRole: "upgrader", "stackr.move": "m1"}},
+	}
+	n.ctlFake.Details = map[string]docker.Detail{"mv": {State: "exited", ExitCode: 1, Image: newImg}}
+	n.orch.cfg.Version = "v0.9.0"
+	mk := func(kind, payload string) store.Job {
+		j := store.Job{ID: uuid.NewString(), Kind: kind, State: "done", Payload: payload, LockSet: store.StringList{}, CreatedAt: time.Now()}
+		must(t, n.st.Jobs.Create(ctx, j))
+		return j
+	}
+	mv := mk(kindMovePanelDB, `{"node_id":"c","move_id":"m1"}`)
+	up := mk(string(kindUpgrade), `{"tag":"v0.9.1"}`)
+	must(t, paneldb.WriteJournal(n.orch.cfg.DataDir, paneldb.Journal{Phase: paneldb.PhaseNone}))
+	n.orch.undoFailedUpgrade(ctx)
+	if j, _ := n.st.Jobs.Get(ctx, mv.ID); j.State != "failed" || !strings.Contains(j.Error, "did not go through") {
+		t.Errorf("move job = %s %q", j.State, j.Error)
+	}
+	if j, _ := n.st.Jobs.Get(ctx, up.ID); j.State != "done" || j.Error != "" {
+		t.Errorf("update job = %s %q", j.State, j.Error)
+	}
+	if !slices.ContainsFunc(n.ctlFake.Calls(), func(c dockerfake.Call) bool { return c.Method == "StopRemove" && c.Args[0] == "mv" }) {
+		t.Error("helper kept")
+	}
+	if len(n.ctlFake.Specs) != 0 {
+		t.Error("the upgrade rollback ran for a move helper")
+	}
+}
+
+// A move helper that fails before the swap is settled when the hold ends, with
+// no reboot: the move job fails with the log, the Update job is untouched.
+func TestWatchUpgraderSettlesAFailedMoveHelper(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	watchFast(t, n)
+	lbl := map[string]string{installspec.LabelRole: "upgrader", installspec.LabelMove: "m1"}
+	n.ctlFake.Edit(func() {
+		n.ctlFake.Containers = []docker.Container{{ID: "mv", Name: "stackr-upgrader", State: "running", Labels: lbl}}
+		n.ctlFake.Details = map[string]docker.Detail{"mv": {State: "exited", ExitCode: 1}}
+	})
+	mk := func(kind, payload string) store.Job {
+		j := store.Job{ID: uuid.NewString(), Kind: kind, State: "done", Payload: payload, LockSet: store.StringList{}, CreatedAt: time.Now()}
+		must(t, n.st.Jobs.Create(ctx, j))
+		return j
+	}
+	mv := mk(kindMovePanelDB, `{"node_id":"c","move_id":"m1"}`)
+	up := mk(string(kindUpgrade), `{"tag":"v0.9.1"}`)
+	must(t, paneldb.WriteJournal(n.orch.cfg.DataDir, paneldb.Journal{Phase: paneldb.PhaseNone}))
+	n.orch.bootUpgradeHold(ctx)
+	n.ctlFake.Edit(func() { n.ctlFake.Containers[0].State = "exited" })
+	released(t, n)
+	if j, _ := n.st.Jobs.Get(ctx, mv.ID); j.State != "failed" || !strings.Contains(j.Error, "did not go through") {
+		t.Errorf("move job = %s %q", j.State, j.Error)
+	}
+	if j, _ := n.st.Jobs.Get(ctx, up.ID); j.State != "done" || j.Error != "" {
+		t.Errorf("update job = %s %q", j.State, j.Error)
+	}
+}
+
+func TestHelperCause(t *testing.T) {
+	for name, c := range map[string]struct{ in, want string }{
+		"json with err": {
+			`{"level":"info","ts":0,"msg":"earlier"}` + "\n" +
+				`{"level":"info","ts":1,"msg":"WARN panel database move: rolling back direction=in from_phase=gating err=\"new panel: the container restarted during the health check\""}` + "\n",
+			"new panel: the container restarted during the health check",
+		},
+		"plain":  {"x\nstackrd upgrade-swap: boom\n", "stackrd upgrade-swap: boom"},
+		"empty":  {"", ""},
+		"blanks": {"\n  \n", ""},
+	} {
+		if got := helperCause(c.in); got != c.want {
+			t.Errorf("%s: helperCause = %q, want %q", name, got, c.want)
+		}
 	}
 }

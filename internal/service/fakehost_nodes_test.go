@@ -36,7 +36,7 @@ func TestFakeHostDeploysOnReservedSubnets(t *testing.T) {
 	orch.domains.WithSubnets(res).WithController(orch.controllerID)
 	orch.tiles.Gate = tile.Gate{Poll: 5 * time.Millisecond, Grace: 10 * time.Millisecond, Deadline: time.Second}
 
-	st := storetest.Open(t, filepath.Join(dir, "stackr.db"))
+	st := storetest.Open(t, dbAt(dir))
 	org, stack := uuid.NewString(), uuid.NewString()
 	now := time.Now()
 	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: now}))

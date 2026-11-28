@@ -254,6 +254,12 @@ func (o *Orchestrator) adoptRefusals(ctx context.Context, d store.NodeDisk, n st
 
 // adoptBlocks are the refusals that are not about plain copies on the node.
 func (o *Orchestrator) adoptBlocks(ctx context.Context, d store.NodeDisk, n store.Node, path string, v adoptView) error {
+	if err := o.panelDBDiskRefusal(d); err != nil {
+		return err
+	}
+	if err := o.observeDiskRefusal(ctx, d.NodeID, false); err != nil {
+		return err
+	}
 	switch d.State {
 	case disk.StateReady, disk.StateMissing:
 	case disk.StateAdopting:
@@ -560,7 +566,7 @@ func (o *Orchestrator) adoptFill(ctx context.Context, p *DiskAdoptPlan, v adoptV
 		}
 	}
 	for _, f := range v.folders {
-		if !v.claimed[f.Name] {
+		if !v.claimed[f.Name] && f.Name != hostdisk.PanelDBFolder { // the panel database folder is never offered back
 			p.Unclaimed = append(p.Unclaimed, f.Name)
 		}
 	}

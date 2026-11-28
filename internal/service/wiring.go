@@ -688,7 +688,14 @@ func RunPanelSwap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	err = panel.New(d).Swap(ctx, spec)
+	leaf := panel.New(d)
+	if mv, ok, merr := panel.MoveFromEnv(); merr != nil {
+		return merr
+	} else if ok {
+		err = leaf.Move(ctx, spec, mv)
+	} else {
+		err = leaf.Swap(ctx, spec)
+	}
 	if errors.Is(err, panel.ErrRolledBack) && os.Getenv(panel.RetryEnv) != "" {
 		// The panel's helper (it has a restart policy): the old panel runs
 		// again, and a non-zero exit would make Docker run the whole swap

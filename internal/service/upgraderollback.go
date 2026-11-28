@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
 )
 
 // upgradeRolledBackMsg is the failed upgrade job's error and the Update tab's
@@ -36,6 +40,10 @@ func (o *Orchestrator) undoFailedUpgrade(ctx context.Context) {
 		return
 	}
 	for _, c := range cs {
+		if id := c.Labels[panel.MoveLabel]; id != "" {
+			o.settleMoveHelper(ctx, c, id) // a move helper is never an upgrade's
+			continue
+		}
 		d, err := o.docker.Inspect(ctx, c.ID)
 		// The helper runs the target's image (installer and panel alike), so
 		// its tag is the trial's target, whatever the job table says.
@@ -57,6 +65,54 @@ func (o *Orchestrator) undoFailedUpgrade(ctx context.Context) {
 		if err := o.docker.StopRemove(ctx, c.ID); err != nil {
 			slog.Warn("upgrade helper: not removed", "err", err)
 		}
+	}
+}
+
+// settleMoveHelpers settles every finished move helper (labelled), nothing else.
+func (o *Orchestrator) settleMoveHelpers(ctx context.Context) {
+	cs, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: "upgrader"})
+	if err != nil {
+		return
+	}
+	for _, c := range cs {
+		if id := c.Labels[panel.MoveLabel]; id != "" {
+			o.settleMoveHelper(ctx, c, id)
+		}
+	}
+}
+
+// settleMoveHelper ends a finished panel database move helper (labelled with
+// its move id). The move job read done when the old panel launched the helper;
+// when the journal does not show the move landed, the job is failed with the
+// helper's log tail, then the helper is removed. A running helper is left.
+func (o *Orchestrator) settleMoveHelper(ctx context.Context, c docker.Container, moveID string) {
+	d, err := o.docker.Inspect(ctx, c.ID)
+	if err != nil || d.State != "exited" {
+		return
+	}
+	logs, _ := o.docker.Logs(ctx, c.ID, 20)
+	js, err := o.store.Jobs.ListByState(ctx, "running", "done", "failed")
+	if err != nil {
+		slog.Warn("panel database move: job not settled, retried at next boot", "err", err)
+		return
+	}
+	for _, j := range js {
+		var p movePanelJob
+		if j.Kind != kindMovePanelDB || json.Unmarshal([]byte(j.Payload), &p) != nil || p.MoveID != moveID {
+			continue
+		}
+		if !o.moveLanded(p) {
+			slog.Warn("panel database move: the helper did not finish the move", "helper", logs)
+			msg := "The move did not go through: " + helperCause(logs)
+			if err := o.jobRows.Finish(ctx, j, job.Failed, msg); err != nil {
+				slog.Warn("panel database move: job not settled, retried at next boot", "err", err)
+				return
+			}
+		}
+		break
+	}
+	if err := o.docker.StopRemove(ctx, c.ID); err != nil {
+		slog.Warn("panel database move: helper not removed", "err", err)
 	}
 }
 
@@ -130,4 +186,24 @@ func (o *Orchestrator) LastUpgradeError(ctx context.Context) string {
 		}
 	}
 	return ""
+}
+
+// helperCause is the one line a person can read out of a helper's log tail:
+// the last line's JSON msg, or its err= value, or the line itself.
+func helperCause(logs string) string {
+	lines := strings.Split(strings.TrimSpace(logs), "\n")
+	line := strings.TrimSpace(lines[len(lines)-1])
+	var rec struct {
+		Msg string `json:"msg"`
+	}
+	if json.Unmarshal([]byte(line), &rec) == nil && rec.Msg != "" {
+		line = rec.Msg
+	}
+	if _, v, ok := strings.Cut(line, " err="); ok {
+		if u, err := strconv.Unquote(v); err == nil {
+			return u
+		}
+		return v
+	}
+	return line
 }

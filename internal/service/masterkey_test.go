@@ -26,7 +26,7 @@ func newKeyBox(t *testing.T) keyBox {
 	t.Helper()
 	dir := t.TempDir()
 	must(t, installspec.WriteKeyFile(filepath.Join(dir, installspec.KeyFile), []byte(testKey+"\n")))
-	db, err := openDB(context.Background(), filepath.Join(dir, "stackr.db"))
+	db, err := openDB(context.Background(), dbAt(dir))
 	must(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	box, err := secrets.New(testKey)

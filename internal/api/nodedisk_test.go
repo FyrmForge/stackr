@@ -22,6 +22,10 @@ func TestNodeDiskAPI(t *testing.T) {
 		{"POST", "/admin/nodes/x/disk/adopt-discard", `{"disk_id":"d","path":"/mnt/data","volume_id":"v","confirm":"v"}`},
 		{"GET", "/admin/nodes/x/disk/move-all-plan", ""},
 		{"POST", "/admin/nodes/x/disk/move-all", ""},
+		{"GET", "/admin/nodes/x/disk/panel-db", ""},
+		{"GET", "/admin/nodes/x/disk/move-panel-plan", ""},
+		{"POST", "/admin/nodes/x/disk/move-panel", `{"back":false}`},
+		{"POST", "/admin/nodes/x/disk/remove-panel-copy", ""},
 		{"GET", "/admin/node-disks/d/forget-plan", ""},
 		{"POST", "/admin/node-disks/d/forget", `{"confirm":"d"}`},
 	} {

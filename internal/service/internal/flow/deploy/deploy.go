@@ -43,6 +43,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/startguard"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -343,6 +344,15 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 	}
 	if swap == nil {
 		swap = func() error { return nil }
+	}
+	// whatever the job's swap marker was told, the storage guard runs right
+	// before the first container change
+	marker := swap
+	swap = func() error {
+		if err := startguard.Check(ctx); err != nil {
+			return err
+		}
+		return marker()
 	}
 	if t.Kind == tile.Slice {
 		if err := swap(); err != nil {
