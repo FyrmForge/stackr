@@ -113,7 +113,7 @@ func TestShareBindOpts(t *testing.T) {
 	ctx := context.Background()
 
 	bind, err := bindIn(f, ctx, acme, store.Tile{Slug: "web"}, mount(t, "share:media/photos/2026:/data:ro"))
-	if err != nil || !strings.HasPrefix(bind, "stackr-share-") || !strings.HasSuffix(bind, ":/data:ro") {
+	if err != nil || !strings.HasPrefix(bind, "stackr-share-") || !strings.HasSuffix(bind, ":/data:ro,nocopy") {
 		t.Fatalf("nfs bind = %q, %v", bind, err)
 	}
 	c := fake.Created[0]
@@ -122,8 +122,9 @@ func TestShareBindOpts(t *testing.T) {
 		t.Errorf("nfs create = %+v", c)
 	}
 
-	if _, err = bindIn(f, ctx, acme, store.Tile{Slug: "web"}, mount(t, "share:docs:/d")); err != nil {
-		t.Fatal(err)
+	rw, err := bindIn(f, ctx, acme, store.Tile{Slug: "web"}, mount(t, "share:docs:/d"))
+	if err != nil || !strings.HasSuffix(rw, ":/d:nocopy") {
+		t.Fatalf("rw bind = %q, %v", rw, err)
 	}
 	c = fake.Created[1]
 	if c.Opts["type"] != "cifs" || c.Opts["device"] != "//nas.lan/docs" ||
