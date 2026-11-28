@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 const (
@@ -287,24 +288,25 @@ func (o *Orchestrator) runVolumeDelete(ctx context.Context, r *jobs.Run, p volum
 func (o *Orchestrator) VolumeDataJobs(ctx context.Context) (map[string]Job, error) {
 	// Live jobs by state, never cut by a count: a long wipe must not drop out
 	// behind newer jobs. Terminal ones only matter for ten minutes.
-	// ponytail: reads every terminal row; ListTouching-style SQL filter when job history grows.
 	live, err := o.jobRows.List(ctx, job.Queued, job.Waiting, job.Running)
 	if err != nil {
 		return nil, err
 	}
-	ended, err := o.jobRows.Recent(ctx, 0, job.Done, job.Failed, job.Superseded, job.Cancelled, job.Skipped)
+	ended, err := o.store.Jobs.ListFinishedAfter(ctx, time.Now().Add(-10*time.Minute))
 	if err != nil {
 		return nil, err
 	}
-	js, err := o.annotate(ctx, append(live, ended...))
+	data := slices.DeleteFunc(append(live, ended...), func(j store.Job) bool {
+		return j.Kind != string(kindVolumeWipe) && j.Kind != string(kindVolumeDelete)
+	})
+	js, err := o.annotate(ctx, data)
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]Job{}
 	for _, j := range js { // live first, then ended, each newest first
 		var p volumeDataJob
-		if !slices.Contains([]string{string(kindVolumeWipe), string(kindVolumeDelete)}, j.Kind) ||
-			json.Unmarshal([]byte(j.Payload), &p) != nil {
+		if json.Unmarshal([]byte(j.Payload), &p) != nil {
 			continue
 		}
 		if _, seen := out[p.VolumeID]; seen {
