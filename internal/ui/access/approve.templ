@@ -107,8 +107,12 @@ templ Approve(v ApproveView) {
 		}
 		if v.risky() {
 			<div>
-				<label class="label" for={ v.ID + "-confirm" }>Type <span class="font-mono text-rw-text">{ v.Name }</span> to approve full trust</label>
-				<input id={ v.ID + "-confirm" } name="confirm" type="text" class="input font-mono" autocomplete="off"/>
+				<p class="label">
+					{ "Type " }
+					@c.CopyWord(v.Name)
+					{ " to approve full trust" }
+				</p>
+				<input id={ v.ID + "-confirm" } name="confirm" type="text" class="input font-mono" autocomplete="off" aria-label={ "Type " + v.Name + " to approve full trust" }/>
 				<p class="mt-1.5 text-xs text-rw-faint">Needed while host networking or the docker socket is ticked.</p>
 			</div>
 		}

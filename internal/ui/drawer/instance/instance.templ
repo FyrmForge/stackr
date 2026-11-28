@@ -1431,8 +1431,12 @@ templ majorChange(v View, ver VersionView) {
 			<p class="text-sm text-rw-text">The data of postgres { strconv.Itoa(ver.RollbackFrom) } is kept until { ver.RollbackUntil }.</p>
 			<div class="flex flex-wrap items-end gap-2">
 				<div class="flex-1 min-w-48">
-					<label for="rollback-confirm" class="label">Type { v.Name } to roll back and lose what was written since</label>
-					<input id="rollback-confirm" name="confirm" autocomplete="off" class="input font-mono"/>
+					<p class="label">
+						{ "Type " }
+						@c.CopyWord(v.Name)
+						{ " to roll back and lose what was written since" }
+					</p>
+					<input id="rollback-confirm" name="confirm" autocomplete="off" class="input font-mono" aria-label={ "Type " + v.Name + " to roll back" }/>
 				</div>
 				<button type="submit" class="btn btn-danger btn-sm">Roll back</button>
 			</div>
@@ -1513,8 +1517,12 @@ templ failover(v View, f FailoverView) {
 					</div>
 					if f.Unreachable {
 						<div class="flex-1 min-w-48">
-							<label for="promote-confirm" class="label">Type { f.Primary } to confirm it is gone</label>
-							<input id="promote-confirm" name="confirm" autocomplete="off" class="input font-mono"/>
+							<p class="label">
+								{ "Type " }
+								@c.CopyWord(f.Primary)
+								{ " to confirm it is gone" }
+							</p>
+							<input id="promote-confirm" name="confirm" autocomplete="off" class="input font-mono" aria-label={ "Type " + f.Primary + " to confirm" }/>
 						</div>
 					}
 					@c.Confirm(c.ConfirmView{

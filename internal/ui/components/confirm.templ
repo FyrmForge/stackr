@@ -57,6 +57,12 @@ func swapOf(target string) string {
 	return "outerHTML"
 }
 
+// CopyWord is a typed-confirm word you can click to copy (main.js data-copy).
+// It sits outside any <label>: a button inside one would take the label's clicks.
+templ CopyWord(word string) {
+	<button type="button" class="font-mono text-rw-text cursor-pointer" data-copy={ word } title="Copy">{ word }</button>
+}
+
 // confirm is v0's typed Modal look (.modal-panel/head/body/foot) on a
 // native <dialog>; the opener renders disabled and confirm-dialog enables it
 // when it upgrades, so a click before the element is defined is never lost; the X in the head is a second [data-cancel]. Vals and
@@ -115,7 +121,11 @@ templ confirm(v ConfirmView, swap string) {
 					}
 					if v.Word != "" {
 						<div>
-							<label class="label">Type <span class="font-mono text-rw-text">{ v.Word }</span> to confirm</label>
+							<p class="label">
+								{ "Type " }
+								@CopyWord(v.Word)
+								{ " to confirm" }
+							</p>
 							<input type="text" class="input font-mono" data-word autocomplete="off" aria-label={ "Type " + v.Word + " to confirm" }/>
 						</div>
 					}
