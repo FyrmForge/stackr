@@ -521,7 +521,9 @@ func (l *Leaf) DropPause(ctx context.Context, t store.Tile, network string) erro
 }
 
 // State is container truth only (DECIDE 8); the orchestrator layers the
-// last job on top. Word: none | running | stopped | degraded | unhealthy.
+// last job on top. Word: none | running | stopped | paused | degraded |
+// unhealthy. paused: no replica runs and at least one is Docker-paused (a
+// backup's Freeze holds it); this is not the cron tile's Paused schedule.
 type State struct {
 	Word     string
 	Replicas []docker.Container
@@ -532,27 +534,33 @@ func (l *Leaf) State(ctx context.Context, t store.Tile) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	s := State{Word: "none", Replicas: cs}
-	running := 0
+	return State{Word: stateWord(cs), Replicas: cs}, nil
+}
+
+func stateWord(cs []docker.Container) string {
+	running, paused := 0, 0
 	for _, c := range cs {
 		if c.Health == "unhealthy" {
-			s.Word = "unhealthy"
-			return s, nil
+			return "unhealthy"
 		}
-		if c.State == "running" {
+		switch c.State {
+		case "running":
 			running++
+		case "paused":
+			paused++
 		}
 	}
 	switch {
 	case len(cs) == 0:
+		return "none"
 	case running == len(cs):
-		s.Word = "running"
+		return "running"
+	case running == 0 && paused > 0:
+		return "paused"
 	case running == 0:
-		s.Word = "stopped"
-	default:
-		s.Word = "degraded"
+		return "stopped"
 	}
-	return s, nil
+	return "degraded"
 }
 
 // The container verbs. id is a container of this tile; tileID "" is the

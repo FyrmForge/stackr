@@ -192,7 +192,7 @@ func actionButtons(v View) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-				} else if v.Status != "none" {
+				} else if v.Status != "none" && v.Status != "paused" {
 					templ_7745c5c3_Err = c.Confirm(quiet(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root))).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err

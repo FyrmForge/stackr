@@ -208,3 +208,9 @@ func TestFooterLive(t *testing.T) {
 		t.Errorf("live internet footer: %s", out)
 	}
 }
+
+func TestPausedWord(t *testing.T) {
+	if tone, text := word("paused", ""); tone != "warn" || text != "Paused" {
+		t.Fatalf("%q %q", tone, text)
+	}
+}

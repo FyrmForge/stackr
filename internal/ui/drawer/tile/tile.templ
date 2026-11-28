@@ -52,7 +52,7 @@ templ actionButtons(v View) {
 			default:
 				if v.Stopped {
 					@c.PostButton("Start", v.Base+"/start")
-				} else if v.Status != "none" {
+				} else if v.Status != "none" && v.Status != "paused" {
 					@c.Confirm(quiet(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root)))
 					@c.PostButton("Restart", v.Base+"/restart")
 				}

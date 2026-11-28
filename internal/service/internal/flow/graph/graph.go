@@ -730,6 +730,7 @@ var rank = map[string]int{
 	"degraded":  4,
 	"failed":    4,
 	"stopped":   3,
+	"paused":    3,
 	"running":   2,
 	"done":      1,
 	"none":      0,
