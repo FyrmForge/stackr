@@ -90,7 +90,7 @@ func TestForgetDiskIsOfferedOnAMissingDiskOnly(t *testing.T) {
 		"controller, disk "+diskID, `word="controller"`, `data-word`,
 		"Its volumes come back from their newest backup. Tiles that use them restart.",
 		"Volumes without a backup start empty.", ">pgdata</span>", "starts empty", "shop / dev",
-		`<button type="button" class="font-mono text-rw-text cursor-pointer" data-copy="controller" title="Copy">controller</button>`, `hx-post="/-/admin/nodes/`+id+`/disk/forget"`)
+		`<button type="button" class="font-mono text-rw-text cursor-pointer px-1 rounded" data-copy="controller" title="Copy">controller</button>`, `hx-post="/-/admin/nodes/`+id+`/disk/forget"`)
 	if strings.Contains(card, "Move all to disk") {
 		t.Error("Move all is offered on a missing disk")
 	}
