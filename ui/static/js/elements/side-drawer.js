@@ -106,7 +106,7 @@ class SideDrawer extends HTMLElement {
     onEdit = (e) => {
         const el = e.target;
         const form = el.closest("form");
-        if (form && !el.closest('dialog, [data-hold], form[hx-get], [hx-trigger*="change"]') && this.body()?.contains(el)) {
+        if (form && !el.closest('dialog, form[hx-get], [hx-trigger*="change"]:not([data-hold])') && this.body()?.contains(el)) {
             this.edited.add(form);
             this.dirty = true;
         }

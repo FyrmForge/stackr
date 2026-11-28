@@ -127,14 +127,14 @@ class SideDrawer extends HTMLElement {
 
   private onSettle = (): void => this.expand(this.hasAttribute("full"), this.fullByLink);
 
-  // Only a form's own fields count: not a confirm's typed word, not the
-  // log pane's filters, not the vars grid's staging forms (their pending
-  // footer says so in close()). Nor a filter (a form with hx-get) or an
-  // auto-save (hx-trigger with "change"): they hold nothing unsaved.
+  // Only a form's own fields count: not a confirm's typed word, a filter
+  // (a form with hx-get) or an auto-save (hx-trigger with "change"). A
+  // typed [data-hold] edit form counts until it stages (then its pending
+  // footer does, in close()).
   private onEdit = (e: Event): void => {
     const el = e.target as Element;
     const form = el.closest("form");
-    if (form && !el.closest('dialog, [data-hold], form[hx-get], [hx-trigger*="change"]') && this.body()?.contains(el)) {
+    if (form && !el.closest('dialog, form[hx-get], [hx-trigger*="change"]:not([data-hold])') && this.body()?.contains(el)) {
       this.edited.add(form);
       this.dirty = true;
     }
