@@ -43,6 +43,17 @@ func (o *Orchestrator) DeleteVolume(ctx context.Context, id string, backupFirst 
 	if err != nil {
 		return Job{}, err
 	}
+	// A stack file declares a managed env's volumes: the next apply would
+	// make a deleted one again, empty.
+	if v.ScopeKind == "env" && v.OrphanedAt == nil {
+		st, err := o.envStack(ctx, v.ScopeID)
+		if err != nil {
+			return Job{}, err
+		}
+		if st.ConfigRepo != "" {
+			return Job{}, errs.Conflictf("Remove it from the stack file.")
+		}
+	}
 	return o.deleteVolume(ctx, v, backupFirst)
 }
 

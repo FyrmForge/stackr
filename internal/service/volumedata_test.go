@@ -192,6 +192,30 @@ func TestDeleteVolumeRefusals(t *testing.T) {
 	}
 }
 
+// A stack file declares a managed env's volumes: the panel and the API refuse
+// the delete, and nothing is touched.
+func TestDeleteVolumeRefusedOnConfigManagedStack(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	v := w.dataVol(t)
+	st, err := w.st.Stacks.Get(ctx, w.stack)
+	must(t, err)
+	st.ConfigRepo = "https://github.com/acme/shop"
+	must(t, w.st.Stacks.Update(ctx, st))
+	for _, bf := range []bool{false, true} {
+		if _, err := w.orch.DeleteVolume(ctx, v.ID, bf); !conflict(err) || !strings.Contains(err.Error(), "Remove it from the stack file.") {
+			t.Errorf("backup %v: %v", bf, err)
+		}
+	}
+	if _, err := w.orch.Volume(ctx, v.ID); err != nil {
+		t.Errorf("the volume went: %v", err)
+	}
+	if got := w.callsFrom(0, "RemoveVolume"); len(got) != 0 {
+		t.Errorf("removed %v", got)
+	}
+}
+
 // A held old copy whose move never finishes (no live job names it) can be
 // deleted by hand.
 func TestDeleteHeldOldCopyWithoutLiveMove(t *testing.T) {

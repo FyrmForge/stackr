@@ -1632,7 +1632,11 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		body = volume.Settings(v, blocked(vol, ms), h.capCard(c, vol, h.storage(c, vol.ID), enforced), d)
+		why := blocked(vol, ms)
+		if why == "" && vol.ScopeKind == "env" && vol.OrphanedAt == nil && s.Stack.ConfigRepo != "" {
+			why = "Remove it from the stack file."
+		}
+		body = volume.Settings(v, why, h.capCard(c, vol, h.storage(c, vol.ID), enforced), d)
 	default:
 		o := volume.OverviewView{
 			Docker:  vol.Name,
