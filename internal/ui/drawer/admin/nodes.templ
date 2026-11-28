@@ -249,6 +249,7 @@ type NodeDisk struct {
 	Dialog              DiskDialog
 	Check               string // POST: check the disk
 	Checking            bool   // a check is running
+	Erroring            bool   // reads fail with I/O errors; the panel latched it
 	AddFailed           bool   // adding, and no add job is running
 	Used, Pct, StaleAt  string // "278 GB of 460 GB", "60", "4 min ago"
 	Low, Stale, Network bool
@@ -1084,7 +1085,7 @@ templ NodeBody(tab string, v NodeView) {
 // diskStrip is the node's disk warning: missing, or an add that did not
 // finish. A persistent state, so status and not alert.
 templ diskStrip(d NodeDisk) {
-	if d.State == "missing" || d.AddFailed || d.Resume != nil || d.Damaged != "" {
+	if d.State == "missing" || d.AddFailed || d.Resume != nil || d.Damaged != "" || d.Erroring {
 		<div class="node-warnings panel px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-3" role="status">
 			<ul class="space-y-1 flex-1 min-w-[16rem]">
 				if d.State == "missing" {
@@ -1096,6 +1097,9 @@ templ diskStrip(d NodeDisk) {
 							Tiles that use it do not start. The node is offline. Check it once it is back.
 						}
 					</li>
+				} else if d.Erroring {
+					<li class="text-rw-danger font-medium">The disk is failing.</li>
+					<li class="text-rw-danger">Work that uses it is refused. Fix it, then press Check disk.</li>
 				} else if d.Damaged != "" {
 					<li class="text-rw-danger font-medium">{ d.Damaged }</li>
 					<li class="text-rw-danger">Tiles that use it do not start.</li>
