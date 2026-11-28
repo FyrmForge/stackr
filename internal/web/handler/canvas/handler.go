@@ -53,6 +53,9 @@ type level struct {
 	// viewOnly: the viewer cannot promote here, so the window's links read
 	// "View plan".
 	viewOnly bool
+	// newEnv: a stack's "+ Create environment" button for the viewer, drawn
+	// on the empty page (the same dialog as the top bar's).
+	newEnv []ui.Create
 }
 
 func where(c echo.Context) level {
@@ -70,7 +73,7 @@ func where(c echo.Context) level {
 			viewOnly: !can(c, sc, "env.write"),
 		}
 	case sc.Stack != nil:
-		return level{
+		l := level{
 			scope: service.CanvasScope{Kind: service.CanvasStack, ID: sc.Stack.ID},
 			org:   sc.Org.ID,
 			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug,
@@ -79,6 +82,8 @@ func where(c echo.Context) level {
 
 			viewOnly: !can(c, sc, "env.write"),
 		}
+		l.newEnv = createButtons(c, l)
+		return l
 	case sc.Org != nil:
 		return level{
 			scope: service.CanvasScope{Kind: service.CanvasOrg, ID: sc.Org.ID},
@@ -174,6 +179,9 @@ func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focu
 	}
 	if v.Empty != "" && l.scope.Kind == service.CanvasStack {
 		h.pushWhy(ctx, &v, l)
+		if v.Empty == l.empty { // the plain state, not a build or a failed push
+			v.Create = l.newEnv
+		}
 	}
 	if v.Lanes != nil {
 		es, err := h.orch.Traffic(ctx, l.scope.ID)
@@ -494,7 +502,7 @@ func Sig(v ui.View) string {
 	for _, n := range v.Nodes {
 		parts = append(parts, "n "+n.ID+" "+n.Name+" "+n.Detail+" "+n.Color+" "+strconv.FormatBool(n.Pending)+" "+n.FailHref+" "+n.NoteHref)
 	}
-	parts = append(parts, "empty "+v.Empty+" "+v.EmptyHref+" "+v.EmptyNote+" "+v.EmptyLink+" "+v.EmptyAt.String())
+	parts = append(parts, "empty "+v.Empty+" "+v.EmptyHref+" "+v.EmptyNote+" "+v.EmptyLink+" "+v.EmptyAt.String()+" "+strconv.Itoa(len(v.Create)))
 	for _, e := range v.Edges {
 		parts = append(parts, "e "+e.Kind+" "+e.From+" "+e.To)
 	}
