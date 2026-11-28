@@ -4276,6 +4276,11 @@ func diskSection(d NodeDisk) templ.Component {
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
+					} else if d.Erroring {
+						templ_7745c5c3_Err = c.Chip("Failing", "danger").Render(ctx, templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
 					} else {
 						templ_7745c5c3_Err = c.Chip("Ready", "success").Render(ctx, templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
@@ -4321,7 +4326,7 @@ func diskSection(d NodeDisk) templ.Component {
 					var templ_7745c5c3_Var181 string
 					templ_7745c5c3_Var181, templ_7745c5c3_Err = templ.JoinStringErrs(d.Device)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1188, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1190, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var181))
 					if templ_7745c5c3_Err != nil {
@@ -4339,7 +4344,7 @@ func diskSection(d NodeDisk) templ.Component {
 						var templ_7745c5c3_Var182 string
 						templ_7745c5c3_Var182, templ_7745c5c3_Err = templ.JoinStringErrs(deviceLine(d))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1190, Col: 62}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1192, Col: 62}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var182))
 						if templ_7745c5c3_Err != nil {
@@ -4362,7 +4367,7 @@ func diskSection(d NodeDisk) templ.Component {
 				var templ_7745c5c3_Var183 string
 				templ_7745c5c3_Var183, templ_7745c5c3_Err = templ.JoinStringErrs(d.Path)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1195, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1197, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var183))
 				if templ_7745c5c3_Err != nil {
@@ -4426,7 +4431,7 @@ func diskSection(d NodeDisk) templ.Component {
 					var templ_7745c5c3_Var186 string
 					templ_7745c5c3_Var186, templ_7745c5c3_Err = templ.JoinStringErrs(d.Used)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1203, Col: 156}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1205, Col: 156}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var186))
 					if templ_7745c5c3_Err != nil {
@@ -4444,7 +4449,7 @@ func diskSection(d NodeDisk) templ.Component {
 						var templ_7745c5c3_Var187 string
 						templ_7745c5c3_Var187, templ_7745c5c3_Err = templ.JoinStringErrs(d.StaleAt)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1205, Col: 65}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1207, Col: 65}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var187))
 						if templ_7745c5c3_Err != nil {
@@ -4488,7 +4493,7 @@ func diskSection(d NodeDisk) templ.Component {
 						var templ_7745c5c3_Var190 string
 						templ_7745c5c3_Var190, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("width:" + d.Pct + "%")
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1208, Col: 197}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1210, Col: 197}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var190))
 						if templ_7745c5c3_Err != nil {
@@ -4532,7 +4537,7 @@ func diskSection(d NodeDisk) templ.Component {
 					var templ_7745c5c3_Var191 string
 					templ_7745c5c3_Var191, templ_7745c5c3_Err = templ.JoinStringErrs(d.Since)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1221, Col: 39}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1223, Col: 39}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var191))
 					if templ_7745c5c3_Err != nil {
@@ -4577,7 +4582,7 @@ func diskSection(d NodeDisk) templ.Component {
 					var templ_7745c5c3_Var192 string
 					templ_7745c5c3_Var192, templ_7745c5c3_Err = templ.JoinStringErrs(d.Note)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1232, Col: 50}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1234, Col: 50}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var192))
 					if templ_7745c5c3_Err != nil {
@@ -4651,7 +4656,7 @@ func diskVolumes(d NodeDisk) templ.Component {
 			var templ_7745c5c3_Var194 string
 			templ_7745c5c3_Var194, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(d.Count))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1250, Col: 48}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1252, Col: 48}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var194))
 			if templ_7745c5c3_Err != nil {
@@ -4689,7 +4694,7 @@ func diskVolumes(d NodeDisk) templ.Component {
 				var templ_7745c5c3_Var195 string
 				templ_7745c5c3_Var195, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(d.Count))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1262, Col: 99}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1264, Col: 99}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var195))
 				if templ_7745c5c3_Err != nil {
@@ -4744,7 +4749,7 @@ func diskVolRow(r DiskVolRow) templ.Component {
 			var templ_7745c5c3_Var197 string
 			templ_7745c5c3_Var197, templ_7745c5c3_Err = templruntime.NewAttributeExpression(r.Open).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1276, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1278, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var197)
 			if templ_7745c5c3_Err != nil {
@@ -4757,7 +4762,7 @@ func diskVolRow(r DiskVolRow) templ.Component {
 			var templ_7745c5c3_Var198 string
 			templ_7745c5c3_Var198, templ_7745c5c3_Err = templ.JoinStringErrs(r.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1276, Col: 133}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1278, Col: 133}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var198))
 			if templ_7745c5c3_Err != nil {
@@ -4775,7 +4780,7 @@ func diskVolRow(r DiskVolRow) templ.Component {
 			var templ_7745c5c3_Var199 string
 			templ_7745c5c3_Var199, templ_7745c5c3_Err = templ.JoinStringErrs(r.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1278, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1280, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var199))
 			if templ_7745c5c3_Err != nil {
@@ -4793,7 +4798,7 @@ func diskVolRow(r DiskVolRow) templ.Component {
 		var templ_7745c5c3_Var200 string
 		templ_7745c5c3_Var200, templ_7745c5c3_Err = templ.JoinStringErrs(r.Where)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1280, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1282, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var200))
 		if templ_7745c5c3_Err != nil {
@@ -4816,7 +4821,7 @@ func diskVolRow(r DiskVolRow) templ.Component {
 		var templ_7745c5c3_Var201 string
 		templ_7745c5c3_Var201, templ_7745c5c3_Err = templ.JoinStringErrs(r.Size)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1284, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1286, Col: 67}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var201))
 		if templ_7745c5c3_Err != nil {
@@ -4941,7 +4946,7 @@ func diskDialog(d DiskDialog, opener, class string) templ.Component {
 			var templ_7745c5c3_Var206 string
 			templ_7745c5c3_Var206, templ_7745c5c3_Err = templ.JoinStringErrs(opener)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1303, Col: 119}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1305, Col: 119}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var206))
 			if templ_7745c5c3_Err != nil {
@@ -4959,7 +4964,7 @@ func diskDialog(d DiskDialog, opener, class string) templ.Component {
 		var templ_7745c5c3_Var207 string
 		templ_7745c5c3_Var207, templ_7745c5c3_Err = templruntime.NewAttributeExpression(d.Probe).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1315, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1317, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var207)
 		if templ_7745c5c3_Err != nil {
@@ -4988,7 +4993,7 @@ func diskDialog(d DiskDialog, opener, class string) templ.Component {
 		var templ_7745c5c3_Var208 string
 		templ_7745c5c3_Var208, templ_7745c5c3_Err = templ.JoinStringErrs(d.Node)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1323, Col: 41}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1325, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var208))
 		if templ_7745c5c3_Err != nil {
@@ -5059,7 +5064,7 @@ func diskFolderPart(d DiskDialog) templ.Component {
 		var templ_7745c5c3_Var210 string
 		templ_7745c5c3_Var210, templ_7745c5c3_Err = templruntime.NewAttributeExpression(d.Checked).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1353, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1355, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var210)
 		if templ_7745c5c3_Err != nil {
@@ -5072,7 +5077,7 @@ func diskFolderPart(d DiskDialog) templ.Component {
 		var templ_7745c5c3_Var211 string
 		templ_7745c5c3_Var211, templ_7745c5c3_Err = templruntime.NewAttributeExpression(netFlag(d)).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1354, Col: 69}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1356, Col: 69}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var211)
 		if templ_7745c5c3_Err != nil {
@@ -5121,7 +5126,7 @@ func diskPath(d DiskDialog) templ.Component {
 			var templ_7745c5c3_Var213 string
 			templ_7745c5c3_Var213, templ_7745c5c3_Err = templruntime.NewAttributeExpression(d.Path).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1369, Col: 16}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1371, Col: 16}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var213)
 			if templ_7745c5c3_Err != nil {
@@ -5162,7 +5167,7 @@ func diskPath(d DiskDialog) templ.Component {
 			var templ_7745c5c3_Var216 string
 			templ_7745c5c3_Var216, templ_7745c5c3_Err = templruntime.NewAttributeExpression(d.State).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1379, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1381, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var216)
 			if templ_7745c5c3_Err != nil {
@@ -5265,7 +5270,7 @@ func diskResult(d DiskDialog) templ.Component {
 			var templ_7745c5c3_Var220 string
 			templ_7745c5c3_Var220, templ_7745c5c3_Err = templ.JoinStringErrs(d.Msg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1393, Col: 16}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1395, Col: 16}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var220))
 			if templ_7745c5c3_Err != nil {
@@ -5338,7 +5343,7 @@ func diskNet(d DiskDialog, oob bool) templ.Component {
 			var templ_7745c5c3_Var222 string
 			templ_7745c5c3_Var222, templ_7745c5c3_Err = templruntime.NewAttributeExpression(d.State).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1408, Col: 104}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1410, Col: 104}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var222)
 			if templ_7745c5c3_Err != nil {
@@ -5381,7 +5386,7 @@ func diskUse(d DiskDialog, oob bool) templ.Component {
 		var templ_7745c5c3_Var224 string
 		templ_7745c5c3_Var224, templ_7745c5c3_Err = templruntime.NewAttributeExpression(d.Add).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1421, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1423, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var224)
 		if templ_7745c5c3_Err != nil {
@@ -5394,7 +5399,7 @@ func diskUse(d DiskDialog, oob bool) templ.Component {
 		var templ_7745c5c3_Var225 string
 		templ_7745c5c3_Var225, templ_7745c5c3_Err = templruntime.NewAttributeExpression(drawerTarget()).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1423, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1425, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var225)
 		if templ_7745c5c3_Err != nil {
@@ -5467,7 +5472,7 @@ func DiskState(d DiskDialog) templ.Component {
 		var templ_7745c5c3_Var227 string
 		templ_7745c5c3_Var227, templ_7745c5c3_Err = templruntime.NewAttributeExpression(d.Checked).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1441, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1443, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var227)
 		if templ_7745c5c3_Err != nil {
@@ -5480,7 +5485,7 @@ func DiskState(d DiskDialog) templ.Component {
 		var templ_7745c5c3_Var228 string
 		templ_7745c5c3_Var228, templ_7745c5c3_Err = templruntime.NewAttributeExpression(netFlag(d)).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1442, Col: 69}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1444, Col: 69}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var228)
 		if templ_7745c5c3_Err != nil {
@@ -5588,7 +5593,7 @@ func addrRow(label string, rows []IfaceRow) templ.Component {
 			var templ_7745c5c3_Var231 string
 			templ_7745c5c3_Var231, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1489, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1491, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var231))
 			if templ_7745c5c3_Err != nil {
@@ -5606,7 +5611,7 @@ func addrRow(label string, rows []IfaceRow) templ.Component {
 				var templ_7745c5c3_Var232 string
 				templ_7745c5c3_Var232, templ_7745c5c3_Err = templ.JoinStringErrs(r.Addr)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1492, Col: 17}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1494, Col: 17}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var232))
 				if templ_7745c5c3_Err != nil {
@@ -5700,7 +5705,7 @@ func ifaceList(rows []IfaceRow) templ.Component {
 			var templ_7745c5c3_Var236 string
 			templ_7745c5c3_Var236, templ_7745c5c3_Err = templ.JoinStringErrs(i.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1510, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1512, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var236))
 			if templ_7745c5c3_Err != nil {
@@ -5713,7 +5718,7 @@ func ifaceList(rows []IfaceRow) templ.Component {
 			var templ_7745c5c3_Var237 string
 			templ_7745c5c3_Var237, templ_7745c5c3_Err = templ.JoinStringErrs(i.Addr)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1511, Col: 76}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1513, Col: 76}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var237))
 			if templ_7745c5c3_Err != nil {
@@ -5770,7 +5775,7 @@ func joinCommand(oneLine, twoStep string) templ.Component {
 			var templ_7745c5c3_Var239 string
 			templ_7745c5c3_Var239, templ_7745c5c3_Err = templ.JoinStringErrs(oneLine)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1526, Col: 132}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1528, Col: 132}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var239))
 			if templ_7745c5c3_Err != nil {
@@ -5783,7 +5788,7 @@ func joinCommand(oneLine, twoStep string) templ.Component {
 			var templ_7745c5c3_Var240 string
 			templ_7745c5c3_Var240, templ_7745c5c3_Err = templruntime.NewAttributeExpression(oneLine).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1527, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1529, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var240)
 			if templ_7745c5c3_Err != nil {
@@ -5802,7 +5807,7 @@ func joinCommand(oneLine, twoStep string) templ.Component {
 			var templ_7745c5c3_Var241 string
 			templ_7745c5c3_Var241, templ_7745c5c3_Err = templ.JoinStringErrs(twoStep)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1531, Col: 132}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1533, Col: 132}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var241))
 			if templ_7745c5c3_Err != nil {
@@ -5815,7 +5820,7 @@ func joinCommand(oneLine, twoStep string) templ.Component {
 			var templ_7745c5c3_Var242 string
 			templ_7745c5c3_Var242, templ_7745c5c3_Err = templruntime.NewAttributeExpression(twoStep).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1532, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 1534, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var242)
 			if templ_7745c5c3_Err != nil {

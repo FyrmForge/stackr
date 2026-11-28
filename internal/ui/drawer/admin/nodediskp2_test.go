@@ -173,3 +173,12 @@ func TestErroringStripOffersCheck(t *testing.T) {
 		t.Errorf("offline strip points at a button that is not there")
 	}
 }
+
+// A disk latched erroring is not "Ready" in the state chip.
+func TestErroringCardStateChip(t *testing.T) {
+	card := render3(t, NodeDisk{State: "ready", Erroring: true, Used: "1 GB of 2 GB", Pct: "50"})
+	wants(t, "erroring", card, "Failing")
+	if strings.Contains(card, "Ready") {
+		t.Errorf("an erroring disk shows Ready\n%s", card)
+	}
+}

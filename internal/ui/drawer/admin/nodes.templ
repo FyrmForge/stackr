@@ -1166,6 +1166,8 @@ templ diskSection(d NodeDisk) {
 						case "ready":
 							if d.Damaged != "" {
 								@c.Chip("Device changed", "danger")
+							} else if d.Erroring {
+								@c.Chip("Failing", "danger")
 							} else {
 								@c.Chip("Ready", "success")
 							}
